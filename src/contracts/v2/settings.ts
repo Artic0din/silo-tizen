@@ -1,7 +1,7 @@
 // Consumed subset of settings v1, server cc851494 (manifest revision 24).
 import { boolean, integer, object, string, WireError } from "./wire.ts";
 import { PRIMARY_MENU_KEY, decodePrimaryMenu } from "./navigation.ts";
-import { ROW_KEYS, INTRO_SKIP_KEY, CREDITS_SKIP_KEY, ADVISORY_KEY, APPEARANCE_KEY, METADATA_KEY } from "./settingsRows.ts";
+import { ROW_KEYS, BUFFERING_MODE_KEY, INTRO_SKIP_KEY, CREDITS_SKIP_KEY, ADVISORY_KEY, APPEARANCE_KEY, METADATA_KEY } from "./settingsRows.ts";
 import { decodeAppearance } from "./subtitles.ts";
 
 export const HIDDEN_KEY = "ui.disabled_library_ids";
@@ -110,7 +110,7 @@ export function decodeSettingsContract(value: unknown): SettingsContract {
         }
         const schema = object(def.value_schema, "setting_definition.value_schema");
         const extra = ROW_KEYS.some(row => row === key);
-        if (extra && (def.persistence !== "remote" || schema.type !== (key === INTRO_SKIP_KEY ? "enum" : key === METADATA_KEY ? "language_tag" : key === APPEARANCE_KEY || key === CARD_PRESENTATION_KEY ? "object" : "boolean"))) continue;
+        if (extra && (def.persistence !== "remote" || schema.type !== (key === INTRO_SKIP_KEY || key === BUFFERING_MODE_KEY ? "enum" : key === METADATA_KEY ? "language_tag" : key === APPEARANCE_KEY || key === CARD_PRESENTATION_KEY ? "object" : "boolean"))) continue;
         const seek = key === SEEK_BACK_KEY || key === SEEK_FORWARD_KEY;
         const titleArt = key === TITLE_ART_KEY;
         const subtitleLanguage = key === SUBTITLE_LANGUAGE_KEY;
@@ -207,7 +207,7 @@ export function decodeSettingValue(key: SettingsKey, value: unknown): SettingVal
         if (typeof value !== "boolean") throw new WireError(key, "a boolean");
         return value;
     }
-    if (key === INTRO_SKIP_KEY) {
+    if (key === INTRO_SKIP_KEY || key === BUFFERING_MODE_KEY) {
         if (value !== "never" && value !== "ask" && value !== "always") throw new WireError(key, "never, ask or always");
         return value;
     }

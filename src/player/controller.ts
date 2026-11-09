@@ -26,12 +26,15 @@ import { abortedError, type RequestSpec } from "../api/http.ts";
 import { operations } from "../api/operations.ts";
 import { isPermittedUrl } from "../api/serverUrl.ts";
 import { CONNECTION_SPEED_FEATURE } from "../contracts/v2/connectionSpeed.ts";
-import type { FileVersionTracks, PlaybackCapabilities, PlaybackDecision, PlaybackDefaults, PlaybackMutation, PlaybackPlan, ReplanOperation, SelectedTracks, StartPlaybackBody, SubtitleTrack, TrackIdentity } from "../contracts/v2/playback.ts";
+import type { FileVersionTracks, PlaybackCapabilities, PlaybackDecision, PlaybackDefaults, PlaybackMutation, PlaybackPlan, ReplanOperation, ReplanPlaybackBody, SelectedTracks, StartPlaybackBody, SubtitleTrack, TrackIdentity } from "../contracts/v2/playback.ts";
 import type { PublicStorage, RandomBytes } from "../session/deviceIdentity.ts";
 import type { NativeSession } from "../session/session.ts";
 import type { AVPlay, AVPlayListener, AVPlayTrackInfo } from "./avplay.ts";
 import { bandwidthReadings, FALLBACK_MAX_AGE_SECONDS, readingsKey } from "./bandwidthReadings.ts";
-import { clientCapabilities, clientFeatures, HLS_SUBTITLE_RENDITIONS_ALL_FEATURE, playbackContext, probeHdrPanel, type HdrPanel } from "./capabilities.ts";
+import { BUFFERING_QUALITY_FEATURE, clientCapabilities, clientFeatures, HLS_SUBTITLE_RENDITIONS_ALL_FEATURE, playbackContext, probeHdrPanel, type HdrPanel } from "./capabilities.ts";
+import { BufferingBridge, type BufferingNoticeView, type BufferingPillView } from "./bufferingBridge.ts";
+import { AUTO_QUALITY, DEFAULT_BUFFERING_QUALITY_MODE, type BufferingQualityMode, type ReplanRequest } from "./bufferingQuality.ts";
+import type { BufferingSnapshot } from "./bufferingSignals.ts";
 import { SeekThumbnails, type ThumbnailSheetLoader } from "./seekThumbnails.ts";
 import { AUTO_NEXT_KEY, HDR_KEY, QUALITY_KEY, BITRATE_KEY, SEEK_BACK_KEY, SEEK_FORWARD_KEY, SEEK_KEYS, profileSettings } from "../contracts/v2/settings.ts";
 import type { SeekThumbnail } from "../contracts/v2/trickplay.ts";
@@ -41,7 +44,7 @@ import { episodeDetailPresentation, type EpisodeSpoilerSettings } from "../ui/ep
 import { nextEpisode, onDeckPlays, readOnDeck } from "./nextEpisode.ts";
 import type { ResolutionCap } from "../ui/resolutionCap.ts";
 import { NEXT_UP_KEY } from "../contracts/v2/settings.ts";
-import { INTRO_SKIP_KEY, CREDITS_SKIP_KEY } from "../contracts/v2/settingsRows.ts";
+import { BUFFERING_MODE_KEY, INTRO_SKIP_KEY, CREDITS_SKIP_KEY } from "../contracts/v2/settingsRows.ts";
 import { nextShuffle, nextShufflePart } from "./nextShuffle.ts";
 import { SubtitleAI, type SubtitleAIView } from "./subtitleAI.ts";
 import { type AppearanceMember } from "./subtitleAppearance.ts";
@@ -181,10 +184,16 @@ export type SubtitleToolAction =
     | { readonly kind: "device"; readonly enabled: boolean }
     | { readonly kind: "appearance"; readonly member: AppearanceMember; readonly value: string | number | boolean };
 
+/** Apple's buffering prompt, undo pill and notice, drawn over loading and playback alike. */
+export interface BufferingOverlay {
+    readonly bufferingPill?: BufferingPillView | undefined;
+    readonly bufferingNotice?: BufferingNoticeView | undefined;
+}
+
 export type PlaybackView =
     | { readonly phase: "completion"; readonly title: string; readonly state: "finalizing" | "resolving" | "ready" | "failed"; readonly next: PlayRequest | undefined; readonly retryable: boolean; readonly countdown?: number | undefined; readonly deck?: readonly PlayRequest[] }
-    | { readonly phase: "loading"; readonly title: string; readonly detail?: "reconnecting" | "restoring"; /** A different file of a Shuffle pick follows: the screen forgets the last file's skip decisions. */ readonly nextPart?: true }
-    | {
+    | ({ readonly phase: "loading"; readonly title: string; readonly detail?: "reconnecting" | "restoring"; /** A different file of a Shuffle pick follows: the screen forgets the last file's skip decisions. */ readonly nextPart?: true } & BufferingOverlay)
+    | ({
           readonly phase: "playing" | "paused";
           readonly seriesTitle?: string | undefined;
           readonly seasonNumber?: number | undefined;
@@ -206,7 +215,7 @@ export type PlaybackView =
           readonly captions?: { readonly text: string; readonly appearance: SubtitleAppearance } | undefined;
           readonly skipMarker?: SkipMarker | undefined;
           readonly undoSkipSeconds?: number | undefined;
-      }
+      } & BufferingOverlay)
     | { readonly phase: "error"; readonly title: string; readonly error: PlaybackError; readonly retryable?: boolean }
     | { readonly phase: "closed" };
 
@@ -246,6 +255,14 @@ export interface PlayerControls {
     selectAIResult(id: string): void;
     subtitleTool(action: SubtitleToolAction): void;
     seekThumbnail(seconds: number, signal: AbortSignal, loadSheet: ThumbnailSheetLoader): Promise<SeekThumbnail | undefined>;
+    /** Select on the buffering pill: Lower quality on the prompt, Restore quality on the undo. */
+    selectBufferingPrimary(): void;
+    /** Keep quality on the buffering prompt. */
+    selectBufferingKeep(): void;
+    /** Back with a buffering pill up. True when it took the pill down, so the press ends there. */
+    dismissBufferingPill(): boolean;
+    /** A skip pill is on screen: a buffering pill waits for it, as Apple's does. */
+    setSkipPillShown(shown: boolean): void;
 }
 
 export interface PlaybackDeps {
@@ -287,6 +304,16 @@ const WARNING_NOTICES: Readonly<Record<string, string>> = {
 
 interface Attempt {
     readonly hud: HUDState;
+    /** Lower quality when buffering: the decision controller, its pill and notice. */
+    readonly bufferingQuality: BufferingBridge;
+    /** `playback.buffering_quality_mode`; Apple's default until the profile's value is read. */
+    bufferingMode: BufferingQualityMode;
+    /** The server advertises `buffering_quality_v1`: the capability response at start, then each decision. */
+    bufferingAdvertised: boolean;
+    /** Restore quality pressed while a replan or reload is in flight; it goes out once the player can send it. */
+    bufferingRestore: ReplanRequest | undefined;
+    /** The screen is drawing a skip pill. */
+    skipPillShown: boolean;
     autoNextSupported: boolean;
     promptSeconds: number;
     promptSupported: boolean;
@@ -453,6 +480,17 @@ export class PlaybackController implements PlayerControls {
     private readonly listeners: ((view: PlaybackView) => void)[] = [];
     private readonly stopAuthority: () => void;
     private startupDue: number | undefined;
+    /** The last view as the player built it, before the buffering pill and notice are added. */
+    private base: PlaybackView = { phase: "closed" };
+    /** Counts show() calls that reach the buffering sync, so a nested one can supersede its caller. */
+    private shown = 0;
+    /** The last `playback.buffering_quality_mode` read, kept for a later attempt whose read fails, as Apple keeps the device's cached value. */
+    private lastBufferingMode: BufferingQualityMode | undefined;
+    /** The device going offline or online is transport trouble for the buffering controller. */
+    private readonly onConnectivity = (): void => {
+        const attempt = this.active();
+        if (attempt !== undefined) this.syncBuffering(attempt);
+    };
     private completion: { readonly attempt: Attempt; readonly abort: AbortController; pending: boolean } | undefined;
     private cancelAutoplayTimer: (() => void) | undefined;
     private nextStart: PlayRequest | undefined;
@@ -462,6 +500,8 @@ export class PlaybackController implements PlayerControls {
         const pending = pendingTransports.get(deps.avplay) ?? { seek: undefined, closing: undefined };
         pendingTransports.set(deps.avplay, pending);
         this.pending = pending;
+        globalThis.addEventListener?.("online", this.onConnectivity);
+        globalThis.addEventListener?.("offline", this.onConnectivity);
         this.stopAuthority = deps.session.onAuthorityChange(() => {
             const attempt = this.attempt;
             if (attempt === undefined || (!attempt.live && this.completion === undefined)) {
@@ -483,8 +523,13 @@ export class PlaybackController implements PlayerControls {
             this.leave(previous, "stop");
         }
         this.shownError = undefined;
+        const bufferingQuality: BufferingBridge = new BufferingBridge(this.deps.clock, {
+            issueReplan: (request, restore) => this.issueBufferingReplan(bufferingQuality, request, restore),
+            changed: () => this.bufferingChanged(bufferingQuality),
+        });
         const attempt: Attempt = {
             hud: new HUDState(),
+            bufferingQuality, bufferingMode: this.lastBufferingMode ?? DEFAULT_BUFFERING_QUALITY_MODE, bufferingAdvertised: false, bufferingRestore: undefined, skipPillShown: false,
             autoNextSupported: false,
             promptSeconds: 30, promptSupported: false, promptDismissed: false, promptPending: false, promptLookedUp: false, prompt: undefined,
             offer: { started: false, manual: false, episodeLoading: false, deckLoading: false, episodeSettled: false, episodeFailed: false, episode: undefined, deckSettled: false, deckFailed: false, deck: [], presentationFor: undefined },
@@ -713,6 +758,8 @@ export class PlaybackController implements PlayerControls {
         attempt.pauseAfterSeek = requestedPaused;
         attempt.busy = true;
         this.clearThumbnails(attempt);
+        // The buffering controller must see the seek begin: the buffering that follows belongs to it.
+        this.syncBuffering(attempt);
         if (!local) {
             if (requestedPaused !== undefined) attempt.paused = requestedPaused;
             attempt.pauseAfterSeek = undefined;
@@ -806,6 +853,8 @@ export class PlaybackController implements PlayerControls {
         attempt.restoring = false;
         attempt.hidden = true;
         attempt.queuedSeekSeconds = undefined;
+        // A backgrounded app is paused to the buffering controller: nothing waits, prompts or lowers unseen.
+        this.syncBuffering(attempt);
         this.capturePosition(attempt);
         this.holdTimers(attempt);
         const seek = this.pending.seek;
@@ -1019,6 +1068,25 @@ export class PlaybackController implements PlayerControls {
         return true;
     }
 
+    selectBufferingPrimary(): void {
+        this.attempt?.bufferingQuality.selectPrimary();
+    }
+
+    selectBufferingKeep(): void {
+        this.attempt?.bufferingQuality.selectKeep();
+    }
+
+    dismissBufferingPill(): boolean {
+        return this.active()?.bufferingQuality.back() ?? false;
+    }
+
+    setSkipPillShown(shown: boolean): void {
+        const attempt = this.active();
+        if (attempt === undefined || attempt.skipPillShown === shown) return;
+        attempt.skipPillShown = shown;
+        this.syncBuffering(attempt);
+    }
+
     selectQuality(preference: string): void {
         const attempt = this.changeable();
         const plan = attempt?.plan;
@@ -1035,6 +1103,7 @@ export class PlaybackController implements PlayerControls {
         const offered = plan.availableQualities.find((quality) => quality.label === preference);
         const cap = preference === "auto" ? attempt.autoBandwidthCapKbps
             : offered !== undefined && !offered.preservesSource && offered.bitrateKbps !== undefined && offered.bitrateKbps > 0 ? offered.bitrateKbps : undefined;
+        attempt.bufferingQuality.pickSent();
         void this.replan(attempt, plan, "quality_change", attempt.sourceSeconds, undefined, selected, { qualityPreference: preference, bandwidthCapKbps: cap });
     }
 
@@ -1062,6 +1131,8 @@ export class PlaybackController implements PlayerControls {
         }
         this.attempt = undefined;
         this.stopAuthority();
+        globalThis.removeEventListener?.("online", this.onConnectivity);
+        globalThis.removeEventListener?.("offline", this.onConnectivity);
         this.listeners.length = 0;
     }
 
@@ -1104,6 +1175,16 @@ export class PlaybackController implements PlayerControls {
                     if (key === CREDITS_SKIP_KEY) attempt.skipCredits = value === true;
                 } catch { /* Unavailable optional preferences retain manual skipping. */ }
             }
+            if (definitions.some(def => def.key === BUFFERING_MODE_KEY)) {
+                try {
+                    const mode = (await call(operations.effectiveSettings([BUFFERING_MODE_KEY]))).get(BUFFERING_MODE_KEY)?.value;
+                    if (mode === "never" || mode === "ask" || mode === "always") {
+                        attempt.bufferingMode = mode;
+                        this.lastBufferingMode = mode;
+                    }
+                } catch { /* The last mode read, else Apple's default (always), stands where the mode cannot be read. */ }
+                if (!attempt.live) return false;
+            }
             if (definitions.some(def => def.key === AUTO_NEXT_KEY)) {
                 attempt.autoNextSupported = true;
                 const epoch = attempt.settingsEpoch;
@@ -1142,6 +1223,97 @@ export class PlaybackController implements PlayerControls {
      * The highest stored reading still current on this server and network, as Apple's start sends it.
      * Never a probe or a read: with no reading, on a metered link or on a server without a speed test it is absent.
      */
+    private features(attempt: Attempt): readonly string[] {
+        return clientFeatures(attempt.renditionsAll, attempt.bufferingAdvertised);
+    }
+
+    /** `ignore` keeps a limit another profile on this TV learned from lowering plans while the viewer has the feature off. */
+    private learnedLimit(attempt: Attempt): { readonly learned_limit: "ignore" } | Record<string, never> {
+        return attempt.bufferingAdvertised && attempt.bufferingMode === "never" ? { learned_limit: "ignore" } : {};
+    }
+
+    /** As Apple's start: the probe estimate names its source, and only to a server that takes sources. */
+    private startBufferingMembers(attempt: Attempt, hasEstimate: boolean): Pick<StartPlaybackBody, "bandwidth_estimate_source" | "learned_limit"> {
+        return { ...(attempt.bufferingAdvertised && hasEstimate ? { bandwidth_estimate_source: "probe" as const } : {}), ...this.learnedLimit(attempt) };
+    }
+
+    /**
+     * The buffering members of a replan. The controller's own replan carries its estimate, source,
+     * learned limit and observed throughput; the player's other replans repeat a kept estimate so a
+     * lowering holds. Source and limit go only to a server that advertises the feature.
+     */
+    private replanBufferingMembers(attempt: Attempt, operation: ReplanOperation, request: ReplanRequest | undefined): Pick<ReplanPlaybackBody, "bandwidth_estimate_kbps" | "bandwidth_estimate_source" | "learned_limit" | "observed_throughput_kbps"> {
+        const estimate = request !== undefined ? request.bandwidthEstimateKbps : operation === "quality_change" ? undefined : attempt.bufferingQuality.clientReplan(operation)?.bandwidthEstimateKbps;
+        const limit = request?.learnedLimit ?? this.learnedLimit(attempt).learned_limit;
+        const advertised = attempt.bufferingAdvertised;
+        const source = advertised && estimate !== undefined ? request?.bandwidthEstimateSource : undefined;
+        return {
+            ...(estimate === undefined ? {} : { bandwidth_estimate_kbps: estimate }),
+            ...(source === undefined ? {} : { bandwidth_estimate_source: source }),
+            ...(advertised && limit !== undefined ? { learned_limit: limit } : {}),
+            ...(source !== undefined && request?.observedThroughputKbps !== undefined ? { observed_throughput_kbps: request.observedThroughputKbps } : {}),
+        };
+    }
+
+    /** The buffering controller's `quality_change`, sent like the viewer's switch but recorded as nobody's pick. */
+    private issueBufferingReplan(bridge: BufferingBridge, request: ReplanRequest, restore: boolean): boolean {
+        const live = this.active();
+        if (live === undefined || live.bufferingQuality !== bridge) return false;
+        const attempt = this.changeable();
+        const plan = attempt?.plan;
+        if (attempt === undefined || plan === undefined || attempt.recovery?.active === true || attempt.hidden || attempt.restoring) {
+            // Restore quality is the viewer's answer: it goes out once the replan or reload in flight settles.
+            if (restore) {
+                live.bufferingRestore = request;
+                return true;
+            }
+            return false;
+        }
+        const offered = plan.availableQualities.find((quality) => quality.label === request.qualityPreference);
+        const cap = request.qualityPreference === AUTO_QUALITY ? attempt.autoBandwidthCapKbps
+            : offered !== undefined && !offered.preservesSource && offered.bitrateKbps !== undefined && offered.bitrateKbps > 0 ? offered.bitrateKbps : undefined;
+        attempt.attemptedKeys.length = 0;
+        attempt.recoveries = 0;
+        attempt.busy = true;
+        this.clearThumbnails(attempt);
+        attempt.change = { state: "changing", kind: "quality" };
+        this.showPlayback(attempt);
+        void this.replan(attempt, plan, "quality_change", attempt.sourceSeconds, undefined, chosenTracks(attempt, plan), { qualityPreference: request.qualityPreference, bandwidthCapKbps: cap }, request);
+        return true;
+    }
+
+    private bufferingChanged(bridge: BufferingBridge): void {
+        const attempt = this.attempt;
+        if (attempt === undefined || !attempt.live || attempt.bufferingQuality !== bridge) return;
+        if (this.base.phase === "loading" || this.base.phase === "playing" || this.base.phase === "paused") this.show(this.base);
+    }
+
+    /** Hands the buffering controller whatever the playback facts changed. */
+    private syncBuffering(attempt: Attempt): void {
+        const online = currentNetwork().online;
+        const snapshot: BufferingSnapshot = {
+            hasActiveLoad: attempt.plan !== undefined,
+            wantsToPlay: !attempt.paused,
+            // A suspended transport that has not been resumed is a reload, whatever AVPlay reports meanwhile.
+            started: attempt.started && !attempt.suspended && !attempt.suspendedReady,
+            buffering: attempt.buffering,
+            // A replan that reloads the stream is a reload; any other busy time is a seek, local or re-anchored.
+            seekInFlight: attempt.busy && attempt.change.state !== "changing" && !attempt.reporting,
+            reloadInProgress: attempt.restoring || attempt.suspended || attempt.suspendedReady || attempt.resuming || attempt.recovery?.active === true || (attempt.busy && (attempt.change.state === "changing" || attempt.reporting)),
+            reachedEnd: this.completion !== undefined || attempt.endedDuringChange,
+            playheadMs: Math.round(attempt.sourceSeconds * 1000),
+            suspended: attempt.hidden,
+            connectionTrouble: !online || attempt.recovery?.active === true,
+        };
+        attempt.bufferingQuality.setCompetingPill(attempt.prompt !== undefined || attempt.hidden || attempt.skipPillShown);
+        attempt.bufferingQuality.sync(snapshot);
+        const restore = attempt.bufferingRestore;
+        if (restore !== undefined && this.changeable() === attempt && attempt.recovery?.active !== true) {
+            attempt.bufferingRestore = undefined;
+            this.issueBufferingReplan(attempt.bufferingQuality, restore, true);
+        }
+    }
+
     private storedEstimateKbps(capabilities: PlaybackCapabilities): number | undefined {
         if (!capabilities.features.includes(CONNECTION_SPEED_FEATURE) || capabilities.bandwidthProbeUrl === undefined) return undefined;
         const network = currentNetwork();
@@ -1186,6 +1358,7 @@ export class PlaybackController implements PlayerControls {
             attempt.profileId = profile.id;
             attempt.trickplayEnabled = capabilities.features.includes("trickplay_v1");
             attempt.renditionsAll = capabilities.features.includes(HLS_SUBTITLE_RENDITIONS_ALL_FEATURE);
+            attempt.bufferingAdvertised = capabilities.features.includes(BUFFERING_QUALITY_FEATURE);
             if (!await this.readSeekIntervals(attempt)) return;
             const defaults = attempt.batchedSettings
                 ? await session.call({ ...operations.playbackDefaults(), profileScoped: true, signal: attempt.signal })
@@ -1203,13 +1376,14 @@ export class PlaybackController implements PlayerControls {
             const start = operations.startPlayback({
                 installation_id: installationId,
                 protocol_version: 3,
-                client_features: clientFeatures(attempt.renditionsAll),
+                client_features: this.features(attempt),
                 file_id: attempt.request.fileId,
                 profile_id: profile.id,
                 playback_attempt_id: attempt.playbackAttemptId,
                 quality_preference: attempt.qualityPreference,
                 ...(attempt.bandwidthCapKbps === undefined ? {} : { bandwidth_cap_kbps: attempt.bandwidthCapKbps }),
                 ...(estimateKbps === undefined ? {} : { bandwidth_estimate_kbps: estimateKbps }),
+                ...this.startBufferingMembers(attempt, estimateKbps !== undefined),
                 subtitle_fidelity_preference: "compatible",
                 ...(attempt.request.startSeconds === undefined ? {} : { start_position: attempt.request.startSeconds }),
                 ...(attempt.request.audioTrackId === undefined ? {} : { audio_track_id: attempt.request.audioTrackId }),
@@ -1269,6 +1443,7 @@ export class PlaybackController implements PlayerControls {
         classification: string | undefined,
         selected: SelectedTracks = chosenTracks(attempt, plan),
         quality: PlaybackDefaults = attempt,
+        buffering?: ReplanRequest,
     ): Promise<void> {
         const sessionId = attempt.sessionId;
         const installationId = attempt.installationId;
@@ -1280,7 +1455,7 @@ export class PlaybackController implements PlayerControls {
         const replan = operations.replanPlayback(sessionId, {
             installation_id: installationId,
             protocol_version: 3,
-            client_features: clientFeatures(attempt.renditionsAll),
+            client_features: this.features(attempt),
             operation,
             playback_attempt_id: attempt.playbackAttemptId,
             replan_request_id: this.newId(),
@@ -1291,6 +1466,7 @@ export class PlaybackController implements PlayerControls {
             attempt_count: Math.max(1, attempt.recoveries),
             quality_preference: quality.qualityPreference,
             ...(quality.bandwidthCapKbps === undefined ? {} : { bandwidth_cap_kbps: quality.bandwidthCapKbps }),
+            ...this.replanBufferingMembers(attempt, operation, buffering),
             position_seconds: positionSeconds,
             selected_tracks: selected,
             ...(classification === undefined ? {} : { failure: { classification } }),
@@ -1303,8 +1479,22 @@ export class PlaybackController implements PlayerControls {
                 return this.deps.session.call({ ...replan, profileScoped: true, signal: attempt.signal });
             });
         } catch (error) {
+            this.qualityUnsettled(attempt, buffering);
             if (!current()) {
                 return;
+            }
+            if (buffering !== undefined && !sessionGone(error)) {
+                // Apple keeps the current plan only when the server answered with a refusal.
+                if (rejectedReplan(error)) {
+                    this.keepPlaying(attempt);
+                    return;
+                }
+                // A lost or unusable answer cannot prove the server kept the old plan, so reconnect and play the one it holds, as Apple does.
+                if (attempt.presented) {
+                    attempt.change = { state: "idle" };
+                    this.recoverConnection(attempt);
+                    return;
+                }
             }
             if (operation === "track_change" && (attempt.plan === undefined || (!attempt.started && attempt.nativeSubtitleUnavailable))) {
                 this.fail(attempt, startFailure(error), true);
@@ -1338,6 +1528,11 @@ export class PlaybackController implements PlayerControls {
             return;
         }
         if ((operation === "track_change" || operation === "quality_change") && decision.outcome === "adaptation_unavailable") {
+            this.qualityUnsettled(attempt, buffering);
+            if (buffering !== undefined) {
+                this.keepPlaying(attempt);
+                return;
+            }
             if (attempt.plan === undefined || (!attempt.started && attempt.nativeSubtitleUnavailable)) { this.fail(attempt, decisionFailure(decision), true); return; }
             // The server rolled the change back; the current plan and transport keep playing.
             if (attempt.reporting) this.restoreReportedSubtitle(attempt);
@@ -1361,7 +1556,11 @@ export class PlaybackController implements PlayerControls {
             if (operation === "quality_change") {
                 attempt.qualityPreference = quality.qualityPreference;
                 attempt.bandwidthCapKbps = quality.bandwidthCapKbps;
-                attempt.qualityPicked = true;
+                // The buffering controller's lowering is nobody's pick; a viewer's pick resets what it decided.
+                if (buffering === undefined) {
+                    attempt.qualityPicked = true;
+                    attempt.bufferingQuality.qualityChanged();
+                }
             }
             if (attempt.reporting) {
                 this.finishSubtitleReport(attempt, decision.plan, decision.serverFeatures, selected);
@@ -1371,10 +1570,28 @@ export class PlaybackController implements PlayerControls {
                 this.applyKeptSubtitle(attempt, decision.plan, decision.serverFeatures);
                 return;
             }
-            this.adopt(attempt, decision.plan, decision.serverFeatures);
+            this.adopt(attempt, decision.plan, decision.serverFeatures, buffering !== undefined);
         } else {
+            this.qualityUnsettled(attempt, buffering);
+            if (buffering !== undefined) {
+                this.keepPlaying(attempt);
+                return;
+            }
             this.fail(attempt, decisionFailure(decision), true);
         }
+    }
+
+    /** The buffering controller's replan did not become a plan: the transport that was playing keeps playing. */
+    private keepPlaying(attempt: Attempt): void {
+        attempt.busy = false;
+        attempt.change = { state: "idle" };
+        this.showPlayback(attempt);
+    }
+
+    /** A quality change did not become a plan: the controller hears that its own replan failed, or that the viewer's pick did. */
+    private qualityUnsettled(attempt: Attempt, buffering: ReplanRequest | undefined): void {
+        if (buffering === undefined) attempt.bufferingQuality.pickRefused();
+        else attempt.bufferingQuality.replanFailed();
     }
 
     /** A codec or route failure on this TV: the server picks the next route, a bounded number of times. */
@@ -1649,10 +1866,13 @@ export class PlaybackController implements PlayerControls {
 
     // --- transport ---
 
-    private adopt(attempt: Attempt, plan: PlaybackPlan, serverFeatures: readonly string[]): void {
+    private adopt(attempt: Attempt, plan: PlaybackPlan, serverFeatures: readonly string[], bufferingReplan = false): void {
         this.clearThumbnails(attempt);
         this.readCaptions(attempt, plan);
         attempt.plan = plan;
+        // The new stream has not started: what the old one reported must not reach the buffering controller while this adoption redraws.
+        attempt.started = false;
+        attempt.buffering = false;
         attempt.hud.read(this.deps.session, attempt.request.contentId, plan.effectiveMediaFileId, attempt.signal, () => this.showPlayback(attempt));
         if (attempt.ai?.fileId !== plan.effectiveMediaFileId) {
             attempt.ai?.destroy();
@@ -1695,6 +1915,10 @@ export class PlaybackController implements PlayerControls {
         attempt.planAttemptId = this.newId();
         attempt.sourceSeconds = plan.timeline.sourceStartSeconds;
         attempt.started = false;
+        attempt.bufferingAdvertised = serverFeatures.includes(BUFFERING_QUALITY_FEATURE);
+        attempt.bufferingQuality.advertised = attempt.bufferingAdvertised;
+        attempt.bufferingQuality.mode = attempt.bufferingMode;
+        attempt.bufferingQuality.planAdopted(plan, serverFeatures, attempt.qualityPreference, bufferingReplan);
         this.showLoading(attempt, attempt.resuming ? "reconnecting" : undefined);
         void this.open(attempt, plan);
     }
@@ -1963,6 +2187,7 @@ export class PlaybackController implements PlayerControls {
                     return;
                 }
                 if (eventType === "PLAYER_ERROR_CONNECTION_FAILED") {
+                    attempt.bufferingQuality.noteMediaRequestFailed();
                     this.recoverConnection(attempt);
                 } else {
                     this.routeFailed(attempt, "avplay_playback_error");
@@ -2351,6 +2576,7 @@ export class PlaybackController implements PlayerControls {
             return;
         }
         attempt.live = false;
+        attempt.bufferingQuality.destroy();
         this.clearThumbnails(attempt);
         attempt.cancelTimer?.();
         attempt.cancelTimer = undefined;
@@ -2619,7 +2845,7 @@ export class PlaybackController implements PlayerControls {
         const replan = attempt.recoverySpec ?? operations.replanPlayback(sessionId, {
             installation_id: installationId,
             protocol_version: 3,
-            client_features: clientFeatures(attempt.renditionsAll),
+            client_features: this.features(attempt),
             operation: "track_change",
             playback_attempt_id: attempt.playbackAttemptId,
             replan_request_id: this.newId(),
@@ -2630,6 +2856,7 @@ export class PlaybackController implements PlayerControls {
             attempt_count: Math.max(1, attempt.recoveries),
             quality_preference: attempt.qualityPreference,
             ...(attempt.bandwidthCapKbps === undefined ? {} : { bandwidth_cap_kbps: attempt.bandwidthCapKbps }),
+            ...this.replanBufferingMembers(attempt, "track_change", undefined),
             position_seconds: attempt.sourceSeconds,
             selected_tracks: chosenTracks(attempt, plan),
             ...this.reportedPlayback(attempt),
@@ -2650,12 +2877,13 @@ export class PlaybackController implements PlayerControls {
         return {
             installation_id: installationId,
             protocol_version: 3,
-            client_features: clientFeatures(attempt.renditionsAll),
+            client_features: this.features(attempt),
             file_id: plan.effectiveMediaFileId,
             profile_id: profile.id,
             playback_attempt_id: this.newId(),
             quality_preference: attempt.qualityPreference,
             ...(attempt.bandwidthCapKbps === undefined ? {} : { bandwidth_cap_kbps: attempt.bandwidthCapKbps }),
+            ...this.startBufferingMembers(attempt, false),
             subtitle_fidelity_preference: "compatible",
             start_position: attempt.sourceSeconds,
             ...(audio === undefined ? {} : { audio_track_id: audio }),
@@ -2703,6 +2931,7 @@ export class PlaybackController implements PlayerControls {
             attempt.progressRefusal = undefined;
             attempt.replacementBody = undefined;
             attempt.resuming = true;
+            attempt.bufferingQuality.newAttempt();
             this.adopt(attempt, decision.plan, decision.serverFeatures);
         } catch (error) {
             if (!current()) {
@@ -3321,6 +3550,18 @@ export class PlaybackController implements PlayerControls {
     }
 
     private show(view: PlaybackView): void {
+        this.base = view;
+        const attempt = this.attempt;
+        if (attempt !== undefined && attempt.live) {
+            const serial = ++this.shown;
+            this.syncBuffering(attempt);
+            // The sync can draw a newer view of its own (a pill, a restore that began a change): this one is stale.
+            if (this.shown !== serial) return;
+            if (view.phase === "loading" || view.phase === "playing" || view.phase === "paused") {
+                const { pill, notice } = attempt.bufferingQuality;
+                if (pill !== undefined || notice !== undefined) view = { ...view, ...(pill === undefined ? {} : { bufferingPill: pill }), ...(notice === undefined ? {} : { bufferingNotice: notice }) };
+            }
+        }
         this.current = view;
         for (const listener of this.listeners.slice()) {
             listener(view);
@@ -3604,6 +3845,11 @@ function playbackWatch(watch: { readonly played: boolean; readonly isInProgress?
 }
 
 /** The session itself is gone or the request was abandoned: not a track change the viewer can retry. */
+/** The server answered and refused the replan, so it holds the plan it had. A missing or unusable answer proves nothing. */
+function rejectedReplan(error: unknown): boolean {
+    return error instanceof ApiError && !unanswered(error) && error.failure.kind !== "invalid_response";
+}
+
 function sessionGone(error: unknown): boolean {
     return error instanceof ApiError && (error.aborted || error.status === 404 || error.status === 410 || error.problemId === "installation_changed");
 }

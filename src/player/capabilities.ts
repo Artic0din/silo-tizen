@@ -115,7 +115,13 @@ export const HLS_REMUX_SUBTITLE_RENDITIONS_FEATURE = "hls_remux_subtitle_renditi
  */
 export const HLS_SUBTITLE_RENDITIONS_ALL_FEATURE = "hls_subtitle_renditions_all_v1";
 
-/** Start and replan send the same base features. Renditions-all is attempt-sticky. */
+/**
+ * Lower quality when buffering. Sent only after the server advertises it, as Apple's start and
+ * replans do, because it opts the request into `bandwidth_estimate_source` and `learned_limit`.
+ */
+export const BUFFERING_QUALITY_FEATURE = "buffering_quality_v1";
+
+/** Start and replan send the same base features. Renditions-all and buffering quality follow the server. */
 export const CLIENT_FEATURES: readonly string[] = [
     "playback_plan_v3",
     "embedded_subtitles_v1",
@@ -123,8 +129,8 @@ export const CLIENT_FEATURES: readonly string[] = [
     HLS_REMUX_SUBTITLE_RENDITIONS_FEATURE,
 ];
 
-export function clientFeatures(renditionsAll: boolean): readonly string[] {
-    return renditionsAll ? [...CLIENT_FEATURES, HLS_SUBTITLE_RENDITIONS_ALL_FEATURE] : CLIENT_FEATURES;
+export function clientFeatures(renditionsAll: boolean, bufferingQuality = false): readonly string[] {
+    return [...CLIENT_FEATURES, ...(renditionsAll ? [HLS_SUBTITLE_RENDITIONS_ALL_FEATURE] : []), ...(bufferingQuality ? [BUFFERING_QUALITY_FEATURE] : [])];
 }
 
 export const CLIENT_CAPABILITIES: ClientCapabilities = {

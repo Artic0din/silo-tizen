@@ -6,6 +6,7 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Playback lowers the quality when it keeps buffering, as Apple TV does: it asks first, or lowers Auto at once and offers Restore quality, depending on `playback.buffering_quality_mode` (Automatically until a Settings row sets it), with the same prompt, undo pill and notices.
 - Added HDR on Playback. A TV that reports HDR, with the HDR setting on, claims HDR10 for direct play. HDR10+ and HLG stay unclaimed: the probe is one boolean, and Samsung does not document those formats for every Tizen 8.0 TV. Dolby Vision is not a Playback row: Samsung exposes no Dolby Vision support check, and this client claims no Dolby Vision profile.
 - Added subtitle search and download, plus in-player delay, size, position and appearance controls, during playback.
 - Added player chapters, playback stats, richer title information, supported speed and aspect controls, and an in-player Auto-play next toggle.
@@ -28,6 +29,7 @@ All notable changes to this project are documented in this file.
 - Change Account and Settings › Accounts now list the open server first, then servers and accounts by last use, as Apple TV does. Settings no longer shows "0 profiles", a card spins while its account opens, and SIGN IN AGAIN uses the warning colour with an open lock and a dimmed tile.
 - Change Account fades the edge of the server and account columns that has rows hidden past it and shows a chevron under the column pointing that way, as Apple TV does.
 - The profile PIN prompt now matches Apple TV: the profile's avatar and name, four dots, a number pad with Cancel below it, and the PIN sends itself on the fourth digit. A wrong PIN turns the dots red and shakes them, and the entry clears. Back deletes a digit or leaves when none is left. Holding OK on a key enters one digit, and a lockout with no wait given says to try again later.
+- Pinned the paused seek preview to Apple TV's footer layout with a regression test. Pausing alone shows no preview card. A timeline scrub shows it with its bottom edge 8px over the series line, which draws above the card, and the title stays clear. Nothing on screen changes.
 
 ### Removed
 

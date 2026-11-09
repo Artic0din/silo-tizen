@@ -36,6 +36,7 @@ export const AUTO_QUALITY = "auto";
 
 export const COPY = {
     promptTitle: "Playback keeps buffering",
+    promptDetail: "Try a lower quality to keep watching",
     lowerAction: "Lower quality",
     keepAction: "Keep quality",
     undoCaption: "Quality lowered to stop buffering",

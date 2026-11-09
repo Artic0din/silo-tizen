@@ -6,6 +6,9 @@ import { mountPlayerScreen, type PlayerScreen } from "../../src/player/playerScr
 
 export interface PlayerHarness {
     readonly commands: string[];
+    /** What `dismissBufferingPill` answers: true while a buffering pill is up. */
+    dismissesBufferingPill: boolean;
+    readonly skipPillShown: boolean;
     show(view: PlaybackView): void;
     destroy(): void;
 }
@@ -26,6 +29,8 @@ sibling.id = "sibling";
 root.appendChild(sibling);
 
 const commands: string[] = [];
+let dismissesBufferingPill = false;
+let skipPillShown = false;
 let listener: ((view: PlaybackView) => void) | undefined;
 const controls: PlayerControls = {
     setVideo: (kind, value) => commands.push(`setVideo ${kind} ${value}`),
@@ -65,11 +70,24 @@ const controls: PlayerControls = {
     selectAIResult: id => commands.push(`selectAIResult ${id}`),
     subtitleTool: action => commands.push(`subtitleTool ${JSON.stringify(action)}`),
     seekThumbnail: async () => undefined,
+    selectBufferingPrimary: () => commands.push("selectBufferingPrimary"),
+    selectBufferingKeep: () => commands.push("selectBufferingKeep"),
+    dismissBufferingPill: () => {
+        commands.push("dismissBufferingPill");
+        return dismissesBufferingPill;
+    },
+    // Not a command: it follows every render, and the tests that list commands have no use for it.
+    setSkipPillShown: (shown) => {
+        skipPillShown = shown;
+    },
 };
 const screen: PlayerScreen = mountPlayerScreen(root, controls, undefined, "https://media.test");
 
 window.player = {
     commands,
+    get dismissesBufferingPill() { return dismissesBufferingPill; },
+    set dismissesBufferingPill(value: boolean) { dismissesBufferingPill = value; },
+    get skipPillShown() { return skipPillShown; },
     show: (view) => listener?.(view),
     destroy: () => screen.destroy(),
 };

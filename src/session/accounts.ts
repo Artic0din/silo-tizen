@@ -10,6 +10,8 @@ export interface SavedAccount {
     readonly username: string;
     readonly profileCount: number;
     readonly needsSignIn: boolean;
+    /** Epoch milliseconds. Absent on accounts saved before the TV recorded it. */
+    readonly lastUsedAt?: number;
 }
 const KEY = "silo.native.accounts.v1";
 interface Directory { readonly accounts: readonly SavedAccount[]; readonly selected?: string }
@@ -19,9 +21,11 @@ export class AccountDirectory {
     private state: Directory;
     private readonly storage: PublicStorage | undefined;
     private readonly random: RandomBytes;
-    constructor(storage: PublicStorage | undefined, random: RandomBytes) {
+    private readonly now: () => number;
+    constructor(storage: PublicStorage | undefined, random: RandomBytes, now: () => number = Date.now) {
         this.storage = storage;
         this.random = random;
+        this.now = now;
         const raw = storage?.getItem(KEY);
         this.state = raw == null ? { accounts: [] } : decodeDirectory(raw);
     }
@@ -42,7 +46,7 @@ export class AccountDirectory {
         this.random(bytes);
         const id = Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("");
         if (this.list().some(row => row.id === id)) throw new Error("Account identity collision");
-        const row = { id, baseUrl, serverId, accountId, username, profileCount: 0, needsSignIn: false };
+        const row = { id, baseUrl, serverId, accountId, username, profileCount: 0, needsSignIn: false, lastUsedAt: this.now() };
         this.write({ ...this.state, accounts: [...this.list(), row] });
         return row;
     }
@@ -50,7 +54,7 @@ export class AccountDirectory {
         const rows = this.list();
         const selected = rows.find(row => row.id === id);
         if (!selected) throw new Error("Account missing");
-        this.write({ accounts: [selected, ...rows.filter(row => row.id !== id)], selected: id });
+        this.write({ accounts: [{ ...selected, lastUsedAt: this.now() }, ...rows.filter(row => row.id !== id)], selected: id });
     }
     update(id: string, change: Partial<Pick<SavedAccount, "profileCount" | "needsSignIn" | "username">>): void {
         this.reload();
@@ -64,11 +68,29 @@ export class AccountDirectory {
     }
 }
 
+/** AccountStore.mostRecentFirst: the stable sort keeps saved order for ties and for accounts saved before the stamp. */
+export function accountsByRecentUse(rows: readonly SavedAccount[]): SavedAccount[] {
+    return [...rows].sort((a, b) => (b.lastUsedAt ?? 0) - (a.lastUsedAt ?? 0));
+}
+
+/** ServerRegistry.sortedEntries: the active server, then the rest by their most recently used account. */
+export function serversByRecentUse(rows: readonly SavedAccount[], activeBaseUrl: string | undefined): string[] {
+    const lastUse = new Map<string, number>();
+    for (const row of rows) lastUse.set(row.baseUrl, Math.max(lastUse.get(row.baseUrl) ?? 0, row.lastUsedAt ?? 0));
+    return [...lastUse.keys()].sort((a, b) => Number(b === activeBaseUrl) - Number(a === activeBaseUrl) || lastUse.get(b)! - lastUse.get(a)!);
+}
+
+/** ChangeAccountList.profileCount: nothing before a list was cached. */
+export function profileCountLabel(count: number): string | undefined {
+    return count > 0 ? `${count} ${count === 1 ? "profile" : "profiles"}` : undefined;
+}
+
 function decodeDirectory(raw: string): Directory {
     const value: unknown = JSON.parse(raw);
     if (typeof value !== "object" || value === null || !("accounts" in value) || !Array.isArray(value.accounts)) throw new Error("Account list unavailable");
     for (const row of value.accounts) {
         if (typeof row !== "object" || row === null || !["id", "baseUrl", "serverId", "accountId", "username"].every(key => typeof Reflect.get(row, key) === "string") || typeof row.profileCount !== "number" || typeof row.needsSignIn !== "boolean") throw new Error("Account list unavailable");
+        if ("lastUsedAt" in row && typeof row.lastUsedAt !== "number") throw new Error("Account list unavailable");
     }
     if ("selected" in value && typeof value.selected !== "string") throw new Error("Account selection unavailable");
     return value as Directory;

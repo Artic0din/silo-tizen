@@ -1,5 +1,5 @@
-// The Skip Intro offer's timer, ported from silo-apple `IntroSkipPrompt` (the `ask` half).
-// The `always` skip and its undo belong to the controller, which owns the seek.
+// The Skip Intro and Watch Intro offers' timer, ported from silo-apple `IntroSkipPrompt` (`.skip` and `.undo`).
+// The `always` skip itself belongs to the controller, which owns the seek.
 
 import type { Clock } from "../api/clock.ts";
 
@@ -8,14 +8,17 @@ export const SKIP_PROMPT_MS = 5000;
 /** The spec's PLAYBACK_PAUSE_GRACE_MS: a stall shorter than this is a rebuffer and leaves the timer alone. */
 export const SKIP_PAUSE_GRACE_MS = 1500;
 
+/** `skip` is the `ask` offer. `undo` is the Watch Intro offer after an automatic skip. */
+export type SkipKind = "skip" | "undo";
+
 /** `playing` runs the timer, `paused` freezes it at once, `stalled` (loading or rebuffering) freezes it after the grace. */
 export type SkipActivity = "playing" | "stalled" | "paused";
 
-/** What the pill's fill needs: how far it had crept when it last changed, and whether it is moving. */
+/** What the pill's fill needs: how far it has crept now, and whether it is moving. */
 export interface SkipFill {
     readonly elapsedMs: number;
     readonly running: boolean;
-    /** Changes whenever the fill must restart from `elapsedMs`. */
+    /** Changes whenever the timer is armed or frozen, so the fill must restart from `elapsedMs`. */
     readonly revision: number;
 }
 
@@ -25,6 +28,7 @@ export class SkipPrompt {
     /** The intro whose offer timed out while the playhead is still inside it: no re-offer until the playhead leaves. */
     private expiredKey: string | undefined;
     private active: string | undefined;
+    private activeKind: SkipKind = "skip";
     private remainingMs = SKIP_PROMPT_MS;
     /** Clock time the timer runs out; undefined while a pause holds it. */
     private deadline: number | undefined;
@@ -46,19 +50,29 @@ export class SkipPrompt {
         return this.active !== undefined;
     }
 
-    get fill(): SkipFill {
-        return { elapsedMs: SKIP_PROMPT_MS - this.remainingMs, running: this.deadline !== undefined, revision: this.revision };
+    get kind(): SkipKind | undefined {
+        return this.active === undefined ? undefined : this.activeKind;
     }
 
-    /** `key` identifies the intro the playhead is inside, or is undefined outside one (and in `never` and `always`). */
-    update(key: string | undefined, activity: SkipActivity): void {
+    get fill(): SkipFill {
+        // While the timer runs the deadline is the truth: remainingMs is only what the last arm or freeze set.
+        const remainingMs = this.deadline === undefined ? this.remainingMs : Math.max(0, this.deadline - this.clock.now());
+        return { elapsedMs: SKIP_PROMPT_MS - remainingMs, running: this.deadline !== undefined, revision: this.revision };
+    }
+
+    /**
+     * `key` identifies the intro the playhead is inside, or is undefined outside one (and in `never` and `always`).
+     * For `undo` it identifies the skip just made, which the pill outlives: the playhead has already left the intro.
+     * The two kinds use distinct keys.
+     */
+    update(key: string | undefined, activity: SkipActivity, kind: SkipKind = "skip"): void {
         this.activity = activity;
         if (key === undefined) {
             this.expiredKey = undefined;
             this.clear();
             return;
         }
-        if (this.active !== undefined && this.active !== key) {
+        if (this.active !== undefined && (this.active !== key || this.activeKind !== kind)) {
             this.expiredKey = undefined;
             this.clear();
         }
@@ -73,7 +87,14 @@ export class SkipPrompt {
         // The pill and its fill start together, once playback is actually running.
         if (activity !== "playing") return;
         this.active = key;
+        this.activeKind = kind;
         this.arm(SKIP_PROMPT_MS);
+    }
+
+    /** Nothing is playing (loading, reconnecting, replanning) but the content is the same: a stall, so the timer freezes after the grace. */
+    stall(): void {
+        this.activity = "stalled";
+        if (this.active !== undefined) this.follow();
     }
 
     /** Select or Back: the intro is decided and the pill goes. False when no pill was showing. */
@@ -148,9 +169,11 @@ export class SkipPrompt {
         }
     }
 
+    /** An `undo` the viewer let run out is decided, as in Apple; a `skip` offer only waits for the playhead to leave the intro. */
     private expire(): void {
         if (this.active === undefined) return;
-        this.expiredKey = this.active;
+        if (this.activeKind === "undo") this.resolved.add(this.active);
+        else this.expiredKey = this.active;
         this.clear();
         this.expired();
     }

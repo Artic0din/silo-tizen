@@ -17,7 +17,7 @@ export class SeriesEpisodes {
     private readonly failedNeighbors = new Set<number>();
     private readonly failedSelections = new Set<number>();
     private readonly cancelledSeasons = new Set<number>();
-    get interrupted(): boolean { return this.episodes === undefined && this.seasonNumber !== undefined && this.cancelledSeasons.has(this.seasonNumber); }
+    get interrupted(): boolean { return this.episodes === undefined && this.controller === undefined && this.seasonNumber !== undefined && this.cancelledSeasons.has(this.seasonNumber); }
     get boundaryFailed(): boolean { return [...this.failedNeighbors].some(number => !this.failedSelections.has(number) && number !== this.seasonNumber); }
     private readonly pages = new Map<number, readonly Episode[]>();
     /** Pages a fresh visit leaves out of the rail window. Reaching one again reuses it instead of the network. */
@@ -179,10 +179,10 @@ export class SeriesEpisodes {
             this.entryEpisode = this.episodes[0]?.id;
             this.updateWindow();
             this.changed("load");
-        } else if (this.failedNeighbors.has(season) || this.cancelledSeasons.has(season)) {
-            if (this.failedNeighbors.has(season)) this.failedSelections.add(season);
+        } else if (this.failedNeighbors.has(season)) {
+            this.failedSelections.add(season);
             this.railEpisodes = [];
-            this.failed = this.failedNeighbors.has(season);
+            this.failed = true;
             this.changed("load");
         } else if (this.pendingNeighbors.has(season)) {
             this.railEpisodes = [];
@@ -311,17 +311,19 @@ export class SeriesEpisodes {
         if (direction === 0) return;
         const boundary = `${id}:${direction}`;
         const requested = this.requestedBoundaries.get(boundary);
-        if (requested !== undefined && (this.pages.has(requested) || this.pendingNeighbors.has(requested) || this.failedNeighbors.has(requested))) return;
+        if (requested !== undefined && (this.pages.has(requested) || this.pendingNeighbors.has(requested) || this.failedSelections.has(requested))) return;
         const order = orderedEpisodeSeasons(this.seasons);
         let neighbor = order.indexOf(episode.seasonNumber) + direction;
         while (neighbor >= 0 && neighbor < order.length && this.pages.has(order[neighbor]!)) neighbor += direction;
         const number = order[neighbor];
-        if (number === undefined || this.failedNeighbors.has(number) || this.pendingNeighbors.has(number)) return;
+        if (number === undefined || this.failedSelections.has(number) || this.pendingNeighbors.has(number)) return;
         this.boundaryDwell = setTimeout(() => {
             this.boundaryDwell = undefined;
             // Restored focus after an empty page must not walk through further seasons.
             this.requestedBoundaries.set(boundary, number);
-            void this.readNeighbor(number);
+            // TVItemDetailView.swift:301-305: reaching a boundary after a failed prefetch re-runs the whole prefetch.
+            if (this.boundaryFailed) this.retryNeighbors();
+            void this.readNeighbor(number, true);
         }, BOUNDARY_DWELL_MS);
     }
 

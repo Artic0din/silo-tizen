@@ -722,36 +722,38 @@ for (const destination of ["unchanged", "navigation", "profile menu"]) test(`ini
     } finally { await tv.page.context().close(); }
 });
 
-for (const source of ["watchlist", "favorites"]) test(`uncovering ${source} reconciles membership changed through another personal list`, async () => {
+// Watchlist and Favorites replace each other (Apple's showPersonalRoot), but History opened from the profile menu stacks over either.
+for (const source of ["watchlist", "favorites"]) test(`uncovering ${source} after History reconciles membership changed through History`, async () => {
     const { tv, catalog } = await setup();
     try {
         await openList(tv, source);
         await loadThrough(tv, 60);
         await tv.page.locator('.browse [data-focus="movie:m0050"]').focus();
-        await openList(tv, source === "watchlist" ? "favorites" : "watchlist");
+        await openList(tv, "history");
         await loadThrough(tv, 60);
         await tv.page.locator('.browse [data-focus="movie:m0050"]').click();
         if (source === "favorites") await tv.page.locator('[data-focus="more"]').click();
         await tv.page.getByRole("button", { name: source === "favorites" ? "Remove from Favorites" : "Remove from watchlist", exact: true }).click();
         if (source === "favorites") await tv.page.locator('[data-focus="more"]').click();
         await tv.page.getByRole("button", { name: source === "favorites" ? "Add to Favorites" : "Add to watchlist", exact: true }).waitFor();
-        const innerRefresh = holdList(tv, source === "watchlist" ? "favorites" : "watchlist");
+        const innerRefresh = holdList(tv, "history");
         if (source === "favorites") await tv.remote(10009);
         await tv.remote(10009);
-        await tv.page.locator('[data-view^="personal:"]').waitFor();
+        await tv.page.locator('[data-view="personal:history"]').waitFor();
         const cached = await tv.page.locator('.browse [data-focus="movie:m0050"]').elementHandle();
         assert.ok(cached);
         innerRefresh.release();
-        await tv.eventually(async () => await cached.evaluate(node => !node.isConnected), "inner list refresh rendered");
-        await tv.eventually(async () => await tv.focused() === "movie:m0050", "other list retains the title");
-        const queries = listReads(tv).length;
+        await tv.eventually(async () => await cached.evaluate(node => !node.isConnected), "History refresh rendered");
+        await tv.eventually(async () => await tv.focused() === "movie:m0050", "History retains the title");
+        // History may still be paging, so count only the uncovered list's own reads.
+        const sourceReads = (): number => listReads(tv).filter(request => request.path.startsWith(`/${source}?`)).length;
+        const queries = sourceReads();
         const held = holdList(tv, source);
-        await tv.remote(10009);
         await tv.remote(10009);
         await tv.page.locator(`[data-view="personal:${source}"]`).waitFor();
         held.release();
         await tv.eventually(async () => await tv.page.locator('.browse [data-focus="movie:m0050"]').count() === 0, "uncovered list reconciles confirmed removal");
-        assert.equal(listReads(tv).length, queries + 3);
+        assert.equal(sourceReads(), queries + 3);
         assert.equal(catalog.mutations.length, 1);
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }

@@ -235,6 +235,19 @@ test("ask offers Lower quality and Keep quality, and Lower sends the same replan
     r.controller.destroy();
 });
 
+test("the prompt waits while a skip pill is up, so the skip pill and the prompt are never both focus targets", async () => {
+    const r = await rig("ask");
+    r.server.next.push(advertised());
+    await playPastGrace(r);
+    r.controller.setSkipPillShown(true);
+    r.avplay.listener?.onbufferingstart();
+    await r.h.clock.advance(6000);
+    assert.equal(pill(r), undefined);
+    r.controller.setSkipPillShown(false);
+    assert.equal(pill(r)?.kind, "prompt");
+    r.controller.destroy();
+});
+
 test("Keep quality answers the prompt without a replan, and the prompt's 15 s timer ends it", async () => {
     const r = await rig("ask");
     r.server.next.push(advertised());
@@ -439,8 +452,8 @@ test("an ask prompt does not run out of time while the app is backgrounded", asy
     r.controller.destroy();
 });
 
-test("a lowering the server refuses or fails leaves the plan playing and shows no error", async () => {
-    for (const how of ["terminal", "refused", "unavailable"] as const) {
+test("a lowering the server refuses leaves the plan playing and shows no error", async () => {
+    for (const how of ["terminal", "refused"] as const) {
         const r = await rig();
         r.server.next.push(advertised());
         if (how === "terminal") r.server.next.push({ terminal: "adaptation_unavailable" });
@@ -449,7 +462,6 @@ test("a lowering the server refuses or fails leaves the plan playing and shows n
         assert.ok(id !== undefined);
         // Exact path: a refusal, or a server that does not answer until the resends run out.
         if (how === "refused") r.h.fake.script(`/playback/${id}/replan`, problem(422, "validation_failed", "Refused"));
-        if (how === "unavailable") r.h.fake.script(`/playback/${id}/replan`, ...Array.from({ length: 20 }, () => ({ status: 503 })));
         r.avplay.listener?.onbufferingstart();
         await r.h.clock.advance(6000);
         await r.h.clock.advance(60_000);
@@ -457,6 +469,33 @@ test("a lowering the server refuses or fails leaves the plan playing and shows n
         const view = last(r);
         assert.ok(view.phase === "playing", `${how}: still playing, not ${view.phase}`);
         assert.equal(view.tracks.change.state, "idle", how);
+        r.controller.destroy();
+    }
+});
+
+/** The replan answer is lost or unusable, so the server may already have adopted the lowered plan. */
+const AMBIGUOUS_ANSWERS = {
+    unanswered: Array.from({ length: 3 }, () => ({ status: 503 })),
+    malformed: [{ status: 200, body: { unexpected: true } }],
+} as const;
+
+test("a lowering whose answer is lost or unusable reconnects instead of keeping the old plan", async () => {
+    for (const how of ["unanswered", "malformed"] as const) {
+        const r = await rig();
+        r.server.next.push(advertised(), advertised({ recipeKbps: STEP_DOWN_KBPS }));
+        await playPastGrace(r);
+        const id = [...r.server.sessions.keys()].pop();
+        assert.ok(id !== undefined);
+        r.h.fake.script(`/playback/${id}/replan`, ...AMBIGUOUS_ANSWERS[how]);
+        r.avplay.listener?.onbufferingstart();
+        await r.h.clock.advance(6000);
+        await r.h.clock.advance(4000);
+        const view = last(r);
+        assert.equal(view.phase === "loading" && view.detail, "reconnecting", `${how}: the server may have adopted the new plan, so the old one is not kept`);
+        assert.notEqual(r.avplay.state, "PLAYING", `${how}: the old transport is closed`);
+        await r.h.clock.advance(0);
+        await finishOpen(r);
+        assert.equal(last(r).phase, "playing", `${how}: the plan the server holds plays`);
         r.controller.destroy();
     }
 });

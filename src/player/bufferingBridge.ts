@@ -54,6 +54,8 @@ export class BufferingBridge {
     private readonly signals = new BufferingSignalMapper();
     private readonly origin: number;
     private planRevision = 0;
+    /** Counts the changes to the playing plan or the viewer's quality that a queued replan was decided against. */
+    private replanEpoch = 0;
     private pillRevision = 0;
     private shownNotice: BufferingNoticeView | undefined;
     private pendingNotice: Notice | undefined;
@@ -112,6 +114,7 @@ export class BufferingBridge {
      */
     planAdopted(plan: PlaybackPlan, serverFeatures: readonly string[], qualityPreference: string, controllerInitiated: boolean): void {
         this.planRevision++;
+        this.replanEpoch++;
         const named = qualityPreference === AUTO_QUALITY ? AUTO_QUALITY : plan.availableQualities.find((quality) => quality.label === qualityPreference)?.label ?? qualityPreference;
         const active = serverFeatures.includes(PLAN_ACTIVE_QUALITY_FEATURE) ? plan.activeQuality : undefined;
         const buffering: BufferingPlan = {
@@ -128,12 +131,14 @@ export class BufferingBridge {
 
     /** The plan stopped or failed with no successor. */
     planEnded(): void {
+        this.replanEpoch++;
         this.controller.planEnded();
         this.signals.invalidate();
     }
 
     /** The player starts another playback attempt of the same title. */
     newAttempt(): void {
+        this.replanEpoch++;
         this.controller.newAttempt();
     }
 
@@ -156,6 +161,7 @@ export class BufferingBridge {
 
     /** The viewer picked a quality and the player sent it. */
     pickSent(): void {
+        this.replanEpoch++;
         this.controller.pickSent();
     }
 
@@ -166,6 +172,7 @@ export class BufferingBridge {
 
     /** The player accepted a quality change this controller did not send. */
     qualityChanged(): void {
+        this.replanEpoch++;
         this.controller.qualityChanged();
     }
 
@@ -235,10 +242,12 @@ export class BufferingBridge {
                 // The controller is still inside the event that fired it, and the replan feeds it events of its own.
                 const request = output.request;
                 const restore = this.restoring;
+                const epoch = this.replanEpoch;
                 this.cancelReplan?.();
                 this.cancelReplan = this.clock.schedule(() => {
                     this.cancelReplan = undefined;
-                    if (!this.host.issueReplan(request, restore)) this.controller.replanRefused();
+                    // Restore quality is the viewer's answer and outlives a plan change; any other request was decided against a plan or pick that has since been replaced.
+                    if ((epoch !== this.replanEpoch && !restore) || !this.host.issueReplan(request, restore)) this.controller.replanRefused();
                 }, 0);
                 break;
             }
@@ -252,18 +261,19 @@ export class BufferingBridge {
         }
     }
 
-    /** The notice shows for NOTICE_MS in the information tone once the player can show it. */
-    private showPendingNotice(): void {
+    /** The notice shows for NOTICE_MS in the information tone once the player can show it. True when it was published. */
+    private showPendingNotice(): boolean {
         const notice = this.pendingNotice;
-        if (notice === undefined || !this.canShow || this.shownNotice !== undefined) return;
+        if (notice === undefined || !this.canShow || this.shownNotice !== undefined) return false;
         this.pendingNotice = undefined;
         this.shownNotice = { text: notice === "lowered" ? COPY.lowered : COPY.cantLower, lowered: notice === "lowered" };
         this.cancelNotice = this.clock.schedule(() => {
             this.cancelNotice = undefined;
             this.shownNotice = undefined;
-            this.host.changed();
-            this.showPendingNotice();
+            // The next notice replaces this one in a single change, so no empty notice is drawn between them.
+            if (!this.showPendingNotice()) this.host.changed();
         }, NOTICE_MS);
         this.host.changed();
+        return true;
     }
 }

@@ -1480,10 +1480,18 @@ export class PlaybackController implements PlayerControls {
             if (!current()) {
                 return;
             }
-            // Apple keeps the current plan when its own lowering fails; only a session the server no longer has goes on to the usual recovery.
             if (buffering !== undefined && !sessionGone(error)) {
-                this.keepPlaying(attempt);
-                return;
+                // Apple keeps the current plan only when the server answered with a refusal.
+                if (rejectedReplan(error)) {
+                    this.keepPlaying(attempt);
+                    return;
+                }
+                // A lost or unusable answer cannot prove the server kept the old plan, so reconnect and play the one it holds, as Apple does.
+                if (attempt.presented) {
+                    attempt.change = { state: "idle" };
+                    this.recoverConnection(attempt);
+                    return;
+                }
             }
             if (operation === "track_change" && (attempt.plan === undefined || (!attempt.started && attempt.nativeSubtitleUnavailable))) {
                 this.fail(attempt, startFailure(error), true);
@@ -3802,6 +3810,11 @@ function playbackWatch(watch: { readonly played: boolean; readonly isInProgress?
 }
 
 /** The session itself is gone or the request was abandoned: not a track change the viewer can retry. */
+/** The server answered and refused the replan, so it holds the plan it had. A missing or unusable answer proves nothing. */
+function rejectedReplan(error: unknown): boolean {
+    return error instanceof ApiError && !unanswered(error) && error.failure.kind !== "invalid_response";
+}
+
 function sessionGone(error: unknown): boolean {
     return error instanceof ApiError && (error.aborted || error.status === 404 || error.status === 410 || error.problemId === "installation_changed");
 }

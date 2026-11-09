@@ -1242,23 +1242,23 @@ detailTest('Hero uses measured series colours and genres only at rest', async tv
     }, null, value => value === "rgba(237, 237, 237, 0.5)", "playback summary label"), "rgba(237, 237, 237, 0.5)");
 });
 
-detailTest('track picker truncates a long edition title within its 76px row', async tv => {
+detailTest('track picker truncates a long version title within its 76px row', async tv => {
     const catalog = tv.fake.catalog; assert.ok(catalog instanceof FakeDetails);
     const body = catalog.route('GET', '/catalog/items/movie%3Am0001', 'p-owner')?.body as { versions: Record<string, unknown>[] };
-    await tv.page.route('**/api/v2/catalog/items/movie%3Am0001?**', route => route.fulfill({ json: { ...body, versions: body.versions.map(file => ({ ...file, edition_raw: 'Extended Commentary Edition '.repeat(20) })) } }));
+    await tv.page.route('**/api/v2/catalog/items/movie%3Am0001?**', route => route.fulfill({ json: { ...body, versions: body.versions.map(file => ({ ...file, codec_video: 'Extended Commentary Codec '.repeat(20) })) } }));
     await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().click();
     await tv.page.locator('[data-focus="version"]').click();
     const row = tv.page.locator('[data-focus="version:42"]');
     assert.equal(await row.locator('.details-option-title').count(), 1);
-    const edition = await readLive(tv, () => {
+    const title = await readLive(tv, () => {
         const title = document.querySelector('[data-focus="version:42"] .details-option-title');
         const option = document.querySelector('[data-focus="version:42"]');
         if (!(title instanceof HTMLElement) || !(option instanceof HTMLElement) || !title.isConnected || !option.isConnected) return null;
         return { overflow: getComputedStyle(title).textOverflow, clipped: title.scrollWidth > title.clientWidth, height: option.offsetHeight };
-    }, null, value => value.overflow === "ellipsis" && value.clipped && value.height === 76, "edition row");
-    assert.equal(edition.overflow, "ellipsis");
-    assert.ok(edition.clipped);
-    assert.equal(edition.height, 76);
+    }, null, value => value.overflow === "ellipsis" && value.clipped && value.height === 76, "version row");
+    assert.equal(title.overflow, "ellipsis");
+    assert.ok(title.clipped);
+    assert.equal(title.height, 76);
 });
 
 detailTest('measured Apple movie typography and version popover geometry', async tv => {
@@ -1609,7 +1609,7 @@ detailTest('Movie uses rounded runtime, rating artwork, comma genres and compact
     await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().click();
     assert.match(await tv.page.locator('.details-editorial .browse-meta').textContent() ?? '', /1h 50m.*6.8.*Drama, Thriller/);
     assert.equal(await tv.page.locator('.details-external-rating img').getAttribute('alt'), 'TMDB');
-    assert.equal(await tv.page.locator('[data-track-summary="version"] span').textContent(), 'Auto · 1080p');
+    assert.equal(await tv.page.locator('[data-track-summary="version"] span').textContent(), 'Auto · 1080p · HDR');
     assert.equal(await tv.page.locator('[data-track-summary="audio"] span').textContent(), 'Auto · English · EAC3 · 5.1');
     assert.equal(await readLive(tv, () => {
         const node = document.querySelector(".details-editorial .browse-title");
@@ -2563,6 +2563,25 @@ detailTest('Version options expose source codec, container and file size below t
     await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().click();
     await tv.page.locator('[data-focus="version"]').click();
     assert.equal(await tv.page.locator('[data-focus="version:42"] .details-option-subtext').textContent(), 'H.264 · MKV · 8.43 GB');
+});
+
+detailTest('Version summary shows the best version while the picker lists every version in server order', async tv => {
+    const catalog = tv.fake.catalog; assert.ok(catalog instanceof FakeDetails);
+    const reply = catalog.route('GET', '/catalog/items/movie%3Am0001', 'p-owner');
+    const body = reply?.body as { versions: Record<string, unknown>[] };
+    const [template] = body.versions;
+    const versions = [
+        { ...template, file_id: 'low', resolution: '720p', codec_video: 'h264', codec_audio: 'aac', hdr: false, edition_raw: 'Theatrical' },
+        { ...template, file_id: 'uhd', resolution: '2160p', codec_video: 'hevc', codec_audio: 'eac3', hdr: true, video_tracks: [{ dolby_vision: 'profile 8' }], edition_raw: 'Director\'s Cut' },
+        { ...template, file_id: 'mid', resolution: '1080p', codec_video: 'h264', codec_audio: 'aac', hdr: false },
+    ];
+    await tv.page.route('**/api/v2/catalog/items/movie%3Am0001?**', route => route.fulfill({ json: { ...body, versions, user_data: { played: false } } }));
+    await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().click();
+    assert.equal(await tv.page.locator('[data-track-summary="version"] span').textContent(), 'Auto · 2160p · DV');
+    await tv.page.locator('[data-focus="version"]').click();
+    const picker = tv.page.getByRole('dialog', { name: 'Version', exact: true });
+    await picker.locator('[data-focus="version:auto"]').waitFor();
+    assert.deepEqual(await picker.locator('[role="radio"] .details-option-title').allTextContents(), ['Auto', '720p · H.264 · AAC', '2160p · HEVC · DV · EAC3', '1080p · H.264 · AAC']);
 });
 
 detailTest('Auto subtitle summary uses the Apple None fallback without effective preference fields', async tv => {

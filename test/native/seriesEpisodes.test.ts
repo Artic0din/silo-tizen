@@ -283,15 +283,32 @@ test("a cancelled season reloads after neighbour recovery once its page is evict
     assert.deepEqual(h.reads(), [2, 1, 3, 4, 3, 4, 10, 11, 12, 13, 14, 4].map(season => operations.listSeasonEpisodes("series:s1", season).path));
 });
 
-for (const outcome of ["failed", "cancelled"] as const) test(`rail boundaries cannot retry a ${outcome} automatic pill read`, async t => {
+test("Left at the first loaded card asks again for a previous season whose automatic read was aborted", async t => {
     t.mock.timers.enable({ apis: ["setTimeout"] });
-    const h = await episodeRailHarness(outcome === "failed" ? 4 : undefined); t.after(() => h.state.stop());
-    const held = outcome === "cancelled" ? h.fake.hold(operations.listSeasonEpisodes("series:s1", 4).path, true) : undefined;
+    const h = await episodeRailHarness(); t.after(() => h.state.stop());
+    const held = h.fake.hold(operations.listSeasonEpisodes("series:s1", 4).path, true);
+    h.state.focusSeason(4); t.mock.timers.tick(70); await h.settle();
+    h.state.focusSeason(5); t.mock.timers.tick(70); await h.settle();
+    held.release(); await h.settle();
+    assert.equal(h.state.seasonNumber, 5);
+    assert.equal(h.state.railEpisodes?.[0]?.id, "rail:5:0", "the rail starts at the first loaded card");
+    const reads = h.reads().length;
+    h.state.blurSeason();
+    h.state.focus("rail:5:0"); t.mock.timers.tick(70); await h.settle();
+    assert.equal(h.reads().length, reads + 1, "Left asks for the aborted previous season");
+    assert.equal(h.reads().at(-1), operations.listSeasonEpisodes("series:s1", 4).path);
+    const ids = h.state.railEpisodes?.map(episode => episode.id) ?? [];
+    assert.equal(ids[ids.indexOf("rail:5:0") - 1], "rail:4:13", "the aborted season joins the rail so focus can move on");
+});
+
+test("rail boundaries cannot retry a failed automatic pill read", async t => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const h = await episodeRailHarness(4); t.after(() => h.state.stop());
     h.state.focusSeason(4); t.mock.timers.tick(70); await h.settle();
     h.state.focusSeason(3); t.mock.timers.tick(70); await h.settle();
-    held?.release(); await h.settle();
+    h.state.blurSeason();
     h.state.focus("rail:3:13"); t.mock.timers.tick(70); await h.settle();
-    assert.equal(h.reads().length, 4, "rail entry cannot bypass pill failure or cancellation recovery");
+    assert.equal(h.reads().length, 4, "rail entry cannot bypass pill failure recovery");
     assert.equal(h.state.boundaryFailed, false, "a selected-season failure stays with that season");
 });
 

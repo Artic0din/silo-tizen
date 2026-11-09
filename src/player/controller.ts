@@ -1914,7 +1914,8 @@ export class PlaybackController implements PlayerControls {
                     if (!attempt.busy && marker !== undefined && !attempt.skippedMarkers.has(marker) && ((marker.kind === "intro" && attempt.introMode === "always") || (marker.kind === "credits" && attempt.skipCredits))) {
                         attempt.skippedMarkers.add(marker);
                         attempt.undoSkip = undefined;
-                        attempt.pendingSkipUndo = marker.startSeconds;
+                        // Apple offers Watch Intro after an automatic intro skip and nothing after a credits skip.
+                        attempt.pendingSkipUndo = marker.kind === "intro" ? marker.startSeconds : undefined;
                         this.seekToSeconds(marker.endSeconds);
                         return;
                     }
@@ -3037,7 +3038,7 @@ export class PlaybackController implements PlayerControls {
             previewKey: frozen ? undefined : attempt.planAttemptId,
             // The offset moves cues this overlay draws. Text AVPlay selects itself is not shifted: AVPlay has no subtitle-offset call, and a TV has to confirm whether its TEXT track can move.
             captions: attempt.hidden || attempt.restoring || frozen ? undefined : { text: attempt.cues.filter(cue => captionTime >= cue.start && captionTime < cue.end).map(cue => cue.text).join("\n"), appearance: attempt.appearance },
-            skipMarker: frozen ? undefined : markerAt((attempt.markers?.segments ?? []).filter(marker => marker.kind !== "intro" || attempt.introMode !== "never"), attempt.sourceSeconds),
+            skipMarker: frozen ? undefined : markerAt((attempt.markers?.segments ?? []).filter(marker => marker.kind !== "intro" || attempt.introMode === "ask"), attempt.sourceSeconds),
             undoSkipSeconds: attempt.undoSkip !== undefined && this.deps.clock.now() < attempt.undoSkip.until ? attempt.undoSkip.seconds : undefined,
         });
     }

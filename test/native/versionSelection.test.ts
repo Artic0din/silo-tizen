@@ -207,6 +207,27 @@ test("a Resolution change reloads the cache and ranks the next Details", async (
     cap.stop();
 });
 
+test("a failed reload keeps the last cap and the next ensure retries it", async () => {
+    const reads: string[] = [];
+    const quality: { value: string | undefined; fail: boolean } = { value: "1080p", fail: false };
+    const cap = new ResolutionCap(sessionWith(quality, reads), () => {});
+    cap.ensure();
+    await settle();
+    quality.fail = true;
+    quality.value = "720p";
+    cap.reload();
+    await settle();
+    assert.deepEqual([reads.length, cap.quality], [2, "1080p"], "the failed reload keeps the last answer");
+    quality.fail = false;
+    cap.ensure();
+    await settle();
+    assert.deepEqual([reads.length, cap.quality], [3, "720p"]);
+    cap.ensure();
+    await settle();
+    assert.equal(reads.length, 3, "an answered cache stops retrying");
+    cap.stop();
+});
+
 test("a failed cap read ranks by resolution alone and the next ensure retries", async () => {
     const reads: string[] = [];
     const quality: { value: string | undefined; fail: boolean } = { value: "1080p", fail: true };

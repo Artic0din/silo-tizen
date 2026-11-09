@@ -43,7 +43,10 @@ export class ResolutionCap {
             const before = this.value;
             this.value = next;
             if (before !== next) this.changed();
-        }, () => { /* Without a stored cap versions rank by resolution alone; the next ensure retries. */ }).finally(() => {
+        }, () => {
+            // A failed read keeps the last value but is not an answer, so the next ensure retries it.
+            if (this.controller === controller) this.answered = false;
+        }).finally(() => {
             if (this.controller === controller) this.controller = undefined;
         });
     }

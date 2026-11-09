@@ -431,9 +431,13 @@ test("person biography keeps the blank line between paragraphs", async () => {
         const first = "First paragraph of the biography.";
         const second = "Second paragraph starts after the blank line.";
         await person(tv, { bio: `${first}\n\n${second}` });
-        const gap = await tv.page.locator(".details-person-hero .browse-overview").evaluate((node, parts) => {
-            const text = node.firstChild;
-            if (text === null) return -1;
+        await tv.page.locator(".details-person-hero .browse-overview").waitFor();
+        // Availability and filmography loads repaint the hero, so a node resolved earlier can be detached
+        // (all-zero rects, "paragraph gap 0"). Query and measure in one synchronous step instead.
+        const gap = await tv.page.evaluate(parts => {
+            const node = document.querySelector(".details-person-hero .browse-overview");
+            const text = node?.firstChild;
+            if (text === null || text === undefined) return -1;
             const value = text.textContent ?? "";
             const range = document.createRange();
             range.setStart(text, 0);

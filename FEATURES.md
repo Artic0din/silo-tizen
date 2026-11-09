@@ -128,7 +128,7 @@ File pointers are repository-relative.
 
 | Feature | Tizen | Apple TV | Android TV | Notes |
 |---|:---:|:---:|:---:|---|
-| Requests hub, discover rows, search, detail, My Requests, cancel, remove a failed request | ✅ | ✅ | ✅ | Shown only when the server enables it. Remove Request needs `remove_failed_supported` and a failed request with nothing delivered. Bugs: focus (#74), status text (#75), artwork (#76). Layout parity open (#98). Tizen: a top-bar tab (`src/ui/navigation.ts`). Apple: in the profile menu (`TVMainTabView`). Android: `TvRequestsPage`, in the profile menu |
+| Requests hub, discover rows, search, detail, My Requests, cancel, remove a failed request | ✅ | ✅ | ✅ | Shown only when the server enables it. Remove Request needs `remove_failed_supported` and a failed request with nothing delivered. Bugs: focus (#74), status text (#75), artwork (#76). Layout parity open (#98). Tizen: a profile-menu item (`src/ui/skyline.ts`) that opens a root page with the top bar. Apple: in the profile menu (`TVMainTabView`). Android: `TvRequestsPage`, in the profile menu |
 | Follow / unfollow a requested title | ✅ | ✅ | ✅ | Android: "Notify me when available" when the server reports `follow_supported`. Apple: "Notify Me" in `RequestDetailView`, gated on `followSupported` |
 | Request administration | ➖ | ➖ | ➖ | Stays in web admin |
 

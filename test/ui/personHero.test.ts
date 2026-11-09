@@ -383,7 +383,11 @@ test("the person name and facts sit on Apple's line box", async () => {
     try {
         await signIn(tv);
         await person(tv, {});
-        const placed = await tv.page.locator(".details-person-hero").evaluate(hero => {
+        await tv.page.locator(".details-person-hero").waitFor();
+        // Query and measure in one synchronous step: a repaint rebuilds the hero and detaches a node resolved earlier.
+        const placed = await tv.page.evaluate(() => {
+            const hero = document.querySelector(".details-person-hero");
+            if (hero === null) return null;
             const portrait = hero.querySelector(".person-portrait")?.getBoundingClientRect();
             const name = hero.querySelector(".browse-title");
             const facts = hero.querySelector(".person-facts")?.getBoundingClientRect();
@@ -413,7 +417,11 @@ test("person biography uses Apple's body size, line and clamp", async () => {
         await signIn(tv);
         const paragraph = "This biography sentence is long enough to wrap across the overview column more than once on the person page.";
         await person(tv, { bio: Array.from({ length: 6 }, () => paragraph).join("\n\n") });
-        const bio = await tv.page.locator('.browse[data-view^="person:"] .browse-overview').evaluate(node => {
+        await tv.page.locator('.browse[data-view^="person:"] .browse-overview').waitFor();
+        // Query and measure in one synchronous step: a repaint can detach a node resolved earlier (zero height).
+        const bio = await tv.page.evaluate(() => {
+            const node = document.querySelector('.browse[data-view^="person:"] .browse-overview');
+            if (node === null) return null;
             const computed = getComputedStyle(node);
             return { fontSize: computed.fontSize, lineHeight: computed.lineHeight, height: node.getBoundingClientRect().height, clipped: node.scrollHeight > node.clientHeight };
         });
@@ -431,9 +439,13 @@ test("person biography keeps the blank line between paragraphs", async () => {
         const first = "First paragraph of the biography.";
         const second = "Second paragraph starts after the blank line.";
         await person(tv, { bio: `${first}\n\n${second}` });
-        const gap = await tv.page.locator(".details-person-hero .browse-overview").evaluate((node, parts) => {
-            const text = node.firstChild;
-            if (text === null) return -1;
+        await tv.page.locator(".details-person-hero .browse-overview").waitFor();
+        // Availability and filmography loads repaint the hero, so a node resolved earlier can be detached
+        // (all-zero rects, "paragraph gap 0"). Query and measure in one synchronous step instead.
+        const gap = await tv.page.evaluate(parts => {
+            const node = document.querySelector(".details-person-hero .browse-overview");
+            const text = node?.firstChild;
+            if (text === null || text === undefined) return -1;
             const value = text.textContent ?? "";
             const range = document.createRange();
             range.setStart(text, 0);

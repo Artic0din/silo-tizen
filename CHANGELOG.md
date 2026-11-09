@@ -27,6 +27,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Showed Who's watching after signing in even when the TV could not save that the remembered profile was cleared.
 - Moved the Series Details episode rail 40px left when its loaded window includes the series' first season. A later season whose earlier pages are not loaded keeps the previous position, and reopening Details starts from that season's neighbor window.
 - Asked before signing out from Who's watching, while profiles load, and when profiles fail to load. Cancel stays focused, and Cancel or Back returns to Sign out.
 - Choosing another account opens its only profile when that profile has no PIN. An expired sign-in shows "You were signed out of {server}. Sign in again." with the username filled in, or Change Account when another account is still signed in.
@@ -235,6 +236,7 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Updated FEATURES.md for Apple TV's Change Account and Accounts settings screens: Switch Server and Sign Out & Remove Server are now marked done, and Change Account and Settings › Accounts have their own rows.
 - Replaced the README screenshot with For You from a current main build.
 - Updated the Series hero and playback target as episode focus moved, added episode air dates and runtimes, restored Apple's fixed detail frames, and resolved local extras whose embedded file ID was absent.
 

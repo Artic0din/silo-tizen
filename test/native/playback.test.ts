@@ -156,6 +156,27 @@ test("a completed Shuffle item advances the same server session before offering 
     r.controller.destroy();
 });
 
+test("the next Shuffle pick starts and reports progress from zero although it has a saved position", async () => {
+    const r = await episodeRig();
+    r.h.fake.script("/shuffles/sh1/advance", { status: 200, body: { id: "sh1", current: { content_id: "episode:s1e13" }, next: { content_id: "episode:s1e13" } } });
+    r.h.fake.script("/watch/episode%3As1e13", { status: 200, body: { content_id: "episode:s1e13", type: "episode", title: "Next", season_number: 1, episode_number: 13, versions: [{ file_id: "43", duration_seconds: 3000 }], user_data: { played: false, position_seconds: 900, last_file_id: "43" } } });
+    await playMovie(r, { ...EPISODE, shuffleId: "sh1" });
+    r.avplay.listener?.onstreamcompleted();
+    await r.h.clock.advance(0);
+    const ready = completion(r);
+    assert.equal(ready.state, "ready");
+    assert.equal(ready.next?.startSeconds, 0);
+    r.controller.playNext();
+    await r.h.clock.advance(0);
+    r.avplay.finishPrepare();
+    await r.h.clock.advance(0);
+    const starts = bodies(r.h, "/start");
+    assert.equal(starts[1]?.file_id, "43");
+    assert.equal(starts[1]?.start_position, 0);
+    assert.equal(r.avplay.calls.some(call => call.startsWith("seekTo")), false);
+    r.controller.destroy();
+});
+
 test("transcription refuses with a notice when the plan omits the audio track's server index", async () => {
     const r = await rig();
     r.h.fake.script("/subtitles/ai/status", { status: 200, body: { state: "available", allowed: true, enabled: true, transcribe_enabled: true } });

@@ -12,6 +12,7 @@ import {
     decodeItemDetail,
     decodeSeasons,
     decodeUserLibraries,
+    decodeWatchDetail,
     type ItemDetail,
 } from "../../src/contracts/v2/catalog.ts";
 import { WireError } from "../../src/contracts/v2/wire.ts";
@@ -327,4 +328,19 @@ test("focus moves inside rows, columns and grids, and reports the edges", () => 
     const column = { layout: "column" as const };
     assert.equal(moveWithin(column, 3, 0, "down"), 1);
     assert.equal(moveWithin(column, 3, 1, "right"), undefined);
+});
+
+// silo-server internal/apiv2/watch.go sends both presentation fields as snake_case and omits them when empty.
+test("watch detail versions decode presentation group key and part index, and leave them undefined when omitted", () => {
+    const detail = decodeWatchDetail({
+        content_id: "movie:1", type: "movie", title: "Two discs",
+        versions: [
+            { file_id: "cd2", duration_seconds: 3000, presentation_group_key: "disc-set", presentation_part_index: 2 },
+            { file_id: "single", duration_seconds: 6000 },
+        ],
+    });
+    assert.equal(detail.versions[0]?.presentationGroupKey, "disc-set");
+    assert.equal(detail.versions[0]?.presentationPartIndex, 2);
+    assert.equal(detail.versions[1]?.presentationGroupKey, undefined);
+    assert.equal(detail.versions[1]?.presentationPartIndex, undefined);
 });

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test, type TestContext } from "node:test";
 import { SeriesEpisodes } from "../../src/ui/seriesEpisodes.ts";
 import { operations } from "../../src/api/operations.ts";
 import { FakeDetails } from "./support/fakeDetails.ts";
@@ -369,6 +369,42 @@ test("a failed re-read of a cancelled season shows the failure, not the interrup
     h.state.focusSeason(4); t.mock.timers.tick(70); await h.settle();
     assert.equal(h.state.failed, true);
     assert.equal(h.state.interrupted, false, "the latest read failed; it was not cancelled");
+});
+
+async function restoredAfterCancelledSeason(t: TestContext, failRetry: boolean) {
+    const h = await episodeRailHarness();
+    const path = operations.listSeasonEpisodes("series:s1", 4).path;
+    const abandoned = h.fake.hold(path, true);
+    h.state.focusSeason(4); t.mock.timers.tick(70); await h.settle();
+    h.state.focusSeason(3); t.mock.timers.tick(70); await h.settle();
+    abandoned.release(); await h.settle();
+    const restored = new SeriesEpisodes(h.core.session, "series:s1", h.state.seasons, () => undefined, 3);
+    restored.restore(h.state, true); h.state.stop();
+    const retry = failRetry ? undefined : h.fake.hold(path, true);
+    if (failRetry) h.fake.dropNextAnswer(path);
+    restored.start(); await h.settle();
+    return { ...h, restored, retry };
+}
+
+test("a selected season whose cancelled read is retried by a neighbour read is not interrupted while it loads", async t => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const h = await restoredAfterCancelledSeason(t, false); t.after(() => h.restored.stop());
+    h.restored.focusSeason(4); t.mock.timers.tick(70); await h.settle();
+    assert.equal(h.restored.seasonNumber, 4);
+    assert.equal(h.restored.episodes, undefined, "the retry has not answered yet");
+    assert.equal(h.restored.interrupted, false, "a read is in flight, so nothing is interrupted");
+    h.retry?.release(); await h.settle();
+    assert.equal(h.restored.interrupted, false);
+    assert.equal(h.restored.entryEpisode, "rail:4:0");
+});
+
+test("a failed neighbour retry of a cancelled season reads as failed, not interrupted", async t => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const h = await restoredAfterCancelledSeason(t, true); t.after(() => h.restored.stop());
+    h.restored.focusSeason(4); t.mock.timers.tick(70); await h.settle();
+    assert.equal(h.restored.seasonNumber, 4);
+    assert.equal(h.restored.failed, true);
+    assert.equal(h.restored.interrupted, false, "the retry failed; the cancellation no longer applies");
 });
 
 test("a chip dwell onto a neighbour whose retry is in flight shows loading, not failure", async t => {

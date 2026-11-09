@@ -17,7 +17,7 @@ export class SeriesEpisodes {
     private readonly failedNeighbors = new Set<number>();
     private readonly failedSelections = new Set<number>();
     private readonly cancelledSeasons = new Set<number>();
-    get interrupted(): boolean { return this.episodes === undefined && this.controller === undefined && this.seasonNumber !== undefined && this.cancelledSeasons.has(this.seasonNumber); }
+    get interrupted(): boolean { return this.episodes === undefined && this.controller === undefined && this.seasonNumber !== undefined && !this.pendingNeighbors.has(this.seasonNumber) && this.cancelledSeasons.has(this.seasonNumber); }
     get boundaryFailed(): boolean { return [...this.failedNeighbors].some(number => !this.failedSelections.has(number) && number !== this.seasonNumber); }
     private readonly pages = new Map<number, readonly Episode[]>();
     /** Pages a fresh visit leaves out of the rail window. Reaching one again reuses it instead of the network. */
@@ -414,6 +414,7 @@ export class SeriesEpisodes {
             if (!controller.signal.aborted) {
                 this.recordFailure(number, error);
                 this.failedNeighbors.add(number);
+                this.cancelledSeasons.delete(number);
                 if (this.seasonNumber === number && this.episodes === undefined) {
                     this.failed = true;
                     this.failedSelections.add(number);

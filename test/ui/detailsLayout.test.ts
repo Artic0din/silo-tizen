@@ -2631,6 +2631,26 @@ detailTest('A Resolution change in Settings ranks the next Details', async (tv, 
     assert.equal(qualityReads(tv), 2, 'only Settings triggers a reread');
 }, undefined, settings => settings.profile().set(QUALITY_KEY, '1080p'));
 
+detailTest('A Resolution cap that lands while Details is open re-ranks its default version on screen', async (tv, { details, settings }) => {
+    assert.ok(settings);
+    await routeVersions(tv, details, rankedVersions);
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.locator('[data-focus="settings"]').click();
+    await tv.page.getByRole('switch', { name: 'Show Title Art', exact: true }).waitFor();
+    settings.profile().set(QUALITY_KEY, '720p');
+    const held = tv.fake.hold('/settings/values/effective?keys=playback.preferred_quality', true);
+    await tv.remote(10009);
+    await tv.page.locator('[data-view="home"]').waitFor();
+    await tv.eventually(async () => qualityReads(tv) === 2, 'cap reread after Settings');
+    await openMovie(tv);
+    assert.equal(await versionSummary(tv), 'Auto · 1080p', 'the last answer ranks Details while the reread is out');
+    await tv.page.locator('[data-focus="watchlist"]').waitFor();
+    await tv.jump(1000);
+    assert.equal(await versionSummary(tv), 'Auto · 1080p', 'nothing else repaints Details before the cap lands');
+    held.release();
+    await tv.eventually(async () => await versionSummary(tv) === 'Auto · 720p', 'the open Details re-ranks when the cap lands');
+}, undefined, settings => settings.profile().set(QUALITY_KEY, '1080p'));
+
 detailTest('A version with no metadata is named Auto in the Version list, as on tvOS', async (tv, { details }) => {
     await routeVersions(tv, details, template => [{ ...template, file_id: 'bare', resolution: undefined, codec_video: undefined, codec_audio: undefined, hdr: undefined }, ...rankedVersions(template)]);
     await openMovie(tv);

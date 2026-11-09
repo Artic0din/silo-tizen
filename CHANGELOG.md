@@ -12,6 +12,7 @@ All notable changes to this project are documented in this file.
 - Added Show Next Up to Playback Settings with five prompt timings and profile inheritance.
 - Showed Up Next before playback ended with Play Now, Keep Watching and an On Deck row, and refreshed autoplay at episode completion.
 - Playback settings show Connection speed and Test speed when the server advertises `connection_speed_v1`.
+- Added Lower quality when buffering (Never, Ask first, Automatically) and, when the server has learned a limit for this connection, "Limited to 44 Mbps after buffering on Oct 17" with Reset to Playback settings, as on Apple TV.
 - Sent the last measured connection speed when playback starts, while it is still current, so Auto can plan the first stream with it.
 - Added Paired Silo Profile on General, showing the profile this TV reopens and opening the profile picker to change it.
 - Added Remove Request for a failed request of yours, including the confirmation, the notice, and focus on the card that takes its place.

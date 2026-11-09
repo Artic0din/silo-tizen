@@ -1,5 +1,5 @@
 // Connection-speed reads and the Test speed report.
-// GET /api/v2/playback/connection and POST /api/v2/playback/bandwidth-probe/results.
+// GET /api/v2/playback/connection, DELETE /api/v2/playback/connection/learned-limit and POST /api/v2/playback/bandwidth-probe/results.
 // silo-apple APIv2Client+Playback.swift:91-115 at 2ef3a171. The report is non-retryable.
 
 import type { JsonBody, RequestSpec } from "./http.ts";
@@ -12,6 +12,16 @@ export const bandwidthProbeOperations = {
         path: "/playback/connection",
         retry: "safe",
         decode: decodePlaybackConnection,
+    }),
+    /**
+     * Forgets this device's learned limit on the connection in use; answered 204. The server needs
+     * `X-Silo-Device-Id`, which every call carries. APIv2Client+Playback.swift:100-106.
+     */
+    resetPlaybackLearnedLimit: (): RequestSpec<undefined> => ({
+        method: "DELETE",
+        path: "/playback/connection/learned-limit",
+        retry: "never",
+        decode: () => undefined,
     }),
     /**
      * One accurate measurement. `manual` is true because the viewer pressed Test speed.

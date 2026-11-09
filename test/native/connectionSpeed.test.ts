@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { operations } from "../../src/api/operations.ts";
 import { probeDownloadUrl, probeRetryAfterSeconds, runManualSpeedTest, type SpeedTestClient, type SpeedTestNetwork } from "../../src/api/bandwidthProbe.ts";
 import type { ServerBase } from "../../src/api/serverUrl.ts";
-import { decodePlaybackConnection } from "../../src/contracts/v2/connectionSpeed.ts";
+import { BUFFERING_QUALITY_FEATURE, decodePlaybackConnection } from "../../src/contracts/v2/connectionSpeed.ts";
 import { decodePlaybackCapabilities } from "../../src/contracts/v2/playback.ts";
 import { AccurateProbeMeter } from "../../src/player/bandwidthProbe.ts";
 import {
@@ -12,6 +12,7 @@ import {
     connectionRateText,
     connectionSpeedSkippedText,
     connectionSpeedText,
+    learnedLimitText,
     playbackSampleText,
     tryAgainMessage,
 } from "../../src/ui/connectionSpeed.ts";
@@ -348,4 +349,40 @@ test("a body shorter than Content-Length measures nothing", async () => {
     const download: SpeedTestClient["download"] = async () => new Response(new Uint8Array(1000), { status: 200, headers: { "Content-Length": "5000" } });
     assert.deepEqual(await runManualSpeedTest(clientOf(harness, download), WIFI, new AbortController().signal), { kind: "failed" });
     assert.equal(reports(harness.fake).length, 0);
+});
+
+test("connection document keeps a valid learned limit and reads a malformed or null one as absent", () => {
+    const limit = { kbps: 44000, observed_at: "2026-10-17T05:00:00Z", expires_at: "2026-10-24T05:00:00Z" };
+    assert.deepEqual(decodePlaybackConnection({ connection: "remote", learned_limit: limit }).learnedLimit, {
+        kbps: 44000,
+        observedAt: Date.parse("2026-10-17T05:00:00Z"),
+        expiresAt: Date.parse("2026-10-24T05:00:00Z"),
+    });
+    assert.equal(decodePlaybackConnection({ connection: "remote", learned_limit: null }).learnedLimit, undefined);
+    assert.equal(decodePlaybackConnection({ connection: "remote" }).learnedLimit, undefined);
+    assert.equal(decodePlaybackConnection({ connection: "remote", learned_limit: { ...limit, kbps: 44.5 } }).learnedLimit, undefined);
+    assert.equal(decodePlaybackConnection({ connection: "remote", learned_limit: { kbps: 44000, observed_at: "soon", expires_at: limit.expires_at } }).learnedLimit, undefined);
+    assert.equal(decodePlaybackConnection({ connection: "remote", learned_limit: { kbps: 44000, observed_at: limit.observed_at } }).learnedLimit, undefined);
+    // A malformed limit leaves the rest of the document intact (APIv2PlaybackModels.swift:302-306).
+    const mixed = decodePlaybackConnection({ connection: "remote", learned_limit: "x", auto_budget_kbps: 35280 });
+    assert.equal(mixed.autoBudgetKbps, 35280);
+    assert.equal(BUFFERING_QUALITY_FEATURE, "buffering_quality_v1");
+});
+
+test("resetPlaybackLearnedLimit is a DELETE that is never retried", () => {
+    const spec = operations.resetPlaybackLearnedLimit();
+    assert.equal(spec.method, "DELETE");
+    assert.equal(spec.path, "/playback/connection/learned-limit");
+    assert.equal(spec.retry, "never");
+    assert.equal(spec.decode(undefined), undefined);
+});
+
+test("learned limit text names the rate and the local day of the last lowering", () => {
+    const limit = { kbps: 44000, observedAt: Date.parse("2026-10-17T05:00:00Z"), expiresAt: Date.parse("2026-10-24T05:00:00Z") };
+    assert.equal(learnedLimitText(limit, "en-US", "Australia/Melbourne"), "Limited to 44 Mbps after buffering on Oct 17");
+    // 23:30 UTC on the 16th is already the 17th in Melbourne: the day is local, never UTC-derived.
+    assert.equal(learnedLimitText({ ...limit, observedAt: Date.parse("2026-10-16T23:30:00Z") }, "en-US", "Australia/Melbourne"), "Limited to 44 Mbps after buffering on Oct 17");
+    assert.equal(learnedLimitText({ ...limit, observedAt: Date.parse("2026-10-16T23:30:00Z") }, "en-US", "UTC"), "Limited to 44 Mbps after buffering on Oct 16");
+    assert.equal(learnedLimitText({ ...limit, kbps: 4500 }, "en-US", "UTC"), "Limited to 4.5 Mbps after buffering on Oct 17");
+    assert.equal(learnedLimitText({ ...limit, kbps: 800 }, "en-US", "UTC"), "Limited to 800 kbps after buffering on Oct 17");
 });

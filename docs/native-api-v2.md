@@ -417,6 +417,8 @@ All are Bearer plus Profile, with refresh replay left at its default.
 | replanPlayback | `POST /playback/{sessionId}/replan` | never |
 | updatePlaybackProgress | `POST /playback/{sessionId}/progress` | never |
 | stopPlayback | `DELETE /playback/{sessionId}` with a JSON body | never |
+| getPlaybackConnection | `GET /playback/connection` | safe |
+| resetPlaybackLearnedLimit | `DELETE /playback/connection/learned-limit` | never |
 | playback defaults | `GET /settings/values/effective?keys=...` | safe |
 
 Gating (`src/player/controller.ts`): playback proceeds only when the capability answer has `state` available, `allowed`, protocol version 3 in `protocol_versions`, an `installation_id`, and an active profile.

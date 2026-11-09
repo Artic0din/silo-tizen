@@ -1,6 +1,7 @@
 import type { FakeSilo, Reply } from "./fakeSilo.ts";
 import { fixture, problem } from "./fakeSilo.ts";
 import { AUDIO_KEY, HDR_KEY, QUALITY_KEY, SEEK_BACK_KEY, SEEK_FORWARD_KEY, SETTINGS_KEYS, SHOW_FORCED_KEY, SPOILER_IMAGE_KEY, SPOILER_OVERVIEW_KEY, SUBTITLE_LANGUAGE_KEY, SUBTITLE_MODE_KEY, type SettingsKey, type SettingValue } from "../../../src/contracts/v2/settings.ts";
+const BUFFERING_MODE_KEY = "playback.buffering_quality_mode";
 const DOLBY_VISION_KEY = "player.dolby_vision_enabled";
 const TITLE = "ui.title_art" as SettingsKey;
 
@@ -23,6 +24,8 @@ export class FakeSettings {
     /** Offers device-only HDR, and Dolby Vision, which this client must not read or write. The vendored fixture omits both. */
     hdrRows = false;
     remainingRows = false;
+    /** Offers `playback.buffering_quality_mode` (settings revision 23), default "always". */
+    bufferingRows = false;
     /** `GET /settings/overlay-config`; undefined answers 404. */
     overlayConfig: { enabled: boolean; defaults?: string } | undefined = { enabled: true };
     constructor(fake: FakeSilo) {
@@ -56,6 +59,13 @@ export class FakeSettings {
                     contract.definitions = [...contract.definitions.filter(def => !keys.includes(def.key)), ...extra.definitions];
                 }
                 if (typeof contract.option_sets === "object" && contract.option_sets !== null) Object.assign(contract.option_sets, extra.option_sets);
+            }
+            if (this.bufferingRows && Array.isArray(contract.definitions)) {
+                contract.definitions = [...contract.definitions.filter(def => def.key !== BUFFERING_MODE_KEY), {
+                    key: BUFFERING_MODE_KEY, introduced_in: 23, persistence: "remote", allowed_scopes: ["profile", "profile_device"], resolution_order: ["profile_device", "profile", "default"],
+                    value_schema: { type: "enum", nullable: false, values: [{ value: "never", label: "Never" }, { value: "ask", label: "Ask first" }, { value: "always", label: "Automatically" }] },
+                    default_value: "always", recommended_control: "select",
+                }];
             }
             if (!this.devicePlayback && Array.isArray(contract.definitions)) contract.definitions = contract.definitions.map(def => [AUDIO_KEY, QUALITY_KEY, "playback.max_bitrate_kbps"].includes(String(def.key)) ? { ...def, allowed_scopes: ["profile"] } : def);
             if (this.hdrRows && Array.isArray(contract.definitions)) {
@@ -110,14 +120,14 @@ export class FakeSettings {
                 const override = this.overrides.has(typed) || deviceOverride;
                 const defaults = fixture("settings_rows_216").definitions;
                 const fallback = typed === SPOILER_IMAGE_KEY || typed === SPOILER_OVERVIEW_KEY ? false : Array.isArray(defaults) ? defaults.find(def => def.key === key)?.default_value : undefined;
-                const value = this.overrides.has(typed) ? this.overrides.get(typed) : deviceOverride ? deviceRows.get(typed) : profileRows.has(typed) ? profileRows.get(typed) : key === "ui.card_presentation" ? { poster_size: "standard", caption: "title_metadata" } : typed === QUALITY_KEY ? "auto" : typed === SEEK_BACK_KEY ? 10 : typed === SEEK_FORWARD_KEY ? 30 : typed === SUBTITLE_MODE_KEY ? "auto" : typed === SHOW_FORCED_KEY || typed === HDR_KEY ? true : fallback ?? null;
+                const value = this.overrides.has(typed) ? this.overrides.get(typed) : deviceOverride ? deviceRows.get(typed) : profileRows.has(typed) ? profileRows.get(typed) : key === "ui.card_presentation" ? { poster_size: "standard", caption: "title_metadata" } : typed === QUALITY_KEY ? "auto" : typed === SEEK_BACK_KEY ? 10 : typed === SEEK_FORWARD_KEY ? 30 : typed === SUBTITLE_MODE_KEY ? "auto" : typed === SHOW_FORCED_KEY || typed === HDR_KEY ? true : key === BUFFERING_MODE_KEY ? "always" : fallback ?? null;
                 return { key, value, source: override ? "profile_device" : rows.has(typed) ? "profile" : "default", definition_revision: this.revision, ...(this.constrained && typed === AUDIO_KEY ? { constrained: true, requested_value: rows.get(typed) ?? null, permitted_values: [null, "en"] } : {}) };
             });
             return { status: 200, body: { items, revision: this.revision } };
         }
         const key = pathname.slice("/settings/values/".length) as SettingsKey;
         if (!SETTINGS_KEYS.some(known => known === key) && key !== TITLE && key !== SPOILER_IMAGE_KEY && key !== SPOILER_OVERVIEW_KEY && key !== SUBTITLE_LANGUAGE_KEY && key !== SUBTITLE_MODE_KEY && key !== SHOW_FORCED_KEY) return problem(422, "validation_failed", "Unknown setting");
-        if (scope !== "profile" && !(key === "ui.card_presentation" && scope === "profile_client") && !([TITLE, "playback.subtitle_appearance", "ui.card_presentation", AUDIO_KEY, QUALITY_KEY, "playback.max_bitrate_kbps", "playback.auto_play_next", "playback.next_up_prompt_seconds", "playback.intro_skip_mode", "playback.auto_skip_credits", HDR_KEY].includes(key) && scope === "profile_device" && device)) return problem(422, "validation_failed", "Invalid scope");
+        if (scope !== "profile" && !(key === "ui.card_presentation" && scope === "profile_client") && !([TITLE, "playback.subtitle_appearance", "ui.card_presentation", AUDIO_KEY, QUALITY_KEY, "playback.max_bitrate_kbps", "playback.auto_play_next", "playback.next_up_prompt_seconds", "playback.intro_skip_mode", "playback.auto_skip_credits", BUFFERING_MODE_KEY, HDR_KEY].includes(key) && scope === "profile_device" && device)) return problem(422, "validation_failed", "Invalid scope");
         if (method === "DELETE") {
             if (!rows.delete(key)) return problem(404, "not_found", "Unset");
             return { status: 204 };

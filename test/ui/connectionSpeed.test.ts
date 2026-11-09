@@ -68,12 +68,12 @@ function reports(tv: Tv) {
     return tv.fake.requests.filter(request => request.method === "POST" && request.path === "/playback/bandwidth-probe/results");
 }
 
-test("Connection speed stays hidden without connection_speed_v1", async () => {
+test("Connection speed stays hidden without connection_speed_v1 or buffering_quality_v1", async () => {
     const { tv } = await setup();
     const raw = fixture("playback_capability_available");
     tv.fake.extraRoutes.push((method, path) => {
         if (method === "GET" && path === "/playback/capabilities") {
-            return { status: 200, body: { ...raw, features: featuresOf(raw).filter(feature => feature !== "connection_speed_v1") } };
+            return { status: 200, body: { ...raw, features: featuresOf(raw).filter(feature => feature !== "connection_speed_v1" && feature !== "buffering_quality_v1") } };
         }
         return undefined;
     });
@@ -276,5 +276,146 @@ test("a cellular connection skips the test", async () => {
         await tv.page.locator('[data-focus="connection-speed"]').click({ force: true });
         assert.equal(probes(tv).length, 0);
         assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
+
+const LIMIT = { kbps: 44000, observed_at: "2026-01-02T12:00:00Z", expires_at: "2026-01-09T12:00:00Z" };
+const LIMITED = { connection: "remote", learned_limit: LIMIT, probe: { kbps: 48000, lower_bound: false, measured_at: NOW, transport: "wifi" }, auto_budget_kbps: 35280 };
+
+/** Serves the connection document with a learned limit that DELETE clears, as the server does. */
+function serveLimit(tv: Tv, options: { without?: readonly string[]; resetFails?: boolean } = {}) {
+    const raw = fixture("playback_capability_available");
+    const state = { limit: true, deletes: 0 };
+    tv.fake.extraRoutes.push((method, path) => {
+        if (method === "GET" && path === "/playback/capabilities") {
+            return { status: 200, body: { ...raw, features: featuresOf(raw).filter(feature => !(options.without ?? []).includes(feature)) } };
+        }
+        if (method === "GET" && path === "/playback/connection") return { status: 200, body: state.limit ? LIMITED : { connection: "remote", learned_limit: null } };
+        if (method === "DELETE" && path === "/playback/connection/learned-limit") {
+            state.deletes += 1;
+            if (options.resetFails === true && state.deletes === 1) return problem(500, "internal_error", "Server error");
+            state.limit = false;
+            return { status: 204 };
+        }
+        return undefined;
+    });
+    return state;
+}
+
+test("the learned limit sits under the buffering row and Reset clears it with focus kept", async () => {
+    const { tv, settings } = await setup();
+    settings.bufferingRows = true;
+    serveLimit(tv);
+    try {
+        await openSettings(tv);
+        await tv.page.locator('[data-focus="playback"]').click();
+        const row = tv.page.locator('[data-focus="learned-limit"]');
+        await row.waitFor();
+        assert.equal(await row.locator(".settings-row-title").textContent(), "Limited to 44 Mbps after buffering on Jan 2");
+        assert.equal(await row.locator(".settings-row-value").textContent(), "Reset");
+        const order = await tv.page.evaluate(() => {
+            const nodes = ["buffering-mode", "learned-limit"].map(key => document.querySelector(`[data-focus="${key}"]`));
+            const footer = document.querySelector(".settings-quality-footer");
+            if (nodes.some(node => node === null) || footer === null) return false;
+            return ((nodes[0] as Node).compareDocumentPosition(nodes[1] as Node) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0
+                && ((nodes[1] as Node).compareDocumentPosition(footer) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+        });
+        assert.equal(order, true);
+        assert.equal(await tv.page.locator(".settings-connection-budget").textContent(), "Auto plays videos up to 35 Mbps without converting them.");
+        const reads = tv.fake.requests.filter(request => request.path === "/playback/connection").length;
+        await row.focus();
+        await tv.page.keyboard.press("Enter");
+        await tv.eventually(async () => tv.fake.requests.some(request => request.method === "DELETE" && request.path === "/playback/connection/learned-limit"), "reset request");
+        const reset = tv.fake.requests.find(request => request.method === "DELETE" && request.path === "/playback/connection/learned-limit");
+        assert.equal(reset?.headers["x-profile-id"], "p-owner");
+        assert.ok(reset?.headers.authorization?.startsWith("Bearer "));
+        assert.ok(reset?.headers["x-silo-device-id"]);
+        await tv.page.locator('[data-focus="learned-limit"]').waitFor({ state: "detached" });
+        assert.equal(await tv.focused(), "buffering-mode");
+        // The server's Auto budget counted the limit, so the Connection group reads again.
+        await tv.eventually(async () => tv.fake.requests.filter(request => request.path === "/playback/connection").length > reads, "connection re-read");
+        assert.equal(await tv.page.locator(".browse-error").count(), 0);
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
+
+test("a failed Reset keeps the row and says to try again, and the next Reset clears the message", async () => {
+    const { tv, settings } = await setup();
+    settings.bufferingRows = true;
+    serveLimit(tv, { resetFails: true });
+    try {
+        await openSettings(tv);
+        await tv.page.locator('[data-focus="playback"]').click();
+        const row = tv.page.locator('[data-focus="learned-limit"]');
+        await row.waitFor();
+        await row.focus();
+        await tv.page.keyboard.press("Enter");
+        const warning = tv.page.getByText("Couldn't reset the limit. Try again.", { exact: true });
+        await warning.waitFor();
+        assert.equal(await warning.getAttribute("role"), "alert");
+        assert.equal(await tv.page.locator('[data-focus="learned-limit"]').count(), 1);
+        assert.equal(await tv.focused(), "learned-limit");
+        await tv.page.keyboard.press("Enter");
+        await tv.page.locator('[data-focus="learned-limit"]').waitFor({ state: "detached" });
+        assert.equal(await warning.count(), 0);
+        assert.equal(await tv.focused(), "buffering-mode");
+    } finally { await tv.page.context().close(); }
+});
+
+test("the learned limit is hidden for Never, for no limit, and without buffering_quality_v1", async () => {
+    const never = await setup();
+    never.settings.bufferingRows = true;
+    serveLimit(never.tv);
+    try {
+        const deviceId = never.tv.fake.requests.find(r => r.headers["x-silo-device-id"])?.headers["x-silo-device-id"];
+        assert.ok(deviceId);
+        never.settings.device("p-owner", deviceId).set("playback.buffering_quality_mode", "never");
+        await openSettings(never.tv);
+        await never.tv.page.locator('[data-focus="playback"]').click();
+        await never.tv.page.locator(".settings-connection-line").waitFor();
+        assert.equal(await never.tv.page.locator('[data-focus="buffering-mode"] .settings-row-value').textContent(), "Never");
+        assert.equal(await never.tv.page.locator('[data-focus="learned-limit"]').count(), 0);
+        // SettingsViewModel.swift:626-632: the budget counts the limit, which Never ignores.
+        assert.equal(await never.tv.page.locator(".settings-connection-budget").count(), 0);
+    } finally { await never.tv.page.context().close(); }
+
+    const unadvertised = await setup();
+    unadvertised.settings.bufferingRows = true;
+    serveLimit(unadvertised.tv, { without: ["buffering_quality_v1"] });
+    try {
+        await openSettings(unadvertised.tv);
+        await unadvertised.tv.page.locator('[data-focus="playback"]').click();
+        await unadvertised.tv.page.locator(".settings-connection-line").waitFor();
+        assert.equal(await unadvertised.tv.page.locator('[data-focus="learned-limit"]').count(), 0);
+    } finally { await unadvertised.tv.page.context().close(); }
+
+    const none = await setup();
+    none.settings.bufferingRows = true;
+    serveConnection(none.tv, { connection: "remote", learned_limit: null });
+    try {
+        await openSettings(none.tv);
+        await none.tv.page.locator('[data-focus="playback"]').click();
+        await none.tv.page.locator('[data-focus="buffering-mode"]').waitFor();
+        await none.tv.eventually(async () => none.tv.fake.requests.some(request => request.path === "/playback/connection"), "connection read");
+        assert.equal(await none.tv.page.locator('[data-focus="learned-limit"]').count(), 0);
+    } finally { await none.tv.page.context().close(); }
+});
+
+test("the learned limit shows without connection_speed_v1 and without the mode row, and Reset focuses Maximum Bitrate", async () => {
+    const { tv } = await setup();
+    serveLimit(tv, { without: ["connection_speed_v1"] });
+    try {
+        await openSettings(tv);
+        await tv.page.locator('[data-focus="playback"]').click();
+        const row = tv.page.locator('[data-focus="learned-limit"]');
+        await row.waitFor();
+        assert.equal(await tv.page.locator('[data-focus="buffering-mode"]').count(), 0);
+        assert.deepEqual(await tv.page.locator(".settings-section-header").allTextContents(), ["QUALITY", "STREAMING", "EPISODES", "SPOILERS", "VIDEO"]);
+        const reads = tv.fake.requests.filter(request => request.path === "/playback/connection").length;
+        await row.focus();
+        await tv.page.keyboard.press("Enter");
+        await tv.page.locator('[data-focus="learned-limit"]').waitFor({ state: "detached" });
+        assert.equal(await tv.focused(), "bitrate");
+        assert.equal(tv.fake.requests.filter(request => request.path === "/playback/connection").length, reads, "no Connection group, so no re-read");
     } finally { await tv.page.context().close(); }
 });

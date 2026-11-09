@@ -8,16 +8,16 @@ import { SettingsState } from "./settingsState.ts";
 import type { ProfileLaunch, LaunchBehavior } from "../session/profileLaunch.ts";
 import { acknowledgementsDocument } from "./acknowledgements.ts";
 import type { EpisodeSpoilerPreferences } from "./episodeSpoilers.ts";
-import { settingsRows, rowValue, rowEdit, type SettingsRow } from "./settingsRows.ts";
-import { APPEARANCE_KEY } from "../contracts/v2/settingsRows.ts";
+import { settingsRows, rowValue, rowEdit, BUFFERING_ROW_ID, type SettingsRow } from "./settingsRows.ts";
+import { APPEARANCE_KEY, BUFFERING_MODE_KEY } from "../contracts/v2/settingsRows.ts";
 import { qrCode } from "./qr.ts";
 import { navigationAvatar } from "./navigationAvatar.ts";
 import { navigationIcon } from "./navigationIcon.ts";
 import { decodeAppearance, DEFAULT_APPEARANCE } from "../contracts/v2/subtitles.ts";
 import { applySubtitleAppearance } from "../player/subtitleView.ts";
 import { pairedProfileDescription, pairedProfileLabel, profileSelectionCaption } from "./pairedProfile.ts";
-import { bitrateLabel, qualityFooter } from "./qualitySettings.ts";
-import { ConnectionSpeed } from "./connectionSpeed.ts";
+import { BUFFERING_QUALITY_MODES, BUFFERING_QUALITY_TITLE, bitrateLabel, qualityFooter } from "./qualitySettings.ts";
+import { ConnectionSpeed, LEARNED_LIMIT_RESET_ACTION, learnedLimitText } from "./connectionSpeed.ts";
 import { signOutConfirmationCopy } from "./signOutConfirmation.ts";
 
 type Category = "general" | "playback" | "subtitles" | "server";
@@ -551,13 +551,39 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
             rows.push(item);
             body.append(item.element);
         }
+        // TVPlaybackSettingsView.swift:60-120: Resolution, Maximum Bitrate, the buffering row, the learned limit, then one footer.
+        const bufferingRow = category === "playback" && state.loaded ? settingsRows("playback", state).find(row => row.id === BUFFERING_ROW_ID) : undefined;
+        if (bufferingRow !== undefined) {
+            const mode = rowValue(bufferingRow, state);
+            const item = button(BUFFERING_ROW_ID, BUFFERING_QUALITY_TITLE, () => { extraPicker = bufferingRow; render(); });
+            item.element.replaceChildren(el("span", "settings-row-title", BUFFERING_QUALITY_TITLE), el("span", "settings-row-value", BUFFERING_QUALITY_MODES.find(([value]) => value === mode)?.[1] ?? "Automatically"), el("span", "settings-chevron", "›"));
+            rows.push(item);
+            beforeStreaming(body, [item.element]);
+        }
+        // The server's default mode is Automatically; Never ignores the limit (SettingsViewModel.learnedConnectionLimitText).
+        const learned = category === "playback" && state.effective.get(BUFFERING_MODE_KEY)?.value !== "never" ? connection.learnedLimit : undefined;
+        if (learned !== undefined) {
+            const text = learnedLimitText(learned);
+            const item = button("learned-limit", text, () => {
+                void connection.resetLearnedLimit().then(cleared => {
+                    // The row is gone, so focus moves to the row above it (TVPlaybackSettingsView.swift:122-131).
+                    if (cleared && !torn) render({ zone: "settings-rows", key: bufferingRow === undefined ? "bitrate" : BUFFERING_ROW_ID });
+                });
+            });
+            item.element.replaceChildren(el("span", "settings-row-title", text), el("span", "settings-row-value", LEARNED_LIMIT_RESET_ACTION));
+            item.element.classList.add("settings-learned-limit");
+            rows.push(item);
+            beforeStreaming(body, [item.element]);
+        }
         if (category === "playback" && state.loaded && state.definitions.some(def => def.key === QUALITY_KEY)) {
             const resolution = state.effective.get(QUALITY_KEY)?.value;
             const bitrate = state.effective.get(BITRATE_KEY)?.value;
-            const footer = el("p", "settings-value settings-quality-footer", qualityFooter(typeof resolution === "string" ? resolution : null, typeof bitrate === "number" ? bitrate : null));
-            const streaming = [...body.children].find(node => node.classList.contains("settings-section-header") && node.textContent === "STREAMING");
-            if (streaming !== undefined) body.insertBefore(footer, streaming);
-            else body.appendChild(footer);
+            beforeStreaming(body, [el("p", "settings-value settings-quality-footer", qualityFooter(typeof resolution === "string" ? resolution : null, typeof bitrate === "number" ? bitrate : null, bufferingRow !== undefined))]);
+        }
+        if (category === "playback" && connection.learnedResetError !== undefined) {
+            const warning = el("p", "browse-text browse-error", connection.learnedResetError);
+            warning.setAttribute("role", "alert");
+            beforeStreaming(body, [warning]);
         }
         const speed = category === "playback" ? connection.view : undefined;
         if (speed !== undefined) {
@@ -569,15 +595,15 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
             if (speed.disabled) item.element.setAttribute("aria-disabled", "true");
             if (speed.testing) item.element.setAttribute("aria-busy", "true");
             const nodes: HTMLElement[] = [el("h3", "settings-section-header", "CONNECTION"), item.element];
-            if (speed.budget !== undefined) nodes.push(el("p", "settings-value settings-connection-budget", speed.budget));
+            // Never ignores the limit the server's budget counts, so Apple drops the sentence (SettingsViewModel.swift:626-632).
+            const ignoresLimit = state.effective.get(BUFFERING_MODE_KEY)?.value === "never" && connection.learnedLimit !== undefined;
+            if (speed.budget !== undefined && !ignoresLimit) nodes.push(el("p", "settings-value settings-connection-budget", speed.budget));
             if (speed.message !== undefined) {
                 const warning = el("p", "browse-text browse-error", speed.message);
                 warning.setAttribute("role", "alert");
                 nodes.push(warning);
             }
-            const streaming = [...body.children].find(node => node.classList.contains("settings-section-header") && node.textContent === "STREAMING");
-            if (streaming !== undefined) for (const node of nodes) body.insertBefore(node, streaming);
-            else for (const node of nodes) body.appendChild(node);
+            beforeStreaming(body, nodes);
             rows.push(item);
         }
         if (category === "subtitles" && state.loaded) {
@@ -615,7 +641,7 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
                 }
                 body.appendChild(el("h3", "settings-section-header", "EPISODES"));
             }
-            for (const row of settingsRows(category, state)) {
+            for (const row of settingsRows(category, state).filter(row => row.id !== BUFFERING_ROW_ID)) {
                 if (row.id === "metadata-language") body.appendChild(el("h3", "settings-section-header", "METADATA"));
                 const value = rowValue(row, state);
                 const item = button(row.id, row.title, () => {
@@ -767,6 +793,15 @@ function subtitleOverride(state: SettingsState): string | undefined {
     if (scopes.size > 1) return MIXED_SUBTITLE_OVERRIDE;
     const [scope] = [...scopes];
     return scope === undefined ? undefined : SUBTITLE_OVERRIDE[scope] ?? "A more specific subtitle setting overrides this profile default. Changes here are saved for the profile, but the override still applies.";
+}
+
+/** Inserts nodes above the STREAMING header, or at the end when the pane has none. */
+function beforeStreaming(body: HTMLElement, nodes: readonly HTMLElement[]): void {
+    const streaming = [...body.children].find(node => node.classList.contains("settings-section-header") && node.textContent === "STREAMING");
+    for (const node of nodes) {
+        if (streaming !== undefined) body.insertBefore(node, streaming);
+        else body.appendChild(node);
+    }
 }
 
 function valueLabel(value: SettingValue, key: SettingsKey = AUDIO_KEY): string {

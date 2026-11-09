@@ -2747,6 +2747,18 @@ browseTest("Browse Shuffle sends one create and keeps failure recovery remote re
     assert.equal(await tv.page.getByRole("alertdialog").count(), 0);
 });
 
+browseTest("Browse Shuffle starts a pick with saved progress from zero, like Apple TV", async tv => {
+    await tv.page.route("**/api/v2/shuffles/capabilities", route => route.fulfill({ json: { allowed: true, state: "available", scope_kinds: ["library"] } }));
+    await tv.page.route("**/api/v2/shuffles", route => route.fulfill({ status: 201, json: { id: "sh1", current: { content_id: "movie:m0001" }, next: { content_id: "movie:m0002" } } }));
+    await tv.page.route("**/api/v2/watch/**", route => route.fulfill({ json: { content_id: "movie:m0001", type: "movie", title: "Movie 0001", versions: [{ file_id: "f-movie:m0001", duration_seconds: 6000 }], user_data: { played: false, position_seconds: 1800, last_file_id: "f-movie:m0001" } } }));
+    await tv.page.locator('[data-focus="movies"]').click();
+    await showing(tv, "library:12");
+    await selectLibraryMode(tv, "Browse");
+    await tv.page.locator('.browse-controls [data-focus="shuffle"]').click();
+    await tv.eventually(async () => await tv.page.evaluate(() => window.browseHarness.plays.length) === 1, "shuffle handoff");
+    assert.deepEqual(await tv.page.evaluate(() => window.browseHarness.plays[0]), { contentId: "movie:m0001", fileId: "f-movie:m0001", title: "Movie 0001", startSeconds: 0, shuffleId: "sh1" });
+});
+
 browseTest("Browse Shuffle hands its server session to the normal playback owner", async tv => {
     await tv.page.route("**/api/v2/shuffles/capabilities", route => route.fulfill({ json: { allowed: true, state: "available", scope_kinds: ["library"] } }));
     await tv.page.route("**/api/v2/shuffles", route => route.fulfill({ status: 201, json: { id: "sh1", current: { content_id: "movie:m0001" }, next: { content_id: "movie:m0002" } } }));

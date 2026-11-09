@@ -25,15 +25,18 @@ import { ApiError } from "../api/errors.ts";
 import { abortedError, type RequestSpec } from "../api/http.ts";
 import { operations } from "../api/operations.ts";
 import { isPermittedUrl } from "../api/serverUrl.ts";
-import type { FileVersionTracks, PlaybackDecision, PlaybackDefaults, PlaybackMutation, PlaybackPlan, ReplanOperation, SelectedTracks, StartPlaybackBody, SubtitleTrack, TrackIdentity } from "../contracts/v2/playback.ts";
+import { CONNECTION_SPEED_FEATURE } from "../contracts/v2/connectionSpeed.ts";
+import type { FileVersionTracks, PlaybackCapabilities, PlaybackDecision, PlaybackDefaults, PlaybackMutation, PlaybackPlan, ReplanOperation, SelectedTracks, StartPlaybackBody, SubtitleTrack, TrackIdentity } from "../contracts/v2/playback.ts";
 import type { PublicStorage, RandomBytes } from "../session/deviceIdentity.ts";
 import type { NativeSession } from "../session/session.ts";
 import type { AVPlay, AVPlayListener, AVPlayTrackInfo } from "./avplay.ts";
+import { bandwidthReadings, FALLBACK_MAX_AGE_SECONDS, readingsKey } from "./bandwidthReadings.ts";
 import { clientCapabilities, clientFeatures, HLS_SUBTITLE_RENDITIONS_ALL_FEATURE, playbackContext, probeHdrPanel, type HdrPanel } from "./capabilities.ts";
 import { SeekThumbnails, type ThumbnailSheetLoader } from "./seekThumbnails.ts";
 import { AUTO_NEXT_KEY, HDR_KEY, QUALITY_KEY, BITRATE_KEY, SEEK_BACK_KEY, SEEK_FORWARD_KEY, SEEK_KEYS, profileSettings } from "../contracts/v2/settings.ts";
 import type { SeekThumbnail } from "../contracts/v2/trickplay.ts";
 import { markerAt, type SkipMarker } from "../contracts/v2/markers.ts";
+import { currentNetwork } from "../ui/connectionSpeed.ts";
 import { episodeDetailPresentation, type EpisodeSpoilerSettings } from "../ui/episodeSpoilers.ts";
 import { nextEpisode, onDeckPlays, readOnDeck } from "./nextEpisode.ts";
 import type { ResolutionCap } from "../ui/resolutionCap.ts";
@@ -1135,6 +1138,21 @@ export class PlaybackController implements PlayerControls {
         }
     }
 
+    /**
+     * The highest stored reading still current on this server and network, as Apple's start sends it.
+     * Never a probe or a read: with no reading, on a metered link or on a server without a speed test it is absent.
+     */
+    private storedEstimateKbps(capabilities: PlaybackCapabilities): number | undefined {
+        if (!capabilities.features.includes(CONNECTION_SPEED_FEATURE) || capabilities.bandwidthProbeUrl === undefined) return undefined;
+        const network = currentNetwork();
+        if (!network.online || network.metered) return undefined;
+        return bandwidthReadings.freshEstimateKbps(
+            readingsKey(this.deps.session.http.base.baseUrl, this.deps.session.account?.id, network.transport),
+            this.deps.clock.now(),
+            capabilities.bandwidthProbeMaxAgeSeconds ?? FALLBACK_MAX_AGE_SECONDS,
+        );
+    }
+
     private reportedPlayback(attempt: Attempt): Pick<StartPlaybackBody, "client_capabilities" | "client_playback_context"> {
         const report = { panel: attempt.hdrPanel, preference: { hdrEnabled: attempt.hdrEnabled } };
         return {
@@ -1181,6 +1199,7 @@ export class PlaybackController implements PlayerControls {
             attempt.qualityPreference = defaults.qualityPreference;
             attempt.bandwidthCapKbps = defaults.bandwidthCapKbps;
             attempt.autoBandwidthCapKbps = defaults.bandwidthCapKbps;
+            const estimateKbps = this.storedEstimateKbps(capabilities);
             const start = operations.startPlayback({
                 installation_id: installationId,
                 protocol_version: 3,
@@ -1190,6 +1209,7 @@ export class PlaybackController implements PlayerControls {
                 playback_attempt_id: attempt.playbackAttemptId,
                 quality_preference: attempt.qualityPreference,
                 ...(attempt.bandwidthCapKbps === undefined ? {} : { bandwidth_cap_kbps: attempt.bandwidthCapKbps }),
+                ...(estimateKbps === undefined ? {} : { bandwidth_estimate_kbps: estimateKbps }),
                 subtitle_fidelity_preference: "compatible",
                 ...(attempt.request.startSeconds === undefined ? {} : { start_position: attempt.request.startSeconds }),
                 ...(attempt.request.audioTrackId === undefined ? {} : { audio_track_id: attempt.request.audioTrackId }),

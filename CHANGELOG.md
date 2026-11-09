@@ -12,6 +12,7 @@ All notable changes to this project are documented in this file.
 - Added Show Next Up to Playback Settings with five prompt timings and profile inheritance.
 - Showed Up Next before playback ended with Play Now, Keep Watching and an On Deck row, and refreshed autoplay at episode completion.
 - Playback settings show Connection speed and Test speed when the server advertises `connection_speed_v1`.
+- Sent the last measured connection speed when playback starts, while it is still current, so Auto can plan the first stream with it.
 - Added Paired Silo Profile on General, showing the profile this TV reopens and opening the profile picker to change it.
 - Added Remove Request for a failed request of yours, including the confirmation, the notice, and focus on the card that takes its place.
 - Hid unwatched episode stills and descriptions from Playback when the server supports the profile spoiler settings.
@@ -36,6 +37,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Started every Shuffle pick from the beginning at its first part, with no resume, as Apple TV does, for Shuffle from a library, collection or series and for the next pick in the player.
 - Drew Apple TV's default artwork for posters, thumbnails, Search box sets and episode stills with no artwork or a failed load: dark base, three faint brand glows and a film, tv, headphones or book mark by type, in place of the title text. Artwork that is still loading shows Apple's darker placeholder instead.
 - Changed the Series Details episode rail error to Apple TV's text-only "Couldn't load more episodes. Move away and back to retry." and removed the Retry more episodes button. The error now uses Apple TV's 18-point secondary text. Choosing another season or reopening Details, including going Back to it, now clears the error and reads each missing neighbouring season at once, as Apple TV does, instead of waiting for focus to reach the rail edge.
 - Hid the Series Details rail edge error while its retry runs and showed it again if it fails, as Apple TV does. Focus stays on the edge card.

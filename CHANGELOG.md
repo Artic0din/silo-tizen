@@ -28,6 +28,7 @@ All notable changes to this project are documented in this file.
 ### Fixed
 
 - Said a finished AI subtitle was saved but not turned on when the refreshed plan marks it unplayable, as a downloaded one already does, instead of doing nothing after Select.
+- Made the Home offline-recovery, For You offline, Browse Recommended reselect and Player hold tests wait for the page's own retry timers, Details read and clock set-up instead of assuming a fast runner, which removes their intermittent hosted CI failures.
 - Restored the Continue Watching progress bar with Apple TV's look: a 3px bar flush with the card's bottom edge, a faint full-width track, and a light fill for the watched share. Box set search results use the same bar.
 - Listed a subtitle the server marks unplayable as dimmed with Unsupported format and made Select on it do nothing, so picking it no longer ends playback. Automatic picks skip it, a saved subtitle preference naming one falls back to the next playable pick, and a Details choice of one starts with subtitles off. A downloaded or AI subtitle that is unplayable says it was saved but not turned on, or shows Unsupported format.
 - Showed Who's watching after signing in even when the TV could not save that the remembered profile was cleared.

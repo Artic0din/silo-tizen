@@ -132,3 +132,31 @@ test("restoring a server-revoked remembered proof fails closed without a PIN rep
     assert.equal(next.core.profileLaunch.remembered, false);
     assert.equal(h.fake.requests.filter(request => request.path.endsWith("/verify-pin")).length, requests);
 });
+
+test("signing in again drops a remembered profile for this run when storage refuses the clear", async () => {
+    const h = await connected(); await signIn(h);
+    const owner = (await h.core.profiles.list())[0]; assert.ok(owner);
+    h.core.profiles.select(owner);
+    await h.core.profileLaunch.setRemember(true);
+    assert.equal(h.core.profileLaunch.remembered, true);
+    h.storage.failSet = true;
+    await signIn(h);
+    assert.equal(h.core.profileLaunch.remembered, false);
+    assert.equal(await h.core.profileLaunch.restore(await h.core.profiles.list(), new AbortController().signal), undefined);
+    assert.equal(h.core.session.activeProfile, undefined);
+    h.storage.failSet = false;
+    await signIn(h);
+    assert.equal(h.core.profileLaunch.remembered, false, "the next clear that storage accepts is saved");
+    assert.equal(h.storage.getItem([...h.storage.items.keys()].find(key => key.startsWith("silo.native.profileLaunch:")) ?? ""), '{"remember":false}');
+});
+
+test("a remembered profile the server no longer lists stays dropped for this run when storage refuses the clear", async () => {
+    const h = await connected(); await signIn(h);
+    const owner = (await h.core.profiles.list())[0]; assert.ok(owner);
+    h.core.profiles.select(owner);
+    await h.core.profileLaunch.setRemember(true);
+    h.storage.failSet = true;
+    assert.equal(await h.core.profileLaunch.restore([], new AbortController().signal), undefined);
+    assert.equal(h.core.profileLaunch.remembered, false);
+    assert.equal(await h.core.profileLaunch.restore([owner], new AbortController().signal), undefined);
+});

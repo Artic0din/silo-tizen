@@ -174,7 +174,8 @@ async function open(hidden = false, videoDir?: string): Promise<{ page: Page; lo
     });
     const time = new Date("2026-11-05T00:00:00Z");
     await page.clock.install({ time });
-    await page.clock.pauseAt(time);
+    // Real time passes between install and here on a slow runner, so a fixed target can already be past.
+    await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1000));
     if (hidden) {
         await page.addInitScript(() => Object.defineProperty(document, "hidden", { configurable: true, value: true }));
     }

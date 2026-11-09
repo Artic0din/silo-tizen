@@ -3018,6 +3018,8 @@ browseTest("activating current Recommended restores its content without reads", 
     await tv.eventually(async () => detailReads(tv).includes("movie:m0001"), "the rested Recommended card");
     await press(tv, "ArrowDown");
     assert.equal(await tv.focused(), "movie:m0025");
+    // The focused card reads its Details once it rests; that read is not the reselection's.
+    await homeDetailsRead(tv);
     const reads = tv.fake.requests.length;
     await selectLibraryMode(tv, "Recommended");
     assert.equal(await tv.focused(), "movie:m0025");

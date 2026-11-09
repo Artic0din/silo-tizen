@@ -543,6 +543,7 @@
     font-weight: 600;
 }
 
+.details-edge-error { margin: 14px 0 0; font-size: 18px; color: rgba(237,237,237,.6); }
 .details-episode-error { display: flex; align-items: center; gap: 18px; font-size: 18px; }
 .details-episode-error .browse-button { margin: 0; padding: 8px 18px; font-size: inherit; }
 .details-episode-error-empty { flex-direction: column; align-items: flex-start; gap: 18px; min-height: 280px; font-size: 22px; }

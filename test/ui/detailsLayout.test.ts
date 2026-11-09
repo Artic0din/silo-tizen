@@ -388,7 +388,8 @@ detailTest("season focus centers the selected pill and Down uses its E01 without
     await tv.remote(37); await tv.jump(100);
     await tv.eventually(async () => await tv.page.locator('[data-focus="season:17"]').getAttribute("aria-pressed") === "true", "focus selects cached season");
     assert.equal(await tv.focused(), "season:17");
-    assert.equal(reads.length, 3);
+    await tv.eventually(async () => reads.length === 4, "selecting cached season 17 reads its missing previous neighbour");
+    assert.deepEqual([...reads].sort((a, b) => a - b), [16, 17, 18, 19]);
     await tv.eventually(() => centered(17), "focus-selected pill centered");
     await tv.eventually(async () => (await tv.page.locator('[data-focus="next-episode"]').textContent())?.includes('S17:E1') === true, 'summary supplies Play before item hydration');
     for (const season of [18, 19]) {
@@ -880,6 +881,7 @@ detailTest("episode boundary failure shows Apple's text-only error and retries w
     await card(3, 13).focus(); await tv.jump(100);
     const notice = tv.page.getByText("Couldn't load more episodes. Move away and back to retry.", { exact: true });
     await notice.waitFor();
+    assert.deepEqual(await notice.evaluate(node => { const style = getComputedStyle(node); return { size: style.fontSize, color: style.color, margin: style.margin }; }), { size: "18px", color: "rgba(237, 237, 237, 0.6)", margin: "14px 0px 0px" }, "TVSeriesDetailView.swift:590-592: 18pt siloSecondaryText below the rail at the stack's spacing 14");
     assert.equal(await tv.page.getByRole("button", { name: /Retry more episodes/ }).count(), 0, "Apple shows text only, with no Retry button");
     assert.deepEqual(reads.slice(3), [4]);
     await card(3, 12).focus(); await card(3, 13).focus(); await tv.jump(100);
@@ -896,7 +898,7 @@ detailTest("episode boundary failure shows Apple's text-only error and retries w
     assert.equal(await notice.count(), 0);
 });
 
-detailTest("selecting a season clears the rail edge failure and reads the failed season at once", async tv => {
+detailTest("selecting a season clears the rail edge failure without a read when both sides already hold a full row", async tv => {
     await pauseTvClock(tv);
     const catalog = tv.fake.catalog; assert.ok(catalog instanceof FakeDetails);
     const seasons = catalog.route("GET", "/catalog/series/series%3As1/seasons", "p-owner")?.body as { items: Record<string, unknown>[] };
@@ -919,9 +921,10 @@ detailTest("selecting a season clears the rail edge failure and reads the failed
     failBoundary = false;
     // Focus on the season 3 card made season 3 current, so Select on season 2 is a real season change.
     await tv.page.locator('[data-focus="season:2"]').click();
-    await tv.eventually(async () => await card(4, 13).count() === 1, "choosing a season reads the failed season beside it without a focus move onto the edge");
-    assert.deepEqual(reads.slice(3), [4, 4]);
-    assert.equal(await notice.count(), 0);
+    await notice.waitFor({ state: "detached" });
+    await tv.jump(100);
+    assert.deepEqual(reads.slice(3), [4], "seasons 1 and 3 already hold more than eight cards beside season 2, so Apple's prefetch reads nothing");
+    assert.equal(await card(4, 13).count(), 0, "the failed season stays out of the rail until focus reaches its edge");
 });
 
 detailTest("an empty boundary response does not chain reads when the focused edge is restored", async tv => {

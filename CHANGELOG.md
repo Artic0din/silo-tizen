@@ -33,7 +33,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
-- Changed the Series Details episode rail error to Apple TV's text-only "Couldn't load more episodes. Move away and back to retry." and removed the Retry more episodes button. Choosing another season or reopening Details now clears a failed neighbour and reads it again at once, instead of waiting for focus to reach the rail edge.
+- Changed the Series Details episode rail error to Apple TV's text-only "Couldn't load more episodes. Move away and back to retry." and removed the Retry more episodes button. The error now uses Apple TV's 18-point secondary text. Choosing another season or reopening Details, including going Back to it, now clears the error and reads each missing neighbouring season at once, as Apple TV does, instead of waiting for focus to reach the rail edge.
 - Hid the Series Details rail edge error while its retry runs and showed it again if it fails, as Apple TV does. Focus stays on the edge card.
 - Kept the top bar on Requests opened from the profile menu, so Up from the first row reaches it and Back returns to the tab underneath. Requests closes back to that tab when the server turns requests off. Watchlist, Favorites and Requests now replace each other, so Back from the bar returns to the tab, and a page opened above Requests stays open until you leave it.
 - Retried a season that failed to load beside the Series Details episode rail when focus reaches the rail edge, and re-read a season whose load was cancelled when its chip is focused again, as Apple TV does.

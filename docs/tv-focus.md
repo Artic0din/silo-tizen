@@ -205,18 +205,20 @@ Cached episodes need no read; leaving before the dwell cancels it.
 The existing queue runs at most four detail reads, drops superseded queued focus reads, and keeps failures for explicit Retry rather than retrying on focus.
 Uncached playback and version/audio/subtitle activation resolve the selected episode's extra details explicitly.
 Crossing into a loaded season in the Series rail only selects its cached page; it starts no reads.
-Initial row loading warms the neighbouring episode window; focus activation, Select and selected-season Retry do not.
+Initial row loading, every selected-season change (chip dwell or Select) and a reappearing Details restart the neighbour prefetch and warm the neighbouring episode window; plain focus moves and selected-season Retry do not.
 The narrow rail exception is focus resting for 70 ms on an outer loaded edge with a missing neighbour: it requests that one season once per edge, without stacking pending reads or chaining further reads.
 An empty response consumes that edge's automatic read; a season-pill activation can load beyond it.
 If a successful page is later evicted by the bounded cache, reaching its edge or resting on its season pill can load that page again.
 Leaving the card before the dwell ends cancels the request before it starts.
 This preserves continuous navigation without loading every season up front.
 At Apple source revision `7baff3ef`, `TVItemDetailView.swift:462–466,927–1001` warms neighbours when the selected season changes; `TVEpisodeRail.swift:303–314,450–454` reports focus at the loaded window's first or last card.
-Samsung bounds selection reads more strictly to avoid rate-limited request bursts while retaining the signed comparison's loaded-season behavior.
+Each side stops once it holds eight episodes (`SeriesEpisodeWindow.minimumEpisodesPerSide`), so a selection beside a full side reads nothing there.
 A failed neighbour shows only "Couldn't load more episodes. Move away and back to retry." with no button (`TVSeriesDetailView.swift:590–592`); moving away and back to the edge is the retry (`TVItemDetailView.swift:297–300`).
-Choosing another season (chip dwell or Select) or reopening Details restarts Apple's prefetch, which clears every edge failure and reads at once (`TVItemDetailView.swift:467,935`).
-Tizen does the same for failed seasons beside the loaded run: it clears all edge failures and reads those seasons immediately, without a focus move.
-A neighbour that was never read still waits for the edge dwell, to protect the rate-limited server.
+Choosing another season (chip dwell or Select) or reopening Details, including Back to a cached Details, restarts Apple's prefetch (`TVItemDetailView.swift:467,935`).
+It clears every edge failure and reads each missing neighbour of the selected season at once, cache first, without a focus move.
+Tizen does the same through `warmNeighbors()`.
+A failed season beyond a side that already holds eight episodes is cleared and is not read until focus reaches its edge.
+A season the user selected keeps its own failure.
 Ordinary loaded-card movement never retries a read.
 Translation polls publish the selected season without restarting neighbour reads or clearing a failed edge, following `ItemDetailViewModel.swift:1752–1773` at the same Apple source revision.
 Featured cards are another exception. In the server's auto mode, the marquee starts a description translation only after that card has held the preview for 1500 ms, matching Apple TV's featured-card dwell. Moving on before then starts nothing. Details translation starts with the page. Focusing another episode does not.

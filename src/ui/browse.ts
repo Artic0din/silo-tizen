@@ -1490,9 +1490,11 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             const page = current.pages.page;
             if (signal.aborted || page === undefined) return;
             const played = new Map(results.flatMap(result => result === undefined ? [] : [[result.id, result.played] as const]));
-            if (played.size === 0) return;
-            for (const id of played.keys()) current.watchedCards?.delete(id);
-            current.pages.page = { ...page, items: page.items.map(item => played.has(item.id) && asked.get(item.id) === item ? { ...item, played: played.get(item.id) } : item) };
+            // An answer for a card a newer read replaced is dropped and its id stays pending for the next return.
+            const applied = new Set(page.items.filter(item => played.has(item.id) && asked.get(item.id) === item).map(item => item.id));
+            if (applied.size === 0) return;
+            for (const id of applied) current.watchedCards?.delete(id);
+            current.pages.page = { ...page, items: page.items.map(item => applied.has(item.id) ? { ...item, played: played.get(item.id) } : item) };
             if (top() === current) render(host.focused());
         });
     };

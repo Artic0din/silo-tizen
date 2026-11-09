@@ -673,6 +673,14 @@ journey("a late watched read cannot overwrite a card from a newer filmography re
     await tv.jump(300);
     await tv.page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(undefined)))));
     assert.equal(await tv.page.locator(`.browse-grid [data-focus="${id}"] .browse-watched`).count(), 1, "the late read leaves the newer card alone");
+    // The discarded answer did not settle the card, so the next return reads the title again.
+    const itemReads = (): number => tv.fake.requests.filter(request => request.method === "GET" && request.path.split("?")[0] === `/catalog/items/${encodeURIComponent(id)}`).length;
+    const before = itemReads();
+    await grid(tv).nth(1).click();
+    await tv.page.locator(".details-hero").waitFor();
+    for (let attempt = 0; attempt < 3 && await tv.page.locator(".details-person-hero").count() === 0; attempt++) await tv.remote(BACK);
+    await tv.page.locator(".details-person-hero").waitFor();
+    await tv.eventually(async () => itemReads() === before + 1, "the unsettled card is read again");
 });
 
 journey("Details Back resumes the unfinished metadata refresh without re-reading the filmography", async tv => {

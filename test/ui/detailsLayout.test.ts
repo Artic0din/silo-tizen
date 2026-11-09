@@ -850,7 +850,7 @@ detailTest('Failed season episode reconciliation keeps the existing playback own
     await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.plays.length === 1), 'retained owner still dispatches playback after reconciliation fails');
 });
 
-detailTest("episode boundary failure retries at the edge and on explicit Retry while loaded-season focus stays read-free", async tv => {
+detailTest("episode boundary failure shows Apple's text-only error and retries when focus returns to the edge while loaded-season focus stays read-free", async tv => {
     await pauseTvClock(tv);
     const catalog = tv.fake.catalog; assert.ok(catalog instanceof FakeDetails);
     const seasons = catalog.route("GET", "/catalog/series/series%3As1/seasons", "p-owner")?.body as { items: Record<string, unknown>[] };
@@ -878,50 +878,50 @@ detailTest("episode boundary failure retries at the edge and on explicit Retry w
     }); await tv.jump(100);
     assert.equal(reads.length, 3, "leaving the rail cancels boundary dwell");
     await card(3, 13).focus(); await tv.jump(100);
-    const retry = tv.page.getByRole("button", { name: "Retry more episodes", exact: true });
-    await retry.waitFor();
+    const notice = tv.page.getByText("Couldn't load more episodes. Move away and back to retry.", { exact: true });
+    await notice.waitFor();
+    assert.equal(await tv.page.getByRole("button", { name: /Retry more episodes/ }).count(), 0, "Apple shows text only, with no Retry button");
     assert.deepEqual(reads.slice(3), [4]);
     await card(3, 12).focus(); await card(3, 13).focus(); await tv.jump(100);
     await tv.eventually(async () => reads.length === 5, "reaching the failed boundary again retries it, as Apple TV does");
-    await retry.focus(); await tv.page.keyboard.press("Enter"); await tv.jump(100);
-    await tv.eventually(async () => reads.length === 6, "failed explicit neighbour Retry");
-    await retry.waitFor();
-    assert.equal(await tv.focused(), "episode:rail:3:13", "Retry hides while it runs; focus stays on the edge card and the error returns after the failure");
+    await notice.waitFor();
+    await card(3, 12).focus(); await card(3, 13).focus(); await tv.jump(100);
+    await tv.eventually(async () => reads.length === 6, "a second failed revisit retries again");
+    await notice.waitFor();
+    assert.equal(await tv.focused(), "episode:rail:3:13", "the error is text, so focus stays on the edge card");
     failBoundary = false;
-    // Drain the episode-detail dwell the edge card's focus armed, then activate Retry explicitly.
-    await tv.jump(120);
-    await retry.click();
-    await tv.eventually(async () => await card(4, 13).count() === 1, "successful neighbour Retry paints season 4");
-    assert.deepEqual(reads.slice(3), [4, 4, 4, 4], "boundary and explicit Retry read only the failed season");
-    assert.equal(await retry.count(), 0);
-    assert.notEqual(await tv.focused(), "retry-neighbors", "the removed Retry control cannot retain focus");
+    await card(3, 12).focus(); await card(3, 13).focus(); await tv.jump(100);
+    await tv.eventually(async () => await card(4, 13).count() === 1, "a successful revisit paints season 4");
+    assert.deepEqual(reads.slice(3), [4, 4, 4, 4], "each revisit reads only the failed season");
+    assert.equal(await notice.count(), 0);
 });
 
-detailTest("Retry more episodes keeps focus on the selected season chip when the rail has no cards", async tv => {
+detailTest("selecting a season clears the rail edge failure and reads the failed season at once", async tv => {
     await pauseTvClock(tv);
     const catalog = tv.fake.catalog; assert.ok(catalog instanceof FakeDetails);
     const seasons = catalog.route("GET", "/catalog/series/series%3As1/seasons", "p-owner")?.body as { items: Record<string, unknown>[] };
     const episodes = catalog.route("GET", "/catalog/series/series%3As1/seasons/1/episodes", "p-owner")?.body as { items: Record<string, unknown>[] };
     await tv.page.route("**/api/v2/catalog/series/series%3As1/seasons?**", route => route.fulfill({ json: { items: [1, 2, 3, 4, 5].map(number => ({ ...seasons.items[0], content_id: `season:${number}`, season_number: number, episode_count: 14, user_data: { played: number === 1, in_progress_count: number === 2 ? 1 : 0 } })) } }));
-    let releaseSeason5 = (): void => undefined;
-    const season5 = new Promise<void>(resolve => { releaseSeason5 = resolve; });
-    for (const season of [1, 2, 3, 4, 5]) await tv.page.route(`**/api/v2/catalog/series/series%3As1/seasons/${season}/episodes?**`, async route => {
-        if (season === 4) return route.fulfill({ status: 422, json: problem(422, "validation_failed", "Unavailable").body });
-        if (season === 5) await season5;
+    const reads: number[] = [];
+    let failBoundary = true;
+    for (const season of [1, 2, 3, 4, 5]) await tv.page.route(`**/api/v2/catalog/series/series%3As1/seasons/${season}/episodes?**`, route => {
+        reads.push(season);
+        if (season === 4 && failBoundary) return route.fulfill({ status: 422, json: problem(422, "validation_failed", "Unavailable").body });
         return route.fulfill({ json: { items: Array.from({ length: 14 }, (_, index) => ({ ...episodes.items[0], content_id: `episode:rail:${season}:${index}`, season_number: season, episode_number: index + 1 })) } });
     });
     await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
     const card = (season: number, index: number) => tv.page.locator(`[data-focus="episode:rail:${season}:${index}"]`);
     await card(3, 13).waitFor();
     await card(3, 13).focus(); await tv.jump(100);
-    const retry = tv.page.getByRole("button", { name: "Retry more episodes", exact: true });
-    await retry.waitFor();
-    await tv.page.locator('[data-focus="season:5"]').focus(); await tv.jump(100);
-    await tv.eventually(async () => await tv.page.locator('[data-focus^="episode:rail:"]').count() === 0, "the unloaded selected season leaves the rail without cards");
-    await retry.waitFor();
-    await retry.focus(); await tv.page.keyboard.press("Enter"); await tv.jump(100);
-    assert.equal(await tv.focused(), "season:5", "Retry hides while it runs; with no cards beside it, focus stays on the selected season chip");
-    releaseSeason5();
+    const notice = tv.page.getByText("Couldn't load more episodes. Move away and back to retry.", { exact: true });
+    await notice.waitFor();
+    assert.deepEqual(reads.slice(3), [4]);
+    failBoundary = false;
+    // Focus on the season 3 card made season 3 current, so Select on season 2 is a real season change.
+    await tv.page.locator('[data-focus="season:2"]').click();
+    await tv.eventually(async () => await card(4, 13).count() === 1, "choosing a season reads the failed season beside it without a focus move onto the edge");
+    assert.deepEqual(reads.slice(3), [4, 4]);
+    assert.equal(await notice.count(), 0);
 });
 
 detailTest("an empty boundary response does not chain reads when the focused edge is restored", async tv => {

@@ -66,11 +66,8 @@ export function seriesEpisodesView(state: SeriesEpisodes, context: ViewContext, 
     } else if (state.episodes === undefined) section.append(...lines(["Loading episodes…"]));
     else if (state.loading) section.append(...lines(["Refreshing episodes…"]));
     else if (episodes.length === 0) section.append(...lines(["This season has no episodes yet."]));
-    if (state.boundaryFailed) {
-        const retry = actionButton("retry-neighbors", "Retry more episodes", () => state.retryNeighbors());
-        episodes.push(retry);
-        section.append(...lines(["Could not load more episodes."], "error"), zoneNode("browse-actions", [retry]));
-    }
+    // TVSeriesDetailView.swift:590-592: text only. Reaching the rail edge again retries.
+    if (state.boundaryFailed) section.append(...lines(["Couldn't load more episodes. Move away and back to retry."]));
     content.push(section);
     const view: EpisodeView = { content, zones };
     visits.set(state, { context, episodes: state.railEpisodes, season: state.seasonNumber, loading: state.loading, failed: state.failed, boundaryFailed: state.boundaryFailed, hidesImages, view });

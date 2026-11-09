@@ -213,8 +213,11 @@ Leaving the card before the dwell ends cancels the request before it starts.
 This preserves continuous navigation without loading every season up front.
 At Apple source revision `7baff3ef`, `TVItemDetailView.swift:462–466,927–1001` warms neighbours when the selected season changes; `TVEpisodeRail.swift:303–314,450–454` reports focus at the loaded window's first or last card.
 Samsung bounds selection reads more strictly to avoid rate-limited request bursts while retaining the signed comparison's loaded-season behavior.
-Apple's failed-edge revisit retries (`TVItemDetailView.swift:297–300`, `TVSeriesDetailView.swift:589–592`); Tizen instead requires the explicit "Retry more episodes" action to protect the rate-limited server.
-Neither ordinary loaded-card movement nor revisiting a failed edge retries a read.
+A failed neighbour shows only "Couldn't load more episodes. Move away and back to retry." with no button (`TVSeriesDetailView.swift:590–592`); moving away and back to the edge is the retry (`TVItemDetailView.swift:297–300`).
+Choosing another season (chip dwell or Select) or reopening Details restarts Apple's prefetch, which clears every edge failure and reads at once (`TVItemDetailView.swift:467,935`).
+Tizen does the same for failed seasons beside the loaded run: it clears all edge failures and reads those seasons immediately, without a focus move.
+A neighbour that was never read still waits for the edge dwell, to protect the rate-limited server.
+Ordinary loaded-card movement never retries a read.
 Translation polls publish the selected season without restarting neighbour reads or clearing a failed edge, following `ItemDetailViewModel.swift:1752–1773` at the same Apple source revision.
 Featured cards are another exception. In the server's auto mode, the marquee starts a description translation only after that card has held the preview for 1500 ms, matching Apple TV's featured-card dwell. Moving on before then starts nothing. Details translation starts with the page. Focusing another episode does not.
 

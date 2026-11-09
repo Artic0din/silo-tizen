@@ -19,6 +19,8 @@ export class SeriesEpisodes {
     /** Failures hidden while their retry runs. An aborted retry never resolved them, so they come back. */
     private readonly retryingNeighbors = new Set<number>();
     private readonly cancelledSeasons = new Set<number>();
+    /** Edge failures a reappearing visit cleared; start() reads the ones at the window edges again. */
+    private staleEdges: readonly number[] = [];
     get interrupted(): boolean { return this.episodes === undefined && this.controller === undefined && this.seasonNumber !== undefined && !this.pendingNeighbors.has(this.seasonNumber) && this.cancelledSeasons.has(this.seasonNumber); }
     get boundaryFailed(): boolean { return [...this.failedNeighbors].some(number => !this.failedSelections.has(number) && number !== this.seasonNumber); }
     private readonly pages = new Map<number, readonly Episode[]>();
@@ -64,7 +66,10 @@ export class SeriesEpisodes {
 
     start(): void {
         this.active = true;
+        const stale = this.staleEdges;
+        this.staleEdges = [];
         if (!this.loaded && this.controller === undefined && !this.failed && !this.interrupted) this.load(true, false, true);
+        else this.rereadEdges(stale);
     }
 
     restore(previous: SeriesEpisodes | undefined, refresh = false, freshWindow = false): void {
@@ -83,9 +88,11 @@ export class SeriesEpisodes {
                 this.keepFreshNeighborPages();
                 this.updateWindow();
             }
-            for (const number of previous.failedNeighbors) this.failedNeighbors.add(number);
-            for (const number of previous.retryingNeighbors) this.failedNeighbors.add(number);
-            for (const number of previous.failedSelections) this.failedSelections.add(number);
+            // TVItemDetailView.swift:467,935: a reappearing view restarts the prefetch, which clears the edge failure and reads again.
+            const edgeFailures = new Set([...previous.failedNeighbors, ...previous.retryingNeighbors]);
+            for (const number of previous.failedSelections) { this.failedSelections.add(number); this.failedNeighbors.add(number); }
+            if (previous.seasonNumber !== undefined && edgeFailures.has(previous.seasonNumber)) this.failedNeighbors.add(previous.seasonNumber);
+            this.staleEdges = [...edgeFailures].filter(number => !this.failedNeighbors.has(number));
             for (const number of previous.cancelledSeasons) this.cancelledSeasons.add(number);
             this.loaded = !refresh && previous.loaded;
             for (const number of previous.transportFailures) this.transportFailures.add(number);
@@ -170,11 +177,12 @@ export class SeriesEpisodes {
             this.changed("load");
             return;
         }
+        const stale = this.clearEdgeFailures(season);
         this.seasonNumber = season;
         this.focusSelectedEpisode = true;
         this.entryEpisode = undefined;
         this.unpark(season);
-        if (!automatic && !this.pages.has(season)) { this.load(); return; }
+        if (!automatic && !this.pages.has(season)) { this.load(); this.rereadEdges(stale); return; }
         this.controller?.abort();
         this.controller = undefined;
         this.episodes = this.pages.get(season);
@@ -196,6 +204,24 @@ export class SeriesEpisodes {
             this.automaticRead = true;
             this.load(false, true);
         }
+        this.rereadEdges(stale);
+    }
+
+    /**
+     * TVItemDetailView.swift:467,935: a new selected season restarts the prefetch, which clears
+     * carouselLoadFailed and reads the neighbours at once. A season selection, not a focus move.
+     * Failures of the selected season itself stay; they belong to its own row.
+     */
+    private clearEdgeFailures(selected: number): number[] {
+        const stale = [...new Set([...this.failedNeighbors, ...this.retryingNeighbors])].filter(number => number !== selected && !this.failedSelections.has(number));
+        for (const number of stale) { this.failedNeighbors.delete(number); this.retryingNeighbors.delete(number); }
+        return stale;
+    }
+
+    /** Only the failed seasons beside the loaded run are read again; a never-read neighbour still waits for the edge dwell. */
+    private rereadEdges(stale: readonly number[]): void {
+        if (stale.length === 0) return;
+        for (const edge of this.windowEdges()) if (stale.includes(edge)) void this.readNeighbor(edge, true);
     }
 
     replace(season: number, episodes: readonly Episode[]): void {
@@ -232,15 +258,6 @@ export class SeriesEpisodes {
     }
 
     retry(): void { if (this.active && this.controller === undefined) this.load(true); }
-
-    retryNeighbors(): void {
-        if (!this.active) return;
-        for (const number of this.failedNeighbors) {
-            if (this.failedSelections.has(number)) continue;
-            void this.readNeighbor(number, true);
-        }
-        this.changed("neighbor");
-    }
 
     private load(retain = false, automatic = false, warm = false): void {
         const season = this.seasonNumber;

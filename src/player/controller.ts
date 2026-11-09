@@ -46,7 +46,7 @@ import { SubtitleSearch, type SubtitleSearchView } from "./subtitleSearch.ts";
 const SKIP_UNDO_MILLISECONDS = 5000;
 import { DEFAULT_APPEARANCE, decodeCues, type SubtitleAppearance, type SubtitleCue } from "../contracts/v2/subtitles.ts";
 import type { CatalogSubtitleTrack, SubtitleIntent, SubtitlePreferences } from "../contracts/v2/preplaySubtitles.ts";
-import { initialSubtitle, startSubtitleTrackId } from "./preplaySubtitles.ts";
+import { initialSubtitle, playableIntent, startSubtitleTrackId } from "./preplaySubtitles.ts";
 import { PlaybackRecovery, recoveryVerdict, type RecoveryStep, type RecoveryVerdict, unanswered } from "./playbackRecovery.ts";
 import { audioRow, qualityMenuLabel, subtitleRow } from "./trackLabels.ts";
 import { HUDState } from "./hudState.ts";
@@ -118,11 +118,18 @@ export interface TrackChoice {
     readonly unavailable?: boolean;
 }
 
-const UNSUPPORTED_FORMAT = "Unsupported format";
+export const UNSUPPORTED_FORMAT = "Unsupported format";
 
 /** An inventory row the plan lists, minus the ones its `unplayable` flag says the server cannot show. */
 function selectableSubtitle(plan: PlaybackPlan, trackId: string): boolean {
     return plan.subtitle.inventory.some((entry) => entry.trackId === trackId && entry.unplayable !== true);
+}
+
+/** Marks an AI result whose stored track the plan cannot show, so its row says why instead of doing nothing. */
+function aiView(attempt: Attempt, plan: PlaybackPlan): SubtitleAIView | undefined {
+    const view = attempt.ai?.view;
+    if (view === undefined || !plan.subtitle.inventory.some(entry => entry.unplayable === true)) return view;
+    return { ...view, results: view.results.map(result => plan.subtitle.inventory.some(entry => entry.syncKey === `stored-${result.id}` && entry.unplayable === true) ? { ...result, unavailable: true } : result) };
 }
 
 function subtitleChoice(entry: SubtitleTrack, generated: string | undefined): TrackChoice {
@@ -996,7 +1003,7 @@ export class PlaybackController implements PlayerControls {
         if (!attempt.live || this.attempt !== attempt || plan === undefined || attempt.hidden || attempt.restoring) return false;
         const track = plan.subtitle.inventory.find(entry => entry.syncKey === `stored-${id}`);
         if (track !== undefined) {
-            if (!attempt.started || attempt.busy) return false;
+            if (!attempt.started || attempt.busy || track.unplayable === true) return false;
             this.selectSubtitle(track.trackId);
             return true;
         }
@@ -1216,7 +1223,8 @@ export class PlaybackController implements PlayerControls {
             this.fail(attempt, { kind: "terminal", reason: "version_unavailable", message: "The selected version is no longer available. Choose another version in Details.", retryable: false }, true);
             return;
         }
-        const intent = attempt.request.subtitle;
+        const requested = attempt.request.subtitle;
+        const intent = requested === undefined ? undefined : playableIntent(requested, plan.subtitle.inventory);
         try {
             if (intent === undefined) { this.adopt(attempt, plan, serverFeatures); return; }
             const preferences = intent.kind === "auto" ? await this.deps.session.call({ ...operations.preplaySubtitlePreferences(attempt.request.contentId, plan.effectiveMediaFileId, plan.selectedTracks.audio?.id), profileScoped: true, signal: attempt.signal }) : undefined;
@@ -1871,7 +1879,7 @@ export class PlaybackController implements PlayerControls {
             const id = attempt.pendingDownloadId;
             attempt.pendingDownloadId = undefined;
             const track = plan.subtitle.inventory.find(entry => entry.syncKey === `stored-${id}`);
-            if (track === undefined) attempt.search?.reportUnselected();
+            if (track === undefined || track.unplayable === true) attempt.search?.reportUnselected();
             else this.selectSubtitle(track.trackId);
         }
         if (attempt.queuedSubtitle !== undefined) {
@@ -3319,7 +3327,7 @@ function trackView(attempt: Attempt, plan: PlaybackPlan): TrackView {
         if (attempt.captionPreferenceNotice) notices.push(attempt.captionPreferenceNotice);
     }
     return {
-        ai: attempt.ai?.view,
+        ai: aiView(attempt, plan),
         aiTranslate: textSubtitle(plan.subtitle.inventory.find(track => track.trackId === shownSubtitle(attempt, plan))?.codec),
         seriesSubtitle: attempt.seriesSubtitle,
         quality: {

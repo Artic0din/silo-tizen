@@ -2128,3 +2128,20 @@ test("an unavailable subtitle row says why, stays focusable and Select does noth
         assert.deepEqual((await commands(page)).slice(before.length), ["selectSubtitle file:42:subtitle:0"]);
     } finally { await page.close(); }
 });
+
+test("an unavailable AI result says why, stays focusable and Select does nothing", async () => {
+    const { page } = await open();
+    const ai = { available: { translate: false, transcribe: false }, languages: [], quota: undefined, busy: false, message: "", results: [{ id: "opaque-result", label: "AI-transcribed", unavailable: true }] };
+    try {
+        await show(page, playing({ ...TRACKS, ai }));
+        await openAudio(page);
+        await remote(page, RIGHT);
+        for (let index = 0; index < TRACKS.subtitles.length + 2; index++) await remote(page, DOWN);
+        assert.equal(await focused(page), "ai-result:opaque-result");
+        assert.equal(await page.locator('[data-focus="ai-result:opaque-result"]').getAttribute("aria-disabled"), "true");
+        assert.match(await text(page, '[data-focus="ai-result:opaque-result"]'), /Unsupported format/);
+        const before = await commands(page);
+        await remote(page, ENTER);
+        assert.deepEqual(await commands(page), before);
+    } finally { await page.close(); }
+});

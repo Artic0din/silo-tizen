@@ -18,7 +18,7 @@ import { remoteKey } from "../ui/keys.ts";
 import { el } from "../ui/screen.ts";
 import { artworkUrl } from "../ui/browseModel.ts";
 import type { AVPlay } from "./avplay.ts";
-import { type PlaybackError, type PlaybackExits, PlaybackController, type PlaybackView, type PlayerControls, type PlayRequest, type SubtitleToolAction, type TrackView } from "./controller.ts";
+import { type PlaybackError, type PlaybackExits, PlaybackController, type PlaybackView, type PlayerControls, type PlayRequest, type SubtitleToolAction, type TrackView, UNSUPPORTED_FORMAT } from "./controller.ts";
 import { fillSubtitleTools, pickerFor, type SubtitlePane } from "./subtitleMenu.ts";
 import type { AppearanceMember } from "./subtitleAppearance.ts";
 import { closeIcon, episodesIcon, optionsIcon, pauseIcon, playIcon, skipIcon, spinnerIcon } from "./playerIcons.ts";
@@ -201,7 +201,11 @@ function fillSubtitles(list: HTMLElement, tracks: TrackView, languages = false, 
     if (ai !== undefined) {
         if (ai.available.translate && tracks.aiTranslate && ai.languages.length > 0) list.appendChild(choice("ai-translate", "Translate current subtitles", false));
         if (ai.available.transcribe) list.appendChild(choice("ai-transcribe", "Transcribe current audio", false));
-        for (const result of ai.results) list.appendChild(choice(`ai-result:${result.id}`, result.label, false));
+        for (const result of ai.results) {
+            const row = choice(`ai-result:${result.id}`, result.label, false, result.unavailable === true ? UNSUPPORTED_FORMAT : undefined);
+            if (result.unavailable === true) row.setAttribute("data-unavailable", "true");
+            list.appendChild(row);
+        }
     }
     fillSubtitleTools(list, tracks, pane, false);
 }
@@ -551,7 +555,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
                     const toolBusy = tracks.subtitleTools?.display?.busy === true || downloading !== undefined;
                     const subtitlePick = name === "Subtitles" && id !== SERIES_SUBTITLE && !id.startsWith("ai-");
                     const lockedByReport = tracks.reporting === true && !subtitlePick && (name === "Audio" || id.startsWith("quality:") || id === SERIES_SUBTITLE || id.startsWith("ai-"));
-                    const blocked = tracks.change.state === "changing" || lockedByReport || (id === "auto-next" && hud?.busy === true) || (id === SERIES_SUBTITLE && tracks.seriesSubtitle?.busy === true) || (aiAction && tracks.ai?.busy === true) || (id === "ai-transcribe" && (quota === undefined || (quota.limited && quota.remaining <= 0))) || (toolBusy && id.startsWith("subtitle-") && id !== `subtitle-result:${downloading ?? ""}`) || (subtitlePick && tracks.subtitles.some((track) => track.id === id && track.unavailable === true));
+                    const blocked = tracks.change.state === "changing" || lockedByReport || (id === "auto-next" && hud?.busy === true) || (id === SERIES_SUBTITLE && tracks.seriesSubtitle?.busy === true) || (aiAction && tracks.ai?.busy === true) || (id === "ai-transcribe" && (quota === undefined || (quota.limited && quota.remaining <= 0))) || (toolBusy && id.startsWith("subtitle-") && id !== `subtitle-result:${downloading ?? ""}`) || (subtitlePick && tracks.subtitles.some((track) => track.id === id && track.unavailable === true)) || (id.startsWith("ai-result:") && tracks.ai?.results.some((result) => `ai-result:${result.id}` === id && result.unavailable === true) === true);
                     button.setAttribute("aria-disabled", String(blocked));
                 }
             }

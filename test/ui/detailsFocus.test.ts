@@ -233,6 +233,7 @@ test("Left through a loaded previous season after a fast chip walk sends no seas
         for (const hold of holds) hold.release();
         await tv.jump(300);
         await tv.remote(ENTER); await tv.jump(500);
+        await tv.page.locator('[data-focus="episode:s1e25x1"]').waitFor();
         await tv.remote(40); await tv.jump(500);
         assert.equal(await tv.focused(), "episode:s1e25x1");
         await tv.remote(37); await tv.jump(1500);

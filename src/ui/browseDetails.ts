@@ -43,7 +43,7 @@ function runtimeToken(minutes: number): string {
 function factTokens(detail: ItemDetail, state: DetailsState | undefined, episode: Episode | undefined): string[] {
     if (episode !== undefined) {
         const playback = state?.nextEpisodeState;
-        const selectedFile = playback?.detail.versions.find(file => file.fileId === playChoices(playback.detail, playback.selectedFileId)?.fromStart.fileId);
+        const selectedFile = playback?.detail.versions.find(file => file.fileId === playChoices(playback.detail, playback.selectedFileId, playback.preferredQuality)?.fromStart.fileId);
         const minutes = selectedFile?.durationSeconds ? Math.round(selectedFile.durationSeconds / 60) : episode.runtimeMinutes;
         return [episodeAirDate(episode.airDate), episodeRuntime(minutes)].filter((token): token is string => token !== undefined);
     }
@@ -53,7 +53,7 @@ function factTokens(detail: ItemDetail, state: DetailsState | undefined, episode
         if (aired !== undefined) tokens.push(aired);
     } else if (detail.year !== undefined && detail.year > 0) tokens.push(String(detail.year));
     if (detail.type !== "series" && detail.runtimeMinutes !== undefined && detail.runtimeMinutes > 0) {
-        const file = detail.versions.find(version => version.fileId === playChoices(detail, state?.selectedFileId)?.fromStart.fileId);
+        const file = detail.versions.find(version => version.fileId === playChoices(detail, state?.selectedFileId, state?.preferredQuality)?.fromStart.fileId);
         const minutes = file?.durationSeconds ? Math.round(file.durationSeconds / 60) : detail.runtimeMinutes;
         tokens.push(runtimeToken(minutes));
     }
@@ -227,7 +227,7 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
     detail = state === undefined ? detail : { ...detail, versions: state.detail.versions };
     const tracks = state?.nextEpisodeState ?? state;
     const playbackDetail = tracks?.detail ?? detail;
-    const playbackChoices = playChoices(playbackDetail, tracks?.selectedFileId);
+    const playbackChoices = playChoices(playbackDetail, tracks?.selectedFileId, tracks?.preferredQuality);
     const preferences = state?.unsettledEpisode ?? tracks;
     const actions: FocusItem[] = [];
     const notes: string[] = [];
@@ -241,7 +241,7 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
         notes.push("Could not confirm the audio preference. Check before playing.");
         actions.push(actionButton("retry-audio-preference", "Check audio preference", () => state?.retryPreference("audio", preferences)));
     }
-    const choices = playChoices(detail, state?.selectedFileId);
+    const choices = playChoices(detail, state?.selectedFileId, state?.preferredQuality);
     const choose = (request: PlayRequest): void => {
         const audioTrackId = state?.audioTrackId(true);
         const next = { ...request, ...(audioTrackId === undefined ? {} : { audioTrackId }), ...(state === undefined ? {} : { subtitle: state.subtitleIntent() }) };
@@ -293,6 +293,8 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
     const seasonItems = series?.zones[0]?.items ?? (detail.type === "series" ? seasons.map((season) => seasonItem(detail.id, detail.title, season, context)) : []);
     const overview = episodeDetailPresentation(detail, context.spoilers?.() ?? { hidesImages: false, hidesOverviews: false }, state?.values.get("watched")).overview;
     const file = playbackDetail.versions.find(file => file.fileId === playbackChoices?.fromStart.fileId);
+    const compactVersion = file?.compactLabel ?? "Auto";
+    const versionValue = tracks?.selectedFileId === undefined && compactVersion !== "Auto" ? `Auto · ${compactVersion}` : compactVersion;
     const audio = file?.audio ?? [];
     const selectedAudio = tracks?.audioTrackId(true);
     const explicitAudio = audio.findIndex((_track, index) => selectedAudio === `file:${file?.fileId}:audio:${index}`);
@@ -352,7 +354,7 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
     if (watchlist !== undefined) actions.push(watchlist);
     if (state !== undefined) {
         if (playbackDetail.versions.length > 0 || seriesSelectors) {
-            const version = actionButton("version", `Version: ${file?.label || "Auto"}`, () => state.showPanel("version"));
+            const version = actionButton("version", `Version: ${versionValue}`, () => state.showPanel("version"));
             version.element.setAttribute("aria-disabled", String(playbackChoices === undefined && (!seriesSelectors || state.nextEpisode !== undefined || state.nextEpisodeFailed)));
             version.element.setAttribute("aria-haspopup", "dialog");
             actions.splice(actions.findIndex(item => item.key === "audio"), 0, version);
@@ -363,9 +365,8 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
     }
     const ordinal = audio.findIndex((_track, index) => selectedAudio === `file:${file?.fileId}:audio:${index}`);
     const resolvedAudio = audio[effectiveAudio] === undefined ? audio.length ? audioLabel(0) : "Unknown" : audioLabel(effectiveAudio);
-    const versionLabel = file?.label?.match(/\b(?:\d{3,4}p|4K|8K)\b/i)?.[0] ?? file?.label ?? "Auto";
     // Keep the summary absent until the focused episode's full versions arrive.
-    const summary = playbackChoices === undefined ? undefined : `Version: ${tracks?.selectedFileId === undefined && versionLabel !== "Auto" ? "Auto · " : ""}${versionLabel} | Audio: ${ordinal === -1 ? "Auto · " : ""}${resolvedAudio} | Subtitles: ${subtitleSummary}`;
+    const summary = playbackChoices === undefined ? undefined : `Version: ${versionValue} | Audio: ${ordinal === -1 ? "Auto · " : ""}${resolvedAudio} | Subtitles: ${subtitleSummary}`;
     const content = [...detailHeader(detail, context, actions.map(detailAction), state, summary), ...lines(notes), ...personal?.notes ?? []];
     if (tracks?.preparingPlay) {
         const status = el("p", "browse-text", "Checking resume position…");
@@ -477,9 +478,8 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
         return detailPanel(view, state, "Audio", options);
     }
     if (state?.panel === "version") {
-        const options = [undefined, ...playbackDetail.versions].map((version, index) => {
-            const label = version?.label?.replace(/\bh264\b/gi, 'H.264').replace(/\bh265\b/gi, 'HEVC').replace(/\b(aac|eac3|ac3|hevc|av1|dts)\b/gi, codec => codec.toUpperCase());
-            const item = actionButton(`version:${version?.fileId ?? "auto"}`, label || (version === undefined ? "Auto" : `Version ${index}`), () => { tracks?.select(version?.fileId); state.closePanel(); });
+        const options = [undefined, ...playbackDetail.versions].map(version => {
+            const item = actionButton(`version:${version?.fileId ?? "auto"}`, version?.label || "Auto", () => { tracks?.select(version?.fileId); state.closePanel(); });
             if (version?.detailLabel) item.element.append(el("small", "details-option-subtext", version.detailLabel));
             item.element.setAttribute("role", "radio");
             item.element.setAttribute("aria-checked", String(version?.fileId === tracks?.selectedFileId));

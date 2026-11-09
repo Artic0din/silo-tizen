@@ -5,6 +5,7 @@ import type { BrowseScope } from "../api/operations.ts";
 import { isPermittedUrl } from "../api/serverUrl.ts";
 import type { Card, ItemDetail, PlayableFile, UserLibrary } from "../contracts/v2/catalog.ts";
 import type { CatalogSubtitleTrack, SubtitleIntent, SubtitlePreferences } from "../contracts/v2/preplaySubtitles.ts";
+import { displayVersion } from "../contracts/v2/versions.ts";
 
 /** What the player needs to call startPlayback: the item, one file and where to start. */
 export interface PlayRequest {
@@ -146,16 +147,17 @@ export interface PlayChoices {
 }
 
 /**
- * The version last played when it is still listed, else the first; startPlayback may still
- * switch to another version the profile may play. Undefined when nothing can be played here.
+ * The selected version, else the last played when it is still listed, else the best by Apple's
+ * ranking; startPlayback may still switch to another version the profile may play. A selection
+ * that is no longer listed plays nothing. Undefined when nothing can be played here.
  */
-export function playChoices(detail: ItemDetail, selectedFileId?: string): PlayChoices | undefined {
+export function playChoices(detail: ItemDetail, selectedFileId?: string, preferredQuality?: string): PlayChoices | undefined {
     if (detail.type !== "movie" && detail.type !== "episode") {
         return undefined;
     }
     const lastFileId = detail.watch?.lastFileId;
     const file = selectedFileId === undefined
-        ? detail.versions.find((version) => version.fileId === lastFileId) ?? detail.versions[0]
+        ? displayVersion(detail.versions, undefined, lastFileId, preferredQuality)
         : detail.versions.find((version) => version.fileId === selectedFileId);
     if (file === undefined) {
         return undefined;

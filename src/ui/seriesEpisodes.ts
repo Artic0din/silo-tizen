@@ -16,6 +16,8 @@ export class SeriesEpisodes {
     railEpisodes: readonly Episode[] | undefined;
     private readonly failedNeighbors = new Set<number>();
     private readonly failedSelections = new Set<number>();
+    /** Failures hidden while their retry runs. An aborted retry never resolved them, so they come back. */
+    private readonly retryingNeighbors = new Set<number>();
     private readonly cancelledSeasons = new Set<number>();
     get interrupted(): boolean { return this.episodes === undefined && this.controller === undefined && this.seasonNumber !== undefined && !this.pendingNeighbors.has(this.seasonNumber) && this.cancelledSeasons.has(this.seasonNumber); }
     get boundaryFailed(): boolean { return [...this.failedNeighbors].some(number => !this.failedSelections.has(number) && number !== this.seasonNumber); }
@@ -82,6 +84,7 @@ export class SeriesEpisodes {
                 this.updateWindow();
             }
             for (const number of previous.failedNeighbors) this.failedNeighbors.add(number);
+            for (const number of previous.retryingNeighbors) this.failedNeighbors.add(number);
             for (const number of previous.failedSelections) this.failedSelections.add(number);
             for (const number of previous.cancelledSeasons) this.cancelledSeasons.add(number);
             this.loaded = !refresh && previous.loaded;
@@ -120,6 +123,8 @@ export class SeriesEpisodes {
         this.neighbors?.abort();
         this.neighbors = undefined;
         this.pendingNeighbors.clear();
+        for (const number of this.retryingNeighbors) this.failedNeighbors.add(number);
+        this.retryingNeighbors.clear();
     }
 
     focusSeason(season: number): void {
@@ -206,6 +211,7 @@ export class SeriesEpisodes {
         this.neighbors?.abort();
         this.neighbors = undefined;
         this.pendingNeighbors.clear();
+        this.retryingNeighbors.clear();
         this.episodes = episodes;
         this.pages.clear();
         this.pages.set(season, episodes);
@@ -250,6 +256,8 @@ export class SeriesEpisodes {
         this.neighbors?.abort();
         this.neighbors = undefined;
         this.pendingNeighbors.clear();
+        for (const number of this.retryingNeighbors) if (number !== season) this.failedNeighbors.add(number);
+        this.retryingNeighbors.clear();
         const controller = new AbortController();
         this.controller = controller;
         if (!retain) { this.episodes = undefined; this.railEpisodes = undefined; }
@@ -325,6 +333,7 @@ export class SeriesEpisodes {
             // TVItemDetailView.swift:301-305: reaching a boundary after a failed prefetch re-runs the whole prefetch.
             for (const edge of this.windowEdges()) if (this.failedNeighbors.has(edge) && !this.failedSelections.has(edge)) void this.readNeighbor(edge, true);
             void this.readNeighbor(number, true);
+            this.changed("neighbor");
         }, BOUNDARY_DWELL_MS);
     }
 
@@ -389,6 +398,8 @@ export class SeriesEpisodes {
         this.neighbors ??= new AbortController();
         const controller = this.neighbors;
         this.pendingNeighbors.add(number);
+        // TVItemDetailView.swift:935: a prefetch clears carouselLoadFailed when it starts; a failure sets it again.
+        if (retry && this.failedNeighbors.delete(number)) this.retryingNeighbors.add(number);
         try {
             const page = this.parked.get(number) ?? await this.session.call({ ...operations.listSeasonEpisodes(this.seriesId, number), retry: "never", profileScoped: true, signal: controller.signal });
             this.parked.delete(number);
@@ -422,6 +433,6 @@ export class SeriesEpisodes {
                 } else this.changed("neighbor");
             }
             return;
-        } finally { if (!controller.signal.aborted) this.pendingNeighbors.delete(number); }
+        } finally { if (!controller.signal.aborted) { this.pendingNeighbors.delete(number); this.retryingNeighbors.delete(number); } }
     }
 }

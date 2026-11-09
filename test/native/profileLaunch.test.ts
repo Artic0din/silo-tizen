@@ -262,6 +262,64 @@ test("a PIN proof the key store refuses to remove is kept on the cleared choice 
     assert.equal(h.storage.getItem(key), '{"remember":false}');
 });
 
+test("a replaced PIN proof the key store refuses to remove is retried on later starts while the new choice keeps working", async () => {
+    const keyManager = new RefusingProofKeyManager();
+    const h = await connected({ keyManager, randomBytes: distinctBytes }); await signIn(h);
+    h.fake.catalog = new FakeDetails();
+    const kid = (await h.core.profiles.list()).find(profile => profile.id === "p-kid"); assert.ok(kid);
+    h.core.profiles.select(kid); await h.core.profiles.verifyPin(kid.id, "2468");
+    await h.core.profileLaunch.setRemember(true);
+    const proofAliases = (): string[] => [...keyManager.items.keys()].filter(alias => alias.startsWith("silo.profile."));
+    const [oldAlias] = proofAliases(); assert.ok(oldAlias);
+    keyManager.refuseProofRemoval = true;
+    await h.core.profileLaunch.setRemember(true);
+    assert.equal(proofAliases().length, 2, "the replaced proof is still stored");
+    const stuck = await connected({ fake: h.fake, storage: h.storage, keyManager, clock: h.clock, randomBytes: distinctBytes });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(stuck.core.profileLaunch.remembered, true);
+    assert.equal(proofAliases().length, 2, "a refused retry keeps naming the replaced proof");
+    keyManager.refuseProofRemoval = false;
+    const retried = await connected({ fake: h.fake, storage: h.storage, keyManager, clock: h.clock, randomBytes: distinctBytes });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(keyManager.items.has(oldAlias), false, "the replaced proof is removed");
+    assert.equal(proofAliases().length, 1, "the new proof is kept");
+    assert.equal(retried.core.profileLaunch.remembered, true);
+    assert.equal((await retried.core.profileLaunch.restore(await retried.core.profiles.list(), new AbortController().signal))?.id, kid.id);
+    assert.equal(retried.core.session.activeProfile?.id, kid.id);
+    assert.equal(JSON.parse(h.storage.getItem(launchKey(h.storage)) ?? "{}").retiredAliases, undefined, "nothing left to retry");
+});
+
+test("two overlapping replacements leave no proof unnamed", async () => {
+    const keyManager = new RefusingProofKeyManager();
+    const h = await connected({ keyManager, randomBytes: distinctBytes }); await signIn(h);
+    const kid = (await h.core.profiles.list()).find(profile => profile.id === "p-kid"); assert.ok(kid);
+    h.core.profiles.select(kid); await h.core.profiles.verifyPin(kid.id, "2468");
+    await h.core.profileLaunch.setRemember(true);
+    const proofAliases = (): string[] => [...keyManager.items.keys()].filter(alias => alias.startsWith("silo.profile."));
+    keyManager.refuseProofRemoval = true;
+    await Promise.all([h.core.profileLaunch.setRemember(true), h.core.profileLaunch.setRemember(true)]);
+    keyManager.refuseProofRemoval = false;
+    await connected({ fake: h.fake, storage: h.storage, keyManager, clock: h.clock, randomBytes: distinctBytes });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(proofAliases().length, 1, "only the newest proof is left");
+});
+
+test("continuing without saving keeps replaced proofs named so sign-in still removes them", async () => {
+    const keyManager = new RefusingProofKeyManager();
+    const h = await connected({ keyManager, randomBytes: distinctBytes }); await signIn(h);
+    const kid = (await h.core.profiles.list()).find(profile => profile.id === "p-kid"); assert.ok(kid);
+    h.core.profiles.select(kid); await h.core.profiles.verifyPin(kid.id, "2468");
+    await h.core.profileLaunch.setRemember(true);
+    const proofAliases = (): string[] => [...keyManager.items.keys()].filter(alias => alias.startsWith("silo.profile."));
+    keyManager.refuseProofRemoval = true;
+    await h.core.profileLaunch.setRemember(true);
+    keyManager.refuseProofRemoval = false;
+    h.core.profileLaunch.continueWithoutSaving();
+    await signIn(h);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(proofAliases().length, 0, "both proofs are removed");
+});
+
 class RefusingProofKeyManager extends FakeKeyManager {
     refuseProofRemoval = false;
     override removeData(dataAlias: { readonly name: string }): void {

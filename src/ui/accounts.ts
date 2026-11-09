@@ -293,6 +293,8 @@ function overflowColumn(scroller: HTMLElement, className: string, previous?: Ove
     scroller.addEventListener("scroll", sync);
     const observer = new ResizeObserver(sync);
     observer.observe(scroller);
+    // The scroller's own box stays fixed when a row grows (a web font loading), so watch the rows too.
+    for (const row of Array.from(scroller.children)) observer.observe(row);
     wrapper.append(scroller, chevrons);
     return { element: wrapper, scroller, sync, disconnect: () => observer.disconnect() };
 }

@@ -75,6 +75,18 @@ test("a short Change Account shows no fade and no chevron", async () => {
     });
 });
 
+test("a row that grows after render shows the chevron without any scrolling", async () => {
+    await withSignedInTv(browser, async tv => {
+        await seedAccounts(tv, 1, accountsOnActive(10));
+        await openChangeAccount(tv);
+        await press(tv, DOWN, 1);
+        await settled(tv, "pane", { above: true, below: false });
+        // The pane keeps its capped height; only its content grows, as when a web font loads.
+        await tv.page.evaluate(() => { document.querySelector<HTMLElement>(".accounts-pane")!.lastElementChild!.setAttribute("style", "min-height: 600px"); });
+        await settled(tv, "pane", { above: true, below: true });
+    });
+});
+
 test("the accounts pane fades its edge and shows a chevron only where rows are hidden", async () => {
     await withSignedInTv(browser, async tv => {
         await seedAccounts(tv, 1, accountsOnActive(10));

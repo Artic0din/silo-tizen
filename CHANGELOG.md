@@ -235,6 +235,7 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Updated FEATURES.md for Apple TV's Change Account and Accounts settings screens: Switch Server and Sign Out & Remove Server are now marked done, and Change Account and Settings › Accounts have their own rows.
 - Replaced the README screenshot with For You from a current main build.
 - Updated the Series hero and playback target as episode focus moved, added episode air dates and runtimes, restored Apple's fixed detail frames, and resolved local extras whose embedded file ID was absent.
 

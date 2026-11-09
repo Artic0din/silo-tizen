@@ -154,16 +154,10 @@ function pinChecks(tv: Tv): number {
     return tv.fake.paths().filter((path) => path === "POST /profiles/p-kid/verify-pin").length;
 }
 
-/** Types a PIN on the TV keyboard, closes it with Done and presses Unlock. */
+/** Types a PIN on the remote's number keys; the fourth digit sends it. */
 async function enterPin(tv: Tv, pin: string): Promise<void> {
-    if ((await tv.focused()) === "unlock") {
-        await tv.page.keyboard.press("ArrowUp");
-    }
-    assert.equal(await tv.focused(), "pin");
+    assert.equal(await tv.screen(), "pin");
     await tv.page.keyboard.type(pin);
-    await tv.remote(IME_DONE);
-    assert.equal(await tv.focused(), "unlock");
-    await tv.page.keyboard.press("Enter");
 }
 
 async function openKid(tv: Tv): Promise<void> {
@@ -267,17 +261,20 @@ tvTest("wrong PINs are reported, never kept or resent, and the right PIN unlocks
     assert.equal(deviceIdBeforePin, "01232468-89ab-4cde-8fab-0123456789ab", "sign-in retains the synthetic install identity containing the PIN digits");
     await openKid(tv);
     await tv.page.getByRole("heading", { name: "Kid", exact: true }).waitFor();
-    await tv.remote(IME_DONE);
-    await tv.page.keyboard.press("Enter");
-    await shows(tv, "Enter the PIN.");
-    assert.equal(pinChecks(tv), 0, "an empty PIN is not sent");
-    await tv.page.keyboard.press("ArrowUp");
+    await tv.page.keyboard.type("000");
+    assert.equal(pinChecks(tv), 0, "nothing is sent before the fourth digit");
 
-    await enterPin(tv, "0000");
-    await shows(tv, "That PIN is not right. Try again.");
-    assert.equal(await tv.focused(), "unlock", "an asynchronous error does not move focus");
-    assert.equal(await tv.page.inputValue("#profile-pin"), "", "the field is cleared after every check");
+    await tv.page.keyboard.type("0");
+    await shows(tv, "Wrong PIN. Try again.");
+    assert.equal(await tv.focused(), "5", "an asynchronous error does not move focus");
+    assert.equal(await tv.page.locator(".pin-dot-filled").count(), 4, "the dots show the rejection in red");
+    assert.equal(await tv.page.locator(".pin-dots-error").count(), 1);
+    assert.equal(await tv.page.locator(".pin-dots-shake").count(), 1);
     assert.equal(pinChecks(tv), 1);
+    await tv.page.keyboard.type("1");
+    assert.equal(await tv.page.locator(".pin-dots-error").count(), 0, "a new digit ends the red dots");
+    assert.equal(await tv.page.locator(".pin-dot-filled").count(), 1, "the entry starts again");
+    await tv.page.keyboard.press("Escape");
 
     await enterPin(tv, KID_PIN);
     await handedCount(tv, 1);
@@ -310,17 +307,17 @@ tvTest("a lockout's Retry-After is shown and honored without sending checks, the
     await openKid(tv);
     for (let attempt = 1; attempt <= 5; attempt++) {
         await enterPin(tv, "0000");
-        await shows(tv, "That PIN is not right. Try again.");
+        await shows(tv, "Wrong PIN. Try again.");
         assert.equal(pinChecks(tv), attempt);
-        assert.equal(await tv.focused(), "unlock");
+        assert.equal(await tv.focused(), "5");
     }
     await enterPin(tv, KID_PIN);
-    await shows(tv, "Too many wrong PINs. Try again in 5 minutes.");
+    await shows(tv, "Too many incorrect PINs. Try again in 5 minutes.");
     assert.equal(pinChecks(tv), 6);
 
     await tv.jump(240 * 1000);
     await enterPin(tv, KID_PIN);
-    await shows(tv, "Too many wrong PINs. Try again in 60 seconds.");
+    await shows(tv, "Too many incorrect PINs. Try again in 1 minute.");
     assert.equal(pinChecks(tv), 6, "no check is sent while locked");
 
     await tv.jump(60 * 1000);
@@ -343,45 +340,44 @@ tvTest("a PIN check with no answer, or a busy server, asks for the PIN again ins
     assert.equal((await handed(tv)).length, 0);
 });
 
-tvTest("an unsuccessful PIN answer preserves navigation to Choose another profile", async (tv) => {
+tvTest("focus stays on the pad while a PIN is checked and after the answer, and Cancel then leaves", async tv => {
     await picker(tv);
     await openKid(tv);
     const check = tv.fake.hold("/profiles/p-kid/verify-pin", true);
     await enterPin(tv, "0000");
-    await shows(tv, "Checking the PIN.");
+    await tv.page.locator(".pin-status .marquee-spinner").waitFor();
     await tv.page.keyboard.press("ArrowRight");
-    assert.equal(await tv.focused(), "other");
+    assert.equal(await tv.focused(), "6", "the keys stay focusable while the PIN is checked");
     check.release();
-    await shows(tv, "That PIN is not right. Try again.");
-    assert.equal(await tv.focused(), "other", "the existing focused button survives the answer");
+    await shows(tv, "Wrong PIN. Try again.");
+    assert.equal(await tv.focused(), "6", "the answer does not move focus");
+    await tv.page.keyboard.press("ArrowDown");
+    await tv.page.keyboard.press("ArrowDown");
+    assert.equal(await tv.focused(), "delete");
+    await tv.page.keyboard.press("ArrowDown");
+    assert.equal(await tv.focused(), "cancel");
     await tv.page.keyboard.press("Enter");
     await screenIs(tv, "profiles");
+    assert.equal(await tv.focused(), "profile:p-kid", "focus returns to the profile it left");
     assert.equal(pinChecks(tv), 1);
 });
 
-tvTest("a late PIN answer never unlocks a profile the viewer left, and a second Unlock is not sent", async (tv) => {
+tvTest("Back, Cancel and further digits wait while a PIN is checked, then the answer unlocks the profile", async tv => {
     await picker(tv);
     await openKid(tv);
     const check = tv.fake.hold("/profiles/p-kid/verify-pin", true);
     await enterPin(tv, KID_PIN);
-    await shows(tv, "Checking the PIN.");
-    await tv.page.keyboard.press("Enter");
-    assert.equal(pinChecks(tv), 1, "Unlock is ignored while a check is out");
-
+    await tv.page.locator(".pin-status .marquee-spinner").waitFor();
+    await tv.page.keyboard.type("9");
     await tv.remote(BACK);
-    await screenIs(tv, "profiles");
-    assert.equal(await tv.focused(), "profile:p-kid", "focus returns to the profile it left");
-    await tv.page.keyboard.press("ArrowLeft");
-    await tv.page.keyboard.press("Enter");
-    await handedCount(tv, 1);
+    await tv.page.locator('[data-focus="cancel"]').click();
+    assert.equal(await tv.screen(), "pin", "the PIN prompt stays until the server answers");
+    assert.equal(await tv.page.locator(".pin-dot-filled").count(), 4);
+    assert.equal(pinChecks(tv), 1, "nothing more is sent while a check is out");
     check.release();
-    await tv.jump(0);
-    assert.deepEqual((await handed(tv)).map((entry) => entry.id), ["p-owner"]);
-    assert.equal(await tv.screen(), "browse");
+    await handedCount(tv, 1);
+    assert.deepEqual((await handed(tv)).map((entry) => entry.id), ["p-kid"]);
     assert.equal(await tv.page.evaluate(() => window.harness.probe()), "painted");
-    const probe = tv.fake.requests.filter((request) => request.path === "/catalog/probe").pop();
-    assert.equal(probe?.headers["x-profile-id"], "p-owner");
-    assert.equal(probe?.headers["x-profile-token"], undefined);
 });
 
 tvTest("switching ends the old profile's work before the PIN, its late answers never paint, and Back keeps the profile", async (tv) => {
@@ -431,7 +427,7 @@ tvTest("a changed PIN ends the profile's proof; the TV asks for the new PIN and 
     assert.equal(await tv.page.locator('[data-screen="browse"]').count(), 0, "the profile's content is gone");
 
     await enterPin(tv, KID_PIN);
-    await shows(tv, "That PIN is not right. Try again.");
+    await shows(tv, "Wrong PIN. Try again.");
     await enterPin(tv, "1357");
     await handedCount(tv, 2);
     assert.equal(await tv.page.evaluate(() => window.harness.probe()), "painted");
@@ -1053,9 +1049,8 @@ tvTest("a PIN-protected primary verifies for creation and cancellation never lau
     await tv.page.getByRole("button", { name: "Add profile", exact: true }).click();
     await screenIs(tv, "pin");
     await enterPin(tv, "1111");
-    await shows(tv, "That PIN is not right. Try again.");
-    await tv.page.locator("#profile-pin").fill(KID_PIN);
-    await tv.page.getByRole("button", { name: "Unlock", exact: true }).click();
+    await shows(tv, "Wrong PIN. Try again.");
+    await enterPin(tv, KID_PIN);
     await screenIs(tv, "profile-create");
     await tv.remote(BACK);
     await screenIs(tv, "profiles");

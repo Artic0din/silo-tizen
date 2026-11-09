@@ -3,7 +3,7 @@
 
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
-import type { Browser, Page } from "playwright";
+import type { Browser } from "playwright";
 import { FakeCalendar } from "../native/support/fakeCalendar.ts";
 import { FakeCatalog } from "../native/support/fakeCatalog.ts";
 import { FakeDetails } from "../native/support/fakeDetails.ts";
@@ -57,29 +57,41 @@ interface Measured {
     readonly boxFill: string;
 }
 
-function measure(page: Page, selector: string): Promise<Measured> {
-    return page.locator(`${selector} .default-artwork`).evaluate((node): Measured => {
-        const parent = node.parentElement!;
-        const area = parent.getBoundingClientRect();
-        // A focused card is scaled; the glow and mark are sized from the layout box.
-        const scale = area.width / parent.offsetWidth;
-        const mark = node.querySelector(".default-artwork-mark")!.getBoundingClientRect();
-        const glow = node.querySelector(".default-artwork-glow")!;
-        return {
-            symbol: node.getAttribute("data-symbol"),
-            text: node.textContent ?? "",
-            ariaHidden: node.getAttribute("aria-hidden"),
-            base: getComputedStyle(node).backgroundColor,
-            glows: getComputedStyle(glow).backgroundImage,
-            markColor: getComputedStyle(node.querySelector(".default-artwork-mark")!).color,
-            markOpacity: getComputedStyle(node.querySelector(".default-artwork-mark")!).opacity,
-            markWidth: mark.width / scale,
-            markHeight: mark.height / scale,
-            markCentre: { x: (mark.x + mark.width / 2 - area.x) / scale, y: (mark.y + mark.height / 2 - area.y) / scale },
-            box: { x: area.x, y: area.y, width: parent.offsetWidth, height: parent.offsetHeight },
-            boxFill: getComputedStyle(parent).backgroundColor,
-        };
-    });
+/**
+ * Details and Season repaint when state arrives, replacing a card after a locator resolves; a detached node
+ * reports "" for its computed style. `isConnected` is read in the same browser turn as the style, and a
+ * detached node is looked up again.
+ */
+async function measure(tv: Tv, selector: string): Promise<Measured> {
+    let found: Measured | null = null;
+    await tv.eventually(async () => {
+        found = await tv.page.locator(`${selector} .default-artwork`).evaluate((node): Measured | null => {
+            if (!node.isConnected) return null;
+            const parent = node.parentElement!;
+            const area = parent.getBoundingClientRect();
+            // A focused card is scaled; the glow and mark are sized from the layout box.
+            const scale = area.width / parent.offsetWidth;
+            const mark = node.querySelector(".default-artwork-mark")!.getBoundingClientRect();
+            const glow = node.querySelector(".default-artwork-glow")!;
+            return {
+                symbol: node.getAttribute("data-symbol"),
+                text: node.textContent ?? "",
+                ariaHidden: node.getAttribute("aria-hidden"),
+                base: getComputedStyle(node).backgroundColor,
+                glows: getComputedStyle(glow).backgroundImage,
+                markColor: getComputedStyle(node.querySelector(".default-artwork-mark")!).color,
+                markOpacity: getComputedStyle(node.querySelector(".default-artwork-mark")!).opacity,
+                markWidth: mark.width / scale,
+                markHeight: mark.height / scale,
+                markCentre: { x: (mark.x + mark.width / 2 - area.x) / scale, y: (mark.y + mark.height / 2 - area.y) / scale },
+                box: { x: area.x, y: area.y, width: parent.offsetWidth, height: parent.offsetHeight },
+                boxFill: getComputedStyle(parent).backgroundColor,
+            };
+        });
+        return found !== null;
+    }, `connected default artwork in ${selector}`);
+    assert.ok(found !== null);
+    return found;
 }
 
 /** `markWidth(for:)`: 24% of the box width, held to tvOS's 14...64 range. */
@@ -122,7 +134,7 @@ artTest("a poster with no artwork URL draws DefaultArtwork's film mark and brand
     await tv.page.locator(`${card}.browse-art-missing .default-artwork`).waitFor();
     assert.equal(await tv.page.locator(`${card} img`).count(), 0);
     assert.equal(await tv.page.locator(`${card} .browse-art-fallback`).count(), 0, "no title placeholder");
-    assertAppleDefaultArtwork(await measure(tv.page, card), "film", 120 / 89);
+    assertAppleDefaultArtwork(await measure(tv, card), "film", 120 / 89);
 });
 
 artTest("a poster whose artwork fails to load draws the same DefaultArtwork", async tv => {
@@ -130,7 +142,7 @@ artTest("a poster whose artwork fails to load draws the same DefaultArtwork", as
     const card = '[data-focus="movie:m0003"] .browse-art';
     await tv.page.locator(`${card}.browse-art-missing .default-artwork`).waitFor();
     assert.equal(await tv.page.locator(`${card} img`).count(), 0, "the failed image is removed");
-    assertAppleDefaultArtwork(await measure(tv.page, card), "film", 120 / 89);
+    assertAppleDefaultArtwork(await measure(tv, card), "film", 120 / 89);
 });
 
 let failLoading: () => void = () => undefined;
@@ -153,14 +165,14 @@ artTest("a series poster that fails draws the tv mark", async tv => {
     await openLibrary(tv, "series", "library:13");
     const card = '[data-focus="series:s1"] .browse-art';
     await tv.page.locator(`${card}.browse-art-missing .default-artwork`).waitFor();
-    assertAppleDefaultArtwork(await measure(tv.page, card), "tv", 124 / 97);
+    assertAppleDefaultArtwork(await measure(tv, card), "tv", 124 / 97);
 }, async tv => { await tv.page.route(/\/art\/series%3As1\.svg/, route => route.abort()); });
 
 artTest("a landscape episode thumbnail sizes the glow and mark from its own box", async tv => {
     await openLibrary(tv, "series", "library:13");
     const card = '[data-section="next"] [data-focus="episode:s1e12"] .browse-art';
     await tv.page.locator(`${card}.browse-art-missing .default-artwork`).waitFor();
-    const found = await measure(tv.page, card);
+    const found = await measure(tv, card);
     assert.ok(found.box.width > found.box.height, "a thumbnail is landscape");
     assertAppleDefaultArtwork(found, "tv", 124 / 97);
     const progress = tv.page.locator(`${card} .skyline-progress`);
@@ -183,10 +195,10 @@ artTest("Calendar cards with no poster draw the film mark, and episodes and seas
     const film = '.calendar-event:has-text("Release 1") .browse-art';
     await tv.page.locator(`${film}.browse-art-missing .default-artwork`).waitFor();
     assert.equal(await tv.page.locator(`${film} .browse-art-fallback`).count(), 0, "no title placeholder");
-    assertAppleDefaultArtwork(await measure(tv.page, film), "film", 120 / 89);
+    assertAppleDefaultArtwork(await measure(tv, film), "film", 120 / 89);
     const season = '.calendar-event:has-text("Harbor Lights"):has(.calendar-release:text("NEW SEASON")) .browse-art';
     await tv.page.locator(`${season}.browse-art-missing .default-artwork`).waitFor();
-    assertAppleDefaultArtwork(await measure(tv.page, season), "tv", 124 / 97);
+    assertAppleDefaultArtwork(await measure(tv, season), "tv", 124 / 97);
     assert.equal(await tv.page.locator(`${season} .calendar-release`).count(), 1, "the release badge stays on the card");
 }, async (tv, catalog) => {
     assert.ok(catalog instanceof FakeCatalog);
@@ -204,12 +216,12 @@ artTest("an episode still with no image draws the tv mark in Season and in the S
     const rail = '.details-episodes [data-focus="episode:s1e11"] .browse-art';
     await tv.page.locator(`${rail}.browse-art-missing .default-artwork`).waitFor();
     assert.equal(await tv.page.locator(`${rail} .browse-art-fallback`).count(), 0, "no title placeholder");
-    assertAppleDefaultArtwork(await measure(tv.page, rail), "tv", 124 / 97);
+    assertAppleDefaultArtwork(await measure(tv, rail), "tv", 124 / 97);
     await tv.page.locator('[data-focus="series:s1-S1"]').click();
     const season = '.browse-episode[data-focus="episode:s1e11"] .browse-art';
     await tv.page.locator(`${season}.browse-art-missing .default-artwork`).waitFor();
     assert.equal(await tv.page.locator(`${season} .browse-art-fallback`).count(), 0, "no title placeholder");
-    assertAppleDefaultArtwork(await measure(tv.page, season), "tv", 124 / 97);
+    assertAppleDefaultArtwork(await measure(tv, season), "tv", 124 / 97);
 }, async tv => { tv.fake.catalog = new FakeDetails(); });
 
 artTest("artwork that loads never builds a DefaultArtwork node", async tv => {

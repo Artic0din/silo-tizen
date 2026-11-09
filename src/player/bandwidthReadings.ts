@@ -42,14 +42,14 @@ export class BandwidthReadings {
     }
 
     /**
-     * The highest reading younger than `maxAgeSeconds` for `key`. A reading dated after `now` is as fresh as now:
+     * The highest reading younger than `maxAgeSeconds` for `key`. A reading dated after `now` counts as fresh:
      * the server dates it by its own clock.
      */
     freshEstimateKbps(key: string, now: number, maxAgeSeconds: number): number | undefined {
         if (this.key !== key) return undefined;
         let highest: number | undefined;
         for (const reading of [this.probe, this.sample]) {
-            if (reading === undefined || Math.max(0, now - reading.measuredAt) >= maxAgeSeconds * 1000) continue;
+            if (reading === undefined || now - reading.measuredAt >= maxAgeSeconds * 1000) continue;
             highest = Math.max(highest ?? reading.kbps, reading.kbps);
         }
         return highest;

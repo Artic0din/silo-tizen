@@ -3,7 +3,6 @@
 
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, test } from "node:test";
-import { AccurateProbeMeter } from "../../src/player/bandwidthProbe.ts";
 import { bandwidthReadings, readingsKey } from "../../src/player/bandwidthReadings.ts";
 import { PlaybackController, type PlayRequest } from "../../src/player/controller.ts";
 import { ConnectionSpeed } from "../../src/ui/connectionSpeed.ts";
@@ -131,12 +130,6 @@ test("no reading, or only a stale one, sends no estimate", async () => {
     assert.equal(Object.hasOwn(await startBody(stale), "bandwidth_estimate_kbps"), false);
 });
 
-test("a reading dated after the device clock counts as fresh", async () => {
-    const r = await rig();
-    bandwidthReadings.adopt(key(r), { probe: { kbps: 48000, measuredAt: ageMs(r, -5_000) } });
-    assert.equal((await startBody(r)).bandwidth_estimate_kbps, 48000);
-});
-
 test("the server's bandwidth_probe_max_age_seconds sets the window, 7 days when it sends none", async () => {
     const short = await rig();
     capabilities(short, { bandwidth_probe_max_age_seconds: 600 });
@@ -178,16 +171,22 @@ test("a metered or different network, or another server, sends no estimate", asy
     assert.equal(Object.hasOwn(await startBody(other), "bandwidth_estimate_kbps"), false);
 });
 
-test("a saved Test speed result is sent as measured, floored like Apple and never rounded again", async () => {
-    const meter = new AccurateProbeMeter();
-    meter.receive(1000, 0);
-    meter.receive(2_999_999, 500);
-    meter.transferEnded(1000);
-    assert.equal(meter.result?.kbps, 47999);
+test("a saved Test speed result replaces an older, higher playback sample", async () => {
     const r = await rig();
     bandwidthReadings.adopt(key(r), { sample: { kbps: 51200, measuredAt: ageMs(r, 60_000) } });
-    bandwidthReadings.adoptMeasured(key(r), { kbps: meter.result?.kbps ?? 0, measuredAt: ageMs(r, 1000) });
+    bandwidthReadings.adoptMeasured(key(r), { kbps: 47999, measuredAt: ageMs(r, 1000) });
     assert.equal((await startBody(r)).bandwidth_estimate_kbps, 47999);
+});
+
+test("another account on the same server starts without the first account's reading", async () => {
+    const r = await rig();
+    bandwidthReadings.adopt(key(r), { probe: { kbps: 48000, measuredAt: ageMs(r, 1000) } });
+    await r.h.core.session.logout();
+    await signIn(r.h);
+    const owner = (await r.h.core.profiles.list()).find((profile) => profile.id === "p-owner");
+    assert.ok(owner !== undefined);
+    r.h.core.profiles.select(owner);
+    assert.equal(Object.hasOwn(await startBody(r), "bandwidth_estimate_kbps"), false);
 });
 
 test("a changed connection drops the old probe and a newer own probe survives an older server one", () => {

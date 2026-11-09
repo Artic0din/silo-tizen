@@ -3,6 +3,7 @@
 
 import { type Clock, systemClock } from "../api/clock.ts";
 import { clearBrowseCache } from "./browseCache.ts";
+import { bandwidthReadings } from "../player/bandwidthReadings.ts";
 import { discoverServer, failedDiscovery, type DiscoveryResult, type ServerConnection } from "../api/discovery.ts";
 import { NativeHttp, type FetchLike } from "../api/http.ts";
 import { ApiError } from "../api/errors.ts";
@@ -124,6 +125,7 @@ async function openServerSession(server: ServerConnection, deps: SessionCoreDeps
         await deps.beforeAccountSignIn?.(server.http.base.baseUrl, accountId);
     });
     watchBrowseCache(session, deps.publicStorage, server.serverId, vault.directory.list().find(row => row.id === vault.localAccountId)?.accountId);
+    watchBandwidthReadings(session);
     const restore = await session.restore();
     if (offlineDiscovery && restore !== "signed_in") return { status: "unreachable" };
     // Offline restoration must keep the deployment gate; a live online session has none.
@@ -230,6 +232,13 @@ export async function forgetStoredCredential(
     const account = vault.directory.list().find(row => row.id === vault.localAccountId);
     if (account) clearBrowseCache(deps.publicStorage, [account.serverId, account.accountId]);
     return vault.clear();
+}
+
+/** Apple forgets every speed reading when the server, sign-in or profile changes (BandwidthProbeScheduler.setActiveSession). */
+function watchBandwidthReadings(session: NativeSession): void {
+    session.onAuthorityChange(change => {
+        if (["signed_in", "signed_out", "session_expired", "profile_selected"].includes(change.reason)) bandwidthReadings.clear();
+    });
 }
 
 function watchBrowseCache(session: NativeSession, storage: PublicStorage | undefined, serverId: string, accountId?: string): void {

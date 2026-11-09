@@ -145,6 +145,10 @@ export function mountApp(root: HTMLElement, options: AppOptions): SiloApp {
         if (result?.status === "connected" && result.restore === "signed_in") {
             rememberServer(activeCore, result.server.http.base.baseUrl);
             stopContent();
+            // The same cleanup showSignIn does: a Browse session opened this screen with its profile still active.
+            if (connected?.session.activeProfile) connected.session.setProfile(undefined, "profile_cleared");
+            profiles?.destroy();
+            profiles = undefined;
             showProfiles(result, { skipRemembered: true });
             return;
         }

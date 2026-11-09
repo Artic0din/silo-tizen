@@ -40,13 +40,17 @@ export function mountAccounts(root: HTMLElement, core: SessionCoreDeps, current:
         if (row.needsSignIn || row.id === current?.accounts.localAccountId) { go(row); return; }
         const mine = { id: row.id, controller: new AbortController() };
         opening = mine;
-        render(false, true);
-        void Promise.resolve(open(row, undefined, mine.controller.signal)).finally(() => {
+        refresh();
+        const settle = (failed: boolean): void => {
             if (destroyed || opening !== mine) return;
             opening = undefined;
-            render(false, true);
-        });
+            if (failed) showError("Could not open the account. Try again.");
+            else refresh();
+        };
+        void (async () => open(row, undefined, mine.controller.signal))().then(() => settle(false), () => settle(true));
     };
+    /** Redraws in place: focus stays in the column it was in. */
+    const refresh = (): void => { const zone = host.focused()?.zone; render(zone === "servers", zone === "accounts"); };
     const showError = (message: string): void => {
         const retry = actionButton("retry", "Back", render);
         host.show({ name: "accounts-error", content: [el("h1", "accounts-title", message), retry.element], zones: [{ id: "error", layout: "column", items: [retry] }], focus: { zone: "error", key: "retry" }, back: render });
@@ -209,7 +213,7 @@ export function mountAccounts(root: HTMLElement, core: SessionCoreDeps, current:
             zones: [{ id: "servers", layout: "column", right: "accounts", items: serverItems }, { id: "accounts", layout: "column", left: "servers", items: accounts }],
             focus: accounts.length === 0 ? { zone: "servers", key: "add-server" } : { zone: "accounts", key: accounts.find(row => row.key === current?.accounts.localAccountId)?.key ?? accounts[0]!.key },
             back: () => {
-                if (opening !== undefined) { opening.controller.abort(); opening = undefined; render(false, true); return; }
+                if (opening !== undefined) { opening.controller.abort(); opening = undefined; refresh(); return; }
                 if (host.focused()?.zone === "accounts") { render(true); return; }
                 destroy(); back();
             } }, railFocus ? { zone: "servers", key: selected ?? "add-server" } : enterPane ? { zone: "accounts", key: paneEntry ?? accounts.find(row => row.key === current?.accounts.localAccountId)?.key ?? accounts[0]!.key } : undefined);

@@ -86,7 +86,8 @@ export function hasData(current: Route): boolean {
             return current.pages.page !== undefined || current.capability !== undefined;
         case "library":
             return current.discovery?.mode === "Browse" ? current.discovery.snapshot !== undefined : current.discovery?.data !== undefined && (!(current.discovery.mode === "A–Z" || current.discovery.mode === "Recently Added" || current.discovery.genre !== undefined) || current.pages.page !== undefined);
-        case "person": return current.data !== undefined;
+        // A loaded filmography is kept; only a missing person is read again (Apple loadInitial: person == nil, items.isEmpty).
+        case "person": return current.data !== undefined || current.pages.page !== undefined;
         case "libraryResults":
         case "homeSection":
         case "recommendationSection":

@@ -1451,6 +1451,14 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         return signal;
     };
 
+    /** The person's own metadata read; the caller sets metadataLoading first. */
+    const readPersonMetadata = (current: Extract<Route, { kind: "person" }>, signal: AbortSignal): Promise<void> =>
+        read(detailOperations.person(current.id), signal).then(person => {
+            if (!signal.aborted) { current.data = { person }; current.metadataFailure = undefined; current.metadataRefresh?.start(signal); }
+        }, (error: unknown) => {
+            if (!signal.aborted) current.metadataFailure = failureText(error, current) ?? "Could not load metadata. Try again.";
+        }).finally(() => { if (!signal.aborted) { current.metadataLoading = false; if (top() === current) render(); } });
+
     const availabilityPending = (current: Extract<Route, { kind: "person" }>): boolean => current.availableFilters === undefined && current.availabilityLoading !== true;
 
     /** PersonDetailView.refreshAvailableFilters: one single-item probe per type. A failed probe keeps its chip. */
@@ -1519,11 +1527,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             };
             load(current, async signal => {
                 const repaint = (): void => { if (!metadataSignal.aborted && top() === current) render(); };
-                const metadata = loadMetadata ? read(detailOperations.person(current.id), metadataSignal).then(person => {
-                    if (!metadataSignal.aborted) { current.data = { person }; current.metadataFailure = undefined; current.metadataRefresh?.start(metadataSignal); }
-                }, (error: unknown) => {
-                    if (!metadataSignal.aborted) current.metadataFailure = failureText(error, current) ?? "Could not load metadata. Try again.";
-                }).finally(() => { if (!metadataSignal.aborted) { current.metadataLoading = false; repaint(); } }) : Promise.resolve();
+                const metadata = loadMetadata ? readPersonMetadata(current, metadataSignal) : Promise.resolve();
                 const availability = loadAvailability ? probeAvailability(current, metadataSignal) : Promise.resolve();
                 const credits = (async (): Promise<void> => {
                     const append = index > pages.index;
@@ -1737,6 +1741,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 const signal = resumePersonRefresh(current);
                 // A visit without its first page reads everything through load(); otherwise only what Details aborted or changed.
                 if (current.pages.page !== undefined) {
+                    // Apple loadInitial also re-runs while person == nil: Details can abort the first metadata read.
+                    if (current.data === undefined && current.metadataLoading !== true) { current.metadataLoading = true; void readPersonMetadata(current, signal); }
                     if (availabilityPending(current)) void probeAvailability(current, signal);
                     reconcilePersonWatched(current, signal);
                 }

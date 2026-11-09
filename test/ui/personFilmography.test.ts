@@ -714,6 +714,28 @@ journey("Details Back resumes the unfinished metadata refresh without re-reading
     assert.equal(queries(tv).length, count, "Back reads no filmography page");
 });
 
+// loadInitial re-runs while person == nil, so Back reads the person again but not the filmography.
+journey("Details Back reads the person again when Details interrupted the first read", async tv => {
+    await tv.remote(BACK);
+    // Held by exact path: Details' own artwork and title reads cannot use it up.
+    const held = tv.fake.hold("/catalog/people/7");
+    await tv.page.locator('.details-people [data-focus^="credit:7:"]').first().click();
+    await tv.eventually(async () => await grid(tv).count() === 60, "credits before metadata");
+    await tv.page.getByText("Loading metadata", { exact: true }).waitFor();
+    assert.equal(metadataReads(tv), 2, "the held person read is the only one out");
+    await grid(tv).first().click();
+    await tv.page.locator(".details-hero").waitFor();
+    const count = queries(tv).length;
+    for (let attempt = 0; attempt < 3 && await tv.page.locator(".details-person-hero").count() === 0; attempt++) await tv.remote(BACK);
+    await tv.page.locator(".details-person-hero").waitFor();
+    await tv.eventually(async () => metadataReads(tv) === 3 && await tv.page.getByText("Loading metadata", { exact: true }).count() === 0, "person read again and hero filled");
+    held.release();
+    await tv.jump(300);
+    assert.equal(metadataReads(tv), 3, "exactly one more person read");
+    assert.equal(queries(tv).length, count, "Back reads no filmography page");
+    assert.equal(await grid(tv).count(), 60);
+});
+
 journey("filter race fences old answer; failed and empty filters keep controls reachable", async (tv, catalog) => {
     await all(tv);
     const held = tv.fake.hold("/catalog/query", true);

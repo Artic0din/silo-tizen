@@ -28,6 +28,7 @@ All notable changes to this project are documented in this file.
 ### Fixed
 
 - Retried a season that failed to load beside the Series Details episode rail when focus reaches the rail edge, and re-read a season whose load was cancelled when its chip is focused again, as Apple TV does.
+- Restored the Continue Watching progress bar with Apple TV's look: a 3px bar flush with the card's bottom edge, a faint full-width track, and a light fill for the watched share. Box set search results use the same bar.
 - Listed a subtitle the server marks unplayable as dimmed with Unsupported format and made Select on it do nothing, so picking it no longer ends playback. Automatic picks skip it, a saved subtitle preference naming one falls back to the next playable pick, and a Details choice of one starts with subtitles off. A downloaded or AI subtitle that is unplayable says it was saved but not turned on, or shows Unsupported format.
 - Showed Who's watching after signing in even when the TV could not save that the remembered profile was cleared.
 - Moved the Series Details episode rail 40px left when its loaded window includes the series' first season. A later season whose earlier pages are not loaded keeps the previous position, and reopening Details starts from that season's neighbor window.

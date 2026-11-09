@@ -84,6 +84,68 @@ test("reopening Requests from its own profile menu keeps one page, so Back still
         assert.equal(await tv.page.evaluate(() => document.activeElement?.closest(".browse-nav") ?? null), null, "closing lands in the tab's content");
     } finally { await tv.page.context().close(); }
 });
+const MOVIES_VIEW = '.browse[data-view="library:12"]';
+const inNav = (tv: Tv) => tv.page.evaluate(() => document.activeElement?.closest(".browse-nav") !== null);
+async function openMovies(tv: Tv): Promise<void> {
+    await button(tv, "movies").click();
+    await tv.page.locator(MOVIES_VIEW).waitFor();
+}
+async function openPersonal(tv: Tv, source: "watchlist" | "favorites"): Promise<void> {
+    await button(tv, "for_you").focus(); await tv.remote(40);
+    await button(tv, source).click();
+    await tv.page.locator(`.browse[data-view="personal:${source}"]`).waitFor();
+}
+test("requests turning off closes a detail and the hub over Movies, then lands in the Movies content", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const fake = new FakeRequests(); fake.created = true;
+        await start(tv, fake); await openMovies(tv);
+        await openRequests(tv); await button(tv, "request-one").click(); await view(tv, "request");
+        fake.enabled = false;
+        await tv.page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+        await tv.page.locator(MOVIES_VIEW).waitFor();
+        assert.equal(await tv.page.locator('.browse[data-view^="requests:"]').count(), 0, "the detail and the hub are both gone");
+        assert.equal(await button(tv, "movies").getAttribute("aria-current"), "page", "the tab underneath stays selected");
+        assert.equal(await inNav(tv), false, "focus lands in the tab's content, not the bar");
+        assert.ok(await tv.focused());
+    } finally { await tv.page.context().close(); }
+});
+test("requests turning off under Search keeps Search, and the hub closes once Search is left", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const fake = new FakeRequests(); fake.created = true;
+        await start(tv, fake); await openMovies(tv);
+        await openRequests(tv); await button(tv, "request-one").waitFor();
+        await tv.remote(38); await button(tv, "search").click();
+        await tv.page.locator('.browse[data-view="search"]').waitFor();
+        fake.enabled = false;
+        await tv.page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+        await tv.eventually(async () => await button(tv, "requests").count() === 0 && tv.fake.paths().filter(path => path === "GET /requests/status").length > 1, "the capability answer arrived");
+        await tv.jump(200);
+        assert.equal(await tv.page.locator('.browse[data-view="search"]').count(), 1, "Search is not discarded");
+        assert.equal(await tv.page.getByRole("searchbox").count(), 1);
+        for (let back = 0; back < 4 && await tv.page.locator('.browse[data-view="search"]').count() > 0; back++) await tv.remote(10009);
+        await tv.page.locator(MOVIES_VIEW).waitFor();
+        assert.equal(await tv.page.locator('.browse[data-view^="requests:"]').count(), 0, "the hub closes once Search no longer covers it");
+        assert.equal(await inNav(tv), false, "focus lands in the tab's content");
+    } finally { await tv.page.context().close(); }
+});
+for (const [first, second] of [["watchlist", "requests"], ["requests", "watchlist"], ["watchlist", "favorites"]] as const) test(`${second} opened from the profile menu replaces ${first}, so two Backs return to the tab`, async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        await start(tv, Object.assign(new FakeRequests(), { created: true })); await openMovies(tv);
+        const open = async (source: string): Promise<void> => {
+            if (source === "requests") { await openRequests(tv); await button(tv, "request-one").waitFor(); }
+            else await openPersonal(tv, source as "watchlist" | "favorites");
+        };
+        await open(first); await open(second);
+        await tv.remote(10009); assert.equal(await tv.focused(), "movies", "the first Back reaches the bar");
+        await tv.remote(10009);
+        await tv.page.locator(MOVIES_VIEW).waitFor();
+        assert.equal(await tv.page.locator('.browse[data-view^="requests:"], .browse[data-view^="personal:"]').count(), 0, `${first} is not left underneath`);
+        assert.equal(await tv.focused(), "movies");
+    } finally { await tv.page.context().close(); }
+});
 test("returning from a Requests detail keeps the hub's scroll position and focused card", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {
@@ -98,6 +160,8 @@ test("returning from a Requests detail keeps the hub's scroll position and focus
         // Refocusing the card settles the scroll within a few pixels; a lost position would be 0.
         assert.ok(Math.abs(await tv.page.locator(".browse.requests-hub .skyline-content").evaluate(node => node.scrollTop) - scrolled) <= 8, "the hub keeps its scroll position");
         assert.equal(await tv.focused(), card);
+        assert.equal(await tv.page.locator(".browse-nav").count(), 1, "the detail returns to the root page, which keeps the top bar");
+        assert.equal(await tv.page.locator(".browse.requests-hub .skyline-content").count(), 1, "the shell body is the page's single scroller");
     } finally { await tv.page.context().close(); }
 });
 async function leaveRequests(tv: Tv): Promise<void> {
@@ -520,7 +584,7 @@ test("Requests disabled, empty, failure, Try Again and capability removal", asyn
         fake.enabled = false; await button(tv, "movie:949").click();
         await tv.page.locator('.browse[data-view="home"]').waitFor();
         assert.equal(await button(tv, "requests").count(), 0);
-        assert.equal(await tv.focused(), "home");
+        assert.equal(await inNav(tv), false, "the detail and the hub close together, with focus in the tab's content like Apple's closesRequestsRoot");
     } finally { await tv.page.context().close(); }
 });
 test("follow and unfollow never replay lost answers; refresh reconciles create", async () => {

@@ -474,21 +474,25 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         return shuffleCapability.usable && shuffleCapability.scopeKinds.includes(kind) && (original?.type !== "mixed" || route.library.type === "mixed");
     };
     const isHubRoot = (route: Route | undefined): route is Extract<Route, { kind: "requests" }> => route?.kind === "requests" && route.requests.source.kind === "hub";
-    // Apple closes a root Requests page back to the tab underneath with content focus; pushed Requests pages still reset to Home.
+    // Apple's closeRequestsScreens closes only the Requests pages on top, then closesRequestsRoot closes the root hub once nothing covers it
+    // and focus goes to the tab's content. A page above Requests (Search, Watchlist, a title) stays; pop() closes them when they are back in view.
     const closeRequests = (): void => {
         roots.delete("requests");
-        const hub = top();
-        if (isHubRoot(hub) && stack.length > 1 && stack.filter(route => route.kind === "requests").length === 1) {
-            stack.pop();
-            const origin = top();
-            if (origin !== undefined) {
-                showRoute(origin, undefined);
-                if (hasData(origin)) host.focusDefault();
-                return;
-            }
-        }
-        stack = [home];
-        showRoute(home, { zone: "nav", key: "home" });
+        if (top()?.kind !== "requests") return;
+        let closedHub = false;
+        while (stack.length > 1 && top()?.kind === "requests") closedHub = isHubRoot(stack.pop()) || closedHub;
+        const origin = top();
+        if (origin === undefined) return;
+        showRoute(origin, closedHub ? undefined : origin.focus);
+        if (closedHub && hasData(origin)) host.focusDefault();
+    };
+    const isPersonalRoot = (route: Route): boolean => route.kind === "personal" && route.source !== "history" || isHubRoot(route);
+    // Apple's showPersonalRoot pops to the tab first, so Watchlist, Favorites and Requests replace each other and one Back pair returns to the tab.
+    const clearPersonalRoot = (): void => {
+        const index = stack.findIndex(isPersonalRoot);
+        if (index < 1) return;
+        stopSearchSupplement(); stopDetails(); loading?.abort(); loading = undefined; cancelSearch();
+        stack.length = index;
     };
     const probeRequests = async (refreshSearch = true): Promise<void> => {
         const ordinal = ++probeOrdinal;
@@ -502,7 +506,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             shell.setRequestsEnabled(capability.enabled);
             if (!capability.enabled) {
                 roots.delete("requests");
-                if (stack.some(route => route.kind === "requests")) {
+                if (top()?.kind === "requests") {
                     loading?.abort(); loading = undefined;
                     // Drop an open card menu without its onClose paint: the stack is about to leave Requests.
                     if (requestMenu.active) requestMenu.destroy();
@@ -1651,6 +1655,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         if (active?.kind === "item" && active.data?.details?.series?.seasonNumber !== undefined) seriesSeasons.set(active.id, active.data.details.series.seasonNumber);
         stack.pop();
         const current = top();
+        if (current?.kind === "requests" && !requestsCapability.enabled) { closeRequests(); return; }
         if (current !== undefined) {
             container.classList.toggle("search-restored", current.kind === "search");
             if (current.kind === "personal" || current.kind === "person" || current.kind === "calendar" || current.kind === "requests") {
@@ -2110,8 +2115,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     const openRequests = (source: RequestsSource): void => {
         if (!requestsCapability.enabled) return;
         // The profile menu's hub is a root page under the bar, like Watchlist: the tab it opened over stays selected.
-        // Reopening it from itself rebuilds in place, so one Back still returns to that tab.
-        if (source.kind === "hub" && isHubRoot(top()) && stack.length > 1) { loading?.abort(); loading = undefined; stack.pop(); }
+        // Opening it replaces any other profile-menu root, including itself, so one Back pair still returns to that tab.
+        if (source.kind === "hub") clearPersonalRoot();
         const origin = source.kind === "hub" ? top() : undefined;
         const anchor = origin === undefined ? undefined : tabFocus(origin).key;
         push(newRoute({ kind: "requests", requests: requestsState(source), ...(anchor === undefined ? {} : { anchor }) }));
@@ -2447,6 +2452,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             }, options.onAccounts, episodeSpoilers);
         },
         personal: (source, anchor = "profiles") => {
+            if (source !== "history") clearPersonalRoot();
             const origin = top();
             const selected = source === "history" ? anchor : origin === undefined ? "home" : tabFocus(origin).key;
             push(newRoute({ kind: "personal", source, anchor: selected, filter: "movie", pages: newPages(), capability: undefined, pendingIndex: undefined }));

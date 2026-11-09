@@ -722,36 +722,23 @@ for (const destination of ["unchanged", "navigation", "profile menu"]) test(`ini
     } finally { await tv.page.context().close(); }
 });
 
-for (const source of ["watchlist", "favorites"]) test(`uncovering ${source} reconciles membership changed through another personal list`, async () => {
+// Apple's showPersonalRoot replaces the open list, so a list is covered only by pages pushed over it, such as a title's Details.
+for (const source of ["watchlist", "favorites"]) test(`uncovering ${source} reconciles a membership change made in a title's Details`, async () => {
     const { tv, catalog } = await setup();
     try {
         await openList(tv, source);
-        await loadThrough(tv, 60);
-        await tv.page.locator('.browse [data-focus="movie:m0050"]').focus();
-        await openList(tv, source === "watchlist" ? "favorites" : "watchlist");
         await loadThrough(tv, 60);
         await tv.page.locator('.browse [data-focus="movie:m0050"]').click();
         if (source === "favorites") await tv.page.locator('[data-focus="more"]').click();
         await tv.page.getByRole("button", { name: source === "favorites" ? "Remove from Favorites" : "Remove from watchlist", exact: true }).click();
         if (source === "favorites") await tv.page.locator('[data-focus="more"]').click();
         await tv.page.getByRole("button", { name: source === "favorites" ? "Add to Favorites" : "Add to watchlist", exact: true }).waitFor();
-        const innerRefresh = holdList(tv, source === "watchlist" ? "favorites" : "watchlist");
-        if (source === "favorites") await tv.remote(10009);
-        await tv.remote(10009);
-        await tv.page.locator('[data-view^="personal:"]').waitFor();
-        const cached = await tv.page.locator('.browse [data-focus="movie:m0050"]').elementHandle();
-        assert.ok(cached);
-        innerRefresh.release();
-        await tv.eventually(async () => await cached.evaluate(node => !node.isConnected), "inner list refresh rendered");
-        await tv.eventually(async () => await tv.focused() === "movie:m0050", "other list retains the title");
-        const queries = listReads(tv).length;
         const held = holdList(tv, source);
-        await tv.remote(10009);
+        if (source === "favorites") await tv.remote(10009);
         await tv.remote(10009);
         await tv.page.locator(`[data-view="personal:${source}"]`).waitFor();
         held.release();
         await tv.eventually(async () => await tv.page.locator('.browse [data-focus="movie:m0050"]').count() === 0, "uncovered list reconciles confirmed removal");
-        assert.equal(listReads(tv).length, queries + 3);
         assert.equal(catalog.mutations.length, 1);
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }

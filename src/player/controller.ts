@@ -45,8 +45,8 @@ import { SubtitleDisplay, type SubtitleDisplayView } from "./subtitleDisplay.ts"
 import { SubtitleSearch, type SubtitleSearchView } from "./subtitleSearch.ts";
 const SKIP_UNDO_MILLISECONDS = 5000;
 import { DEFAULT_APPEARANCE, decodeCues, type SubtitleAppearance, type SubtitleCue } from "../contracts/v2/subtitles.ts";
-import type { SubtitleIntent } from "../contracts/v2/preplaySubtitles.ts";
-import { initialSubtitle } from "./preplaySubtitles.ts";
+import type { CatalogSubtitleTrack, SubtitleIntent, SubtitlePreferences } from "../contracts/v2/preplaySubtitles.ts";
+import { initialSubtitle, startSubtitleTrackId } from "./preplaySubtitles.ts";
 import { PlaybackRecovery, recoveryVerdict, type RecoveryStep, type RecoveryVerdict, unanswered } from "./playbackRecovery.ts";
 import { audioRow, qualityMenuLabel, subtitleRow } from "./trackLabels.ts";
 import { HUDState } from "./hudState.ts";
@@ -69,6 +69,10 @@ export interface PlayRequest {
     readonly watch?: { readonly played: boolean; readonly isInProgress?: boolean; readonly positionSeconds?: number };
     readonly audioTrackId?: string;
     readonly subtitle?: SubtitleIntent;
+    /** Catalog rows used to name a subtitle before start. Absent when the version published none. */
+    readonly subtitleTracks?: readonly CatalogSubtitleTrack[];
+    /** Effective subtitle preferences already on the version, so Auto can be named before start. */
+    readonly subtitlePreferences?: SubtitlePreferences;
     readonly allowAlternateVersions?: false;
     readonly contentId: string;
     readonly fileId: string;
@@ -417,6 +421,12 @@ interface PendingTransport {
 // AVPlay is a platform singleton. A replacement controller must also wait for an
 // uncancellable seek owned by the screen it replaced.
 const pendingTransports = new WeakMap<AVPlay, PendingTransport>();
+
+/** A subtitle the catalog can already name. Off and an unresolved Auto stay omitted. */
+function subtitleStart(request: PlayRequest): { subtitle_track_id: string } | Record<string, never> {
+    const subtitleTrackId = startSubtitleTrackId(request.fileId, request.subtitle, request.subtitleTracks, request.subtitlePreferences);
+    return subtitleTrackId === undefined ? {} : { subtitle_track_id: subtitleTrackId };
+}
 
 export class PlaybackController implements PlayerControls {
     private readonly deps: PlaybackDeps;
@@ -1173,6 +1183,7 @@ export class PlaybackController implements PlayerControls {
                 subtitle_fidelity_preference: "compatible",
                 ...(attempt.request.startSeconds === undefined ? {} : { start_position: attempt.request.startSeconds }),
                 ...(attempt.request.audioTrackId === undefined ? {} : { audio_track_id: attempt.request.audioTrackId }),
+                ...subtitleStart(attempt.request),
                 ...(attempt.request.allowAlternateVersions === undefined ? {} : { allow_alternate_versions: attempt.request.allowAlternateVersions }),
                 ...this.reportedPlayback(attempt),
             });

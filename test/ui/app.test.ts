@@ -423,6 +423,19 @@ appTest("an expired only account signs in again even when its sign-in flag canno
     assert.equal(await tv.page.locator("#signin-username").inputValue(), "laura", "the expired account is the one renewed");
 });
 
+appTest("an expired account shows Who's watching after sign-in even when its remembered profile cannot be cleared", async tv => {
+    await signIn(tv, true);
+    tv.fake.revokeAllSessions();
+    const hold = tv.fake.hold("/auth/refresh");
+    await tv.page.locator('[data-focus="movies"]').click();
+    await tv.page.evaluate(() => { window.appHarness.storage.failSet = true; });
+    hold.release();
+    await tv.page.locator('[data-screen="code"]').waitFor({ timeout: 5000 });
+    await approveSignIn(tv, [...tv.fake.devices.keys()].pop()!, '[data-screen="profiles"], [data-view="home"]');
+    assert.equal(await tv.page.locator('[data-view="home"]').count(), 0, "a remembered profile is not restored after signing in");
+    assert.equal(await tv.page.locator('[data-screen="profiles"] .profile-avatar').count(), 2);
+});
+
 /** Laura signs in again with the key store refusing it: her row says sign in again, yet her session is live. */
 async function guardLaura(tv: Tv): Promise<void> {
     await tv.page.locator('[data-focus="profiles"]').click();

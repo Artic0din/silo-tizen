@@ -32,7 +32,8 @@ export function mountAccounts(root: HTMLElement, core: SessionCoreDeps, current:
     let removalPending = false;
     /** ChangeAccountModel.openingAccountId: the account being opened while Change Account stays up. */
     let opening: { readonly id: string } | undefined;
-    const destroy = (): void => { if (destroyed) return; destroyed = true; host.destroy(); backdrop.destroy(); container.remove(); };
+    let overflow: readonly OverflowColumn[] = [];
+    const destroy = (): void => { if (destroyed) return; destroyed = true; for (const column of overflow) column.disconnect(); host.destroy(); backdrop.destroy(); container.remove(); };
     const go = (account: SavedAccount | undefined, address?: string): void => { if (opening !== undefined) return; destroy(); void open(account, address); };
     // The card spins until the app replaces this screen or the switch cannot open quietly. Like Apple, nothing cancels it.
     const choose = (row: SavedAccount): void => {
@@ -208,7 +209,13 @@ export function mountAccounts(root: HTMLElement, core: SessionCoreDeps, current:
         if (selected) accounts.push(addAccount);
         for (const item of accounts) item.element.addEventListener("focus", () => { paneEntry = item.key; });
         rail.append(...serverItems.map(item => item.element)); pane.append(...accounts.map(item => item.element));
-        const columns = el("div", "accounts-columns"); columns.append(rail, pane);
+        // The screen rebuilds on every server move; the keys carry each column's scroll across it (browseFocus).
+        rail.dataset.scrollKey = "accounts-rail"; pane.dataset.scrollKey = `accounts-pane:${selected ?? ""}`;
+        const previousColumns = overflow;
+        const [previousRail, previousPane] = previousColumns;
+        overflow = [overflowColumn(rail, "accounts-column-rail", previousRail), overflowColumn(pane, "accounts-column-pane", previousPane)];
+        for (const column of previousColumns) column.disconnect();
+        const columns = el("div", "accounts-columns"); columns.append(...overflow.map(column => column.element));
         const mark = el("img", "accounts-wordmark"); mark.src = "img/silo-wordmark.png"; mark.alt = "Silo";
         host.show({ name: "change-account", content: [backdrop.element, scrim, mark, el("h1", "accounts-title", "Change account"), el("p", "signin-text", "Choose a server, then the account to use on it."), columns],
             zones: [{ id: "servers", layout: "column", right: "accounts", items: serverItems }, { id: "accounts", layout: "column", left: "servers", items: accounts }],
@@ -218,6 +225,8 @@ export function mountAccounts(root: HTMLElement, core: SessionCoreDeps, current:
                 if (opening !== undefined) return;
                 destroy(); back();
             } }, railFocus ? { zone: "servers", key: selected ?? "add-server" } : enterPane ? { zone: "accounts", key: paneEntry ?? accounts.find(row => row.key === current?.accounts.localAccountId)?.key ?? accounts[0]!.key } : undefined);
+        // Before the first paint, so the restored scroll never shows the chevrons fading back in.
+        for (const column of overflow) column.sync();
     }
     function expired(row: SavedAccount): void {
         const controls = [actionButton("signin", "Sign in again", () => go(row)), actionButton("signout", "Sign Out", () => confirm([row], false)), actionButton("cancel", "Cancel", render)];
@@ -250,4 +259,42 @@ function accountBadge(text: string, warning: boolean): HTMLElement {
     }
     badge.append(text);
     return badge;
+}
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+interface OverflowColumn { readonly element: HTMLElement; readonly scroller: HTMLElement; sync(): void; disconnect(): void }
+
+/**
+ * TVOverflowColumn: a scrolling column with a chevron row under it. Edges with rows hidden beyond them fade,
+ * and the matching chevron shows. The data flags drive both in CSS; they clear within 1px of an end.
+ */
+function overflowColumn(scroller: HTMLElement, className: string, previous?: OverflowColumn): OverflowColumn {
+    const wrapper = el("div", `accounts-column ${className}`);
+    const chevrons = el("div", "accounts-chevrons");
+    chevrons.setAttribute("aria-hidden", "true");
+    for (const path of ["M6 15 12 9 18 15", "M6 9 12 15 18 9"]) {
+        const icon = document.createElementNS(SVG_NS, "svg");
+        icon.setAttribute("viewBox", "0 0 24 24");
+        const line = document.createElementNS(SVG_NS, "path");
+        line.setAttribute("d", path);
+        icon.append(line);
+        chevrons.append(icon);
+    }
+    // A rebuilt column starts from the flags it had, so its chevrons do not fade out and back in on every repaint.
+    if (previous !== undefined && previous.scroller.dataset.scrollKey === scroller.dataset.scrollKey) {
+        scroller.dataset.overflowAbove = previous.scroller.dataset.overflowAbove;
+        scroller.dataset.overflowBelow = previous.scroller.dataset.overflowBelow;
+    }
+    const sync = (): void => {
+        scroller.dataset.overflowAbove = String(scroller.scrollTop > 1);
+        scroller.dataset.overflowBelow = String(scroller.scrollTop + scroller.clientHeight < scroller.scrollHeight - 1);
+    };
+    scroller.addEventListener("scroll", sync);
+    const observer = new ResizeObserver(sync);
+    observer.observe(scroller);
+    // The scroller's own box stays fixed when a row grows (a web font loading), so watch the rows too.
+    for (const row of Array.from(scroller.children)) observer.observe(row);
+    wrapper.append(scroller, chevrons);
+    return { element: wrapper, scroller, sync, disconnect: () => observer.disconnect() };
 }

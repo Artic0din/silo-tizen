@@ -166,6 +166,8 @@ export interface SubtitleTrack {
     readonly containerTrackId: string | undefined;
     readonly nativeSelectable: boolean | undefined;
     readonly hlsRendition: InventoryHlsRendition | undefined;
+    /** The server has no route to show this format; selecting it ends in `subtitle_codec_unsupported`. Absent means playable. */
+    readonly unplayable?: boolean | undefined;
 }
 
 /** The selected subtitle carried as one WebVTT rendition of the plan's HLS stream. */
@@ -375,6 +377,7 @@ function decodeSubtitleTrack(value: unknown, path: string): SubtitleTrack {
         containerTrackId: optionalText(obj, "container_track_id", path),
         nativeSelectable: optionalBoolean(obj, "native_selectable", path),
         hlsRendition: decodeInventoryRendition(obj.hls_rendition, `${path}.hls_rendition`),
+        unplayable: optionalBoolean(obj, "unplayable", path),
     };
 }
 

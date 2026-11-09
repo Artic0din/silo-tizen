@@ -445,6 +445,44 @@ test("intro and credits settings control markers and automatic skips can be undo
     }
 });
 
+test("an automatic credits skip offers no undo, as on Apple TV", async () => {
+    const r = await rig();
+    const settings = new FakeSettings(r.h.fake);
+    settings.remainingRows = true;
+    settings.profile().set("playback.auto_skip_credits", true);
+    r.h.fake.scripted.set("/markers/files/42", [{ status: 200, body: { file_id: "42", marker_segments: [
+        { kind: "credits", start_seconds: 90, end_seconds: 100 },
+    ] } }]);
+    await playMovie(r);
+    r.avplay.tick(90000);
+    assert.equal(r.avplay.calls.at(-1), "seekTo 100000");
+    r.avplay.finishSeek();
+    const view = last(r.views);
+    assert.ok(view.phase === "playing");
+    assert.equal(view.undoSkipSeconds, undefined);
+    r.controller.destroy();
+});
+
+test("Skip automatically never offers Skip Intro, even after Watch Intro returns to the intro", async () => {
+    const r = await rig();
+    const settings = new FakeSettings(r.h.fake);
+    settings.remainingRows = true;
+    settings.profile().set("playback.intro_skip_mode", "always");
+    r.h.fake.scripted.set("/markers/files/42", [{ status: 200, body: { file_id: "42", marker_segments: [
+        { kind: "intro", start_seconds: 20, end_seconds: 60 },
+    ] } }]);
+    await playMovie(r);
+    r.avplay.tick(20000);
+    r.avplay.finishSeek();
+    r.controller.seekToSeconds(20);
+    r.avplay.finishSeek();
+    r.avplay.tick(21000);
+    const view = last(r.views);
+    assert.ok(view.phase === "playing");
+    assert.equal(view.skipMarker, undefined);
+    r.controller.destroy();
+});
+
 test("effective file markers follow source time and cannot replace an in-flight manual seek", async () => {
     const r = await rig();
     r.h.fake.scripted.set("/markers/files/42", [{ status: 200, body: {

@@ -86,10 +86,23 @@ test("a fresh stored reading goes out as the start's estimate with no extra requ
     bandwidthReadings.adopt(key(r), { probe: { kbps: 48001, measuredAt: ageMs(r, 60_000) } });
     const body = await startBody(r);
     assert.equal(body.bandwidth_estimate_kbps, 48001);
-    assert.equal(Object.hasOwn(body, "bandwidth_estimate_source"), false);
-    assert.equal((body.client_features as string[]).includes("buffering_quality_v1"), false);
+    // The capability fixture advertises buffering_quality_v1, so the start opts in and names the probe as the source.
+    assert.equal(body.bandwidth_estimate_source, "probe");
+    assert.ok((body.client_features as string[]).includes("buffering_quality_v1"));
+    assert.equal(Object.hasOwn(body, "learned_limit"), false);
     const paths = r.h.fake.requests.map((request) => `${request.method} ${request.path}`).filter((path) => path.includes("/playback"));
     assert.deepEqual(paths, ["GET /playback/capabilities", "POST /playback/start"]);
+});
+
+test("a server that does not advertise buffering_quality_v1 gets the estimate without the feature or a source", async () => {
+    const r = await rig();
+    const features = (fixture("playback_capability_available").features as string[]).filter((feature) => feature !== "buffering_quality_v1");
+    capabilities(r, { features });
+    bandwidthReadings.adopt(key(r), { probe: { kbps: 48001, measuredAt: ageMs(r, 60_000) } });
+    const body = await startBody(r);
+    assert.equal(body.bandwidth_estimate_kbps, 48001);
+    assert.equal(Object.hasOwn(body, "bandwidth_estimate_source"), false);
+    assert.equal((body.client_features as string[]).includes("buffering_quality_v1"), false);
 });
 
 test("a reading loaded by Settings reaches the next start", async () => {

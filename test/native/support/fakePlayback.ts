@@ -68,6 +68,8 @@ export function defaultFiles(): Map<string, FakeMediaFile> {
 export interface PlanShape {
     readonly availableQualities?: readonly Record<string, unknown>[];
     readonly activeQuality?: string;
+    /** `effective_recipe.bitrate_kbps`, which the fixture sets to 8000. */
+    readonly recipeKbps?: number;
     readonly serverFeatures?: readonly string[];
     readonly delivery?: string;
     /** The edition the server plays; defaults to the session's current one (the requested file at start). */
@@ -417,6 +419,7 @@ export class FakePlayback {
                     ...plan,
                     available_qualities: shape.availableQualities ?? [],
                     active_quality: shape.activeQuality,
+                    ...(shape.recipeKbps === undefined ? {} : { effective_recipe: { ...toRecord(plan.effective_recipe), bitrate_kbps: shape.recipeKbps } }),
                     session_id: session.id,
                     plan_id: session.planId,
                     plan_attempt_key: session.planKey,

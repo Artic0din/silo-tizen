@@ -16,9 +16,14 @@ export interface StoredReadings {
 /** A server's `bandwidth_probe_max_age_seconds` when it sends none. LiveBandwidthProbeServer.fallbackMaxAge. */
 export const FALLBACK_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
 
-/** Whose readings these are: a server, over the network in use. */
-export function readingsKey(baseUrl: string, transport: string): string {
-    return `${baseUrl} ${transport}`;
+/** Whose readings these are: one account on one server. Other live sessions must not forget them. */
+export function readingsScope(baseUrl: string, accountId: string | undefined): string {
+    return `${baseUrl}\n${accountId ?? ""}\n`;
+}
+
+/** A scope, over the network in use. */
+export function readingsKey(baseUrl: string, accountId: string | undefined, transport: string): string {
+    return `${readingsScope(baseUrl, accountId)}${transport}`;
 }
 
 export class BandwidthReadings {
@@ -53,6 +58,11 @@ export class BandwidthReadings {
             highest = Math.max(highest ?? reading.kbps, reading.kbps);
         }
         return highest;
+    }
+
+    /** Forgets the readings when they belong to `scope`; another account's or server's stay. */
+    forget(scope: string): void {
+        if (this.key?.startsWith(scope)) this.clear();
     }
 
     clear(): void {

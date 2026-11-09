@@ -3,7 +3,7 @@
 
 import { type Clock, systemClock } from "../api/clock.ts";
 import { clearBrowseCache } from "./browseCache.ts";
-import { bandwidthReadings } from "../player/bandwidthReadings.ts";
+import { bandwidthReadings, readingsScope } from "../player/bandwidthReadings.ts";
 import { discoverServer, failedDiscovery, type DiscoveryResult, type ServerConnection } from "../api/discovery.ts";
 import { NativeHttp, type FetchLike } from "../api/http.ts";
 import { ApiError } from "../api/errors.ts";
@@ -236,8 +236,10 @@ export async function forgetStoredCredential(
 
 /** Apple forgets every speed reading when the server, sign-in or profile changes (BandwidthProbeScheduler.setActiveSession). */
 function watchBandwidthReadings(session: NativeSession): void {
+    let accountId = session.account?.id;
     session.onAuthorityChange(change => {
-        if (["signed_in", "signed_out", "session_expired", "profile_selected"].includes(change.reason)) bandwidthReadings.clear();
+        accountId = session.account?.id ?? accountId;
+        if (["signed_in", "signed_out", "session_expired", "profile_selected"].includes(change.reason)) bandwidthReadings.forget(readingsScope(session.http.base.baseUrl, accountId));
     });
 }
 

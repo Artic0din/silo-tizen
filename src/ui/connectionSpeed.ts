@@ -229,7 +229,7 @@ export class ConnectionSpeed {
     }
 
     private readingsKey(): string {
-        return readingsKey(this.session.http.base.baseUrl, currentNetwork().transport);
+        return readingsKey(this.session.http.base.baseUrl, this.session.account?.id, currentNetwork().transport);
     }
 
     private apply(result: ManualSpeedTestResult): void {

@@ -1144,7 +1144,7 @@ export class PlaybackController implements PlayerControls {
         const network = currentNetwork();
         if (!network.online || network.metered) return undefined;
         return bandwidthReadings.freshEstimateKbps(
-            readingsKey(this.deps.session.http.base.baseUrl, network.transport),
+            readingsKey(this.deps.session.http.base.baseUrl, this.deps.session.account?.id, network.transport),
             this.deps.clock.now(),
             capabilities.bandwidthProbeMaxAgeSeconds ?? FALLBACK_MAX_AGE_SECONDS,
         );

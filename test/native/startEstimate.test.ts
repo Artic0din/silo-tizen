@@ -3,7 +3,7 @@
 
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, test } from "node:test";
-import { bandwidthReadings, readingsKey } from "../../src/player/bandwidthReadings.ts";
+import { bandwidthReadings, readingsKey, readingsScope } from "../../src/player/bandwidthReadings.ts";
 import { PlaybackController, type PlayRequest } from "../../src/player/controller.ts";
 import { ConnectionSpeed } from "../../src/ui/connectionSpeed.ts";
 import { FakeAVPlay } from "./support/fakeAVPlay.ts";
@@ -55,7 +55,7 @@ async function rig(): Promise<Rig> {
 }
 
 function key(r: Rig, transport = "other"): string {
-    return readingsKey(r.h.core.session.http.base.baseUrl, transport);
+    return readingsKey(r.h.core.session.http.base.baseUrl, r.h.core.session.account?.id, transport);
 }
 
 function ageMs(r: Rig, ms: number): number {
@@ -167,7 +167,7 @@ test("a metered or different network, or another server, sends no estimate", asy
     assert.equal(Object.hasOwn(await startBody(moved), "bandwidth_estimate_kbps"), false);
 
     const other = await rig();
-    bandwidthReadings.adopt(readingsKey("https://other.example.test", "other"), { probe: { kbps: 48000, measuredAt: ageMs(other, 1000) } });
+    bandwidthReadings.adopt(readingsKey("https://other.example.test", undefined, "other"), { probe: { kbps: 48000, measuredAt: ageMs(other, 1000) } });
     assert.equal(Object.hasOwn(await startBody(other), "bandwidth_estimate_kbps"), false);
 });
 
@@ -187,6 +187,17 @@ test("another account on the same server starts without the first account's read
     assert.ok(owner !== undefined);
     r.h.core.profiles.select(owner);
     assert.equal(Object.hasOwn(await startBody(r), "bandwidth_estimate_kbps"), false);
+});
+
+test("another live account's sign-out leaves this account's reading", async () => {
+    const r = await rig();
+    const base = r.h.core.session.http.base.baseUrl;
+    bandwidthReadings.adopt(key(r), { probe: { kbps: 48000, measuredAt: ageMs(r, 1000) } });
+    bandwidthReadings.forget(readingsScope(base, "another-account"));
+    bandwidthReadings.forget(readingsScope("https://other.example.test", r.h.core.session.account?.id));
+    assert.equal((await startBody(r)).bandwidth_estimate_kbps, 48000);
+    bandwidthReadings.forget(readingsScope(base, r.h.core.session.account?.id));
+    assert.equal(bandwidthReadings.freshEstimateKbps(key(r), ageMs(r, 0), MAX_AGE_SECONDS), undefined);
 });
 
 test("a changed connection drops the old probe and a newer own probe survives an older server one", () => {

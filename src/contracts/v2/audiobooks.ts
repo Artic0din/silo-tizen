@@ -189,9 +189,10 @@ function decodeVersion(value: unknown, path: string): DecodedVersion | undefined
         return { title: optionalString(chapter, "title", chapterPath)?.trim() ?? "", start, end: seconds(chapter, "end_seconds", chapterPath) };
     });
     const declared = seconds(obj, "duration", path) ?? 0;
-    // Some scanned parts carry chapters but no container duration. Only a chapter's end is evidence of length;
-    // a start is not, so a part with neither stays unknown (0).
-    const furthestEnd = chapters.reduce((furthest, chapter) => Math.max(furthest, chapter.end ?? 0), 0);
+    // Some scanned parts carry chapters but no container duration. Only the final chapter's end bounds the part:
+    // an earlier end or a start would truncate it, so a part whose final chapter is open stays unknown (0).
+    const finalChapter = chapters.reduce<(typeof chapters)[number] | undefined>((last, chapter) => last === undefined || chapter.start >= last.start ? chapter : last, undefined);
+    const furthestEnd = finalChapter?.end === undefined ? 0 : chapters.reduce((furthest, chapter) => Math.max(furthest, chapter.end ?? 0), 0);
     return {
         fileId: nonEmptyString(obj, "file_id", path),
         order: obj.presentation_part_index === undefined ? Number.MAX_SAFE_INTEGER : integer(obj, "presentation_part_index", path),

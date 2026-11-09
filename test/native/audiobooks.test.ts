@@ -161,7 +161,8 @@ test("part length falls back to the furthest chapter end, never a chapter start"
     const chapters = (...ends: (number | undefined)[]) => ends.map((end, index) => ({ index, title: "c", start_seconds: index * 30, ...(end === undefined ? {} : { end_seconds: end }), source: "embedded" }));
     const single = (list: unknown) => decodeAudiobook({ ...twoPartBook(), audiobook: undefined, versions: [{ file_id: "1", codec_audio: "aac", chapters: list }] });
     assert.equal(single(chapters(30, 90)).parts[0]?.duration, 90);
-    assert.equal(single(chapters(30, undefined)).parts[0]?.duration, 30);
+    // An earlier chapter's end must not stand in for a part whose final chapter is open.
+    assert.equal(single(chapters(30, undefined)).parts[0]?.duration, 0);
     assert.equal(single(chapters(undefined, undefined)).parts[0]?.duration, 0);
     // A multi-part book cannot place later parts without every length.
     assert.throws(() => decodeAudiobook({ ...twoPartBook(), versions: [{ file_id: "1", codec_audio: "aac", chapters: chapters(undefined, undefined) }, { file_id: "2", duration: 100 }] }), /versions/);

@@ -21,6 +21,7 @@ All notable changes to this project are documented in this file.
 - Show Trailers & More on movie and series Details for local extras and YouTube listings, using Apple's card size and the 76px gap to the next heading. Local extras still play from the start. YouTube listings stay on their card because this TV cannot play them.
 - Added description translation on Details and the featured marquee, matching Apple TV's Translate Description action, Translating… status and Translated by AI label.
 - Added Change Account with several saved accounts per server and account management.
+- The caption layer in the player now reports its state: `data-state`, `data-cues` and `data-at` on `.player-captions` show whether a sidecar is loading, failed or ready, how many cues it holds and the clock reading used to pick a cue.
 
 ### Changed
 

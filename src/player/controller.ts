@@ -127,6 +127,9 @@ export interface TrackChoice {
 export const UNSUPPORTED_FORMAT = "Unsupported format";
 
 /** An inventory row the plan lists, minus the ones its `unplayable` flag says the server cannot show. */
+const CAPTION_LOADING = "Loading subtitles…";
+const CAPTION_FAILED = "Could not load these subtitles. Choose another track or turn subtitles off.";
+
 function selectableSubtitle(plan: PlaybackPlan, trackId: string): boolean {
     return plan.subtitle.inventory.some((entry) => entry.trackId === trackId && entry.unplayable !== true);
 }
@@ -212,7 +215,8 @@ export type PlaybackView =
           readonly hud?: PlayerHUD;
           readonly seekIntervals: { readonly backward: number; readonly forward: number };
           readonly previewKey?: string | undefined;
-          readonly captions?: { readonly text: string; readonly appearance: SubtitleAppearance } | undefined;
+          /** `status`, `cueCount` and `instant` expose why the layer is empty: no sidecar, still loading, failed, or ready at this clock reading. */
+          readonly captions?: { readonly text: string; readonly appearance: SubtitleAppearance; readonly status?: "none" | "loading" | "failed" | "ready"; readonly cueCount?: number; readonly instant?: number } | undefined;
           readonly skipMarker?: SkipMarker | undefined;
           readonly undoSkipSeconds?: number | undefined;
       } & BufferingOverlay)
@@ -1937,7 +1941,7 @@ export class PlaybackController implements PlayerControls {
         attempt.cues = [];
         attempt.captionNotice = "";
         if (artifact === undefined) return;
-        attempt.captionNotice = "Loading subtitles…";
+        attempt.captionNotice = CAPTION_LOADING;
         const current = (): boolean => attempt.live && !abort.signal.aborted && attempt.captionAbort === abort;
         void (async () => {
             try {
@@ -1952,7 +1956,7 @@ export class PlaybackController implements PlayerControls {
             } catch {
                 if (!current()) return;
                 attempt.captionKey = undefined;
-                attempt.captionNotice = "Could not load these subtitles. Choose another track or turn subtitles off.";
+                attempt.captionNotice = CAPTION_FAILED;
             }
             if (current()) this.showPlayback(attempt);
         })();
@@ -3313,7 +3317,7 @@ export class PlaybackController implements PlayerControls {
             seekIntervals: attempt.seekIntervals,
             previewKey: frozen ? undefined : attempt.planAttemptId,
             // The offset moves cues this overlay draws. Text AVPlay selects itself is not shifted: AVPlay has no subtitle-offset call, and a TV has to confirm whether its TEXT track can move.
-            captions: attempt.hidden || attempt.restoring || frozen ? undefined : { text: attempt.cues.filter(cue => captionTime >= cue.start && captionTime < cue.end).map(cue => cue.text).join("\n"), appearance: attempt.appearance },
+            captions: attempt.hidden || attempt.restoring || frozen ? undefined : { text: attempt.cues.filter(cue => captionTime >= cue.start && captionTime < cue.end).map(cue => cue.text).join("\n"), appearance: attempt.appearance, status: attempt.captionNotice === CAPTION_LOADING ? "loading" : attempt.captionNotice === CAPTION_FAILED ? "failed" : attempt.cues.length > 0 ? "ready" : "none", cueCount: attempt.cues.length, instant: captionTime },
             skipMarker: frozen ? undefined : markerAt((attempt.markers?.segments ?? []).filter(marker => marker.kind !== "intro" || attempt.introMode === "ask"), attempt.sourceSeconds),
             undoSkipSeconds: attempt.undoSkip ?? attempt.pendingSkipUndo,
         });

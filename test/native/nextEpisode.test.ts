@@ -183,3 +183,34 @@ test("consumed malformed members fail visibly; no guessed range aliases or durat
     assert.throws(() => decodeEpisodes({ items: [row(CURRENT, 1, 1, [{ file_id: "f", unreadable: "true" }])] }));
     assert.throws(() => decodeSeasons({ items: [{ content_id: "s", season_number: 1, title: "S", episode_count: 1, is_specials: "false" }] }));
 });
+
+function twoFiles(id: string, last?: string): Record<string, unknown> {
+    return { ...watch(id, 1, 2), user_data: { played: false, ...(last === undefined ? {} : { last_file_id: last }) }, versions: [{ file_id: "uhd", duration_seconds: 2500, resolution: "2160p" }, { file_id: "fhd", duration_seconds: 2500, resolution: "1080p" }] };
+}
+
+test("the next episode ranks its files by the Resolution cap, ahead of the last-played file", async () => {
+    const r = rig();
+    r.data.set(seasonPath(1), { items: [row(CURRENT, 1, 1), row(NEXT, 1, 2, [{ file_id: "uhd" }, { file_id: "fhd" }])] });
+    r.data.set(watchPath(NEXT), twoFiles(NEXT, "uhd"));
+    assert.equal((await nextEpisode(r.read, CURRENT, "effective", undefined, "1080p"))?.fileId, "fhd");
+    assert.equal((await nextEpisode(r.read, CURRENT, "effective"))?.fileId, "uhd", "no cap keeps the last-played file");
+});
+
+test("the next episode never picks a file the row marks unreadable, even when it fits the cap", async () => {
+    const r = rig();
+    r.data.set(seasonPath(1), { items: [row(CURRENT, 1, 1), row(NEXT, 1, 2, [{ file_id: "uhd" }, { file_id: "fhd", unreadable: true }])] });
+    r.data.set(watchPath(NEXT), twoFiles(NEXT));
+    assert.equal((await nextEpisode(r.read, CURRENT, "effective", undefined, "1080p"))?.fileId, "uhd");
+});
+
+test("an On Deck title ranks its files by the Resolution cap", async () => {
+    const other = "movie:there";
+    const bodies = new Map<string, unknown>([
+        [`/watch/${encodeURIComponent(CURRENT)}`, watch(CURRENT, 1, 1)],
+        [`/watch/${encodeURIComponent(other)}`, { content_id: other, type: "movie", title: "Heat", user_data: { played: false, last_file_id: "uhd" }, versions: [{ file_id: "uhd", duration_seconds: 6000, resolution: "2160p" }, { file_id: "fhd", duration_seconds: 6000, resolution: "1080p" }] }],
+        ["/home/sections", { sections: [{ id: "continue_watching", section_type: "continue_watching", title: "Continue Watching", items: [{ content_id: other, type: "movie", title: "Heat" }] }] }],
+    ]);
+    const read = async <T>(spec: RequestSpec<T>): Promise<T> => spec.decode(bodies.get(spec.path.split("?")[0] ?? ""));
+    assert.equal((await onDeckPlay(read, CURRENT, "1080p"))?.fileId, "fhd");
+    assert.equal((await onDeckPlay(read, CURRENT))?.fileId, "uhd");
+});

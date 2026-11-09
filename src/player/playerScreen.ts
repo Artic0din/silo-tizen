@@ -18,7 +18,7 @@ import { remoteKey } from "../ui/keys.ts";
 import { el } from "../ui/screen.ts";
 import { artworkUrl } from "../ui/browseModel.ts";
 import type { AVPlay } from "./avplay.ts";
-import { type PlaybackError, type PlaybackExits, PlaybackController, type PlaybackView, type PlayerControls, type PlayRequest, type SubtitleToolAction, type TrackView, UNSUPPORTED_FORMAT } from "./controller.ts";
+import { type PlaybackDeps, type PlaybackError, type PlaybackExits, PlaybackController, type PlaybackView, type PlayerControls, type PlayRequest, type SubtitleToolAction, type TrackView, UNSUPPORTED_FORMAT } from "./controller.ts";
 import { fillSubtitleTools, pickerFor, type SubtitlePane } from "./subtitleMenu.ts";
 import type { AppearanceMember } from "./subtitleAppearance.ts";
 import { arrowDownCircleIcon, closeIcon, episodesIcon, infoCircleIcon, optionsIcon, pauseIcon, playIcon, skipIcon, skipToEndIcon, spinnerIcon, warningTriangleIcon } from "./playerIcons.ts";
@@ -1618,6 +1618,7 @@ export function startPlayback(
     platform: PlayerPlatform,
     spoilers?: () => EpisodeSpoilerSettings,
     storage?: PublicStorage,
+    resolutionCap?: PlaybackDeps["resolutionCap"],
 ): PlayerScreen {
     const clock = platform.clock ?? systemClock;
     let screen: PlayerScreen | undefined;
@@ -1647,6 +1648,7 @@ export function startPlayback(
         },
         ...(spoilers === undefined ? {} : { spoilers }),
         ...(storage === undefined ? {} : { publicStorage: storage }),
+        ...(resolutionCap === undefined ? {} : { resolutionCap }),
     });
     screen = mountPlayerScreen(root, controller, clock, server.server.http.base.baseUrl);
     controller.play(request);

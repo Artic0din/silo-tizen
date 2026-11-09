@@ -42,6 +42,7 @@ import { markerAt, type SkipMarker } from "../contracts/v2/markers.ts";
 import { currentNetwork } from "../ui/connectionSpeed.ts";
 import { episodeDetailPresentation, type EpisodeSpoilerSettings } from "../ui/episodeSpoilers.ts";
 import { nextEpisode, onDeckPlays, readOnDeck } from "./nextEpisode.ts";
+import type { ResolutionCap } from "../ui/resolutionCap.ts";
 import { NEXT_UP_KEY } from "../contracts/v2/settings.ts";
 import { BUFFERING_MODE_KEY, INTRO_SKIP_KEY, CREDITS_SKIP_KEY } from "../contracts/v2/settingsRows.ts";
 import { nextShuffle } from "./nextShuffle.ts";
@@ -276,6 +277,8 @@ export interface PlaybackDeps {
     readonly spoilers?: () => EpisodeSpoilerSettings;
     /** Public per-install storage for the once-only leftover subtitle-delay clear. Never tokens. */
     readonly publicStorage?: PublicStorage;
+    /** The profile's Resolution cap. Absent reads as no cap. Next-episode, On Deck and shuffle picks rank files by it. */
+    readonly resolutionCap?: Pick<ResolutionCap, "quality" | "ready">;
 }
 
 const PROGRESS_INTERVAL_MS = 10000;
@@ -2478,6 +2481,7 @@ export class PlaybackController implements PlayerControls {
                 this.play(request);
                 return;
             }
+            const capRead = this.pickQuality(abort.signal);
             if (attempt.autoNextSupported) {
                 await attempt.autoNextSave;
                 if (!current()) return;
@@ -2488,23 +2492,24 @@ export class PlaybackController implements PlayerControls {
                 } catch { if (current() && epoch === attempt.settingsEpoch) attempt.autoNext = false; }
                 if (!current()) return;
             }
+            show("resolving");
+            const quality = await capRead;
+            if (!current()) return;
             if (attempt.request.shuffleId !== undefined) {
-                show("resolving");
                 const next = await nextShuffle(spec => {
                     if (!current()) throw abortedError();
                     return this.deps.session.call({ ...spec, profileScoped: true, signal: abort.signal });
-                }, attempt.request.shuffleId, attempt.request.contentId);
+                }, attempt.request.shuffleId, attempt.request.contentId, quality);
                 show("ready", next, false, next === undefined ? "Finished" : "Up Next at Random");
                 if (current() && next !== undefined && attempt.autoNext) this.startAutoplay(completion);
                 return;
             }
-            show("resolving");
             const fileId = attempt.plan?.effectiveMediaFileId;
             if (fileId === undefined) throw new ApiError({ kind: "invalid_response", path: "playback_plan.effective_media_file_id" });
             const next = attempt.request.episode === true ? await nextEpisode(spec => {
                 if (!current()) throw abortedError();
                 return this.deps.session.call({ ...spec, profileScoped: true, signal: abort.signal });
-            }, attempt.request.contentId, fileId, attempt.request.seriesTitle) : undefined;
+            }, attempt.request.contentId, fileId, attempt.request.seriesTitle, quality) : undefined;
             if (next !== undefined) {
                 show("ready", next, false, "Playing Next");
                 this.loadPresentation(next, abort.signal, enriched => {
@@ -2513,7 +2518,7 @@ export class PlaybackController implements PlayerControls {
                 void onDeckPlays(spec => {
                     if (!current()) throw abortedError();
                     return this.deps.session.call({ ...spec, profileScoped: true, signal: abort.signal });
-                }, attempt.request.contentId).then(deck => {
+                }, attempt.request.contentId, undefined, quality).then(deck => {
                     if (current() && this.current.phase === "completion" && this.current.state === "ready") this.show({ ...this.current, deck });
                 }, () => undefined);
                 if (current() && attempt.autoNext && !attempt.promptDismissed) {
@@ -2527,7 +2532,7 @@ export class PlaybackController implements PlayerControls {
                 return this.deps.session.call({ ...spec, profileScoped: true, signal: abort.signal });
             }, attempt.request.contentId, items => {
                 show("ready", items[0], false, "Up Next", items);
-            });
+            }, quality);
             if (!current()) return;
             this.show({ phase: "completion", title: deck.length === 0 ? "Finished" : "Up Next", state: "ready", next: deck[0], deck, retryable: false });
         } catch (error) {
@@ -3353,10 +3358,19 @@ export class PlaybackController implements PlayerControls {
         return attempt.prompt !== undefined && duration !== undefined && attempt.promptSeconds > 0 && duration - attempt.sourceSeconds >= 0 && duration - attempt.sourceSeconds <= attempt.promptSeconds ? duration : attempt.sourceSeconds;
     }
 
+    /** The Resolution cap that ranks the next pick. A cap read still in flight is waited for; a failed one reads as no cap. */
+    private async pickQuality(signal: AbortSignal): Promise<string | undefined> {
+        const cap = this.deps.resolutionCap;
+        if (cap === undefined) return undefined;
+        await cap.ready(signal);
+        return cap.quality;
+    }
+
     /** A seek does not cancel this read. Only a new attempt or an aborted session does. */
     private async discover(attempt: Attempt, part: "all" | "episode" | "deck" = "all"): Promise<void> {
         const read = <T>(spec: RequestSpec<T>): Promise<T> => this.deps.session.call({ ...spec, profileScoped: true, signal: attempt.signal });
         const live = (): boolean => this.active() === attempt && !attempt.signal.aborted;
+        const capRead = this.pickQuality(attempt.signal);
         if (part !== "deck") {
             try {
                 if (attempt.autoNextSupported) {
@@ -3369,7 +3383,7 @@ export class PlaybackController implements PlayerControls {
                 if (attempt.request.episode === true) {
                     const fileId = attempt.plan?.effectiveMediaFileId;
                     if (fileId === undefined) throw new ApiError({ kind: "invalid_response", path: "playback_plan.effective_media_file_id" });
-                    const next = await nextEpisode(read, attempt.request.contentId, fileId, attempt.request.seriesTitle);
+                    const next = await nextEpisode(read, attempt.request.contentId, fileId, attempt.request.seriesTitle, await capRead);
                     if (!live()) return;
                     attempt.offer.episode = next;
                     attempt.offer.episodeSettled = true;
@@ -3393,11 +3407,12 @@ export class PlaybackController implements PlayerControls {
         }
         if (part === "episode" || !live()) return;
         try {
+            const quality = await capRead;
             const deck = await readOnDeck(read, attempt.request.contentId, items => {
                 if (!live()) return;
                 attempt.offer.deck = items.slice();
                 this.publishOffer(attempt);
-            });
+            }, quality);
             if (!live()) return;
             attempt.offer.deck = deck.slice();
             attempt.offer.deckSettled = true;

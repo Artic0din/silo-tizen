@@ -46,6 +46,8 @@ export class FakeCatalog implements CatalogRoutes {
     readonly removed = new Set<string>();
     readonly playbackWatched = new Set<string>();
     readonly watchOverrides = new Map<string, Record<string, unknown>>();
+    /** Episode-row files that replace the single default file. */
+    readonly episodeFiles = new Map<string, readonly Record<string, unknown>[]>();
     persistStops = true;
     /** Episode cards and rows carry still artwork and a description the spoiler switches can hide. */
     episodeStills = false;
@@ -278,7 +280,7 @@ export class FakeCatalog implements CatalogRoutes {
                         title: episode.title,
                         user_data: { ...toRecord(template.user_data), played: episode.episode === 1 },
                         ...(this.episodeStills ? { still_url: `/art/${encodeURIComponent(episode.id)}-still.svg`, still_is_episode_still: true } : {}),
-                        files: [{ file_id: this.fileIds.get(episode.id) ?? `f-${episode.id}`, resolution: "1080p", hdr: false, file_size: 1 }],
+                        files: this.episodeFiles.get(episode.id) ?? [{ file_id: this.fileIds.get(episode.id) ?? `f-${episode.id}`, resolution: "1080p", hdr: false, file_size: 1 }],
                     })),
                 },
             };

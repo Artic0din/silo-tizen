@@ -2,6 +2,7 @@ import { operations } from "../api/operations.ts";
 import { ApiError } from "../api/errors.ts";
 import type { RequestSpec } from "../api/http.ts";
 import type { WatchDetail } from "../contracts/v2/catalog.ts";
+import { startVersion } from "../contracts/v2/versions.ts";
 import { resumeSeconds } from "../ui/browseModel.ts";
 import type { PlayRequest } from "./controller.ts";
 
@@ -30,7 +31,7 @@ function episode(detail: WatchDetail): { series: string; season: number; number:
 }
 
 /** Fresh authorized data only. A failed read is never mistaken for an exhausted season. */
-export async function nextEpisode(read: Read, contentId: string, effectiveFileId: string, seriesTitle?: string): Promise<PlayRequest | undefined> {
+export async function nextEpisode(read: Read, contentId: string, effectiveFileId: string, seriesTitle?: string, quality?: string): Promise<PlayRequest | undefined> {
     const current = await read(operations.watchDetail(contentId));
     if (current.id !== contentId) invalid();
     const context = episode(current);
@@ -55,7 +56,7 @@ export async function nextEpisode(read: Read, contentId: string, effectiveFileId
             const next = episode(detail);
             if (detail.id !== row.id || next.series !== context.series || next.season !== season.seasonNumber || next.number !== row.episodeNumber) invalid();
             const allowed = detail.versions.filter(version => readable.some(file => file.fileId === version.fileId));
-            const version = allowed.find(version => version.fileId === detail.watch?.lastFileId) ?? allowed[0];
+            const version = startVersion(allowed, detail.watch?.lastFileId, quality);
             if (version === undefined) continue;
             const resume = detail.watch?.played === false ? resumeSeconds(detail.watch.positionSeconds, version.durationSeconds || undefined) : undefined;
             const watch = presentationWatch(detail.watch);
@@ -69,21 +70,21 @@ export async function nextEpisode(read: Read, contentId: string, effectiveFileId
  * The first On Deck title when the series has no next episode. It is another
  * title, so it plays only from Play next. A failed read offers nothing.
  */
-export async function onDeckPlay(read: Read, contentId: string): Promise<PlayRequest | undefined> {
-    return (await onDeckPlays(read, contentId))[0];
+export async function onDeckPlay(read: Read, contentId: string, quality?: string): Promise<PlayRequest | undefined> {
+    return (await onDeckPlays(read, contentId, undefined, quality))[0];
 }
 
 /** Existing callers treat a failed read as no offer. The episodes panel does not. */
-export async function onDeckPlays(read: Read, contentId: string, publish?: (items: readonly PlayRequest[]) => void): Promise<PlayRequest[]> {
+export async function onDeckPlays(read: Read, contentId: string, publish?: (items: readonly PlayRequest[]) => void, quality?: string): Promise<PlayRequest[]> {
     try {
-        return await readOnDeck(read, contentId, publish);
+        return await readOnDeck(read, contentId, publish, quality);
     } catch {
         return [];
     }
 }
 
 /** Throws when the current title or the On Deck rows cannot be read. An empty row resolves to []. */
-export async function readOnDeck(read: Read, contentId: string, publish?: (items: readonly PlayRequest[]) => void): Promise<PlayRequest[]> {
+export async function readOnDeck(read: Read, contentId: string, publish?: (items: readonly PlayRequest[]) => void, quality?: string): Promise<PlayRequest[]> {
     let seriesId: string | undefined;
     const current = await read(operations.watchDetail(contentId));
     if (current.id !== contentId) return [];
@@ -102,7 +103,7 @@ export async function readOnDeck(read: Read, contentId: string, publish?: (items
             try {
                 const detail = await read(operations.watchDetail(card.id));
                 if (detail.id !== card.id || detail.type !== "movie" && detail.type !== "episode") continue;
-                const file = detail.versions.find((version) => version.fileId === detail.watch?.lastFileId) ?? detail.versions[0];
+                const file = startVersion(detail.versions, detail.watch?.lastFileId, quality);
                 if (file === undefined) continue;
                 const start = resumeSeconds(detail.watch?.positionSeconds, file.durationSeconds > 0 ? file.durationSeconds : undefined);
                 const watch = presentationWatch(detail.watch);

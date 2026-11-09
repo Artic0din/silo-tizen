@@ -257,6 +257,7 @@
     bottom: 238px;
 }
 
+.player-skip[hidden] + .player-skip-caption,
 .player-skip-caption[hidden],
 .player-skip-caption:empty {
     display: none;

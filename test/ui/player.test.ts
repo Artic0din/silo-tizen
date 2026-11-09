@@ -886,6 +886,9 @@ test("the Intro skipped caption sits outside the pill, so the focused pill's sca
         await show(page, { ...playing(TRACKS), positionSeconds: 62, undoSkipSeconds: 20 });
         assert.equal(await page.locator(".player-skip").evaluate(node => node.classList.contains("player-skip-lit")), true);
         assert.deepEqual(await gap(), { gap: 10, right: 184, scale: "none" });
+        await remote(page, BACK);
+        assert.equal(await pill(page), null);
+        assert.equal(await page.locator(".player-skip-caption").isVisible(), false, "the caption goes with the pill");
     } finally { await page.close(); }
 });
 

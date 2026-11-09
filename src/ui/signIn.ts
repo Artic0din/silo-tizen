@@ -578,7 +578,7 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
             scheme = "auto";
             port = "";
             advanced = false;
-            writeServer(core, address);
+            rememberServer(core, address);
             pendingSetup = result.server;
             checkingSetup = false;
             showNeedsSetup(false);
@@ -592,7 +592,7 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
         scheme = "auto";
         port = "";
         advanced = false;
-        writeServer(core, address);
+        rememberServer(core, address);
         if (result.restore === "signed_in") {
             handOff(result);
             return;
@@ -1153,7 +1153,7 @@ function fitCodeActions(root: HTMLElement): void {
     row.classList.toggle("marquee-actions-stack", width > 900);
 }
 
-function writeServer(core: SessionCoreDeps, baseUrl: string): void {
+export function rememberServer(core: SessionCoreDeps, baseUrl: string): void {
     try {
         core.publicStorage?.setItem(SERVER_KEY, baseUrl);
     } catch {

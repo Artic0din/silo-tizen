@@ -478,6 +478,27 @@ test("an edge retry still running when a cached season is selected cannot show i
     assert.equal(h.state.boundaryFailed, false, "Apple cancels the superseded prefetch, so its failure is not shown");
 });
 
+test("a selection restarts the walk past a neighbour still pending from the previous selection's walk", async t => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const h = await connected(); await signIn(h);
+    const profile = (await h.core.profiles.list()).find(profile => profile.id === "p-owner"); assert.ok(profile); h.core.profiles.select(profile);
+    const catalog = new FakeDetails(); h.fake.catalog = catalog;
+    const seasons = decodeSeasons({ items: [1, 2, 3, 4, 5].map(number => ({ content_id: `s${number}`, season_number: number, title: `Season ${number}`, episode_count: 14 })) });
+    const body = catalog.route("GET", "/catalog/series/series%3As1/seasons/1/episodes", "p-owner")?.body as { items: Record<string, unknown>[] };
+    const page = (season: number, count: number) => ({ status: 200, body: { items: Array.from({ length: count }, (_, index) => ({ ...body.items[0], content_id: `walk:${season}:${index}`, season_number: season, episode_number: index + 1 })) } });
+    // Season 3 holds seven cards and season 4 one, so a walk from season 2 or 3 needs season 5 to reach eight.
+    for (const [season, count] of [[1, 14], [2, 14], [3, 7], [4, 1], [4, 1], [5, 14]] as const) h.fake.script(operations.listSeasonEpisodes("series:s1", season).path, page(season, count));
+    const held = h.fake.hold(operations.listSeasonEpisodes("series:s1", 4).path, true);
+    const state = new SeriesEpisodes(h.core.session, "series:s1", seasons, () => undefined, 2); t.after(() => state.stop());
+    const settle = async (): Promise<void> => { for (let i = 0; i < 8; i++) await h.clock.advance(0); };
+    const reads = (): number[] => h.fake.requests.filter(request => request.path.includes("/episodes")).map(request => Number(/seasons\/(\d+)\//.exec(request.path)?.[1]));
+    state.start(); await settle();
+    assert.deepEqual(reads(), [2, 1, 3, 4], "season 2's walk is held at season 4");
+    state.select(3); await settle();
+    held.release(); await settle();
+    assert.deepEqual(reads().slice(4), [4, 5], "season 3's own walk reads season 4 again and goes on to season 5");
+});
+
 test("Back to a cached Details clears the edge failure and reads the season again", async t => {
     t.mock.timers.enable({ apis: ["setTimeout"] });
     const h = await episodeRailHarness(1); t.after(() => h.state.stop());

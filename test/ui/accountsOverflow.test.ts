@@ -126,6 +126,53 @@ test("the server rail fades its edge and shows a chevron only where servers are 
     });
 });
 
+test("moving down a long rail keeps its scroll and never drops the up chevron or top fade", async () => {
+    await withSignedInTv(browser, async tv => {
+        await seedAccounts(tv, 1, servers(14));
+        await openChangeAccount(tv);
+        await press(tv, LEFT, 1);
+        await press(tv, DOWN, 8);
+        const before = await settled(tv, "rail", { above: true, below: true });
+        const start = await tv.page.locator(".accounts-rail").evaluate(node => node.scrollTop);
+        assert.ok(start > 0, "the rail is scrolled before the move");
+        for (let move = 0; move < 3; move++) {
+            await tv.remote(DOWN);
+            // Each frame during and after the render: the flags, the up chevron, the fade and the scroll position.
+            for (let frame = 0; frame < 24; frame++) {
+                const state = await column(tv.page, "rail");
+                const top = await tv.page.locator(".accounts-rail").evaluate(node => node.scrollTop);
+                assert.deepEqual([state.above, state.up, state.mask.includes("rgba(0, 0, 0, 0)"), top >= start], [true, "1", true, true], `move ${move}, frame ${frame}: ${JSON.stringify(state)} scrollTop ${top}`);
+                await tv.jump(16);
+                await tv.page.waitForTimeout(16);
+            }
+        }
+        assert.equal(before.up, "1");
+    });
+});
+
+test("each render disconnects the previous resize observers", async () => {
+    await withSignedInTv(browser, async tv => {
+        await seedAccounts(tv, 1, servers(3));
+        await openChangeAccount(tv);
+        await tv.page.evaluate(() => {
+            const live = new Set<ResizeObserver>();
+            const Original = window.ResizeObserver;
+            window.ResizeObserver = class extends Original {
+                constructor(callback: ResizeObserverCallback) { super(callback); live.add(this); }
+                override disconnect(): void { live.delete(this); super.disconnect(); }
+            };
+            Object.assign(window, { liveObservers: live });
+        });
+        await press(tv, LEFT, 1);
+        await press(tv, DOWN, 3);
+        const live = (): Promise<number> => tv.page.evaluate(() => (window as unknown as { liveObservers: Set<ResizeObserver> }).liveObservers.size);
+        assert.equal(await live(), 2, "only the current rail and pane are observed");
+        await tv.remote(10009);
+        assert.equal(await tv.page.locator('[data-view="change-account"]').count(), 0);
+        assert.equal(await live(), 0, "leaving the screen disconnects both");
+    });
+});
+
 test("Settings › Accounts keeps a plain scroll with no fade or chevron", async () => {
     await withSignedInTv(browser, async tv => {
         await seedAccounts(tv, 1, [...servers(6), ...accountsOnActive(8)]);

@@ -8,6 +8,7 @@ import { build } from "esbuild";
 import { type Browser, chromium, type Page } from "playwright";
 import type { PlaybackView, TrackView } from "../../src/player/controller.ts";
 import { DEFAULT_APPEARANCE } from "../../src/contracts/v2/subtitles.ts";
+import type { SkipMarker } from "../../src/contracts/v2/markers.ts";
 import { readLive } from "./support/tv.ts";
 
 const ORIGIN = "https://tv.example.test";
@@ -712,67 +713,212 @@ test("translate-only AI shows no transcription quota line", async () => {
 });
 const text = (page: Page, selector: string): Promise<string> => page.locator(selector).innerText();
 
-test("Skip counts down, activates with Enter or Play, and returns focus without taking manual seeks", async () => {
+const INTRO = { kind: "intro" as const, startSeconds: 20, endSeconds: 60 };
+const RECAP = { kind: "recap" as const, startSeconds: 0, endSeconds: 15 };
+const CREDITS = { kind: "credits" as const, startSeconds: 7000, endSeconds: 7200 };
+const inMarker = (skipMarker: SkipMarker, positionSeconds: number): Extract<PlaybackView, { phase: "playing" | "paused" }> => ({ ...playing(TRACKS), positionSeconds, skipMarker });
+const pill = (page: Page): Promise<string | null> => page.locator(".player-skip").isVisible().then(visible => visible ? page.locator(".player-skip-label").innerText() : null);
+const metrics = (page: Page): Promise<{ width: number; height: number; right: number; bottom: number; background: string; font: string }> => page.locator(".player-skip").evaluate(node => {
+    const box = (node as HTMLElement).offsetParent?.getBoundingClientRect() ?? new DOMRect();
+    const style = getComputedStyle(node);
+    return { width: (node as HTMLElement).offsetWidth, height: (node as HTMLElement).offsetHeight, right: box.right - ((node as HTMLElement).offsetLeft + (node as HTMLElement).offsetWidth), bottom: box.bottom - ((node as HTMLElement).offsetTop + (node as HTMLElement).offsetHeight), background: style.backgroundColor, font: `${style.fontSize}/${style.fontWeight}` };
+});
+
+test("the skip pill says what Apple TV says for an intro, a recap and credits, with no countdown", async () => {
     const { page, logs } = await open();
-    const view = { ...playing(TRACKS), positionSeconds: 25, skipMarker: { kind: "intro" as const, startSeconds: 20, endSeconds: 60 } };
     try {
-        await show(page, view);
-        // Old focus was "player". A visible skip pill takes first focus, as on Apple TV.
-        assert.equal(await focused(page), "skip");
-        assert.equal(await text(page, ".player-skip"), "Skip intro · 35 seconds");
-        await page.clock.runFor(6000);
-        assert.equal(await page.locator(".player-skip").isVisible(), true);
-        await remote(page, UP);
-        assert.equal(await focused(page), "skip");
-        await show(page, { ...view, positionSeconds: 26.5 });
-        assert.equal(await text(page, ".player-skip"), "Skip intro · 34 seconds");
-        assert.equal(await focused(page), "skip");
-        // Hidden Down opens Info; Left reveals the transport before testing visible Down.
-        await remote(page, LEFT);
-        await remote(page, BACK);
-        await remote(page, DOWN);
-        assert.equal(await focused(page), "pause");
-        await remote(page, UP);
-        // Old path: Up returned to Skip, and Back from Skip returned to Pause.
-        assert.equal(await focused(page), "position");
-        assert.deepEqual(await commands(page), []);
-        await remote(page, UP);
-        assert.equal(await focused(page), "skip");
-        await remote(page, ENTER);
-        assert.deepEqual(await commands(page), ["seekToSeconds 60"]);
-        await remote(page, UP);
-        await remote(page, 415);
-        assert.deepEqual(await commands(page), ["seekToSeconds 60", "seekToSeconds 60"]);
-        await remote(page, RIGHT);
-        assert.equal(await focused(page), "position");
-        assert.equal(await page.locator(".player-skip").isVisible(), false);
-        await remote(page, ENTER);
-        assert.deepEqual(await commands(page), ["seekToSeconds 60", "seekToSeconds 60", "seekToSeconds 36.5"]);
-        await remote(page, UP);
-        await show(page, { ...playing(TRACKS), positionSeconds: 60 });
-        assert.equal(await page.locator(".player-skip").isVisible(), false);
-        // Old focus was "player" after the pill left. Focus returns to the scrubber.
-        assert.equal(await focused(page), "position");
-        // Old Up from the scrubber focused Pause. Down does that now.
-        await remote(page, DOWN);
-        assert.equal(await focused(page), "pause");
+        await show(page, inMarker(INTRO, 25));
+        assert.equal(await pill(page), "Skip Intro");
+        assert.equal(await page.locator(".player-skip").getAttribute("aria-label"), "Skip Intro");
+        await show(page, inMarker(RECAP, 5));
+        assert.equal(await pill(page), "Skip Recap");
+        assert.equal(await page.locator(".player-skip svg").count(), 1, "recap and credits carry the forward-end icon");
+        await show(page, inMarker(CREDITS, 7010));
+        assert.equal(await pill(page), "Skip Credits");
+        await show(page, playing(TRACKS));
+        assert.equal(await pill(page), null);
         assert.deepEqual(logs, []);
     } finally { await page.close(); }
 });
 
-test("Enter on the default focus skips while a marker shows and pauses otherwise", async () => {
-    const { page, logs } = await open();
-    const view = { ...playing(TRACKS), positionSeconds: 25, skipMarker: { kind: "intro" as const, startSeconds: 20, endSeconds: 60 } };
+test("the Skip Intro offer lasts five seconds, does not return inside the same intro and comes back after leaving it", async () => {
+    const { page } = await open();
     try {
-        await show(page, view);
-        // Old focus was "player". The skip pill is the select target while it shows.
+        await show(page, inMarker(INTRO, 25));
+        await page.clock.runFor(4900);
+        await show(page, inMarker(INTRO, 29.9));
+        assert.equal(await pill(page), "Skip Intro");
+        await page.clock.runFor(100);
+        assert.equal(await pill(page), null, "the timer alone takes it down");
+        await show(page, inMarker(INTRO, 40));
+        assert.equal(await pill(page), null, "timing out does not re-offer on the spot");
+        await show(page, playing(TRACKS));
+        await show(page, inMarker(INTRO, 21));
+        assert.equal(await pill(page), "Skip Intro", "re-entering the intro offers it with a full timer");
+        await page.clock.runFor(4900);
+        assert.equal(await pill(page), "Skip Intro");
+    } finally { await page.close(); }
+});
+
+test("the Skip Intro timer waits for playback, freezes on pause and rides out a short stall", async () => {
+    const { page } = await open();
+    try {
+        const paused: PlaybackView = { ...inMarker(INTRO, 25), phase: "paused" };
+        await show(page, paused);
+        await page.clock.runFor(8000);
+        assert.equal(await pill(page), null, "nothing is offered while the player is not playing");
+        await show(page, inMarker(INTRO, 25));
+        await page.clock.runFor(3000);
+        await show(page, { ...inMarker(INTRO, 28), phase: "paused" });
+        await page.clock.runFor(20000);
+        assert.equal(await pill(page), "Skip Intro", "a pause freezes the timer");
+        await show(page, inMarker(INTRO, 28));
+        await page.clock.runFor(1900);
+        assert.equal(await pill(page), "Skip Intro");
+        await page.clock.runFor(100);
+        assert.equal(await pill(page), null, "two seconds were left");
+        await show(page, playing(TRACKS));
+        await show(page, inMarker(INTRO, 21));
+        await page.clock.runFor(1000);
+        await show(page, { ...inMarker(INTRO, 22), buffering: true });
+        await page.clock.runFor(1000);
+        await show(page, inMarker(INTRO, 22));
+        await page.clock.runFor(2900);
+        assert.equal(await pill(page), "Skip Intro", "a stall shorter than 1.5 s leaves the deadline where it was");
+        await page.clock.runFor(100);
+        assert.equal(await pill(page), null);
+        await show(page, playing(TRACKS));
+        await show(page, inMarker(INTRO, 21));
+        await page.clock.runFor(1000);
+        await show(page, { ...inMarker(INTRO, 22), buffering: true });
+        await page.clock.runFor(8000);
+        assert.equal(await pill(page), "Skip Intro", "a longer stall freezes the timer at what it had left");
+        await show(page, inMarker(INTRO, 22));
+        await page.clock.runFor(3900);
+        assert.equal(await pill(page), "Skip Intro");
+        await page.clock.runFor(100);
+        assert.equal(await pill(page), null);
+    } finally { await page.close(); }
+});
+
+test("Skip Recap and Skip Credits stay up for the whole marker window and go when it ends", async () => {
+    const { page } = await open();
+    try {
+        for (const [marker, label, inside, outside] of [[RECAP, "Skip Recap", 5, 15], [CREDITS, "Skip Credits", 7010, 7200]] as const) {
+            await show(page, inMarker(marker, inside));
+            await page.clock.runFor(60000);
+            await show(page, inMarker(marker, inside + 1));
+            assert.equal(await pill(page), label);
+            await show(page, playing({ ...TRACKS }));
+            await show(page, { ...playing(TRACKS), positionSeconds: outside });
+            assert.equal(await pill(page), null);
+        }
+        await show(page, { phase: "loading", title: "The Movie" });
+        assert.equal(await pill(page), null, "never while loading");
+    } finally { await page.close(); }
+});
+
+test("Select on Skip Intro seeks to the end of the intro and the intro is not offered again", async () => {
+    const { page } = await open();
+    try {
+        await show(page, inMarker(INTRO, 25));
         assert.equal(await focused(page), "skip");
         await remote(page, ENTER);
         assert.deepEqual(await commands(page), ["seekToSeconds 60"]);
-        await show(page, { ...playing(TRACKS), positionSeconds: 60 });
+        await show(page, inMarker(INTRO, 26));
+        assert.equal(await pill(page), null, "a decided intro stays decided after scrubbing back into it");
+        assert.equal(await focused(page), "position");
+        // With the pill gone Select is the scrubber's again: it enters timeline scrub and pauses.
         await remote(page, ENTER);
-        // Old command was togglePause. Select on the scrubber enters timeline scrub and pauses.
         assert.deepEqual(await commands(page), ["seekToSeconds 60", "setPaused true"]);
+    } finally { await page.close(); }
+});
+
+test("Back takes the Skip Intro pill down without moving playback, and the next Back behaves normally", async () => {
+    const { page } = await open();
+    try {
+        await show(page, inMarker(INTRO, 25));
+        await remote(page, BACK);
+        assert.equal(await pill(page), null);
+        assert.deepEqual(await commands(page), []);
+        await show(page, inMarker(INTRO, 26));
+        assert.equal(await pill(page), null, "Back decided the intro");
+        assert.equal(await focused(page), "position");
+        await remote(page, BACK);
+        assert.deepEqual(await commands(page), ["back"]);
+    } finally { await page.close(); }
+});
+
+test("after an automatic skip the pill reads Intro skipped over Watch Intro and Select returns to the intro start", async () => {
+    const { page } = await open();
+    try {
+        await show(page, { ...playing(TRACKS), positionSeconds: 61, undoSkipSeconds: 20 });
+        assert.equal(await pill(page), "Watch Intro");
+        assert.equal(await text(page, ".player-skip-caption"), "Intro skipped");
+        assert.equal(await page.locator(".player-skip").getAttribute("aria-label"), "Intro skipped. Watch Intro");
+        await remote(page, ENTER);
+        assert.deepEqual(await commands(page), ["seekToSeconds 20"]);
+        await show(page, { ...playing(TRACKS), positionSeconds: 21 });
+        assert.equal(await pill(page), null);
+        await show(page, { ...playing(TRACKS), positionSeconds: 61, undoSkipSeconds: 21 });
+        await remote(page, BACK);
+        assert.equal(await pill(page), null, "Back dismisses the undo without seeking");
+        assert.deepEqual(await commands(page), ["seekToSeconds 20"]);
+    } finally { await page.close(); }
+});
+
+test("the skip pills sit where Apple TV draws them: bottom right, above the transport while the controls show", async () => {
+    const { page } = await open();
+    try {
+        // Measure where the pill settles, not mid-slide.
+        await page.addStyleTag({ content: ".player-skip { transition: none !important; }" });
+        await show(page, inMarker(INTRO, 25));
+        // tvOS padding plus the 80 px side and 60 px top and bottom safe area.
+        assert.deepEqual(await metrics(page), { width: (await metrics(page)).width, height: 72, right: 160, bottom: 460, background: "rgba(0, 0, 0, 0.65)", font: "28px/600" });
+        await show(page, playing(TRACKS));
+        await show(page, inMarker(RECAP, 5));
+        assert.deepEqual(await metrics(page), { width: 220, height: 76, right: 160, bottom: 216, background: "rgba(255, 255, 255, 0.1)", font: "26px/600" });
+        // With the controls hidden both pills drop to the corner.
+        await page.clock.runFor(10000);
+        await show(page, inMarker(RECAP, 6));
+        assert.equal((await metrics(page)).bottom, 156);
+        await show(page, playing(TRACKS));
+        await show(page, inMarker(INTRO, 25));
+        assert.equal(await page.locator(".player-overlay").evaluate(node => node.classList.contains("player-overlay-hidden")), true);
+        assert.equal((await metrics(page)).bottom, 156);
+        assert.equal(await page.locator(".player-skip").evaluate(node => node.classList.contains("player-skip-lit")), true, "drawn lit as the Select target while the controls are hidden");
+    } finally { await page.close(); }
+});
+
+test("Select activates a late Skip prompt while controls are hidden", async () => {
+    const { page } = await open();
+    try {
+        await show(page, playing(TRACKS));
+        await page.clock.runFor(6000);
+        await show(page, inMarker(INTRO, 25));
+        assert.equal(await focused(page), "position");
+        await remote(page, ENTER);
+        assert.deepEqual(await commands(page), ["seekToSeconds 60"]);
+    } finally { await page.close(); }
+});
+
+test("Skip Intro takes first focus, Down hands focus to the transport and Up returns to the pill", async () => {
+    const { page, logs } = await open();
+    try {
+        await show(page, inMarker(INTRO, 25));
+        assert.equal(await focused(page), "skip");
+        await remote(page, UP);
+        assert.equal(await focused(page), "skip");
+        await remote(page, DOWN);
+        assert.equal(await focused(page), "pause");
+        await remote(page, UP);
+        assert.equal(await focused(page), "position");
+        await remote(page, UP);
+        assert.equal(await focused(page), "skip");
+        await remote(page, 415);
+        assert.deepEqual(await commands(page), ["seekToSeconds 60"]);
+        await show(page, playing(TRACKS));
+        assert.equal(await focused(page), "position");
         assert.deepEqual(logs, []);
     } finally { await page.close(); }
 });
@@ -1627,18 +1773,6 @@ test("the remote crosses Audio while its choices are loading", async () => {
         assert.equal(await focused(page), "subtitles-off");
         await remote(page, LEFT);
         assert.equal(await focused(page), "video-empty");
-    } finally { await page.close(); }
-});
-
-test("Select activates a late Skip prompt while controls are hidden", async () => {
-    const { page } = await open();
-    try {
-        await show(page, playing(TRACKS));
-        await page.clock.runFor(6000);
-        await show(page, { ...playing(TRACKS), positionSeconds: 25, skipMarker: { kind: "intro", startSeconds: 20, endSeconds: 60 } });
-        assert.equal(await focused(page), "position");
-        await remote(page, ENTER);
-        assert.deepEqual(await commands(page), ["seekToSeconds 60"]);
     } finally { await page.close(); }
 });
 

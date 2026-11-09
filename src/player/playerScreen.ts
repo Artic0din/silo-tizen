@@ -21,7 +21,8 @@ import type { AVPlay } from "./avplay.ts";
 import { type PlaybackError, type PlaybackExits, PlaybackController, type PlaybackView, type PlayerControls, type PlayRequest, type SubtitleToolAction, type TrackView, UNSUPPORTED_FORMAT } from "./controller.ts";
 import { fillSubtitleTools, pickerFor, type SubtitlePane } from "./subtitleMenu.ts";
 import type { AppearanceMember } from "./subtitleAppearance.ts";
-import { closeIcon, episodesIcon, optionsIcon, pauseIcon, playIcon, skipIcon, spinnerIcon } from "./playerIcons.ts";
+import { closeIcon, episodesIcon, optionsIcon, pauseIcon, playIcon, skipIcon, skipToEndIcon, spinnerIcon } from "./playerIcons.ts";
+import { SkipPrompt, type SkipActivity } from "./skipPrompt.ts";
 import { mountSeekThumbnail } from "./seekThumbnailView.ts";
 import { mountSubtitles } from "./subtitleView.ts";
 import { fillHUDPane } from "./hudPanes.ts";
@@ -274,10 +275,19 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     skip.type = "button";
     skip.tabIndex = -1;
     skip.setAttribute("data-focus", "skip");
+    const skipTrack = el("span", "player-skip-track");
+    const skipFill = el("span", "player-skip-fill");
+    skipTrack.append(skipFill);
+    const skipGlyph = el("span", "player-skip-glyph");
+    skipGlyph.innerHTML = skipToEndIcon();
+    const skipLabel = el("span", "player-skip-label");
+    const skipCaption = el("span", "player-skip-caption");
+    skipCaption.setAttribute("aria-hidden", "true");
+    skip.append(skipTrack, skipGlyph, skipLabel, skipCaption);
     skip.addEventListener("click", () => {
-        if ((view.phase !== "playing" && view.phase !== "paused") || seekPreview !== undefined || menuOpen) return;
-        const target = view.undoSkipSeconds ?? view.skipMarker?.endSeconds;
-        if (target === undefined) return;
+        if (skipKind === undefined || skipTarget === undefined || seekPreview !== undefined || menuOpen) return;
+        const target = skipTarget;
+        decideSkip();
         controls.seekToSeconds(target);
         overlay.focus();
         reveal();
@@ -429,6 +439,13 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     let menuOpen = false;
     let seekPreview: number | undefined;
     let pendingSkipTarget: number | undefined;
+    /** Which skip pill is up, and the source second its action seeks to. */
+    let skipKind: "intro" | "recap" | "credits" | "undo" | undefined;
+    let skipTarget: number | undefined;
+    /** The Watch Intro offer Back or Select took down, so the controller's own 5 s window does not bring it back. */
+    let dismissedUndo: number | undefined;
+    let drawnFill = -1;
+    const skipPrompt = new SkipPrompt(clock, () => render());
     /** Select entered timeline scrub. Left/Right move the preview until Select or Menu. */
     let timeline = false;
     let timelineMoved = false;
@@ -588,6 +605,63 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         focusScrubberOnRender = returnToScrubber;
     };
 
+    /**
+     * Apple's pills: Skip Intro for five seconds (`IntroSkipPrompt`), Watch Intro over an "Intro skipped" caption after an
+     * automatic skip, and Skip Recap or Skip Credits for the whole marker window (`segmentSkipLayer`).
+     */
+    const drawSkip = (): void => {
+        const live = view.phase === "playing" || view.phase === "paused" ? view : undefined;
+        const marker = live?.skipMarker;
+        const undoSeconds = live?.undoSkipSeconds;
+        if (undoSeconds === undefined) dismissedUndo = undefined;
+        if (live !== undefined) {
+            const activity: SkipActivity = live.phase === "paused" ? "paused" : live.buffering ? "stalled" : "playing";
+            const key = marker?.kind === "intro" ? `${live.title}|${live.seasonNumber ?? ""}|${live.episodeNumber ?? ""}|${marker.startSeconds}` : undefined;
+            skipPrompt.update(key, activity);
+        } else if (view.phase !== "loading" || view.detail === undefined) {
+            // A reconnect or restore is the same content; anything else may be different content.
+            skipPrompt.reset();
+        }
+        skipKind = undefined;
+        skipTarget = undefined;
+        if (undoSeconds !== undefined && undoSeconds !== dismissedUndo) {
+            skipKind = "undo";
+            skipTarget = undoSeconds;
+        } else if (marker?.kind === "recap" || marker?.kind === "credits") {
+            skipKind = marker.kind;
+            skipTarget = marker.endSeconds;
+        } else if (marker?.kind === "intro" && skipPrompt.visible) {
+            skipKind = "intro";
+            skipTarget = marker.endSeconds;
+        }
+        skip.hidden = skipKind === undefined || seekPreview !== undefined || menuOpen;
+        if (skipKind === undefined) return;
+        const label = skipKind === "undo" ? "Watch Intro" : skipKind === "intro" ? "Skip Intro" : skipKind === "recap" ? "Skip Recap" : "Skip Credits";
+        skipLabel.textContent = label;
+        skipCaption.textContent = skipKind === "undo" ? "Intro skipped" : "";
+        skip.setAttribute("aria-label", skipKind === "undo" ? `Intro skipped. ${label}` : label);
+        skipGlyph.hidden = skipKind === "intro" || skipKind === "undo";
+        skipTrack.hidden = skipKind !== "intro";
+        if (skipKind === "intro") {
+            const fill = skipPrompt.fill;
+            if (fill.revision !== drawnFill) {
+                // Restart the fill from where the timer stands; the fill and the timer share this one state.
+                drawnFill = fill.revision;
+                skipFill.style.animation = "none";
+                void skipFill.offsetWidth;
+                skipFill.style.animation = "";
+                skipFill.style.animationDelay = `-${fill.elapsedMs}ms`;
+            }
+            skipFill.style.animationPlayState = fill.running ? "running" : "paused";
+        }
+    };
+
+    /** Select or Back took the pill: an intro is decided for good, and the undo goes. */
+    const decideSkip = (): void => {
+        if (skipKind === "intro") skipPrompt.resolve();
+        else if (skipKind === "undo") dismissedUndo = skipTarget;
+    };
+
     const render = (): void => {
         if (view.phase === "playing" || view.phase === "paused") pictureShown = true;
         backdrop.hidden = pictureShown || view.phase !== "loading";
@@ -595,13 +669,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         const prompt = view.phase === "playing" || view.phase === "paused" ? view.upNext : undefined;
         const active = view.phase === "playing" || view.phase === "paused";
         if (!active && (seekPreview !== undefined || timeline || autoRate !== 0)) cancelScrub();
-        const marker = view.phase === "playing" || view.phase === "paused" ? view.skipMarker : undefined;
-        const undo = (view.phase === "playing" || view.phase === "paused") && view.undoSkipSeconds !== undefined;
-        skip.hidden = (!undo && marker === undefined) || seekPreview !== undefined || menuOpen;
-        if (marker !== undefined && (view.phase === "playing" || view.phase === "paused")) {
-            skip.textContent = `Skip ${marker.kind} · ${Math.ceil(marker.endSeconds - view.positionSeconds)} seconds`;
-        }
-        if (undo) skip.textContent = "Undo skip";
+        drawSkip();
         if (skip.hidden && document.activeElement === skip) bar.focus();
         if (seekPreview === undefined) thumbnail.clear();
         transport.hidden = !active || menuOpen;
@@ -774,6 +842,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         }
         const hidden = view.phase === "playing" && !view.buffering && cancelHide === undefined && !menuOpen && seekPreview === undefined;
         overlay.className = ["player-overlay", hidden ? "player-overlay-hidden" : "", conceal ? "player-overlay-clear" : ""].filter(Boolean).join(" ");
+        skip.className = ["player-button", "player-skip", skipKind === "recap" || skipKind === "credits" ? "player-skip-segment" : "player-skip-intro", hidden ? "player-skip-lit" : ""].filter(Boolean).join(" ");
         if (hidden && transport.contains(document.activeElement)) bar.focus();
         if (menuOpen && view.phase !== "loading") {
             drawMenu(view.tracks);
@@ -1216,6 +1285,12 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         }
         if (menuOpen) {
             menuKey(key);
+            render();
+            return;
+        }
+        if (key === "back" && (skipKind === "intro" || skipKind === "undo") && !skip.hidden && !timeline && seekPreview === undefined && autoRate === 0) {
+            // Apple's most transient pill: Back takes it down and the press ends there, so it neither hides the controls nor exits.
+            decideSkip();
             render();
             return;
         }

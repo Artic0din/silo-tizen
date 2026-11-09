@@ -381,6 +381,20 @@ for (const order of ["stop then restore", "restore then stop"] as const) test(`a
     assert.equal(restored.boundaryFailed, true, "the season never loaded, so the error and Retry come back");
 });
 
+test("selecting the season whose edge retry is in flight leaves no stale edge error after it loads", async t => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const h = await episodeRailHarness(1); t.after(() => h.state.stop());
+    const held = h.fake.hold(operations.listSeasonEpisodes("series:s1", 1).path, true);
+    h.state.retryNeighbors(); await h.settle();
+    h.state.select(1); await h.settle();
+    assert.equal(h.state.failed, false);
+    held.release(); await h.settle();
+    assert.equal(h.state.seasonNumber, 1);
+    assert.equal(h.state.boundaryFailed, false, "the loaded season is not a failed neighbour");
+    h.state.select(2); await h.settle();
+    assert.equal(h.state.boundaryFailed, false, "moving on does not resurrect the failure of a season that loaded");
+});
+
 test("a dwell back onto a season whose read was cancelled reads it again", async t => {
     t.mock.timers.enable({ apis: ["setTimeout"] });
     const h = await episodeRailHarness(); t.after(() => h.state.stop());

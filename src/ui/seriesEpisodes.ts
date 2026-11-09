@@ -256,7 +256,7 @@ export class SeriesEpisodes {
         this.neighbors?.abort();
         this.neighbors = undefined;
         this.pendingNeighbors.clear();
-        for (const number of this.retryingNeighbors) this.failedNeighbors.add(number);
+        for (const number of this.retryingNeighbors) if (number !== season) this.failedNeighbors.add(number);
         this.retryingNeighbors.clear();
         const controller = new AbortController();
         this.controller = controller;

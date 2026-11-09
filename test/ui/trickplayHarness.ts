@@ -29,7 +29,7 @@ const harness = {
         login = server.createDeviceLogin();
         login.start();
     },
-    async play(fileId = "42") {
+    async play(fileId = "42", episode = false) {
         if (server === undefined) throw new Error("Not connected");
         const owner = (await server.profiles.list()).find((profile) => profile.id === "p-owner");
         if (owner === undefined) throw new Error("Missing synthetic profile");
@@ -39,7 +39,8 @@ const harness = {
         controller = new PlaybackController({ session: server.session, avplay, clock: systemClock, randomBytes,
             device: { model: "Synthetic AVPlay", appVersion: "0.0.1" }, exits: { onBack() {}, onEnd() {}, onError() {} } });
         screen = mountPlayerScreen(root, controller);
-        controller.play({ contentId: "movie-1", fileId, title: "Synthetic film", startSeconds: 1225 });
+        controller.play({ contentId: "movie-1", fileId, title: episode ? "Going Green" : "Synthetic film", startSeconds: 1225,
+            ...(episode ? { episode: true as const, seriesTitle: "Spidey and His Amazing Friends", seasonNumber: 1, episodeNumber: 3 } : {}) });
     },
     clearProfile() { server?.profiles.clear(); },
     quality() { controller?.selectQuality("720p"); },

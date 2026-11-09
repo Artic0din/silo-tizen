@@ -95,10 +95,20 @@ function provisionalInventory(fileId: string, tracks: readonly CatalogSubtitleTr
     }));
 }
 
-/** Only identities published by this plan may leave this resolver. */
-/** Apple's `hasUnsupportedFormat`: the server refuses a start or switch that names an embedded row with no codec. */
-const deliverable = (track: SubtitleTrack): boolean => !(track.source === "embedded" && !track.codec?.trim());
+/** Apple's `hasUnsupportedFormat` and the plan's `unplayable` flag: the server refuses or cannot deliver these rows. */
+const deliverable = (track: SubtitleTrack): boolean => track.unplayable !== true && !(track.source === "embedded" && !track.codec?.trim());
 
+/**
+ * Apple's Details selector never seeds a saved choice the server cannot deliver, so the player resolves Auto instead.
+ * A pick made on Details stays explicit and starts without subtitles.
+ */
+export function playableIntent(intent: SubtitleIntent, tracks: readonly SubtitleTrack[]): SubtitleIntent {
+    if (intent.kind !== "track" || intent.saved !== true) return intent;
+    const matches = tracks.filter(track => matchesSubtitle(track, intent.signature));
+    return matches.length === 1 && matches[0] !== undefined && !deliverable(matches[0]) ? { kind: "auto" } : intent;
+}
+
+/** Only identities published by this plan may leave this resolver. */
 export function initialSubtitle(intent: SubtitleIntent, tracks: readonly SubtitleTrack[], preferences?: SubtitlePreferences): string | undefined {
     if (intent.kind === "off") return undefined;
     if (intent.kind === "track") {

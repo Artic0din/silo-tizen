@@ -5,7 +5,7 @@ import { subtitleAIOperations as operations, type SubtitleAIRequest } from "../a
 import type { SubtitleAIJob, SubtitleAIQuota, SubtitleAIStatus } from "../contracts/v2/subtitleAI.ts";
 import type { NativeSession } from "../session/session.ts";
 
-export interface AIResult { readonly id: string; readonly label: string }
+export interface AIResult { readonly id: string; readonly label: string; /** The stored track cannot be shown, so selecting it does nothing. */ readonly unavailable?: boolean }
 export interface SubtitleAIView {
     readonly available: SubtitleAIStatus;
     readonly languages: readonly string[];

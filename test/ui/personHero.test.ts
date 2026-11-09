@@ -413,7 +413,11 @@ test("person biography uses Apple's body size, line and clamp", async () => {
         await signIn(tv);
         const paragraph = "This biography sentence is long enough to wrap across the overview column more than once on the person page.";
         await person(tv, { bio: Array.from({ length: 6 }, () => paragraph).join("\n\n") });
-        const bio = await tv.page.locator('.browse[data-view^="person:"] .browse-overview').evaluate(node => {
+        await tv.page.locator('.browse[data-view^="person:"] .browse-overview').waitFor();
+        // Query and measure in one synchronous step: a repaint can detach a node resolved earlier (zero height).
+        const bio = await tv.page.evaluate(() => {
+            const node = document.querySelector('.browse[data-view^="person:"] .browse-overview');
+            if (node === null) return null;
             const computed = getComputedStyle(node);
             return { fontSize: computed.fontSize, lineHeight: computed.lineHeight, height: node.getBoundingClientRect().height, clipped: node.scrollHeight > node.clientHeight };
         });

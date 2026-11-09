@@ -9,7 +9,7 @@ import { FakeHome } from "../native/support/fakeHome.ts";
 import { FakeDetails } from "../native/support/fakeDetails.ts";
 import { problem } from "../native/support/fakeSilo.ts";
 import { FakeSettings } from "../native/support/fakeSettings.ts";
-import { type SettingsKey, HIDDEN_KEY, TITLE_ART_KEY } from "../../src/contracts/v2/settings.ts";
+import { type SettingsKey, HIDDEN_KEY, QUALITY_KEY, TITLE_ART_KEY } from "../../src/contracts/v2/settings.ts";
 
 const CARD_OVERLAYS_KEY = "ui.card_overlays" as SettingsKey;
 const CARD_OVERLAYS_ENABLED_KEY = "ui.card_overlays_enabled" as SettingsKey;
@@ -1605,6 +1605,15 @@ for (const [id, activation, position] of [["movie:m0001", "MediaPlay", 321.5], [
         assert.equal(await tv.page.evaluate(() => window.browseHarness.plays.length), 1, "returning never replays");
     });
 }
+
+journey("Continue ranks versions with the stored Resolution cap", async (tv, catalog) => {
+    const body = catalog.route("GET", "/catalog/items/movie%3Am0001", "p-owner")?.body as Record<string, unknown>;
+    await tv.page.route("**/api/v2/catalog/items/movie%3Am0001?**", route => route.fulfill({ json: { ...body, versions: [{ file_id: "uhd", duration: 9000, resolution: "2160p" }, { file_id: "hd", duration: 9000, resolution: "1080p" }], duration_seconds: 9000, user_data: { played: false, position_seconds: 321.5 } } }));
+    await tv.page.locator('[data-section="resume/opaque"] [data-focus="movie:m0001"]').focus();
+    await tv.remote(415);
+    await tv.eventually(async () => await tv.page.evaluate(() => window.browseHarness.plays.length) === 1, "one player handoff");
+    assert.equal(await tv.page.evaluate(() => window.browseHarness.plays[0]?.fileId), "hd");
+}, undefined, settings => settings.profile().set(QUALITY_KEY, "1080p"));
 
 for (const mode of ["missing", "restricted", "unreadable", "mismatch"] as const) {
     journey(`Continue ${mode} leaves Retry and Back without playback`, async (tv, catalog) => {

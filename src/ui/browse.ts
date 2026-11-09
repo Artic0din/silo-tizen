@@ -1241,7 +1241,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 load(current, async signal => {
                     const detail = await read(operations.getCatalogItem(current.id), signal);
                     if (detail.id !== current.id || (detail.type !== "movie" && detail.type !== "episode") || (current.episode === true && detail.type !== "episode")) throw new ApiError({ kind: "invalid_response", path: "resume.item" });
-                    const choices = playChoices(detail, current.selection?.fileId);
+                    const choices = playChoices(detail, current.selection?.fileId, resolutionCap.quality);
                     if (choices === undefined) return undefined;
                     let request = current.startOver === true ? choices.fromStart : choices.resume ?? choices.fromStart;
                     if (detail.type === "episode") request = applySeriesLine({ ...request, subtitle: { kind: "auto" }, ...current.selection }, current.seriesLine);

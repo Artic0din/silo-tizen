@@ -6,7 +6,7 @@ import type { Card } from "../contracts/v2/catalog.ts";
 import type { DetailsState } from "./detailsState.ts";
 import { TRANSLATE_DESCRIPTION_LABEL, type DescriptionTranslationStatus } from "./descriptionTranslation.ts";
 import type { FocusItem, View, Zone } from "./browseFocus.ts";
-import { artworkUrl, clockTime, episodeLabel, playChoices, seriesPlayback, type PlayRequest } from "./browseModel.ts";
+import { artworkUrl, clockTime, episodeLabel, playChoices, seriesPlayback, withStartAudioLanguage, type PlayRequest } from "./browseModel.ts";
 import { trailerCards, type TrailerCard } from "./trailerRail.ts";
 import { actionButton, artwork, cardItem, heading, lines, mediaItem, type ViewContext, zoneNode } from "./browseViews.ts";
 import { boxSetMovieRow, type BoxSetRowState } from "./boxSetRow.ts";
@@ -243,7 +243,8 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
     const choices = playChoices(detail, state?.selectedFileId);
     const choose = (request: PlayRequest): void => {
         const audioTrackId = state?.audioTrackId(true);
-        play({ ...request, ...(audioTrackId === undefined ? {} : { audioTrackId }), ...(state === undefined ? {} : { subtitle: state.subtitleIntent() }) });
+        const next = { ...request, ...(audioTrackId === undefined ? {} : { audioTrackId }), ...(state === undefined ? {} : { subtitle: state.subtitleIntent() }) };
+        play(withStartAudioLanguage(next, detail.versions.find(file => file.fileId === next.fileId)));
     };
     if (choices?.resume !== undefined) {
         const resume = choices.resume;
@@ -265,7 +266,7 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
             if (targetChoices === undefined) return;
             const audioTrackId = tracks?.audioTrackId(true);
             const request = { ...(targetChoices.resume ?? targetChoices.fromStart), startSeconds: startOver ? 0 : targetChoices.resume?.startSeconds, ...(audioTrackId === undefined ? {} : { audioTrackId }), ...(tracks === undefined ? {} : { subtitle: tracks.subtitleIntent() }) };
-            play(seriesPlayback(request, detail, summary));
+            play(withStartAudioLanguage(seriesPlayback(request, detail, summary), target.versions.find(file => file.fileId === request.fileId)));
         };
         const labelTarget = summary ?? target;
         const canResume = targetChoices?.resume !== undefined || target === undefined && summary?.inProgress === true;

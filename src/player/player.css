@@ -683,6 +683,11 @@
     color: rgba(0, 0, 0, 0.62);
 }
 
+/* Apple dims a row the server cannot show to 35%. */
+.player-choice[data-unavailable="true"] {
+    opacity: 0.35;
+}
+
 .player-choice-label {
     display: block;
 }

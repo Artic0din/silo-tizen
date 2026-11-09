@@ -45,16 +45,17 @@ export function mountAccounts(root: HTMLElement, core: SessionCoreDeps, current:
         const settle = (failed: boolean): void => {
             if (destroyed || opening !== mine) return;
             opening = undefined;
-            if (failed) showError("Could not open the account. Try again.");
+            if (failed) showError("Could not open the account. Try again.", host.focused()?.zone);
             else refresh();
         };
         void (async () => open(row, undefined, true))().then(() => settle(false), () => settle(true));
     };
     /** Redraws in place: focus stays in the column it was in. */
-    const refresh = (): void => { const zone = host.focused()?.zone; render(zone === "servers", zone === "accounts"); };
-    const showError = (message: string): void => {
-        const retry = actionButton("retry", "Back", render);
-        host.show({ name: "accounts-error", content: [el("h1", "accounts-title", message), retry.element], zones: [{ id: "error", layout: "column", items: [retry] }], focus: { zone: "error", key: "retry" }, back: render });
+    const refresh = (zone = host.focused()?.zone): void => { render(zone === "servers", zone === "accounts"); };
+    const showError = (message: string, returnZone?: string): void => {
+        const leave = (): void => returnZone === undefined ? render() : refresh(returnZone);
+        const retry = actionButton("retry", "Back", leave);
+        host.show({ name: "accounts-error", content: [el("h1", "accounts-title", message), retry.element], zones: [{ id: "error", layout: "column", items: [retry] }], focus: { zone: "error", key: "retry" }, back: leave });
     };
     const confirm = (targets: readonly SavedAccount[], removeServer: boolean): void => {
         const dismiss = (): void => { render(false, false, removeServer); };

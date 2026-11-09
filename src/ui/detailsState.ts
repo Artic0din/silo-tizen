@@ -494,7 +494,7 @@ export class DetailsState {
             try {
                 const shuffle = await this.session.call({ ...operations.createShuffle(this.detail.id, "series"), profileScoped: true, replayAfterRefresh: false, signal: controller.signal });
                 if (!this.current(controller)) return;
-                const request = await shufflePick(spec => this.read(spec, controller), shuffle);
+                const request = await shufflePick(spec => this.read(spec, controller), shuffle, this.preferredQuality);
                 if (!this.current(controller)) return;
                 if (request === undefined) throw new Error("Shuffle has no playable file");
                 this.closePanel();

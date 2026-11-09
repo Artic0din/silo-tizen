@@ -6,12 +6,12 @@ import { nextShuffle } from "../../src/player/nextShuffle.ts";
 
 const card = (id: string) => ({ id, type: "movie", title: id, year: undefined, posterUrl: undefined, seriesId: undefined, seriesTitle: undefined, seasonNumber: undefined, episodeNumber: undefined });
 
-function reader(current: string, watch: { played: boolean; positionSeconds?: number; lastFileId?: string }) {
+function reader(current: string, watch: { played: boolean; positionSeconds?: number; lastFileId?: string }, versions: unknown[] = [{ fileId: "f1", durationSeconds: 6000 }, { fileId: "f2", durationSeconds: 6000 }]) {
     const specs: RequestSpec<unknown>[] = [];
     const read = async <T>(spec: RequestSpec<T>): Promise<T> => {
         specs.push(spec);
         if (spec.path.startsWith("/shuffles/")) return { id: "sh1", current: card(current), next: card("movie:after") } as T;
-        return { id: current, type: "movie", title: "Picked", versions: [{ fileId: "f1", durationSeconds: 6000 }, { fileId: "f2", durationSeconds: 6000 }], watch } as T;
+        return { id: current, type: "movie", title: "Picked", versions, watch } as T;
     };
     return { read, specs };
 }
@@ -28,4 +28,11 @@ test("finishing a shuffle's item advances it from that item and plays the new pi
 test("a shuffle that stays on the finished item has nothing further to play", async () => {
     const { read } = reader("movie:done", { played: true });
     assert.equal(await nextShuffle(read, "sh1", "movie:done"), undefined);
+});
+
+test("a shuffle pick ranks its files by the Resolution cap, ahead of the last-played file", async () => {
+    const versions = [{ fileId: "uhd", durationSeconds: 6000, resolution: "2160p" }, { fileId: "fhd", durationSeconds: 6000, resolution: "1080p" }];
+    const { read } = reader("movie:next", { played: false, lastFileId: "uhd" }, versions);
+    assert.equal((await nextShuffle(read, "sh1", "movie:done", "1080p"))?.fileId, "fhd");
+    assert.equal((await nextShuffle(read, "sh1", "movie:done"))?.fileId, "uhd", "no cap keeps the last-played file");
 });

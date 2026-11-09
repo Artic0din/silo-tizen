@@ -74,6 +74,19 @@ export function displayVersion<T extends RankedVersion>(versions: readonly T[], 
     return best;
 }
 
+/**
+ * The file a next-episode, On Deck or shuffle pick starts (silo-apple `PlaybackSessionBridge.selectVersion`,
+ * called with no requested file). The best file at or under the cap wins, then the last-played file, then the
+ * best-ranked file. Unlike `displayVersion`, the last-played file never outranks a file that fits the cap.
+ */
+export function startVersion<T extends RankedVersion>(versions: readonly T[], lastFileId: string | undefined, preferredQuality: string | undefined): T | undefined {
+    const cap = capQuality(preferredQuality);
+    const capRank = resolutionRank(cap);
+    const fitting = cap === undefined ? [] : versions.filter(version => resolutionRank(version.resolution) > 0 && resolutionRank(version.resolution) <= capRank);
+    if (fitting.length > 0) return displayVersion(fitting, undefined, undefined, preferredQuality);
+    return displayVersion(versions, undefined, lastFileId, preferredQuality);
+}
+
 function present(value: string | undefined): string | undefined {
     const trimmed = value?.trim();
     return trimmed === undefined || trimmed === "" ? undefined : trimmed;

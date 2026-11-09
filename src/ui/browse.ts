@@ -92,6 +92,8 @@ export interface Browse {
     destroy(): void;
     /** The profile spoiler switches playback uses for Up Next. */
     spoilers(): EpisodeSpoilerSettings;
+    /** The profile's Resolution cap, which ranks the files that next-episode, On Deck and shuffle picks start. */
+    resolutionCap(): Pick<ResolutionCap, "quality" | "ready">;
 }
 
 const SEARCH_DELAY_MS = 600;
@@ -463,7 +465,9 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 const scope: { id: string; kind: "library" | "library_collection" | "user_collection" } = current.kind === "libraryResults" && current.source.kind === "collection" ? { id: current.source.id, kind: current.source.groupKind === "user_collections" ? "user_collection" : "library_collection" } : { id: current.library.id, kind: "library" };
                 const shuffle = await session.call({ ...operations.createShuffle(scope.id, scope.kind), profileScoped: true, replayAfterRefresh: false, signal: requestsController.signal });
                 if (!owns()) return;
-                const request = await shufflePick(spec => read(spec, requestsController.signal), shuffle);
+                await resolutionCap.ready(requestsController.signal);
+                if (!owns()) return;
+                const request = await shufflePick(spec => read(spec, requestsController.signal), shuffle, resolutionCap.quality);
                 if (!owns()) return;
                 if (request === undefined) { shuffleFailure = { route: current, text: "Nothing here can be played." }; return; }
                 play(request);
@@ -2623,6 +2627,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         },
         destroy: teardown,
         spoilers: () => episodeSpoilers?.settings ?? { hidesImages: false, hidesOverviews: false },
+        resolutionCap: () => resolutionCap,
     };
 }
 

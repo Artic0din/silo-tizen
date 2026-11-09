@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { decodeItemDetail } from "../../src/contracts/v2/catalog.ts";
-import { compactVersionLabel, displayVersion, versionLabel, type RankedVersion } from "../../src/contracts/v2/versions.ts";
+import { compactVersionLabel, displayVersion, startVersion, versionLabel, type RankedVersion } from "../../src/contracts/v2/versions.ts";
 import { playChoices } from "../../src/ui/browseModel.ts";
 import { DetailsState } from "../../src/ui/detailsState.ts";
 import { ResolutionCap } from "../../src/ui/resolutionCap.ts";
@@ -334,4 +334,35 @@ test("ready keeps waiting when a reload replaces the read it was waiting on", as
     await waited;
     assert.equal(cap.quality, "720p");
     cap.stop();
+});
+
+// Expected values follow silo-apple PlaybackSessionBridge.selectVersion, which ranks the
+// next episode, On Deck and shuffle picks (preferredFileId nil, no last-used preference).
+function started(versions: readonly RankedVersion[], last: string | undefined, quality: string | undefined): string | undefined {
+    return startVersion(versions, last, quality)?.fileId;
+}
+
+test("a started pick takes the file that fits the cap even when another file was played last", () => {
+    assert.equal(started(files("2160p", "1080p", "720p"), "a", "1080p"), "b");
+    assert.equal(started(files("720p", "1080p", "2160p"), "c", "1080p-high"), "b");
+    assert.equal(started(files("2160p", "1080p", "720p"), "a", "720p"), "c");
+});
+
+test("a started pick falls back to the last-played file only when no file fits the cap", () => {
+    assert.equal(started(files("2160p", "1080p"), "a", "720p"), "a");
+    assert.equal(started(files("2160p", "1080p"), undefined, "720p"), "a");
+    assert.equal(started(files("1080p", "2160p"), "b", "480p"), "b");
+});
+
+test("a started pick with no cap uses the last-played file, else the highest resolution", () => {
+    assert.equal(started(files("720p", "2160p", "1080p"), "a", undefined), "a");
+    assert.equal(started(files("720p", "2160p", "1080p"), undefined, undefined), "b");
+    assert.equal(started(files("720p", "2160p"), "missing", "auto"), "b");
+    assert.equal(started(files("720p", "2160p"), undefined, "4k"), "b");
+});
+
+test("a started pick ranks files with no resolution below capped ones and keeps the first listed on a tie", () => {
+    assert.equal(started(files(undefined, "720p"), undefined, "1080p"), "b");
+    assert.equal(started(files("1080p", "1080p"), undefined, "1080p"), "a");
+    assert.equal(started([], undefined, "1080p"), undefined);
 });

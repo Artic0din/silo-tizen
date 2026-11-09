@@ -15,6 +15,7 @@ All notable changes to this project are documented in this file.
 - Added Paired Silo Profile on General, showing the profile this TV reopens and opening the profile picker to change it.
 - Added Remove Request for a failed request of yours, including the confirmation, the notice, and focus on the card that takes its place.
 - Hid unwatched episode stills and descriptions from Playback when the server supports the profile spoiler settings.
+- Loaded Person filmography in 60-title batches while scrolling and refreshed incomplete person metadata automatically.
 - Show Trailers & More on movie and series Details for local extras and YouTube listings, using Apple's card size and the 76px gap to the next heading. Local extras still play from the start. YouTube listings stay on their card because this TV cannot play them.
 - Added description translation on Details and the featured marquee, matching Apple TV's Translate Description action, Translating… status and Translated by AI label.
 - Added Change Account with several saved accounts per server and account management.

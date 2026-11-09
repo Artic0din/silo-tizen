@@ -37,6 +37,7 @@ export class SkylineScroll {
         return Math.max(0, Math.min(row.scrollWidth - row.clientWidth, element.offsetLeft - row.offsetLeft + element.offsetWidth / 2 - row.clientWidth / 2));
     }
     private readonly frames = new Map<HTMLElement, number>();
+    private readonly targets = new WeakMap<HTMLElement, { left: number; top: number }>();
     /** Shelf already bottom-aligned. Horizontal moves inside it do not scroll again. */
     private pinnedShelf: HTMLElement | null = null;
 
@@ -86,10 +87,15 @@ export class SkylineScroll {
 
     move(node: HTMLElement, left: number, top: number): void {
         const previous = this.frames.get(node);
+        const target = this.targets.get(node);
+        const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+        if (!reduced && previous !== undefined && target?.left === left && target.top === top) return;
         if (previous !== undefined) cancelAnimationFrame(previous);
+        this.frames.delete(node);
+        this.targets.set(node, { left, top });
         const fromLeft = node.scrollLeft;
         const fromTop = node.scrollTop;
-        if (matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        if (reduced) {
             node.scrollLeft = left;
             node.scrollTop = top;
             return;

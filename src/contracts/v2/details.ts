@@ -66,11 +66,14 @@ export interface Person {
     readonly birthDate: string | undefined;
     readonly deathDate: string | undefined;
     readonly birthplace: string | undefined;
+    readonly tmdbId?: string | undefined;
+    readonly imdbId?: string | undefined;
+    readonly tvdbId?: string | undefined;
 }
 
 export function decodePerson(value: unknown): Person {
     const obj = object(value, "person");
-    return { id: string(obj, "id", "person"), name: string(obj, "name", "person"), bio: optionalString(obj, "bio", "person"), photoUrl: optionalString(obj, "photo_url", "person"), photoThumbhash: optionalString(obj, "photo_thumbhash", "person"), birthDate: optionalString(obj, "birth_date", "person"), deathDate: optionalString(obj, "death_date", "person"), birthplace: optionalString(obj, "birthplace", "person") };
+    return { id: string(obj, "id", "person"), name: string(obj, "name", "person"), bio: optionalString(obj, "bio", "person"), photoUrl: optionalString(obj, "photo_url", "person"), photoThumbhash: optionalString(obj, "photo_thumbhash", "person"), birthDate: optionalString(obj, "birth_date", "person"), deathDate: optionalString(obj, "death_date", "person"), birthplace: optionalString(obj, "birthplace", "person"), tmdbId: optionalString(obj, "tmdb_id", "person"), imdbId: optionalString(obj, "imdb_id", "person"), tvdbId: optionalString(obj, "tvdb_id", "person") };
 }
 
 export function decodePeople(value: unknown): Person[] {

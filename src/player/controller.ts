@@ -45,8 +45,8 @@ import { SubtitleDisplay, type SubtitleDisplayView } from "./subtitleDisplay.ts"
 import { SubtitleSearch, type SubtitleSearchView } from "./subtitleSearch.ts";
 const SKIP_UNDO_MILLISECONDS = 5000;
 import { DEFAULT_APPEARANCE, decodeCues, type SubtitleAppearance, type SubtitleCue } from "../contracts/v2/subtitles.ts";
-import type { SubtitleIntent } from "../contracts/v2/preplaySubtitles.ts";
-import { initialSubtitle } from "./preplaySubtitles.ts";
+import type { CatalogSubtitleTrack, SubtitleIntent, SubtitlePreferences } from "../contracts/v2/preplaySubtitles.ts";
+import { initialSubtitle, playableIntent, startSubtitleTrackId } from "./preplaySubtitles.ts";
 import { PlaybackRecovery, recoveryVerdict, type RecoveryStep, type RecoveryVerdict, unanswered } from "./playbackRecovery.ts";
 import { audioRow, qualityMenuLabel, subtitleRow } from "./trackLabels.ts";
 import { HUDState } from "./hudState.ts";
@@ -69,6 +69,10 @@ export interface PlayRequest {
     readonly watch?: { readonly played: boolean; readonly isInProgress?: boolean; readonly positionSeconds?: number };
     readonly audioTrackId?: string;
     readonly subtitle?: SubtitleIntent;
+    /** Catalog rows used to name a subtitle before start. Absent when the version published none. */
+    readonly subtitleTracks?: readonly CatalogSubtitleTrack[];
+    /** Effective subtitle preferences already on the version, so Auto can be named before start. */
+    readonly subtitlePreferences?: SubtitlePreferences;
     readonly allowAlternateVersions?: false;
     readonly contentId: string;
     readonly fileId: string;
@@ -110,6 +114,28 @@ export interface TrackChoice {
     readonly label: string;
     /** Codec, layout and flags. Absent when the name already says everything. */
     readonly detail?: string;
+    /** Shown but not choosable: the server has no route to show this track. */
+    readonly unavailable?: boolean;
+}
+
+export const UNSUPPORTED_FORMAT = "Unsupported format";
+
+/** An inventory row the plan lists, minus the ones its `unplayable` flag says the server cannot show. */
+function selectableSubtitle(plan: PlaybackPlan, trackId: string): boolean {
+    return plan.subtitle.inventory.some((entry) => entry.trackId === trackId && entry.unplayable !== true);
+}
+
+/** Marks an AI result whose stored track the plan cannot show, so its row says why instead of doing nothing. */
+function aiView(attempt: Attempt, plan: PlaybackPlan): SubtitleAIView | undefined {
+    const view = attempt.ai?.view;
+    if (view === undefined || !plan.subtitle.inventory.some(entry => entry.unplayable === true)) return view;
+    return { ...view, results: view.results.map(result => plan.subtitle.inventory.some(entry => entry.syncKey === `stored-${result.id}` && entry.unplayable === true) ? { ...result, unavailable: true } : result) };
+}
+
+function subtitleChoice(entry: SubtitleTrack, generated: string | undefined): TrackChoice {
+    const choice: TrackChoice = generated === undefined ? { id: entry.trackId, ...subtitleRow(entry, entry.combinedIndex) } : { id: entry.trackId, label: generated };
+    if (entry.unplayable !== true) return choice;
+    return { ...choice, detail: choice.detail === undefined || choice.detail === "" ? UNSUPPORTED_FORMAT : `${choice.detail} · ${UNSUPPORTED_FORMAT}`, unavailable: true };
 }
 
 export type AudioTracks = { readonly state: "loading" } | { readonly state: "failed" } | { readonly state: "ready"; readonly choices: readonly TrackChoice[] };
@@ -402,6 +428,12 @@ interface PendingTransport {
 // AVPlay is a platform singleton. A replacement controller must also wait for an
 // uncancellable seek owned by the screen it replaced.
 const pendingTransports = new WeakMap<AVPlay, PendingTransport>();
+
+/** A subtitle the catalog can already name. Off and an unresolved Auto stay omitted. */
+function subtitleStart(request: PlayRequest): { subtitle_track_id: string } | Record<string, never> {
+    const subtitleTrackId = startSubtitleTrackId(request.fileId, request.subtitle, request.subtitleTracks, request.subtitlePreferences);
+    return subtitleTrackId === undefined ? {} : { subtitle_track_id: subtitleTrackId };
+}
 
 export class PlaybackController implements PlayerControls {
     private readonly deps: PlaybackDeps;
@@ -855,7 +887,7 @@ export class PlaybackController implements PlayerControls {
             if (plan === undefined) return;
             const latest = reporting.pendingSubtitle;
             if (trackId === (latest === undefined ? shownSubtitle(reporting, plan) : latest.id)) return;
-            if (trackId !== undefined && !plan.subtitle.inventory.some((entry) => entry.trackId === trackId)) return;
+            if (trackId !== undefined && !selectableSubtitle(plan, trackId)) return;
             const applied = this.applyStreamSubtitle(reporting, trackId);
             if (applied) reporting.subtitleOverride = { id: trackId };
             reporting.pendingSubtitle = { id: trackId, applied };
@@ -867,7 +899,7 @@ export class PlaybackController implements PlayerControls {
         if (attempt === undefined || plan === undefined || trackId === shownSubtitle(attempt, plan)) {
             return;
         }
-        if (trackId !== undefined && !plan.subtitle.inventory.some((entry) => entry.trackId === trackId)) {
+        if (trackId !== undefined && !selectableSubtitle(plan, trackId)) {
             return;
         }
         const previous = shownSubtitle(attempt, plan);
@@ -971,7 +1003,7 @@ export class PlaybackController implements PlayerControls {
         if (!attempt.live || this.attempt !== attempt || plan === undefined || attempt.hidden || attempt.restoring) return false;
         const track = plan.subtitle.inventory.find(entry => entry.syncKey === `stored-${id}`);
         if (track !== undefined) {
-            if (!attempt.started || attempt.busy) return false;
+            if (!attempt.started || attempt.busy || track.unplayable === true) return false;
             this.selectSubtitle(track.trackId);
             return true;
         }
@@ -1158,6 +1190,7 @@ export class PlaybackController implements PlayerControls {
                 subtitle_fidelity_preference: "compatible",
                 ...(attempt.request.startSeconds === undefined ? {} : { start_position: attempt.request.startSeconds }),
                 ...(attempt.request.audioTrackId === undefined ? {} : { audio_track_id: attempt.request.audioTrackId }),
+                ...subtitleStart(attempt.request),
                 ...(attempt.request.allowAlternateVersions === undefined ? {} : { allow_alternate_versions: attempt.request.allowAlternateVersions }),
                 ...this.reportedPlayback(attempt),
             });
@@ -1190,7 +1223,8 @@ export class PlaybackController implements PlayerControls {
             this.fail(attempt, { kind: "terminal", reason: "version_unavailable", message: "The selected version is no longer available. Choose another version in Details.", retryable: false }, true);
             return;
         }
-        const intent = attempt.request.subtitle;
+        const requested = attempt.request.subtitle;
+        const intent = requested === undefined ? undefined : playableIntent(requested, plan.subtitle.inventory);
         try {
             if (intent === undefined) { this.adopt(attempt, plan, serverFeatures); return; }
             const preferences = intent.kind === "auto" ? await this.deps.session.call({ ...operations.preplaySubtitlePreferences(attempt.request.contentId, plan.effectiveMediaFileId, plan.selectedTracks.audio?.id), profileScoped: true, signal: attempt.signal }) : undefined;
@@ -1845,7 +1879,7 @@ export class PlaybackController implements PlayerControls {
             const id = attempt.pendingDownloadId;
             attempt.pendingDownloadId = undefined;
             const track = plan.subtitle.inventory.find(entry => entry.syncKey === `stored-${id}`);
-            if (track === undefined) attempt.search?.reportUnselected();
+            if (track === undefined || track.unplayable === true) attempt.search?.reportUnselected();
             else this.selectSubtitle(track.trackId);
         }
         if (attempt.queuedSubtitle !== undefined) {
@@ -3293,7 +3327,7 @@ function trackView(attempt: Attempt, plan: PlaybackPlan): TrackView {
         if (attempt.captionPreferenceNotice) notices.push(attempt.captionPreferenceNotice);
     }
     return {
-        ai: attempt.ai?.view,
+        ai: aiView(attempt, plan),
         aiTranslate: textSubtitle(plan.subtitle.inventory.find(track => track.trackId === shownSubtitle(attempt, plan))?.codec),
         seriesSubtitle: attempt.seriesSubtitle,
         quality: {
@@ -3306,7 +3340,7 @@ function trackView(attempt: Attempt, plan: PlaybackPlan): TrackView {
         selectedAudioId: plan.selectedTracks.audio?.id,
         subtitles: plan.subtitle.inventory.map((entry) => {
             const generated = attempt.ai?.view?.results.find(result => entry.syncKey === `stored-${result.id}`)?.label;
-            return generated === undefined ? { id: entry.trackId, ...subtitleRow(entry, entry.combinedIndex) } : { id: entry.trackId, label: generated };
+            return subtitleChoice(entry, generated);
         }),
         selectedSubtitleId: shownSubtitle(attempt, plan),
         subtitleMode: shownSubtitle(attempt, plan) === undefined ? "off" : plan.subtitle.mode === "off" ? "render" : plan.subtitle.mode,

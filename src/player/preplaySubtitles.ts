@@ -46,8 +46,9 @@ function preferred(tracks: readonly SubtitleTrack[], wanted: string | undefined,
 }
 
 /** Only identities published by this plan may leave this resolver. */
-export function initialSubtitle(intent: SubtitleIntent, inventory: readonly SubtitleTrack[], preferences?: SubtitlePreferences): string | undefined {
+export function initialSubtitle(intent: SubtitleIntent, plannedInventory: readonly SubtitleTrack[], preferences?: SubtitlePreferences): string | undefined {
     if (intent.kind === "off") return undefined;
+    const inventory = plannedInventory.filter(track => track.unplayable !== true);
     if (intent.kind === "track") {
         const matches = inventory.filter(track => matchesSubtitle(track, intent.signature));
         if (matches.length !== 1) throw new Error("Selected subtitles are no longer uniquely available.");

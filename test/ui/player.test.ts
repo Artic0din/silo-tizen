@@ -2105,3 +2105,26 @@ test("subtitle search and the delay, size, position and appearance rows are remo
         await page.close();
     }
 });
+
+test("an unavailable subtitle row says why, stays focusable and Select does nothing", async () => {
+    const { page } = await open();
+    try {
+        const subtitles = [{ id: "file:42:subtitle:0", label: "English" }, { id: "file:42:subtitle:1", label: "Japanese", detail: "Unsupported format", unavailable: true }];
+        await show(page, playing({ ...TRACKS, subtitles }));
+        await openAudio(page);
+        await remote(page, RIGHT);
+        await remote(page, DOWN);
+        await remote(page, DOWN);
+        await remote(page, DOWN);
+        assert.equal(await focused(page), "file:42:subtitle:1", "focus can rest on the row so the reason is readable");
+        assert.equal(await page.locator('[data-focus="file:42:subtitle:1"]').getAttribute("aria-disabled"), "true");
+        assert.equal(await page.locator('[data-focus="file:42:subtitle:0"]').getAttribute("aria-disabled"), "false");
+        assert.match(await text(page, '[data-focus="file:42:subtitle:1"]'), /Unsupported format/);
+        const before = await commands(page);
+        await remote(page, ENTER);
+        assert.deepEqual(await commands(page), before);
+        await remote(page, UP);
+        await remote(page, ENTER);
+        assert.deepEqual((await commands(page)).slice(before.length), ["selectSubtitle file:42:subtitle:0"]);
+    } finally { await page.close(); }
+});

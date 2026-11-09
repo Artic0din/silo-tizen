@@ -110,6 +110,21 @@ export interface TrackChoice {
     readonly label: string;
     /** Codec, layout and flags. Absent when the name already says everything. */
     readonly detail?: string;
+    /** Shown but not choosable: the server has no route to show this track. */
+    readonly unavailable?: boolean;
+}
+
+const UNSUPPORTED_FORMAT = "Unsupported format";
+
+/** An inventory row the plan lists, minus the ones its `unplayable` flag says the server cannot show. */
+function selectableSubtitle(plan: PlaybackPlan, trackId: string): boolean {
+    return plan.subtitle.inventory.some((entry) => entry.trackId === trackId && entry.unplayable !== true);
+}
+
+function subtitleChoice(entry: SubtitleTrack, generated: string | undefined): TrackChoice {
+    const choice: TrackChoice = generated === undefined ? { id: entry.trackId, ...subtitleRow(entry, entry.combinedIndex) } : { id: entry.trackId, label: generated };
+    if (entry.unplayable !== true) return choice;
+    return { ...choice, detail: choice.detail === undefined || choice.detail === "" ? UNSUPPORTED_FORMAT : `${choice.detail} · ${UNSUPPORTED_FORMAT}`, unavailable: true };
 }
 
 export type AudioTracks = { readonly state: "loading" } | { readonly state: "failed" } | { readonly state: "ready"; readonly choices: readonly TrackChoice[] };
@@ -855,7 +870,7 @@ export class PlaybackController implements PlayerControls {
             if (plan === undefined) return;
             const latest = reporting.pendingSubtitle;
             if (trackId === (latest === undefined ? shownSubtitle(reporting, plan) : latest.id)) return;
-            if (trackId !== undefined && !plan.subtitle.inventory.some((entry) => entry.trackId === trackId)) return;
+            if (trackId !== undefined && !selectableSubtitle(plan, trackId)) return;
             const applied = this.applyStreamSubtitle(reporting, trackId);
             if (applied) reporting.subtitleOverride = { id: trackId };
             reporting.pendingSubtitle = { id: trackId, applied };
@@ -867,7 +882,7 @@ export class PlaybackController implements PlayerControls {
         if (attempt === undefined || plan === undefined || trackId === shownSubtitle(attempt, plan)) {
             return;
         }
-        if (trackId !== undefined && !plan.subtitle.inventory.some((entry) => entry.trackId === trackId)) {
+        if (trackId !== undefined && !selectableSubtitle(plan, trackId)) {
             return;
         }
         const previous = shownSubtitle(attempt, plan);
@@ -3306,7 +3321,7 @@ function trackView(attempt: Attempt, plan: PlaybackPlan): TrackView {
         selectedAudioId: plan.selectedTracks.audio?.id,
         subtitles: plan.subtitle.inventory.map((entry) => {
             const generated = attempt.ai?.view?.results.find(result => entry.syncKey === `stored-${result.id}`)?.label;
-            return generated === undefined ? { id: entry.trackId, ...subtitleRow(entry, entry.combinedIndex) } : { id: entry.trackId, label: generated };
+            return subtitleChoice(entry, generated);
         }),
         selectedSubtitleId: shownSubtitle(attempt, plan),
         subtitleMode: shownSubtitle(attempt, plan) === undefined ? "off" : plan.subtitle.mode === "off" ? "render" : plan.subtitle.mode,

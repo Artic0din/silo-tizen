@@ -189,7 +189,9 @@ function fillSubtitles(list: HTMLElement, tracks: TrackView, languages = false, 
     list.appendChild(el("h2", "player-menu-heading", "TRACKS"));
     list.appendChild(choice(OFF, "Off", tracks.selectedSubtitleId === undefined));
     for (const track of tracks.subtitles) {
-        list.appendChild(choice(track.id, track.label, track.id === tracks.selectedSubtitleId, track.detail));
+        const row = choice(track.id, track.label, track.id === tracks.selectedSubtitleId, track.detail);
+        if (track.unavailable === true) row.setAttribute("data-unavailable", "true");
+        list.appendChild(row);
     }
     if (tracks.seriesSubtitle !== undefined) {
         const save = choice(SERIES_SUBTITLE, tracks.selectedSubtitleId === undefined ? "Keep subtitles off for this series" : "Use this subtitle choice for this series", false);
@@ -549,7 +551,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
                     const toolBusy = tracks.subtitleTools?.display?.busy === true || downloading !== undefined;
                     const subtitlePick = name === "Subtitles" && id !== SERIES_SUBTITLE && !id.startsWith("ai-");
                     const lockedByReport = tracks.reporting === true && !subtitlePick && (name === "Audio" || id.startsWith("quality:") || id === SERIES_SUBTITLE || id.startsWith("ai-"));
-                    const blocked = tracks.change.state === "changing" || lockedByReport || (id === "auto-next" && hud?.busy === true) || (id === SERIES_SUBTITLE && tracks.seriesSubtitle?.busy === true) || (aiAction && tracks.ai?.busy === true) || (id === "ai-transcribe" && (quota === undefined || (quota.limited && quota.remaining <= 0))) || (toolBusy && id.startsWith("subtitle-") && id !== `subtitle-result:${downloading ?? ""}`);
+                    const blocked = tracks.change.state === "changing" || lockedByReport || (id === "auto-next" && hud?.busy === true) || (id === SERIES_SUBTITLE && tracks.seriesSubtitle?.busy === true) || (aiAction && tracks.ai?.busy === true) || (id === "ai-transcribe" && (quota === undefined || (quota.limited && quota.remaining <= 0))) || (toolBusy && id.startsWith("subtitle-") && id !== `subtitle-result:${downloading ?? ""}`) || (subtitlePick && tracks.subtitles.some((track) => track.id === id && track.unavailable === true));
                     button.setAttribute("aria-disabled", String(blocked));
                 }
             }

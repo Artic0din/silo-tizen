@@ -1851,3 +1851,54 @@ test("a subtitle replan that changes the stream URL still reopens", async () => 
     assert.equal(r.avplay.state, "IDLE");
     r.controller.destroy();
 });
+
+function withUnplayable(r: Rig, ordinal: number): void {
+    const file = r.server.file("42");
+    r.server.files.set("42", { ...file, inventory: file.inventory.map((entry, index) => index === ordinal ? { ...entry, unplayable: true } : entry) });
+}
+
+test("the plan decoder reads the unplayable flag and treats an absent one as playable", () => {
+    const base = fixture("playback_start_opaque_ids");
+    const plan: Record<string, unknown> = { ...(base.playback_plan as Record<string, unknown>) };
+    const subtitle = plan.subtitle as { inventory: Record<string, unknown>[] };
+    const decode = (flag: unknown) => {
+        const inventory = subtitle.inventory.map((entry, index) => index === 3 ? { ...entry, ...(flag === undefined ? {} : { unplayable: flag }) } : entry);
+        const decision = decodePlaybackDecision({ ...base, playback_plan: { ...plan, subtitle: { ...subtitle, inventory } } });
+        assert.ok(decision.outcome === "playable");
+        return decision.plan.subtitle.inventory.map(entry => entry.unplayable);
+    };
+    assert.deepEqual(decode(true), [undefined, undefined, undefined, true, undefined]);
+    assert.deepEqual(decode(false), [undefined, undefined, undefined, false, undefined]);
+    assert.deepEqual(decode(undefined), [undefined, undefined, undefined, undefined, undefined]);
+    assert.throws(() => decode("yes"));
+});
+
+test("a track the plan flags unplayable is listed as unavailable and Select never sends it", async () => {
+    const r = await rig();
+    withUnplayable(r, 2);
+    await playMovie(r);
+    const view = tracks(r);
+    assert.deepEqual(view.subtitles.map(choice => choice.unavailable === true), [false, false, true, false, false]);
+    assert.match(view.subtitles[2]?.detail ?? "", /Unsupported format/);
+    assert.doesNotMatch(view.subtitles[1]?.detail ?? "", /Unsupported format/);
+
+    const before = replans(r.h).length;
+    r.controller.selectSubtitle("file:42:subtitle:2");
+    await settle(r);
+    assert.equal(replans(r.h).length, before, "no track_change reaches the server");
+    assert.equal(tracks(r).selectedSubtitleId, undefined);
+    assert.deepEqual(tracks(r).notices, []);
+    r.controller.destroy();
+});
+
+test("playable choices and Off stay usable beside an unplayable track", async () => {
+    const r = await rig();
+    withUnplayable(r, 2);
+    r.server.next.push({ subtitle: 1 });
+    await playMovie(r);
+    assert.equal(tracks(r).selectedSubtitleId, "file:42:subtitle:1");
+    r.controller.selectSubtitle(undefined);
+    await settle(r);
+    assert.equal(only(replans(r.h)).operation, "track_change");
+    r.controller.destroy();
+});

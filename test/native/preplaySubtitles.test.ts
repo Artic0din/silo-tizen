@@ -39,3 +39,14 @@ test("preplay subtitle decoders validate file identity and retain display metada
     assert.equal(decodeCatalogSubtitles({ subtitle_tracks: [{ language: "en" }] }, "file").length, 1, "zero stream indexes may be omitted");
     for (const value of [{ subtitle_tracks: {} }, { subtitle_tracks: [{ language: 1 }] }, { subtitle_tracks: [{ index: 0, external: "yes" }] }]) assert.throws(() => decodeCatalogSubtitles(value, "file"));
 });
+
+test("the automatic and initial pick never choose a track the plan flags unplayable", () => {
+    const broken = { ...track, trackId: "file:42:subtitle:3", combinedIndex: 3, unplayable: true };
+    const brokenForced = { ...forced, unplayable: true };
+    assert.equal(initialSubtitle({ kind: "auto" }, [broken, track], prefs), track.trackId, "the preferred-language pick skips it");
+    assert.equal(initialSubtitle({ kind: "auto" }, [broken], prefs), undefined, "nothing playable leaves subtitles off");
+    assert.equal(initialSubtitle({ kind: "auto" }, [brokenForced, track], { ...prefs, audioLanguage: "en" }), undefined, "a forced pick skips it");
+    assert.equal(initialSubtitle({ kind: "auto" }, [broken, track], { ...prefs, mode: "always", signature: broken }), track.trackId, "a saved signature never lands on it");
+    assert.equal(initialSubtitle({ kind: "auto" }, [{ ...track, unplayable: false }], prefs), track.trackId, "an explicit false stays pickable");
+    assert.throws(() => initialSubtitle({ kind: "track", signature: broken }, [broken]), "a chosen unplayable track is no longer available");
+});

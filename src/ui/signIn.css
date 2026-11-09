@@ -1024,18 +1024,16 @@
 .profile-pin [data-screen="pin"] { display: flex; align-items: center; justify-content: center; width: 1920px; max-width: none; height: 1080px; background: rgba(0,0,0,.35); }
 .pin-screen { display: flex; flex-direction: column; align-items: center; }
 .pin-header { display: flex; flex-direction: column; align-items: center; gap: 6px; }
-.pin-header .profile-avatar { margin-bottom: 8px; }
-.pin-header .profile-avatar .navigation-avatar-fallback { font-size: 70px; }
-.pin-header .profile-avatar-text .navigation-avatar-fallback { font-size: 80px; }
+.pin-header .profile-avatar { margin-bottom: 8px; border: 0; background: #0e0f12; }
+.pin-header .profile-avatar .navigation-avatar-fallback { font-size: 54.4px; font-weight: 600; color: #ededed; }
+.pin-header .profile-avatar-text .navigation-avatar-fallback { font-size: 72px; }
 .pin-name { max-width: 1744px; margin: 0; overflow: hidden; font-size: 38px; line-height: 45px; font-weight: 700; color: #ededed; white-space: nowrap; text-overflow: ellipsis; }
 .pin-dots { display: flex; gap: 28px; margin-top: 34px; }
 /* The 2.86 ring (26 × 0.11) is an inset shadow: Chromium rounds a border to whole pixels. */
 .pin-dot { width: 26px; height: 26px; border-radius: 50%; box-shadow: inset 0 0 0 2.86px rgba(237,237,237,.7); }
 .pin-dot-filled { background: #ededed; box-shadow: inset 0 0 0 2.86px #ededed; }
 .pin-dots-error .pin-dot { background: #ff6961; box-shadow: inset 0 0 0 2.86px #ff6961; }
-.pin-dots-shake { animation: pin-shake 370ms ease-in-out; }
 /* MarqueeShake: -8, 8, -6, 4, 0 over 0.07, 0.07, 0.07, 0.07, 0.09 s. */
-@keyframes pin-shake { 0% { transform: translateX(0); } 18.9% { transform: translateX(-8px); } 37.8% { transform: translateX(8px); } 56.8% { transform: translateX(-6px); } 75.7% { transform: translateX(4px); } 100% { transform: translateX(0); } }
 .pin-status { display: flex; align-items: center; justify-content: center; min-height: 34px; margin-top: 18px; padding: 0 24px; font-size: 26px; line-height: 31px; color: rgba(237,237,237,.62); text-align: center; }
 .pin-status-error { color: #ff6961; }
 .pin-status .marquee-spinner { margin: 0; }
@@ -1051,7 +1049,6 @@
 @media (prefers-reduced-motion: reduce) {
     .profile-face { transition: none; }
     .profile-tile:focus .profile-face, .profile-add:focus .profile-add-circle, .profile-footer .signin-button:focus, .profile-pin .pin-cancel:focus, .pin-key:focus { transform: none; }
-    .pin-dots-shake { animation: none; }
 }
 
 .profile-tile {

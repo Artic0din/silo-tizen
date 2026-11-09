@@ -5,6 +5,7 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import type { Browser } from "playwright";
+import { fixture } from "../native/support/fakeSilo.ts";
 import { launchBrowser, openTv, type Tv } from "./support/tv.ts";
 
 const BACK = 10009;
@@ -262,18 +263,18 @@ tvTest("a lockout reads like Apple's, in whole minutes", async (tv) => {
     assert.equal(await tv.page.locator(".pin-dots-error").count(), 1);
 });
 
-tvTest("a wrong PIN shakes the dots: 0.37 s, -8, 8, -6, 4, 0", async (tv) => {
+tvTest("a wrong PIN shakes the dots with the sign-in shake: 0.37 s, -8, 8, -6, 4, 0", async (tv) => {
     await openPin(tv);
     assert.equal(await style(tv, ".pin-dots", "animation-name"), "none");
     for (const digit of "0000") await tv.page.locator(key(digit)).click();
     await tv.page.getByText("Wrong PIN. Try again.").waitFor();
-    assert.equal(await style(tv, ".pin-dots", "animation-name"), "pin-shake");
+    assert.equal(await style(tv, ".pin-dots", "animation-name"), "signin-shake");
     assert.equal(await style(tv, ".pin-dots", "animation-duration"), "0.37s");
     const offsets = await tv.page.locator(".pin-dots").evaluate((node) => node.getAnimations().flatMap((animation) => {
         const effect = animation.effect;
         return effect instanceof KeyframeEffect ? effect.getKeyframes().map((frame) => String(frame.transform)) : [];
     }));
-    assert.deepEqual(offsets, ["translateX(0px)", "translateX(-8px)", "translateX(8px)", "translateX(-6px)", "translateX(4px)", "translateX(0px)"]);
+    assert.deepEqual(offsets, ["none", "translateX(-8px)", "translateX(8px)", "translateX(-6px)", "translateX(4px)", "translateX(0px)"]);
 }, false);
 
 tvTest("reduced motion keeps the red dots and drops the shake", async (tv) => {
@@ -282,4 +283,51 @@ tvTest("reduced motion keeps the red dots and drops the shake", async (tv) => {
     await tv.page.getByText("Wrong PIN. Try again.").waitFor();
     assert.equal(await style(tv, ".pin-dots", "animation-name"), "none");
     assert.equal(await tv.page.locator(".pin-dots-error").count(), 1);
+});
+
+tvTest("a lockout with no Retry-After says to try later", async (tv) => {
+    await openPin(tv);
+    tv.fake.script("/profiles/p-kid/verify-pin", { status: 429, headers: { "Content-Type": "application/problem+json" }, body: fixture("rate_limited") });
+    for (const digit of KID_PIN) await tv.page.locator(key(digit)).click();
+    await tv.page.getByText("Too many incorrect PINs. Try again later.", { exact: true }).waitFor();
+    assert.equal(await tv.page.locator(".pin-dots-error").count(), 1);
+});
+
+/** Chromium clicks a focused button on every Enter keydown, auto-repeats included. */
+tvTest("holding OK on a key adds one digit, as a single tvOS press does", async (tv) => {
+    await openPin(tv);
+    const cdp = await tv.page.context().newCDPSession(tv.page);
+    const enter = (type: "keyDown" | "keyUp", autoRepeat: boolean): Promise<unknown> =>
+        cdp.send("Input.dispatchKeyEvent", { type, key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13, ...(type === "keyDown" ? { text: "\r" } : {}), autoRepeat });
+    await enter("keyDown", false);
+    await enter("keyDown", true);
+    await enter("keyDown", true);
+    await enter("keyUp", false);
+    assert.equal(await filled(tv), 1, "one press and two repeats enter one digit");
+    assert.equal(tv.fake.paths().includes("POST /profiles/p-kid/verify-pin"), false);
+});
+
+function setKidAvatar(tv: Tv, avatar: string): void {
+    const items = tv.fake.profiles.items as Record<string, unknown>[];
+    tv.fake.profiles = { ...tv.fake.profiles, items: items.map((item) => (item.id === "p-kid" ? { ...item, avatar, avatar_url: undefined } : item)) };
+}
+
+tvTest("the avatar is Apple's ProfileAvatarView: a flat surface circle with a semibold initial", async (tv) => {
+    setKidAvatar(tv, "");
+    await openPin(tv);
+    const avatar = ".pin-header .profile-avatar";
+    assert.equal(await style(tv, avatar, "background-color"), "rgb(14, 15, 18)");
+    assert.equal(await style(tv, avatar, "background-image"), "none");
+    assert.equal(await style(tv, avatar, "border-top-width"), "0px");
+    assert.equal(await style(tv, `${avatar} .navigation-avatar-fallback`, "font-size"), "54.4px", "160 × 0.34");
+    assert.equal(await style(tv, `${avatar} .navigation-avatar-fallback`, "font-weight"), "600");
+    assert.equal(await style(tv, `${avatar} .navigation-avatar-fallback`, "color"), APPLE_ON_SURFACE);
+});
+
+tvTest("an emoji avatar is 160 × 0.45 on the flat circle", async (tv) => {
+    setKidAvatar(tv, "\u{1F98A}");
+    await openPin(tv);
+    const avatar = ".pin-header .profile-avatar";
+    assert.equal(await style(tv, avatar, "background-color"), "rgb(14, 15, 18)");
+    assert.equal(await style(tv, `${avatar} .navigation-avatar-fallback`, "font-size"), "72px");
 });

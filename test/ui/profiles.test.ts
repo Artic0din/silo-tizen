@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import type { Browser } from "playwright";
 import { fixture } from "../native/support/fakeSilo.ts";
+import { pressPin } from "./support/pin.ts";
 import { launchBrowser, openTv, readLive, type Tv } from "./support/tv.ts";
 
 const BACK = 10009;
@@ -154,10 +155,10 @@ function pinChecks(tv: Tv): number {
     return tv.fake.paths().filter((path) => path === "POST /profiles/p-kid/verify-pin").length;
 }
 
-/** Types a PIN on the remote's number keys; the fourth digit sends it. */
+/** Presses each digit's on-screen key; the fourth digit sends the PIN. */
 async function enterPin(tv: Tv, pin: string): Promise<void> {
     assert.equal(await tv.screen(), "pin");
-    await tv.page.keyboard.type(pin);
+    await pressPin(tv.page, pin);
 }
 
 async function openKid(tv: Tv): Promise<void> {
@@ -261,17 +262,17 @@ tvTest("wrong PINs are reported, never kept or resent, and the right PIN unlocks
     assert.equal(deviceIdBeforePin, "01232468-89ab-4cde-8fab-0123456789ab", "sign-in retains the synthetic install identity containing the PIN digits");
     await openKid(tv);
     await tv.page.getByRole("heading", { name: "Kid", exact: true }).waitFor();
-    await tv.page.keyboard.type("000");
+    await pressPin(tv.page, "000");
     assert.equal(pinChecks(tv), 0, "nothing is sent before the fourth digit");
 
-    await tv.page.keyboard.type("0");
+    await pressPin(tv.page, "0");
     await shows(tv, "Wrong PIN. Try again.");
     assert.equal(await tv.focused(), "5", "an asynchronous error does not move focus");
     assert.equal(await tv.page.locator(".pin-dot-filled").count(), 4, "the dots show the rejection in red");
     assert.equal(await tv.page.locator(".pin-dots-error").count(), 1);
-    assert.equal(await tv.page.locator(".pin-dots-shake").count(), 1);
+    assert.equal(await tv.page.locator(".signin-shake").count(), 1);
     assert.equal(pinChecks(tv), 1);
-    await tv.page.keyboard.type("1");
+    await pressPin(tv.page, "1");
     assert.equal(await tv.page.locator(".pin-dots-error").count(), 0, "a new digit ends the red dots");
     assert.equal(await tv.page.locator(".pin-dot-filled").count(), 1, "the entry starts again");
     await tv.page.keyboard.press("Escape");
@@ -368,7 +369,7 @@ tvTest("Back, Cancel and further digits wait while a PIN is checked, then the an
     const check = tv.fake.hold("/profiles/p-kid/verify-pin", true);
     await enterPin(tv, KID_PIN);
     await tv.page.locator(".pin-status .marquee-spinner").waitFor();
-    await tv.page.keyboard.type("9");
+    await pressPin(tv.page, "9");
     await tv.remote(BACK);
     await tv.page.locator('[data-focus="cancel"]').click();
     assert.equal(await tv.screen(), "pin", "the PIN prompt stays until the server answers");

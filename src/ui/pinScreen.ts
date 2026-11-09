@@ -14,9 +14,6 @@ const DEFAULT_STATUS = "Enter your PIN";
 const CHECKING = "Checking the PIN.";
 const LETTERS: Readonly<Record<number, string>> = { 2: "ABC", 3: "DEF", 4: "GHI", 5: "JKL", 6: "MNO", 7: "PQRS", 8: "TUV", 9: "WXYZ" };
 const SVG_NS = "http://www.w3.org/2000/svg";
-/** Samsung remotes deliver the number keys as key codes 48 to 57. */
-const KEY_CODE_ZERO = 48;
-const KEY_CODE_NINE = 57;
 
 export interface PinScreen {
     readonly screen: Screen;
@@ -35,6 +32,8 @@ export function pinScreen(profile: ProfileSummary, baseUrl: string, notes: reado
     const intro = notes.map((note) => note.text).join(" ") || DEFAULT_STATUS;
 
     const avatar = profileAvatar(profile, baseUrl, AVATAR_SIZE);
+    // PINEntryView draws a flat surface circle, not the picker tile's tinted gradient.
+    avatar.style.removeProperty("background");
     const header = el("div", "pin-header");
     header.append(avatar, el("h1", "pin-name", profile.name));
     const dots = Array.from({ length: PIN_LENGTH }, () => el("span", "pin-dot"));
@@ -128,10 +127,10 @@ export function pinScreen(profile: ProfileSummary, baseUrl: string, notes: reado
 
     const root = el("div", "pin-screen");
     root.append(header, dotRow, status, pad, cancelButton.element);
+    // Chromium clicks a focused button on every auto-repeated Enter; tvOS presses once per press.
     root.addEventListener("keydown", (event) => {
-        if (event.keyCode >= KEY_CODE_ZERO && event.keyCode <= KEY_CODE_NINE) {
+        if (event.key === "Enter" && event.repeat) {
             event.preventDefault();
-            append(String(event.keyCode - KEY_CODE_ZERO));
         }
     });
     render();
@@ -152,9 +151,9 @@ export function pinScreen(profile: ProfileSummary, baseUrl: string, notes: reado
             error = line;
             render();
             if (shake) {
-                dotRow.classList.remove("pin-dots-shake");
+                dotRow.classList.remove("signin-shake");
                 void dotRow.offsetWidth;
-                dotRow.classList.add("pin-dots-shake");
+                dotRow.classList.add("signin-shake");
             }
         },
     };
@@ -195,9 +194,9 @@ export function pinProblem(result: Exclude<PinResult, { readonly status: "verifi
     }
 }
 
-/** ProfileTransitionError.pinLockedOut: whole minutes, rounded up, and "later" past a day. */
-function lockoutText(seconds: number): string {
-    if (!(seconds > 0 && seconds <= 86_400)) {
+/** ProfileTransitionError.pinLockedOut: whole minutes, rounded up, and "later" with no wait or past a day. */
+function lockoutText(seconds: number | undefined): string {
+    if (seconds === undefined || !(seconds > 0 && seconds <= 86_400)) {
         return "Too many incorrect PINs. Try again later.";
     }
     const minutes = Math.ceil(seconds / 60);

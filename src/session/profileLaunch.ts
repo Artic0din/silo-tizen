@@ -122,7 +122,7 @@ export class ProfileLaunch {
 
     private invalidate(key: string): void {
         const old = this.choice(key);
-        try { this.persist(key, { remember: false }); } catch { /* A refused proof remains subject to server validation. */ }
+        try { this.persist(key, { remember: false }); } catch { this.sessionChoice = { key, choice: { remember: false } }; }
         if (old?.proofAlias !== undefined) void this.secrets.remove(old.proofAlias);
     }
 

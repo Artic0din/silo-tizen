@@ -23,7 +23,8 @@ export class ProfileLaunch {
     private readonly random: RandomBytes;
     private readonly scope: string;
     private lastKey: string | undefined;
-    private sessionChoice: { readonly key: string; readonly choice: LaunchChoice } | undefined;
+    /** Choices storage refused to save, per account key, kept for this run. */
+    private readonly unsaved = new Map<string, LaunchChoice>();
 
     constructor(session: NativeSession, storage: PublicStorage | undefined, secrets: SecretStore, random: RandomBytes, serverId: string) {
         this.session = session;
@@ -50,7 +51,8 @@ export class ProfileLaunch {
 
     private choice(key = this.key()): LaunchChoice | undefined {
         if (key === undefined) return undefined;
-        if (this.sessionChoice?.key === key) return this.sessionChoice.choice;
+        const unsaved = this.unsaved.get(key);
+        if (unsaved !== undefined) return unsaved;
         try {
             const raw = this.storage?.getItem(key);
             if (raw == null) return undefined;
@@ -100,7 +102,7 @@ export class ProfileLaunch {
         const choice = this.choice(key);
         if (key === undefined || choice === undefined) return;
         const required = { ...choice, selectionRequired: true };
-        try { this.persist(key, required); } catch { this.sessionChoice = { key, choice: required }; }
+        try { this.persist(key, required); } catch { this.unsaved.set(key, required); }
     }
     async setBehavior(behavior: LaunchBehavior, signal?: AbortSignal): Promise<void> {
         await this.setRemember(behavior !== "askEveryLaunch", signal, behavior);
@@ -109,7 +111,7 @@ export class ProfileLaunch {
 
     continueWithoutSaving(): void {
         const key = this.key();
-        if (key !== undefined) this.sessionChoice = { key, choice: { remember: false } };
+        if (key !== undefined) this.unsaved.set(key, { remember: false });
     }
 
     private persist(key: string, choice: LaunchChoice): void {
@@ -117,13 +119,12 @@ export class ProfileLaunch {
         const raw = JSON.stringify(choice);
         this.storage.setItem(key, raw);
         if (this.storage.getItem(key) !== raw) throw new Error("Device preference was not saved");
-        // A saved choice for one account must not drop another account's unsaved clear.
-        if (this.sessionChoice?.key === key) this.sessionChoice = undefined;
+        this.unsaved.delete(key);
     }
 
     private invalidate(key: string): void {
         const old = this.choice(key);
-        try { this.persist(key, { remember: false }); } catch { this.sessionChoice = { key, choice: { remember: false } }; }
+        try { this.persist(key, { remember: false }); } catch { this.unsaved.set(key, { remember: false }); }
         if (old?.proofAlias !== undefined) void this.secrets.remove(old.proofAlias);
     }
 

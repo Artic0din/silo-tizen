@@ -37,7 +37,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
-- Played every part of a multi-part Shuffle pick in order before the Shuffle moves on, as on Apple TV. Each part starts from its beginning at the resolution of the part before it, and a missing part moves the Shuffle on. Between parts the screen shows the loading spinner instead of the Playback ended screen.
+- Played every part of a multi-part Shuffle pick in order before the Shuffle moves on, as on Apple TV. Each part starts from its beginning, prefers the resolution of the part before it and otherwise takes the first candidate, and a missing part moves the Shuffle on. Between parts the screen shows the loading spinner instead of the Playback ended screen.
 - Made Watch Intro count down like Skip Intro in the player: five seconds, starting when the automatic skip is issued and frozen while paused. The Skip Intro, Skip Recap, Skip Credits and Watch Intro pills now stay on screen and usable while the options panel is open or a seek preview is showing, and are disabled only during a timeline scrub, as on Apple TV. A reconnect or replan also pauses both countdowns, and a short loading screen no longer restarts the pill's fill.
 - Started every Shuffle pick from the beginning at its first part, with no resume, as Apple TV does, for Shuffle from a library, collection or series and for the next pick in the player.
 - Drew Apple TV's default artwork for posters, thumbnails, Search box sets and episode stills with no artwork or a failed load: dark base, three faint brand glows and a film, tv, headphones or book mark by type, in place of the title text. Artwork that is still loading shows Apple's darker placeholder instead.

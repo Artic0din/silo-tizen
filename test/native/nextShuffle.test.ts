@@ -57,3 +57,8 @@ test("a shuffle pick keeps its file when it is already the first part or not a p
     const plain = partsReader([{ fileId: "a" }, { fileId: "b" }], "b");
     assert.equal((await shufflePick(plain, { id: "sh1", current: card("movie:next"), next: undefined } as never))?.fileId, "b");
 });
+
+test("a shuffle pick with an empty group key is not part of a group", async () => {
+    const read = partsReader([{ fileId: "cd1", group: "", part: 1 }, { fileId: "cd2", group: "", part: 2 }], "cd2");
+    assert.equal((await shufflePick(read, { id: "sh1", current: card("movie:next"), next: undefined } as never))?.fileId, "cd2");
+});

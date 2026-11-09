@@ -22,8 +22,9 @@ export async function shufflePick(read: Read, shuffle: Shuffle): Promise<PlayReq
     const detail = await read(operations.watchDetail(shuffle.current.id));
     if (detail.id !== shuffle.current.id || (detail.type !== "movie" && detail.type !== "episode")) throw new ApiError({ kind: "invalid_response", path: "shuffle.current" });
     const preferred = detail.versions.find(candidate => candidate.fileId === detail.watch?.lastFileId) ?? detail.versions[0];
-    // Apple (PlayerMultipartPolicy.firstPart): a shuffle plays every part, so a later part starts at part 1 of its group.
-    const version = preferred !== undefined && preferred.presentationGroupKey !== undefined && (preferred.presentationPartIndex ?? 0) > 1
+    // Apple (PlayerMultipartPolicy.firstPart) starts a later part at part 1 of its group, then plays the rest via nextPart.
+    // Tizen plays only part 1 and then advances the shuffle (#368); an empty group key is no group, as in Apple's part().
+    const version = preferred !== undefined && preferred.presentationGroupKey !== undefined && preferred.presentationGroupKey !== "" && (preferred.presentationPartIndex ?? 0) > 1
         ? detail.versions.find(candidate => candidate.presentationGroupKey === preferred.presentationGroupKey && candidate.presentationPartIndex === 1) ?? preferred
         : preferred;
     if (version === undefined) return undefined;

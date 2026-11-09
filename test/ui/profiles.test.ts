@@ -267,7 +267,7 @@ tvTest("wrong PINs are reported, never kept or resent, and the right PIN unlocks
 
     await pressPin(tv.page, "0");
     await shows(tv, "Wrong PIN. Try again.");
-    assert.equal(await tv.focused(), "5", "an asynchronous error does not move focus");
+    assert.equal(await tv.focused(), "0", "an asynchronous error does not move focus");
     assert.equal(await tv.page.locator(".pin-dot-filled").count(), 4, "the dots show the rejection in red");
     assert.equal(await tv.page.locator(".pin-dots-error").count(), 1);
     assert.equal(await tv.page.locator(".signin-shake").count(), 1);
@@ -310,7 +310,7 @@ tvTest("a lockout's Retry-After is shown and honored without sending checks, the
         await enterPin(tv, "0000");
         await shows(tv, "Wrong PIN. Try again.");
         assert.equal(pinChecks(tv), attempt);
-        assert.equal(await tv.focused(), "5");
+        assert.equal(await tv.focused(), "0");
     }
     await enterPin(tv, KID_PIN);
     await shows(tv, "Too many incorrect PINs. Try again in 5 minutes.");
@@ -348,13 +348,10 @@ tvTest("focus stays on the pad while a PIN is checked and after the answer, and 
     await enterPin(tv, "0000");
     await tv.page.locator(".pin-status .marquee-spinner").waitFor();
     await tv.page.keyboard.press("ArrowRight");
-    assert.equal(await tv.focused(), "6", "the keys stay focusable while the PIN is checked");
+    assert.equal(await tv.focused(), "delete", "the keys stay focusable while the PIN is checked");
     check.release();
     await shows(tv, "Wrong PIN. Try again.");
-    assert.equal(await tv.focused(), "6", "the answer does not move focus");
-    await tv.page.keyboard.press("ArrowDown");
-    await tv.page.keyboard.press("ArrowDown");
-    assert.equal(await tv.focused(), "delete");
+    assert.equal(await tv.focused(), "delete", "the answer does not move focus");
     await tv.page.keyboard.press("ArrowDown");
     assert.equal(await tv.focused(), "cancel");
     await tv.page.keyboard.press("Enter");

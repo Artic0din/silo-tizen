@@ -23,7 +23,7 @@ All notable changes to this project are documented in this file.
 
 - Change Account and Settings › Accounts now list the open server first, then servers and accounts by last use, as Apple TV does. Settings no longer shows "0 profiles", a card spins while its account opens, and SIGN IN AGAIN uses the warning colour with an open lock and a dimmed tile.
 - Change Account fades the edge of the server and account columns that has rows hidden past it and shows a chevron under the column pointing that way, as Apple TV does.
-- The profile PIN prompt now matches Apple TV: the profile's avatar and name, four dots, a number pad with Cancel below it, and the PIN sends itself on the fourth digit. A wrong PIN turns the dots red and shakes them, and the entry clears. Back deletes a digit or leaves when none is left.
+- The profile PIN prompt now matches Apple TV: the profile's avatar and name, four dots, a number pad with Cancel below it, and the PIN sends itself on the fourth digit. A wrong PIN turns the dots red and shakes them, and the entry clears. Back deletes a digit or leaves when none is left. Holding OK on a key enters one digit, and a lockout with no wait given says to try again later.
 
 ### Removed
 

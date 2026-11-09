@@ -37,7 +37,8 @@ export class ResolutionCap {
         if (this.settling === undefined || signal.aborted) return;
         let onAbort = (): void => {};
         const aborted = new Promise<void>(resolve => { onAbort = resolve; signal.addEventListener("abort", onAbort, { once: true }); });
-        await Promise.race([this.settling, aborted]);
+        // A reload aborts the read being waited on, so wait for whichever read is current.
+        while (this.settling !== undefined && !signal.aborted) await Promise.race([this.settling, aborted]);
         signal.removeEventListener("abort", onAbort);
     }
 

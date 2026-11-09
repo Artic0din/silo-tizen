@@ -248,7 +248,11 @@ function gatedSession(): { session: NativeSession; reads: () => number; answer: 
     const session = { onAuthorityChange: () => () => {}, call: <T>(request: RequestSpec<T>): Promise<T> => {
         if (!request.path.includes("preferred_quality")) return Promise.reject(new Error(`unexpected read ${request.path}`));
         reads++;
-        return new Promise<T>((resolve, reject) => waiting.push(value => value instanceof Error ? reject(value) : resolve(new Map([["playback.preferred_quality", { value }]]) as T)));
+        return new Promise<T>((resolve, reject) => {
+            const answer = (value: string | Error): void => value instanceof Error ? reject(value) : resolve(new Map([["playback.preferred_quality", { value }]]) as T);
+            waiting.push(answer);
+            request.signal?.addEventListener("abort", () => { waiting.splice(waiting.indexOf(answer), 1); reject(new DOMException("Aborted", "AbortError")); }, { once: true });
+        });
     } } as unknown as NativeSession;
     return { session, reads: () => reads, answer: value => waiting.shift()?.(value) };
 }
@@ -307,5 +311,23 @@ test("ready returns at once when the cap is already answered", async () => {
     await settle();
     await cap.ready(new AbortController().signal);
     assert.equal(gate.reads(), 1);
+    cap.stop();
+});
+
+test("ready keeps waiting when a reload replaces the read it was waiting on", async () => {
+    const gate = gatedSession();
+    const cap = new ResolutionCap(gate.session, () => {});
+    cap.ensure();
+    gate.answer("1080p");
+    await settle();
+    cap.reload();
+    let ready = false;
+    const waited = cap.ready(new AbortController().signal).then(() => { ready = true; });
+    cap.reload();
+    await settle();
+    assert.deepEqual([gate.reads(), ready, cap.quality], [3, false, "1080p"], "the aborted read does not release ready");
+    gate.answer("720p");
+    await waited;
+    assert.equal(cap.quality, "720p");
     cap.stop();
 });

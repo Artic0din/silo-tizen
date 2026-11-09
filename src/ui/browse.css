@@ -882,8 +882,9 @@
 .skyline-scope { float: right; font-size: 18px; color: rgba(237,237,237,.6); }
 .browse-row .browse-card.skyline-continue { width: 376px; }
 .browse-row .skyline-continue .browse-art { width: 372px; height: 209px; }
-.skyline-progress { position: absolute; bottom: 12px; left: 14px; right: 14px; height: 5px; background: rgba(255,255,255,.26); }
-.skyline-progress-fill { display: block; height: 100%; background: #fff; }
+/* ProgressBar.swift: 3pt, radius 2, white 20% track, siloOnSurface fill. The art's overflow clips it to the 12pt card corner. */
+.skyline-progress { position: absolute; bottom: 0; left: 0; right: 0; height: 3px; border-radius: 2px; background: rgba(255,255,255,.2); }
+.skyline-progress-fill { display: block; height: 100%; border-radius: 2px; background: #ededed; }
 .skyline-route-outgoing { position: fixed; top: 0; left: 0; pointer-events: none; z-index: 3; animation: skyline-leave var(--silo-page) ease-out forwards; }
 .skyline-content-enter { animation: skyline-appear var(--silo-page) ease-out both; }
 .skyline-content-drift { animation: skyline-content-rise var(--silo-page) ease-out both; }
@@ -1157,7 +1158,8 @@
 .details-playback-summary span:empty { align-self: center; width: 128px; height: 16px; border-radius: 4px; background: rgba(255,255,255,.1); }
 .details-playback-summary [data-track-summary="audio"] span:empty { width: 166px; }
 .details-playback-summary [data-track-summary="subtitles"] span:empty { width: 77px; }
-.details-episodes .skyline-progress { bottom: 0; left: 0; right: 0; height: 5px; background: rgba(0,0,0,.6); }
+.details-episodes .skyline-progress { height: 5px; border-radius: 0; background: rgba(0,0,0,.6); }
+.details-episodes .skyline-progress-fill { border-radius: 0; background: #fff; }
 .browse:has(.details-hero) > .browse-row:has(+ .browse-section-title) { margin-bottom: 35px; }
 /* TVTrailersRail rail padding 12 plus body section spacing 64 is the 76px caption-to-heading gap.
    The body inset is 100, and scrollClipDisabled paints through the trailing 88px to the screen edge. */

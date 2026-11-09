@@ -885,7 +885,8 @@ detailTest("episode boundary failure retries at the edge and on explicit Retry w
     await tv.eventually(async () => reads.length === 5, "reaching the failed boundary again retries it, as Apple TV does");
     await retry.focus(); await tv.page.keyboard.press("Enter"); await tv.jump(100);
     await tv.eventually(async () => reads.length === 6, "failed explicit neighbour Retry");
-    assert.equal(await tv.focused(), "retry-neighbors");
+    await retry.waitFor();
+    assert.equal(await tv.focused(), "episode:rail:3:13", "Retry hides while it runs; focus stays on the edge card and the error returns after the failure");
     failBoundary = false;
     // Drain any episode-detail dwell armed while Retry stayed focused, then activate explicitly.
     await tv.jump(120);

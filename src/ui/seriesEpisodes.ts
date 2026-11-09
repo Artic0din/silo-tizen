@@ -325,6 +325,7 @@ export class SeriesEpisodes {
             // TVItemDetailView.swift:301-305: reaching a boundary after a failed prefetch re-runs the whole prefetch.
             for (const edge of this.windowEdges()) if (this.failedNeighbors.has(edge) && !this.failedSelections.has(edge)) void this.readNeighbor(edge, true);
             void this.readNeighbor(number, true);
+            this.changed("neighbor");
         }, BOUNDARY_DWELL_MS);
     }
 
@@ -389,6 +390,8 @@ export class SeriesEpisodes {
         this.neighbors ??= new AbortController();
         const controller = this.neighbors;
         this.pendingNeighbors.add(number);
+        // TVItemDetailView.swift:935: a prefetch clears carouselLoadFailed when it starts; a failure sets it again.
+        if (retry) this.failedNeighbors.delete(number);
         try {
             const page = this.parked.get(number) ?? await this.session.call({ ...operations.listSeasonEpisodes(this.seriesId, number), retry: "never", profileScoped: true, signal: controller.signal });
             this.parked.delete(number);

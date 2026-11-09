@@ -31,6 +31,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Hid "Could not load more episodes." and Retry more episodes on Series Details while the retry runs, and showed them again if it fails, as Apple TV does. Focus stays on the edge card.
 - Retried a season that failed to load beside the Series Details episode rail when focus reaches the rail edge, and re-read a season whose load was cancelled when its chip is focused again, as Apple TV does.
 - Said a finished AI subtitle was saved but not turned on when the refreshed plan marks it unplayable, as a downloaded one already does, instead of doing nothing after Select.
 - Made the Home offline-recovery, For You offline, Browse Recommended reselect and Player hold tests wait for the page's own retry timers, Details read and clock set-up instead of assuming a fast runner, which removes their intermittent hosted CI failures.

@@ -343,6 +343,30 @@ test("focus reaching the rail edge retries a neighbour whose prefetch failed", a
     assert.equal(h.state.railEpisodes?.[0]?.id, "rail:1:0", "the retried season joins the rail");
 });
 
+for (const trigger of ["edge", "explicit"] as const) test(`the boundary error hides while its ${trigger} retry is in flight and returns if the retry fails`, async t => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const h = await episodeRailHarness(1); t.after(() => h.state.stop());
+    const path = operations.listSeasonEpisodes("series:s1", 1).path;
+    assert.equal(h.state.boundaryFailed, true);
+    const start = (): void => {
+        if (trigger === "explicit") { h.state.retryNeighbors(); return; }
+        h.state.focus("rail:2:0"); t.mock.timers.tick(70);
+    };
+    h.fake.scripted.set(path, []);
+    h.fake.script(path, problem(422, "validation_failed", "Unavailable"));
+    const held = h.fake.hold(path, true);
+    start(); await h.settle();
+    assert.equal(h.state.boundaryFailed, false, "Apple clears carouselLoadFailed when the prefetch starts");
+    held.release(); await h.settle();
+    assert.equal(h.state.boundaryFailed, true, "a failed retry shows the error again");
+    h.fake.script(path, { status: 200, body: { items: [] } });
+    const second = h.fake.hold(path, true);
+    h.state.retryNeighbors(); await h.settle();
+    assert.equal(h.state.boundaryFailed, false);
+    second.release(); await h.settle();
+    assert.equal(h.state.boundaryFailed, false);
+});
+
 test("a dwell back onto a season whose read was cancelled reads it again", async t => {
     t.mock.timers.enable({ apis: ["setTimeout"] });
     const h = await episodeRailHarness(); t.after(() => h.state.stop());

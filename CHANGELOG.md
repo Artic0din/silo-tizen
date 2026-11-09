@@ -28,6 +28,7 @@ All notable changes to this project are documented in this file.
 ### Fixed
 
 - Showed Who's watching after signing in even when the TV could not save that the remembered profile was cleared.
+- Kept Who's watching after a sign-in across a restart even when the TV refused to clear the remembered profile, by tying each remembered profile to a sign-in epoch stored with the account, as Apple TV does. A profile remembered before this update is asked about once more.
 - Moved the Series Details episode rail 40px left when its loaded window includes the series' first season. A later season whose earlier pages are not loaded keeps the previous position, and reopening Details starts from that season's neighbor window.
 - Asked before signing out from Who's watching, while profiles load, and when profiles fail to load. Cancel stays focused, and Cancel or Back returns to Sign out.
 - Choosing another account opens its only profile when that profile has no PIN. An expired sign-in shows "You were signed out of {server}. Sign in again." with the username filled in, or Change Account when another account is still signed in.

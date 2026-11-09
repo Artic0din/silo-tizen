@@ -12,6 +12,13 @@ export interface PublicStorage {
 
 export type RandomBytes = (bytes: Uint8Array) => void;
 
+/** `byteCount` random bytes as lowercase hex. */
+export function randomHex(random: RandomBytes, byteCount: number): string {
+    const bytes = new Uint8Array(byteCount);
+    random(bytes);
+    return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
 const DEVICE_ID_KEY = "silo.native.deviceId";
 /** The server's accepted id alphabet and length (auth-api.md, device headers). */
 const DEVICE_ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/;

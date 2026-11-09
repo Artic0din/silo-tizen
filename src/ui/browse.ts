@@ -1480,6 +1480,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             return shown;
         });
         if (ids.length === 0) return;
+        // A newer filmography read replaces the card objects; an answer for the older ones must not overwrite them.
+        const asked = new Map(current.pages.page?.items.filter(item => ids.includes(item.id)).map(item => [item.id, item]));
         // A failed read keeps its id, so the next return tries again.
         void Promise.all(ids.map(async id => {
             cache.discard(operations.getCatalogItem(id));
@@ -1490,7 +1492,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             const played = new Map(results.flatMap(result => result === undefined ? [] : [[result.id, result.played] as const]));
             if (played.size === 0) return;
             for (const id of played.keys()) current.watchedCards?.delete(id);
-            current.pages.page = { ...page, items: page.items.map(item => played.has(item.id) ? { ...item, played: played.get(item.id) } : item) };
+            current.pages.page = { ...page, items: page.items.map(item => played.has(item.id) && asked.get(item.id) === item ? { ...item, played: played.get(item.id) } : item) };
             if (top() === current) render(host.focused());
         });
     };

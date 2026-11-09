@@ -642,6 +642,39 @@ journey("Details marking a title watched updates its filmography card without re
     assert.equal(await tv.page.locator(".browse-grid .browse-watched").count(), 1, "only the changed card");
 });
 
+journey("a late watched read cannot overwrite a card from a newer filmography read", async (tv, catalog) => {
+    await all(tv);
+    const marked = (id: string): boolean => tv.fake.requests.some(request => request.method === "POST" && request.path === `/watched/${encodeURIComponent(id)}`);
+    const id = await grid(tv).first().getAttribute("data-focus");
+    assert.ok(id);
+    let outdated = false;
+    const route = catalog.route.bind(catalog);
+    catalog.route = (...args) => {
+        const reply = route(...args);
+        const body = reply?.body as { items?: Record<string, unknown>[]; content_id?: string } | undefined;
+        if (args[3]?.source === "person" && body?.items !== undefined) body.items = body.items.map(item => ({ ...item, user_state: { played: marked(String(item.content_id)) } }));
+        if (outdated && args[0] === "GET" && body?.content_id === id) Object.assign(body, { user_state: { played: false }, user_data: { played: false } });
+        return reply;
+    };
+    await tv.page.locator(`.browse-grid [data-focus="${id}"]`).click();
+    await tv.page.locator(".details-hero").waitFor();
+    await tv.page.locator('[data-focus="more"]').click();
+    await tv.page.getByRole("dialog", { name: "More", exact: true }).locator('[data-focus="watched"]').click();
+    await tv.eventually(async () => marked(id), "watched write");
+    const held = tv.fake.hold(`/catalog/items/${encodeURIComponent(id)}`, true);
+    outdated = true;
+    for (let attempt = 0; attempt < 3 && await tv.page.locator(".details-person-hero").count() === 0; attempt++) await tv.remote(BACK);
+    await tv.page.locator(".details-person-hero").waitFor();
+    await tv.jump(300);
+    outdated = false;
+    await tv.page.locator('[data-focus="filter:movie"]').click();
+    await tv.eventually(async () => lastQuery(tv)?.body?.type === "movie" && await tv.page.locator(`.browse-grid [data-focus="${id}"] .browse-watched`).count() === 1, "newer read shows the tick");
+    held.release();
+    await tv.jump(300);
+    await tv.page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(undefined)))));
+    assert.equal(await tv.page.locator(`.browse-grid [data-focus="${id}"] .browse-watched`).count(), 1, "the late read leaves the newer card alone");
+});
+
 journey("Details Back resumes the unfinished metadata refresh without re-reading the filmography", async tv => {
     await tv.remote(BACK);
     let complete = false;

@@ -95,6 +95,7 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
         }
         root.classList.toggle("profile-picker", screen.name === "profiles");
         root.classList.toggle("profile-editor", screen.name === "profile-create");
+        root.classList.toggle("profile-pin", screen.name === "pin");
         host.show(screen, focus);
     };
 
@@ -103,7 +104,7 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
             host.destroy();
             host = undefined;
             root.classList.remove("signin");
-            root.classList.remove("profiles-flow", "profile-picker", "profile-editor");
+            root.classList.remove("profiles-flow", "profile-picker", "profile-editor", "profile-pin");
             backdrop?.destroy();
             backdrop = undefined;
         }
@@ -334,44 +335,30 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
 
     const askPin = (profile: ProfileSummary, notes: readonly Note[]): void => {
         const token = begin();
-        let checking = false;
-        const unlock = (): void => {
-            const pin = screen.take();
-            if (checking) {
-                return;
-            }
-            if (pin === "") {
-                screen.say("Enter the PIN.", "error");
-                screen.focusPin();
-                return;
-            }
-            checking = true;
-            screen.say("Checking the PIN.", "info");
+        const check = (pin: string): void => {
             const controller = new AbortController();
             pending = controller;
             server.profiles.verifyPin(profile.id, pin, controller.signal).then((result) => {
                 if (token !== view) {
                     return;
                 }
-                checking = false;
                 pending = undefined;
                 if (result.status === "verified") {
                     selected(profile);
                 } else if (result.status === "signed_out" && !session.signedIn) {
                     expired();
                 } else {
-                    screen.say(pinProblem(result), "error");
+                    screen.reject(pinProblem(result), result.status === "wrong_pin" || result.status === "locked");
                 }
             }, (error: unknown) => {
                 if (token === view) {
-                    checking = false;
                     pending = undefined;
-                    screen.say(pinProblem({ status: "failed" }), "error");
+                    screen.reject(pinProblem({ status: "failed" }), false);
                 }
                 rethrow(clock, error);
             });
         };
-        const screen = pinScreen(profile, notes, unlock, () => showList(profile.id));
+        const screen = pinScreen(profile, server.server.http.base.baseUrl, notes, check, () => showList(profile.id));
         show(screen.screen);
     };
 

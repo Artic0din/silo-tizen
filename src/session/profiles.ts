@@ -12,8 +12,8 @@ export type ProfileSelection = { readonly status: "selected" } | { readonly stat
 export type PinResult =
     | { readonly status: "verified" }
     | { readonly status: "wrong_pin" }
-    /** Too many wrong PINs; every check is refused until the delay passes. */
-    | { readonly status: "locked"; readonly retryAfterSeconds: number }
+    /** Too many wrong PINs; every check is refused until the delay passes. `undefined`: the server gave no delay. */
+    | { readonly status: "locked"; readonly retryAfterSeconds: number | undefined }
     /** The server could not check it now (503); it may have counted. Ask the person to try again. */
     | { readonly status: "busy"; readonly retryAfterSeconds: number | undefined }
     /** No answer: the check may have counted toward the lockout, so it is not resent. */
@@ -25,13 +25,19 @@ export type PinResult =
     | { readonly status: "signed_out" }
     | { readonly status: "failed" };
 
-/** Used when a 429 carries no Retry-After: the server's lockout is five minutes. */
+/** Blocks resends when a 429 carries no Retry-After: the server's lockout is five minutes. */
 const DEFAULT_LOCKOUT_SECONDS = 300;
+
+interface Lockout {
+    readonly until: number;
+    /** False when the server gave no Retry-After, so the screen cannot name a wait. */
+    readonly announced: boolean;
+}
 
 export class Profiles {
     private readonly session: NativeSession;
     private readonly clock: Clock;
-    private readonly lockedUntil = new Map<string, number>();
+    private readonly lockouts = new Map<string, Lockout>();
     private checking = false;
     /** Increases on every select and clear; a PIN proof is installed only for the choice it was checked under. */
     private selection = 0;
@@ -71,15 +77,15 @@ export class Profiles {
 
     /** Seconds left on a lockout this client was told about, or 0. */
     lockoutRemainingSeconds(profileId: string): number {
-        const until = this.lockedUntil.get(profileId);
-        return until === undefined ? 0 : Math.max(0, Math.ceil((until - this.clock.now()) / 1000));
+        const lockout = this.lockouts.get(profileId);
+        return lockout === undefined ? 0 : Math.max(0, Math.ceil((lockout.until - this.clock.now()) / 1000));
     }
 
     /** One check per call, never resent automatically. */
     async verifyPin(profileId: string, pin: string, signal?: AbortSignal): Promise<PinResult> {
         const remaining = this.lockoutRemainingSeconds(profileId);
         if (remaining > 0) {
-            return { status: "locked", retryAfterSeconds: remaining };
+            return { status: "locked", retryAfterSeconds: this.lockouts.get(profileId)?.announced === true ? remaining : undefined };
         }
         if (this.checking) {
             return { status: "in_progress" };
@@ -96,7 +102,7 @@ export class Profiles {
             if (!result.valid) {
                 return { status: "wrong_pin" };
             }
-            this.lockedUntil.delete(profileId);
+            this.lockouts.delete(profileId);
             if (this.selection !== selection) {
                 return { status: "aborted" };
             }
@@ -127,9 +133,10 @@ export class Profiles {
         }
         switch (error.status) {
             case 429: {
+                const announced = error.retryAfterSeconds !== undefined;
                 const seconds = error.retryAfterSeconds ?? DEFAULT_LOCKOUT_SECONDS;
-                this.lockedUntil.set(profileId, this.clock.now() + seconds * 1000);
-                return { status: "locked", retryAfterSeconds: seconds };
+                this.lockouts.set(profileId, { until: this.clock.now() + seconds * 1000, announced });
+                return { status: "locked", retryAfterSeconds: announced ? seconds : undefined };
             }
             case 401:
                 return { status: "enter_again" };

@@ -383,7 +383,11 @@ test("the person name and facts sit on Apple's line box", async () => {
     try {
         await signIn(tv);
         await person(tv, {});
-        const placed = await tv.page.locator(".details-person-hero").evaluate(hero => {
+        await tv.page.locator(".details-person-hero").waitFor();
+        // Query and measure in one synchronous step: a repaint rebuilds the hero and detaches a node resolved earlier.
+        const placed = await tv.page.evaluate(() => {
+            const hero = document.querySelector(".details-person-hero");
+            if (hero === null) return null;
             const portrait = hero.querySelector(".person-portrait")?.getBoundingClientRect();
             const name = hero.querySelector(".browse-title");
             const facts = hero.querySelector(".person-facts")?.getBoundingClientRect();

@@ -66,6 +66,40 @@ test("profile Requests is a root page: the bar stays, Up reaches it, Back steps 
         assert.ok(await tv.focused());
     } finally { await tv.page.context().close(); }
 });
+test("reopening Requests from its own profile menu keeps one page, so Back still returns to the tab", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const fake = new FakeRequests(); fake.created = true;
+        await start(tv, fake);
+        await openRequests(tv); await button(tv, "request-one").waitFor();
+        await openRequests(tv); await button(tv, "request-one").waitFor();
+        await tv.remote(10009); await tv.remote(10009);
+        await tv.page.locator('.browse[data-view="home"]').waitFor();
+        assert.equal(await tv.page.locator('.browse[data-view="requests:hub"]').count(), 0, "one Back pair leaves Requests");
+        await openRequests(tv); await button(tv, "request-one").waitFor();
+        await openRequests(tv); await button(tv, "request-one").waitFor();
+        fake.enabled = false;
+        await tv.page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+        await tv.page.locator('.browse[data-view="home"]').waitFor();
+        assert.equal(await tv.page.evaluate(() => document.activeElement?.closest(".browse-nav") ?? null), null, "closing lands in the tab's content");
+    } finally { await tv.page.context().close(); }
+});
+test("returning from a Requests detail keeps the hub's scroll position and focused card", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const fake = new FakeRequests(); fake.created = true; manyRows(tv, fake);
+        await start(tv, fake); await openRequests(tv); await button(tv, "a").waitFor();
+        await tv.remote(40); await tv.remote(40); await settledScroll(tv);
+        const scrolled = await tv.page.locator(".browse.requests-hub .skyline-content").evaluate(node => node.scrollTop);
+        const card = await tv.focused();
+        assert.ok(scrolled > 0, "the hub scrolled");
+        await tv.page.keyboard.press("Enter"); await tv.page.locator('.browse[data-view^="requests:"]:not([data-view="requests:hub"])').waitFor();
+        await tv.remote(10009); await tv.page.locator('.browse[data-view="requests:hub"]').waitFor(); await settledScroll(tv);
+        // Refocusing the card settles the scroll within a few pixels; a lost position would be 0.
+        assert.ok(Math.abs(await tv.page.locator(".browse.requests-hub .skyline-content").evaluate(node => node.scrollTop) - scrolled) <= 8, "the hub keeps its scroll position");
+        assert.equal(await tv.focused(), card);
+    } finally { await tv.page.context().close(); }
+});
 async function leaveRequests(tv: Tv): Promise<void> {
     while (await tv.page.locator('.browse-nav').count() === 0) await tv.remote(10009);
 }
@@ -145,7 +179,7 @@ test("Requests hub has mine first, horizontal rails and a passive loaded preview
         assert.ok(Math.abs(await tv.page.locator(".requests-hero-copy").evaluate(node => node.getBoundingClientRect().bottom) - 536) < 1, "the marquee anchors its content bottom, including short descriptions");
         assert.equal(await tv.page.locator('.requests-preview button').count(), 0);
         assert.equal(await tv.focused(), "request-one", "accepted first load enters the first native request card");
-        assert.equal(await tv.page.locator('.browse.requests-hub .skyline-content .skyline-content').evaluate(node => node.getBoundingClientRect().top), 596);
+        assert.equal(await tv.page.locator('.browse.requests-hub > .skyline-content').evaluate(node => node.getBoundingClientRect().top), 596);
         assert.equal(await tv.page.locator('.requests-rail .browse-art').first().evaluate(node => getComputedStyle(node).width), "176px");
         await button(tv, "request-one").focus();
         await tv.page.emulateMedia({ reducedMotion: "reduce" });
@@ -933,7 +967,7 @@ test("ready Requests hub uses native shell controls only", async () => {
             assert.equal(await tv.page.getByRole("button", { name, exact: true }).count(), 0, `${name} is not a ready-hub tool`);
         }
         assert.equal(await tv.page.locator('.requests-heading').first().textContent(), "Your requests");
-        assert.equal(await tv.page.locator('.requests-hub .skyline-content .skyline-content [data-focus="search"]').count(), 0);
+        assert.equal(await tv.page.locator('.requests-hub .skyline-content [data-focus="search"]').count(), 0);
     } finally { await tv.page.context().close(); }
 });
 

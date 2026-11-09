@@ -367,9 +367,7 @@
 .requests-detail-art { float: right; margin: 0 0 24px 32px; }
 .browse.requests-hub { padding: 596px 0 0; overflow: hidden; }
 /* Apple's rowBand: the bottom padding lets the last row reach the band top. */
-/* The shell body only hosts the page under the top bar; the page's own content is the 596 band. */
-.browse.requests-hub > .skyline-content { top: 0; left: 0; width: 1920px; height: 1080px; overflow: visible; }
-.browse.requests-hub .skyline-content .skyline-content { position: fixed; top: 596px; left: 0; width: 1920px; height: 484px; overflow-y: auto; padding: 0 0 464px; }
+.browse.requests-hub .skyline-content { top: 596px; left: 0; width: 1920px; height: 484px; overflow-y: auto; padding: 0 0 464px; }
 .requests-row + .requests-row { margin-top: 10px; }
 .requests-scene { font-family: var(--silo-font); font-weight: 400; }
 .requests-scene * { font-family: inherit; font-weight: inherit; }

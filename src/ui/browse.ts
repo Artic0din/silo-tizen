@@ -2106,6 +2106,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     const openRequests = (source: RequestsSource): void => {
         if (!requestsCapability.enabled) return;
         // The profile menu's hub is a root page under the bar, like Watchlist: the tab it opened over stays selected.
+        // Reopening it from itself rebuilds in place, so one Back still returns to that tab.
+        if (source.kind === "hub" && isHubRoot(top()) && stack.length > 1) { loading?.abort(); loading = undefined; stack.pop(); }
         const origin = source.kind === "hub" ? top() : undefined;
         const anchor = origin === undefined ? undefined : tabFocus(origin).key;
         push(newRoute({ kind: "requests", requests: requestsState(source), ...(anchor === undefined ? {} : { anchor }) }));

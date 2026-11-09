@@ -120,7 +120,7 @@ async function openServerSession(server: ServerConnection, deps: SessionCoreDeps
         if (saved.status !== "found") return { status: "unreachable", ...(saved.status === "corrupt" ? { restore: "storage_corrupt" as const } : saved.status === "unavailable" ? { restore: "storage_unavailable" as const } : {}) };
         if (saved.credential.serverId !== server.serverId) return { status: "unreachable" };
     }
-    session = new NativeSession(server, vault, clock, async accountId => {
+    session = new NativeSession(server, vault, clock, deps.randomBytes, async accountId => {
         await deps.beforeAccountSignIn?.(server.http.base.baseUrl, accountId);
     });
     watchBrowseCache(session, deps.publicStorage, server.serverId, vault.directory.list().find(row => row.id === vault.localAccountId)?.accountId);
@@ -204,7 +204,7 @@ export async function signOutSavedAccount(account: SavedAccount, deps: SessionCo
         if (connected.status === "connected") {
             const transient = deps.keyManager === undefined ? deps.transientAccounts : undefined;
             const vault = new CredentialVault(transient?.secrets ?? openSecretStore(deps.keyManager), transient?.storage ?? deps.publicStorage, account.baseUrl, account.id);
-            const session = new NativeSession(connected.server, vault, deps.clock ?? systemClock);
+            const session = new NativeSession(connected.server, vault, deps.clock ?? systemClock, deps.randomBytes);
             watchBrowseCache(session, deps.publicStorage, account.serverId, account.accountId);
             await session.restore();
             if (session.signedIn && (await session.logout()).storage === "failed") return "failed";

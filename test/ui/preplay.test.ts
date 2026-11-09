@@ -261,6 +261,19 @@ async function savedSubtitle(tv: Tv): Promise<void> {
     assert.equal(await tv.page.locator('[data-focus="retry-subtitle-preference"]').count(), 0);
 }
 
+/** The next item read omits the series name and numbers. The card or season route still has them. */
+function hideEpisodeSeriesIdentity(tv: Tv, catalog: FakeDetails, id: string): void {
+    const path = `/catalog/items/${encodeURIComponent(id)}?image_size=large`;
+    const reply = catalog.route("GET", path, "p-owner");
+    assert.ok(reply?.status === 200 && reply.body !== undefined && typeof reply.body === "object");
+    const source = object(reply.body, "episode");
+    const body: Record<string, unknown> = {};
+    for (const key of Object.keys(source)) {
+        if (key !== "series_title" && key !== "season_number" && key !== "episode_number") body[key] = source[key];
+    }
+    tv.fake.script(path, { status: 200, body });
+}
+
 async function prepare(tv: Tv): Promise<void> {
     await tv.eventually(() => tv.page.evaluate(() => window.appHarness.avplay.pendingPrepares > 0), "AVPlay preparation");
     await tv.page.evaluate(() => {
@@ -426,6 +439,72 @@ preplay("series Resume and Start Over keep the series line when the episode item
     assert.equal(starts(tv).at(-1)?.body?.start_position, 0);
 });
 
+preplay("episode list keeps the series line when the episode item omits it", async (tv, catalog, playback) => {
+    const id = "episode:s1e125";
+    catalog.add({ id, type: "episode", title: "Going Green", libraryId: "13", seriesId: "series:s1", season: 1, episode: 25 });
+    catalog.fileIds.set(id, "42");
+    playback.items.set(id, ["42"]);
+    const path = "/catalog/items/episode%3As1e125?image_size=large";
+    const reply = catalog.route("GET", path, "p-owner");
+    assert.ok(reply?.status === 200 && reply.body !== undefined && typeof reply.body === "object");
+    const source = object(reply.body, "episode");
+    const body: Record<string, unknown> = {};
+    for (const key of Object.keys(source)) {
+        if (key !== "series_title" && key !== "season_number" && key !== "episode_number") body[key] = source[key];
+    }
+    tv.fake.script(path, { status: 200, body });
+    await series(tv);
+    await tv.page.locator('.details-episodes [data-focus="episode:s1e125"]').click();
+    await prepare(tv);
+    assert.equal(await tv.page.locator(".player-series").textContent(), "Harbor Lights");
+    assert.equal(await tv.page.locator(".player-title").first().textContent(), "Going Green");
+    assert.equal(await tv.page.locator(".player-episode").textContent(), "S1 · E25");
+});
+
+preplay("Continue Watching keeps the series line when the episode item omits it", async (tv, catalog, playback) => {
+    catalog.fileIds.set("episode:s1e12", "42");
+    playback.items.set("episode:s1e12", ["42"]);
+    await tv.remote(10009);
+    await tv.page.locator('[data-view="home"]').waitFor();
+    const card = tv.page.locator('[data-section="continue_watching"] .skyline-continue[data-focus="episode:s1e12"]');
+    await card.focus();
+    await tv.eventually(async () => await tv.focused() === "episode:s1e12", "continue card");
+    hideEpisodeSeriesIdentity(tv, catalog, "episode:s1e12");
+    await tv.remote(415);
+    await prepare(tv);
+    assert.equal(await tv.page.locator(".player-series").textContent(), "Harbor Lights");
+    assert.equal(await tv.page.locator(".player-title").first().textContent(), "Harbor Lights chapter 1.2");
+    assert.equal(await tv.page.locator(".player-episode").textContent(), "S1 · E2");
+});
+
+preplay("a season route keeps the series line when the episode item omits it", async (tv, catalog, playback) => {
+    const id = "episode:s1e125";
+    catalog.add({ id, type: "episode", title: "Going Green", libraryId: "13", seriesId: "series:s1", season: 1, episode: 25 });
+    catalog.fileIds.set(id, "42");
+    playback.items.set(id, ["42"]);
+    await series(tv);
+    await tv.page.locator('[data-focus="series:s1-S1"]').click();
+    await tv.page.locator('[data-view="season:series:s1:1"]').waitFor();
+    hideEpisodeSeriesIdentity(tv, catalog, id);
+    await tv.page.locator(`.browse-episodes [data-focus="${id}"]`).click();
+    await prepare(tv);
+    assert.equal(await tv.page.locator(".player-series").textContent(), "Harbor Lights");
+    assert.equal(await tv.page.locator(".player-title").first().textContent(), "Going Green");
+    assert.equal(await tv.page.locator(".player-episode").textContent(), "S1 · E25");
+});
+
+preplay("Off sends no subtitle track on start", async (tv) => {
+    await tv.page.locator('[data-focus="subtitles"]').click();
+    await tv.page.locator('[data-focus="subtitle:off"]').click();
+    await savedSubtitle(tv);
+    const saved = tv.fake.requests.find(request => request.method === "PUT" && request.path === "/subtitle-prefs/movie%3Am0001");
+    assert.equal(saved?.body?.subtitle_mode, "off");
+    await tv.page.locator('[data-focus="play"]').click();
+    await prepare(tv);
+    assert.equal(Object.hasOwn(starts(tv)[0]?.body ?? {}, "subtitle_track_id"), false);
+    assert.equal(tv.fake.requests.some(request => request.path.endsWith("/replan")), false);
+}, true, false, catalog => catalog.subtitleFiles.set("42", [{ index: 3, external: false, language: "jpn", codec: "srt", title: "Japanese", forced: false }]));
+
 preplay("series Start Over skips fresh resume and retains automatic selectors", async (tv, catalog, playback) => {
     catalog.fileIds.set("episode:s1e11", "42");
     catalog.progress.set("episode:s1e11", 630);
@@ -558,9 +637,7 @@ preplay("Details subtitles resolve a catalog stream choice through the server in
     await tv.page.locator('[data-focus="subtitles"]').focus();
     await tv.page.keyboard.press("Enter");
     assert.equal(await tv.focused(), "subtitle:auto");
-    await tv.remote(40); await tv.remote(40);
-    assert.equal(await tv.focused(), "subtitle:0");
-    await tv.page.keyboard.press("Enter");
+    await tv.page.locator('[data-focus="subtitle:0"]').click();
     assert.equal(await tv.focused(), "subtitles");
     await savedSubtitle(tv);
     const saved = tv.fake.requests.find(request => request.method === "PUT" && request.path === "/subtitle-prefs/movie%3Am0001");
@@ -569,9 +646,9 @@ preplay("Details subtitles resolve a catalog stream choice through the server in
     assert.equal(Object.hasOwn(saved?.body ?? {}, "show_forced_subtitles"), false);
     await tv.page.locator('[data-focus="play"]').click();
     await prepare(tv);
-    assert.equal(starts(tv)[0]?.body?.subtitle_track_id, undefined);
-    const change = tv.fake.requests.find(request => request.path.endsWith("/replan"));
-    assert.deepEqual(change?.body?.selected_tracks, { audio: { id: "file:42:audio:2", index: 2 }, subtitle: { id: "file:42:subtitle:1" } });
+    // External English occupies combined ordinal 0. Signs is the first embedded row, so it is 1.
+    assert.equal(starts(tv)[0]?.body?.subtitle_track_id, "file:42:subtitle:1");
+    assert.equal(tv.fake.requests.some(request => request.path.endsWith("/replan")), false);
     await tv.remote(10009);
     await tv.page.locator('[data-focus="subtitles"]').click();
     assert.equal(await tv.page.locator('[data-focus="subtitle:0"]').getAttribute("aria-checked"), "true");
@@ -579,7 +656,12 @@ preplay("Details subtitles resolve a catalog stream choice through the server in
     await tv.page.locator('[data-focus="version"]').click();
     await tv.page.locator('[data-focus="version:43"]').click();
     assert.equal(await tv.page.locator('[data-focus="subtitles"]').getAttribute("aria-label"), "Subtitles: Auto");
-}, true, false, catalog => catalog.subtitleFiles.set("42", [{ index: 97, external: false, language: "eng", codec: "ass", title: "English (Signs)", forced: true }]));
+}, true, false, catalog => catalog.subtitleFiles.set("42", [
+    { index: 97, external: false, language: "eng", codec: "ass", title: "English (Signs)", forced: true },
+    { index: 1, external: false, language: "jpn", codec: "pgs", title: "Japanese" },
+    { index: 2, external: false, language: "fre", codec: "dvd_subtitle", title: "French" },
+    { external: true, language: "eng", codec: "srt", title: "English", file_name: "English.srt" },
+]));
 
 preplay("fresh no-progress wins over cached Resume", async (tv, catalog) => {
     catalog.progress.delete("movie:m0001");

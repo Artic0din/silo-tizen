@@ -2243,7 +2243,9 @@ for (const scenario of [{ outcome: "completed", played: false }, { outcome: "los
     fixtureCatalog.watched = scenario.played;
     browseTest(`PR32 Home refreshes watched progress after a ${scenario.outcome} mutation`, async (tv, catalog) => {
         assert.ok(catalog instanceof FakeDetails);
-        assert.equal(await tv.page.locator('[data-focus="movie:m0001"] .skyline-progress').count(), 0, "Continue Watching draws no playback bar");
+        assert.equal(await tv.page.locator('[data-focus="movie:m0001"] .skyline-progress').count(), 1, "Continue Watching draws the resume bar");
+        const share = await tv.page.locator('[data-focus="movie:m0001"] .skyline-progress-fill').evaluate(node => parseFloat((node as HTMLElement).style.width));
+        assert.ok(Math.abs(share - 1200 / 5400 * 100) < 0.001, `fill is ${share}% of the bar`);
         await activateDetails(tv);
         await showing(tv, "item:movie:m0001");
         const path = "/watched/movie%3Am0001";
@@ -3018,6 +3020,8 @@ browseTest("activating current Recommended restores its content without reads", 
     await tv.eventually(async () => detailReads(tv).includes("movie:m0001"), "the rested Recommended card");
     await press(tv, "ArrowDown");
     assert.equal(await tv.focused(), "movie:m0025");
+    // The focused card reads its Details once it rests; that read is not the reselection's.
+    await homeDetailsRead(tv);
     const reads = tv.fake.requests.length;
     await selectLibraryMode(tv, "Recommended");
     assert.equal(await tv.focused(), "movie:m0025");

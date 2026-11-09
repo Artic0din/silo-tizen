@@ -7,7 +7,7 @@ export interface CatalogSubtitleTrack extends SubtitleSignature {
     readonly selectionIndex: number | undefined;
     readonly externalPath: string;
 }
-export type SubtitleIntent = { readonly kind: "auto" } | { readonly kind: "off" } | { readonly kind: "track"; readonly signature: SubtitleSignature };
+export type SubtitleIntent = { readonly kind: "auto" } | { readonly kind: "off" } | { readonly kind: "track"; readonly signature: SubtitleSignature; /** Seeded from a saved preference, not picked on Details. */ readonly saved?: true };
 export interface SubtitlePreferences {
     readonly mode: "auto" | "always" | "off";
     readonly language: string | undefined;

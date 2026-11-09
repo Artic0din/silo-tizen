@@ -101,7 +101,7 @@ test("the SIGN IN AGAIN badge is the warning colour with an open lock, and its t
     });
 });
 
-test("choosing a saved account that is not open shows a spinner on its card until it opens, and Back cancels", async () => {
+test("choosing a saved account that is not open shows a spinner on its card until it opens", async () => {
     await withSignedInTv(browser, async tv => {
         await seedAccounts(tv, 9, [
             { id: "cold", baseUrl: ACTIVE, username: "cold", profileCount: 1, needsSignIn: false, lastUsedAt: 1 },
@@ -115,35 +115,37 @@ test("choosing a saved account that is not open shows a spinner on its card unti
         assert.equal(await tv.page.locator(".marquee-spinner").count(), 1, "only the opening card spins");
         await tv.page.locator(".account-card").first().click();
         assert.equal(await tv.page.locator('[data-view="change-account"]').count(), 1, "another card is ignored while one opens");
-        await tv.remote(10009);
-        await tv.page.locator('[data-focus="cold"] .marquee-spinner').waitFor({ state: "detached", timeout: 3000 });
-        assert.equal(await tv.page.locator('[data-view="change-account"]').count(), 1, "Back cancels the open and stays on Change Account");
         hold.release();
     });
 });
 
+/** Adds a real second account (laura), then restarts so it is saved but not open, and opens Change Account. */
+async function openChangeAccountWithColdLaura(tv: Tv): Promise<void> {
+    tv.fake.nextUser = { id: "2", username: "alex" };
+    await openChangeAccount(tv);
+    await tv.page.locator('[data-focus="add-account"]').click();
+    await tv.page.locator('[data-screen="code"]').waitFor();
+    const code = [...tv.fake.devices.keys()].pop();
+    assert.ok(code !== undefined);
+    tv.fake.approve(code);
+    await tv.jump(5000);
+    await tv.page.locator('[data-screen="approved"], [data-screen="notice"], [data-screen="profiles"]').first().waitFor();
+    if (await tv.screen() === "approved") await tv.jump(1000);
+    await tv.page.locator('[data-screen="notice"], [data-screen="profiles"]').first().waitFor();
+    if (await tv.screen() === "notice") await tv.page.getByRole("button", { name: "Continue", exact: true }).click();
+    await tv.page.locator('[data-focus="profile:p-owner"]').click();
+    await tv.page.locator('[data-focus="ask-every-launch"]').click();
+    await tv.page.locator('[data-view="home"] [data-focus="movie:m0001"]').first().waitFor();
+    // A restart leaves laura saved but not open.
+    await tv.page.evaluate(() => window.appHarness.mount());
+    await tv.page.locator('[data-screen="profiles"]').waitFor();
+    await tv.page.locator('[data-focus="change-server"]').click();
+    await tv.page.locator('[data-view="change-account"]').waitFor();
+}
+
 test("a saved account that is not open yet opens from Change Account and ends at its picker", async () => {
     await withSignedInTv(browser, async tv => {
-        tv.fake.nextUser = { id: "2", username: "alex" };
-        await openChangeAccount(tv);
-        await tv.page.locator('[data-focus="add-account"]').click();
-        await tv.page.locator('[data-screen="code"]').waitFor();
-        const code = [...tv.fake.devices.keys()].pop();
-        assert.ok(code !== undefined);
-        tv.fake.approve(code);
-        await tv.jump(5000);
-        await tv.page.locator('[data-screen="approved"], [data-screen="notice"], [data-screen="profiles"]').first().waitFor();
-        if (await tv.screen() === "approved") await tv.jump(1000);
-        await tv.page.locator('[data-screen="notice"], [data-screen="profiles"]').first().waitFor();
-        if (await tv.screen() === "notice") await tv.page.getByRole("button", { name: "Continue", exact: true }).click();
-        await tv.page.locator('[data-focus="profile:p-owner"]').click();
-        await tv.page.locator('[data-focus="ask-every-launch"]').click();
-        await tv.page.locator('[data-view="home"] [data-focus="movie:m0001"]').first().waitFor();
-        // A restart leaves laura saved but not open.
-        await tv.page.evaluate(() => window.appHarness.mount());
-        await tv.page.locator('[data-screen="profiles"]').waitFor();
-        await tv.page.locator('[data-focus="change-server"]').click();
-        await tv.page.locator('[data-view="change-account"]').waitFor();
+        await openChangeAccountWithColdLaura(tv);
         const hold = tv.fake.hold("/system/info");
         await tv.page.locator(".account-card").filter({ hasText: "laura" }).click();
         await tv.page.locator(".account-card .marquee-spinner").waitFor({ timeout: 3000 });
@@ -155,19 +157,26 @@ test("a saved account that is not open yet opens from Change Account and ends at
     });
 });
 
-test("cancelling an open leaves focus where the viewer moved it", async () => {
+// ChangeAccountModel.choose has no cancel: Menu in the pane only returns focus to the rail (TVChangeAccountView.swift:64, :283).
+test("Back while an account opens moves focus to the rail and the open still completes", async () => {
     await withSignedInTv(browser, async tv => {
-        await seedAccounts(tv, 9, [{ id: "cold", baseUrl: ACTIVE, username: "cold", profileCount: 1, needsSignIn: false, lastUsedAt: 1 }]);
-        await openChangeAccount(tv);
+        await openChangeAccountWithColdLaura(tv);
         const hold = tv.fake.hold("/system/info");
-        await tv.page.locator('[data-focus="cold"]').click();
-        await tv.page.locator('[data-focus="cold"] .marquee-spinner').waitFor({ timeout: 3000 });
-        await tv.remote(37);
-        assert.equal(await tv.page.evaluate(() => document.activeElement?.closest(".accounts-rail") !== null), true, "focus moved to the rail");
+        const laura = tv.page.locator(".account-card").filter({ hasText: "laura" });
+        await laura.click();
+        await laura.locator(".marquee-spinner").waitFor({ timeout: 3000 });
+        assert.equal(await tv.page.evaluate(() => document.activeElement?.closest(".accounts-pane") !== null), true, "focus starts on the opening card");
         await tv.remote(10009);
-        await tv.page.locator(".marquee-spinner").waitFor({ state: "detached", timeout: 3000 });
-        assert.equal(await tv.page.evaluate(() => document.activeElement?.closest(".accounts-rail") !== null), true, "and stays there");
+        const onRail = (): Promise<boolean> => tv.page.evaluate(() => document.activeElement?.closest(".accounts-rail") !== null);
+        assert.equal(await onRail(), true, "Back returns focus to the rail");
+        assert.equal(await laura.locator(".marquee-spinner").count(), 1, "the card keeps spinning");
+        await tv.remote(10009);
+        assert.equal(await tv.page.locator('[data-view="change-account"]').count(), 1, "Back on the rail does not leave while an account opens");
         hold.release();
+        await tv.page.locator('[data-screen="profiles"]').waitFor({ timeout: 10000 });
+        const saved = await tv.page.evaluate(() => JSON.parse(window.appHarness.storage.getItem("silo.native.accounts.v1")!) as { accounts: { id: string; username: string }[]; selected?: string });
+        assert.equal(saved.accounts.find(row => row.id === saved.selected)?.username, "laura", "the saved selection is the account that opened");
+        assert.equal(saved.accounts[0]?.username, "laura");
     });
 });
 

@@ -7,7 +7,7 @@ import { FakeRequests } from "../native/support/fakeRequests.ts";
 import type { Reply } from "../native/support/fakeSilo.ts";
 import { PRIMARY_MENU_KEY, type PrimaryMenu } from "../../src/contracts/v2/navigation.ts";
 import { HIDDEN_KEY } from "../../src/contracts/v2/settings.ts";
-import { launchBrowser, openTv, homeDetailsRead, type Tv } from "./support/tv.ts";
+import { jumpUntil, launchBrowser, openTv, homeDetailsRead, type Tv } from "./support/tv.ts";
 
 let browser: Browser;
 before(async () => { browser = await launchBrowser(); });
@@ -263,8 +263,7 @@ test("For You retains cached recommendations after remount while unreachable", a
         await tv.page.evaluate(() => { window.browseHarness.destroy(); window.browseHarness.mount(); });
         await tv.page.locator('[data-focus="for_you"]').click();
         await tv.page.locator('[data-view="for_you"] .browse-card').first().waitFor();
-        await tv.jump(35000);
-        await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.cacheOffline("for_you")), "cached transport failure");
+        await jumpUntil(tv, 1000, () => tv.page.evaluate(() => window.browseHarness.cacheOffline("for_you")), "cached transport failure");
         assert.ok(await tv.page.locator('[data-view="for_you"] .browse-card').count() > 0);
         assert.ok(rejected > 0, "fresh mount attempted reads while unreachable");
         assert.doesNotMatch(await tv.page.locator(".browse").innerText(), /Can't reach server|showing cached content/);

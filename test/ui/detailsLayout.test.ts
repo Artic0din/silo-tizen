@@ -717,6 +717,18 @@ detailTest('Shuffle Series leads More, reports failure, and reuses shuffle playb
     assert.equal(await tv.page.evaluate(() => window.browseHarness.plays[0]?.shuffleId), 'series-shuffle');
 });
 
+detailTest('Shuffle Series starts a pick with saved progress from zero, like Apple TV', async tv => {
+    await tv.page.route('**/api/v2/shuffles/capabilities', route => route.fulfill({ json: { allowed: true, state: 'available', scope_kinds: ['series'] } }));
+    await tv.page.route('**/api/v2/shuffles', route => route.fulfill({ status: 201, json: { id: 'series-shuffle', current: { content_id: 'episode:s1e11' }, next: { content_id: 'episode:s1e12' } } }));
+    await tv.page.route('**/api/v2/watch/episode%3As1e11', route => route.fulfill({ json: { content_id: 'episode:s1e11', type: 'episode', title: 'Episode 11', season_number: 1, episode_number: 11, versions: [{ file_id: 'f11', duration_seconds: 3000 }], user_data: { played: false, position_seconds: 900, last_file_id: 'f11' } } }));
+    await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
+    await tv.page.locator('[data-focus="watchlist"]').waitFor();
+    await tv.page.locator('[data-focus="more"]').click();
+    await tv.page.getByRole('button', { name: 'Shuffle Series', exact: true }).click();
+    await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.plays.length === 1), 'shuffle playback dispatched');
+    assert.equal(await tv.page.evaluate(() => window.browseHarness.plays[0]?.startSeconds), 0);
+});
+
 for (const id of ['movie:m0001', 'series:s1']) detailTest(`${id} Start Over shares Apple's circle and symbol`, async tv => {
     if (id.startsWith('series')) {
         const catalog = tv.fake.catalog; assert.ok(catalog instanceof FakeDetails);

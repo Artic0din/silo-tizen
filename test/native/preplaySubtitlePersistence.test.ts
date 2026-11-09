@@ -175,7 +175,9 @@ test("effective subtitle seed follows Apple scoring and forced Off policy while 
     const raw = { ...fixture("get_catalog_item_ok"), effective_subtitle_mode: "always", effective_show_forced_subtitles: false, effective_subtitle_track_signature: { source: "embedded", language: "en", label: "Signs", forced: false, hearing_impaired: false }, versions: [{ file_id: "f", duration: 100, subtitle_tracks: [{ index: 97, language: "en", title: "English Signs", codec: "srt" }] }] };
     const detail = decodeItemDetail(raw);
     const state = new DetailsState(detail, r.session, () => undefined, async () => undefined);
-    assert.equal(state.subtitleIntent().kind, "track");
+    const seeded = state.subtitleIntent();
+    assert.equal(seeded.kind, "track");
+    assert.equal(seeded.kind === "track" && seeded.saved, true, "a saved preference is marked so an unplayable row falls back instead of ending in Off");
     state.selectSubtitle(undefined);
     const refreshed = new DetailsState(detail, r.session, () => undefined, async () => undefined);
     refreshed.restore(state);
@@ -195,7 +197,9 @@ test("external subtitle without a stream index stays on the visit and is not wri
     state.start("personal");
     state.selectSubtitle(0);
     await settle();
-    assert.equal(state.subtitleIntent().kind, "track");
+    const picked = state.subtitleIntent();
+    assert.equal(picked.kind, "track");
+    assert.equal(picked.kind === "track" && picked.saved, undefined, "a pick made on Details is explicit, not a saved preference");
     assert.equal(r.calls.filter(call => call.method !== "GET").length, 0);
     state.stop();
     r.owner.stop();

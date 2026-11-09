@@ -117,7 +117,8 @@ export class ProfileLaunch {
         const raw = JSON.stringify(choice);
         this.storage.setItem(key, raw);
         if (this.storage.getItem(key) !== raw) throw new Error("Device preference was not saved");
-        this.sessionChoice = undefined;
+        // A saved choice for one account must not drop another account's unsaved clear.
+        if (this.sessionChoice?.key === key) this.sessionChoice = undefined;
     }
 
     private invalidate(key: string): void {

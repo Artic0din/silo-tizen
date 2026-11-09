@@ -241,3 +241,71 @@ test("a failed cap read ranks by resolution alone and the next ensure retries", 
     assert.deepEqual([reads.length, cap.quality], [2, "1080p"]);
     cap.stop();
 });
+
+function gatedSession(): { session: NativeSession; reads: () => number; answer: (value: string | Error) => void } {
+    const waiting: ((value: string | Error) => void)[] = [];
+    let reads = 0;
+    const session = { onAuthorityChange: () => () => {}, call: <T>(request: RequestSpec<T>): Promise<T> => {
+        if (!request.path.includes("preferred_quality")) return Promise.reject(new Error(`unexpected read ${request.path}`));
+        reads++;
+        return new Promise<T>((resolve, reject) => waiting.push(value => value instanceof Error ? reject(value) : resolve(new Map([["playback.preferred_quality", { value }]]) as T)));
+    } } as unknown as NativeSession;
+    return { session, reads: () => reads, answer: value => waiting.shift()?.(value) };
+}
+
+test("ready retries a failed first read and resolves once it is answered", async () => {
+    const gate = gatedSession();
+    const cap = new ResolutionCap(gate.session, () => {});
+    cap.ensure();
+    gate.answer(new Error("unavailable"));
+    await settle();
+    assert.deepEqual([gate.reads(), cap.quality], [1, undefined]);
+    let ready = false;
+    const waited = cap.ready(new AbortController().signal).then(() => { ready = true; });
+    await settle();
+    assert.deepEqual([gate.reads(), ready], [2, false], "ready retries and waits for the new read");
+    gate.answer("1080p");
+    await waited;
+    assert.equal(cap.quality, "1080p");
+    cap.stop();
+});
+
+test("ready waits for a read already in flight instead of starting another", async () => {
+    const gate = gatedSession();
+    const cap = new ResolutionCap(gate.session, () => {});
+    cap.ensure();
+    let ready = false;
+    const waited = cap.ready(new AbortController().signal).then(() => { ready = true; });
+    await settle();
+    assert.deepEqual([gate.reads(), ready], [1, false]);
+    gate.answer("720p");
+    await waited;
+    assert.deepEqual([gate.reads(), cap.quality], [1, "720p"]);
+    cap.stop();
+});
+
+test("ready resolves with no cap when the read fails, and when the caller aborts", async () => {
+    const gate = gatedSession();
+    const cap = new ResolutionCap(gate.session, () => {});
+    const failed = cap.ready(new AbortController().signal);
+    gate.answer(new Error("unavailable"));
+    await failed;
+    assert.equal(cap.quality, undefined);
+    const controller = new AbortController();
+    const aborted = cap.ready(controller.signal);
+    controller.abort();
+    await aborted;
+    assert.equal(gate.reads(), 2);
+    cap.stop();
+});
+
+test("ready returns at once when the cap is already answered", async () => {
+    const gate = gatedSession();
+    const cap = new ResolutionCap(gate.session, () => {});
+    cap.ensure();
+    gate.answer("1080p");
+    await settle();
+    await cap.ready(new AbortController().signal);
+    assert.equal(gate.reads(), 1);
+    cap.stop();
+});

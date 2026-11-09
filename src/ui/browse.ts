@@ -1239,7 +1239,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             }
             case "resume":
                 load(current, async signal => {
-                    const detail = await read(operations.getCatalogItem(current.id), signal);
+                    const [detail] = await Promise.all([read(operations.getCatalogItem(current.id), signal), resolutionCap.ready(signal)]);
                     if (detail.id !== current.id || (detail.type !== "movie" && detail.type !== "episode") || (current.episode === true && detail.type !== "episode")) throw new ApiError({ kind: "invalid_response", path: "resume.item" });
                     const choices = playChoices(detail, current.selection?.fileId, resolutionCap.quality);
                     if (choices === undefined) return undefined;

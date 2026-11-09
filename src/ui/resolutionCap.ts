@@ -10,6 +10,7 @@ export class ResolutionCap {
     private value: string | undefined;
     private answered = false;
     private controller: AbortController | undefined;
+    private settling: Promise<void> | undefined;
     private readonly session: NativeSession;
     private readonly changed: () => void;
 
@@ -26,6 +27,20 @@ export class ResolutionCap {
         if (this.controller === undefined && !this.answered) this.load();
     }
 
+    /**
+     * Starts the read like ensure() and resolves when it settles, so a press that lands before the
+     * answer is capped like silo-apple's in-memory value. A failed read or an abort resolves too,
+     * leaving the caller to play uncapped; the read's own request timeout bounds the wait.
+     */
+    async ready(signal: AbortSignal): Promise<void> {
+        this.ensure();
+        if (this.settling === undefined || signal.aborted) return;
+        let onAbort = (): void => {};
+        const aborted = new Promise<void>(resolve => { onAbort = resolve; signal.addEventListener("abort", onAbort, { once: true }); });
+        await Promise.race([this.settling, aborted]);
+        signal.removeEventListener("abort", onAbort);
+    }
+
     /** Rereads after Settings, keeping the last answer until the new one lands. */
     reload(): void {
         this.load();
@@ -35,7 +50,7 @@ export class ResolutionCap {
         this.controller?.abort();
         const controller = new AbortController();
         this.controller = controller;
-        void this.session.call({ ...operations.effectiveSettings([QUALITY_KEY]), profileScoped: true, signal: controller.signal }).then(values => {
+        this.settling = this.session.call({ ...operations.effectiveSettings([QUALITY_KEY]), profileScoped: true, signal: controller.signal }).then(values => {
             if (this.controller !== controller) return;
             const quality = values.get(QUALITY_KEY)?.value;
             const next = typeof quality === "string" ? quality : undefined;
@@ -47,12 +62,13 @@ export class ResolutionCap {
             // A failed read keeps the last value but is not an answer, so the next ensure retries it.
             if (this.controller === controller) this.answered = false;
         }).finally(() => {
-            if (this.controller === controller) this.controller = undefined;
+            if (this.controller === controller) { this.controller = undefined; this.settling = undefined; }
         });
     }
 
     stop(): void {
         this.controller?.abort();
         this.controller = undefined;
+        this.settling = undefined;
     }
 }

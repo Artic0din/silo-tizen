@@ -13,7 +13,7 @@ import { signOutConfirmationCopy, signOutRemovesServer } from "./signOutConfirma
 
 export interface AccountsScreen { destroy(): void }
 export function mountAccounts(root: HTMLElement, core: SessionCoreDeps, current: ConnectedServer | undefined,
-    open: (account: SavedAccount | undefined, address?: string, signal?: AbortSignal) => Promise<void> | void, back: () => void, manage = false, onCurrentSignOut?: () => void): AccountsScreen {
+    open: (account: SavedAccount | undefined, address?: string, inPlace?: boolean) => Promise<void> | void, back: () => void, manage = false, onCurrentSignOut?: () => void): AccountsScreen {
     const container = el("section", "accounts-screen");
     const backdrop = new MarqueeBackdrop(core.clock ?? systemClock);
     // TVChangeAccountView does not write MarqueeScene. The stage stays wherever the previous
@@ -31,14 +31,14 @@ export function mountAccounts(root: HTMLElement, core: SessionCoreDeps, current:
     let destroyed = false;
     let removalPending = false;
     /** ChangeAccountModel.openingAccountId: the account being opened while Change Account stays up. */
-    let opening: { readonly id: string; readonly controller: AbortController } | undefined;
-    const destroy = (): void => { if (destroyed) return; destroyed = true; opening?.controller.abort(); host.destroy(); backdrop.destroy(); container.remove(); };
+    let opening: { readonly id: string } | undefined;
+    const destroy = (): void => { if (destroyed) return; destroyed = true; host.destroy(); backdrop.destroy(); container.remove(); };
     const go = (account: SavedAccount | undefined, address?: string): void => { if (opening !== undefined) return; destroy(); void open(account, address); };
-    // The card spins until the app replaces this screen; Back, or a switch that cannot open quietly, ends it.
+    // The card spins until the app replaces this screen or the switch cannot open quietly. Like Apple, nothing cancels it.
     const choose = (row: SavedAccount): void => {
         if (opening !== undefined) return;
         if (row.needsSignIn || row.id === current?.accounts.localAccountId) { go(row); return; }
-        const mine = { id: row.id, controller: new AbortController() };
+        const mine = { id: row.id };
         opening = mine;
         refresh();
         const settle = (failed: boolean): void => {
@@ -47,7 +47,7 @@ export function mountAccounts(root: HTMLElement, core: SessionCoreDeps, current:
             if (failed) showError("Could not open the account. Try again.");
             else refresh();
         };
-        void (async () => open(row, undefined, mine.controller.signal))().then(() => settle(false), () => settle(true));
+        void (async () => open(row, undefined, true))().then(() => settle(false), () => settle(true));
     };
     /** Redraws in place: focus stays in the column it was in. */
     const refresh = (): void => { const zone = host.focused()?.zone; render(zone === "servers", zone === "accounts"); };
@@ -213,8 +213,8 @@ export function mountAccounts(root: HTMLElement, core: SessionCoreDeps, current:
             zones: [{ id: "servers", layout: "column", right: "accounts", items: serverItems }, { id: "accounts", layout: "column", left: "servers", items: accounts }],
             focus: accounts.length === 0 ? { zone: "servers", key: "add-server" } : { zone: "accounts", key: accounts.find(row => row.key === current?.accounts.localAccountId)?.key ?? accounts[0]!.key },
             back: () => {
-                if (opening !== undefined) { opening.controller.abort(); opening = undefined; refresh(); return; }
                 if (host.focused()?.zone === "accounts") { render(true); return; }
+                if (opening !== undefined) return;
                 destroy(); back();
             } }, railFocus ? { zone: "servers", key: selected ?? "add-server" } : enterPane ? { zone: "accounts", key: paneEntry ?? accounts.find(row => row.key === current?.accounts.localAccountId)?.key ?? accounts[0]!.key } : undefined);
     }

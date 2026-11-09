@@ -132,16 +132,16 @@ export function mountApp(root: HTMLElement, options: AppOptions): SiloApp {
 
     // ChangeAccountModel.choose: a saved account that is not open yet opens while Change Account stays up and
     // spins on its card. One that cannot restore quietly (offline, expired, unreadable) goes to the sign-in screen.
-    const openFromAccounts = (account: SavedAccount | undefined, address?: string, signal?: AbortSignal): Promise<void> | void => {
+    const openFromAccounts = (account: SavedAccount | undefined, address?: string, inPlace?: boolean): Promise<void> | void => {
         const open = account !== undefined && connected?.session.signedIn === true && connected.accounts.localAccountId === account.id;
-        if (account !== undefined && signal !== undefined && !account.needsSignIn && !open && !hasLiveSession(account)) return restoreFromAccounts(account, signal);
+        if (account !== undefined && inPlace === true && !account.needsSignIn && !open && !hasLiveSession(account)) return restoreFromAccounts(account);
         openWithSignIn(account, address);
     };
 
-    const restoreFromAccounts = async (account: SavedAccount, signal: AbortSignal): Promise<void> => {
+    const restoreFromAccounts = async (account: SavedAccount): Promise<void> => {
         const screen = accounts;
-        const result = await connect(account.baseUrl, { ...activeCore, localAccountId: account.id }, signal).catch(() => undefined);
-        if (signal.aborted || accounts !== screen) return;
+        const result = await connect(account.baseUrl, { ...activeCore, localAccountId: account.id }).catch(() => undefined);
+        if (accounts !== screen) return;
         if (result?.status === "connected" && result.restore === "signed_in") {
             rememberServer(activeCore, result.server.http.base.baseUrl);
             stopContent();

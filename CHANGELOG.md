@@ -19,6 +19,10 @@ All notable changes to this project are documented in this file.
 - Added description translation on Details and the featured marquee, matching Apple TV's Translate Description action, Translating… status and Translated by AI label.
 - Added Change Account with several saved accounts per server and account management.
 
+### Changed
+
+- Change Account and Settings › Accounts now list the open server first, then servers and accounts by last use, as Apple TV does. Settings no longer shows "0 profiles", a card spins while its account opens, and SIGN IN AGAIN uses the warning colour with an open lock and a dimmed tile.
+
 ### Removed
 
 - Removed the custom kbps field and Save action from the Maximum Bitrate picker. A stored cap outside the preset list still appears in that list.

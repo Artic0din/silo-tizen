@@ -1,4 +1,4 @@
-import { AccountDirectory, type SavedAccount } from "../session/accounts.ts";
+import { AccountDirectory, accountsByRecentUse, profileCountLabel, serversByRecentUse, type SavedAccount } from "../session/accounts.ts";
 import type { ConnectedServer, SessionCoreDeps } from "../session/core.ts";
 import { signOutSavedAccount } from "../session/core.ts";
 import { FocusHost, type FocusItem } from "./browseFocus.ts";
@@ -6,13 +6,14 @@ import { actionButton } from "./browseViews.ts";
 import { MarqueeBackdrop, marqueeScene } from "./marqueeBackdrop.ts";
 import { systemClock } from "../api/clock.ts";
 import { el } from "./screen.ts";
+import { spinner } from "./marquee.ts";
 import { cachedBranding } from "./brandingCache.ts";
 import { navigationIcon } from "./navigationIcon.ts";
 import { signOutConfirmationCopy, signOutRemovesServer } from "./signOutConfirmation.ts";
 
 export interface AccountsScreen { destroy(): void }
 export function mountAccounts(root: HTMLElement, core: SessionCoreDeps, current: ConnectedServer | undefined,
-    open: (account: SavedAccount | undefined, address?: string) => void, back: () => void, manage = false, onCurrentSignOut?: () => void): AccountsScreen {
+    open: (account: SavedAccount | undefined, address?: string, signal?: AbortSignal) => Promise<void> | void, back: () => void, manage = false, onCurrentSignOut?: () => void): AccountsScreen {
     const container = el("section", "accounts-screen");
     const backdrop = new MarqueeBackdrop(core.clock ?? systemClock);
     // TVChangeAccountView does not write MarqueeScene. The stage stays wherever the previous
@@ -24,12 +25,28 @@ export function mountAccounts(root: HTMLElement, core: SessionCoreDeps, current:
     root.append(container);
     const host = new FocusHost(container);
     const directory = current?.accounts.directory ?? new AccountDirectory(core.publicStorage, core.randomBytes);
-    let selected = current?.server.http.base.baseUrl ?? directory.list()[0]?.baseUrl;
+    const activeAddress = current?.server.http.base.baseUrl;
+    let selected = activeAddress;
     let paneEntry: string | undefined;
     let destroyed = false;
     let removalPending = false;
-    const destroy = (): void => { destroyed = true; host.destroy(); backdrop.destroy(); container.remove(); };
-    const go = (account: SavedAccount | undefined, address?: string): void => { destroy(); open(account, address); };
+    /** ChangeAccountModel.openingAccountId: the account being opened while Change Account stays up. */
+    let opening: { readonly id: string; readonly controller: AbortController } | undefined;
+    const destroy = (): void => { if (destroyed) return; destroyed = true; opening?.controller.abort(); host.destroy(); backdrop.destroy(); container.remove(); };
+    const go = (account: SavedAccount | undefined, address?: string): void => { if (opening !== undefined) return; destroy(); void open(account, address); };
+    // The card spins until the app replaces this screen; Back, or a switch that cannot open quietly, ends it.
+    const choose = (row: SavedAccount): void => {
+        if (opening !== undefined) return;
+        if (row.needsSignIn || row.id === current?.accounts.localAccountId) { go(row); return; }
+        const mine = { id: row.id, controller: new AbortController() };
+        opening = mine;
+        render(false, true);
+        void Promise.resolve(open(row, undefined, mine.controller.signal)).finally(() => {
+            if (destroyed || opening !== mine) return;
+            opening = undefined;
+            render(false, true);
+        });
+    };
     const showError = (message: string): void => {
         const retry = actionButton("retry", "Back", render);
         host.show({ name: "accounts-error", content: [el("h1", "accounts-title", message), retry.element], zones: [{ id: "error", layout: "column", items: [retry] }], focus: { zone: "error", key: "retry" }, back: render });
@@ -105,7 +122,8 @@ export function mountAccounts(root: HTMLElement, core: SessionCoreDeps, current:
     };
     function render(railFocus = false, enterPane = false, focusFirst = false): void {
         if (removalPending) return;
-        const rows = directory.list();
+        const rows = accountsByRecentUse(directory.list());
+        const addresses = serversByRecentUse(rows, activeAddress);
         if (manage) {
             const panel = el("div", "accounts-settings");
             const header = el("header", "accounts-settings-header");
@@ -129,11 +147,11 @@ export function mountAccounts(root: HTMLElement, core: SessionCoreDeps, current:
                 }
                 return item;
             };
-            for (const address of [...new Set(rows.map(row => row.baseUrl))]) {
+            for (const address of addresses) {
                 const serverName = cachedBranding(core.publicStorage, address)?.serverName ?? new URL(address).host;
                 panel.append(el("h2", "accounts-section-header", serverName.toUpperCase()));
                 for (const row of rows.filter(row => row.baseUrl === address)) {
-                    const detail = row.needsSignIn ? "Sign in again" : `${row.profileCount} ${row.profileCount === 1 ? "profile" : "profiles"}`;
+                    const detail = row.needsSignIn ? "Sign in again" : profileCountLabel(row.profileCount);
                     const item = paneRow(row.id, row.username, () => row.needsSignIn ? expired(row) : confirm([row], false), detail);
                     controls.push(item); panel.append(item.element);
                 }
@@ -148,7 +166,6 @@ export function mountAccounts(root: HTMLElement, core: SessionCoreDeps, current:
             host.show({ name: "accounts-settings", content: [panel], zones: [{ id: "rows", layout: "column", items: controls }], focus: entry, back: () => { destroy(); back(); } }, focusFirst ? entry : undefined);
             return;
         }
-        const addresses = [...new Set(rows.map(row => row.baseUrl))];
         if (!addresses.includes(selected ?? "")) selected = addresses[0];
         const rail = el("div", "accounts-rail");
         const pane = el("div", "accounts-pane");
@@ -166,14 +183,16 @@ export function mountAccounts(root: HTMLElement, core: SessionCoreDeps, current:
         addServer.element.prepend(plus);
         serverItems.push(addServer);
         const accounts: FocusItem[] = rows.filter(row => row.baseUrl === selected).map(row => {
-            const item = actionButton(row.id, "", () => manage ? confirm([row], false) : go(row));
+            const item = actionButton(row.id, "", () => choose(row));
             item.element.classList.add("account-card");
-            item.element.append(el("span", "account-initial", row.username.slice(0, 1).toUpperCase()),
-                el("span", "account-name", row.username));
+            const tile = el("span", row.needsSignIn ? "account-initial account-initial-dim" : "account-initial", row.username.slice(0, 1).toUpperCase());
+            item.element.append(tile, el("span", "account-name", row.username));
             const name = item.element.lastElementChild!;
-            if (row.profileCount > 0) name.append(el("span", "account-count", `${row.profileCount} ${row.profileCount === 1 ? "profile" : "profiles"}`));
-            const badge = row.needsSignIn ? "SIGN IN AGAIN" : row.id === current?.accounts.localAccountId ? "CURRENT" : undefined;
-            if (badge) item.element.append(el("span", "account-badge", badge));
+            const count = profileCountLabel(row.profileCount);
+            if (count !== undefined) name.append(el("span", "account-count", count));
+            if (opening?.id === row.id) { item.element.append(spinner()); item.element.setAttribute("aria-busy", "true"); }
+            else if (row.needsSignIn) item.element.append(accountBadge("SIGN IN AGAIN", true));
+            else if (row.id === current?.accounts.localAccountId) item.element.append(accountBadge("CURRENT", false));
             return item;
         });
         const addAccount = actionButton("add-account", "", () => go(undefined, selected));
@@ -183,7 +202,6 @@ export function mountAccounts(root: HTMLElement, core: SessionCoreDeps, current:
         addAccount.element.append(el("span", "account-initial", "+"), name);
         if (selected) accounts.push(addAccount);
         for (const item of accounts) item.element.addEventListener("focus", () => { paneEntry = item.key; });
-        if (manage && selected) accounts.push(actionButton("remove-server", "Remove Server", () => confirm(rows.filter(row => row.baseUrl === selected), true)));
         rail.append(...serverItems.map(item => item.element)); pane.append(...accounts.map(item => item.element));
         const columns = el("div", "accounts-columns"); columns.append(rail, pane);
         const mark = el("img", "accounts-wordmark"); mark.src = "img/silo-wordmark.png"; mark.alt = "Silo";
@@ -191,6 +209,7 @@ export function mountAccounts(root: HTMLElement, core: SessionCoreDeps, current:
             zones: [{ id: "servers", layout: "column", right: "accounts", items: serverItems }, { id: "accounts", layout: "column", left: "servers", items: accounts }],
             focus: accounts.length === 0 ? { zone: "servers", key: "add-server" } : { zone: "accounts", key: accounts.find(row => row.key === current?.accounts.localAccountId)?.key ?? accounts[0]!.key },
             back: () => {
+                if (opening !== undefined) { opening.controller.abort(); opening = undefined; render(false, true); return; }
                 if (host.focused()?.zone === "accounts") { render(true); return; }
                 destroy(); back();
             } }, railFocus ? { zone: "servers", key: selected ?? "add-server" } : enterPane ? { zone: "accounts", key: paneEntry ?? accounts.find(row => row.key === current?.accounts.localAccountId)?.key ?? accounts[0]!.key } : undefined);
@@ -203,4 +222,27 @@ export function mountAccounts(root: HTMLElement, core: SessionCoreDeps, current:
     }
     host.listen(); render();
     return { destroy };
+}
+
+/** TVChangeAccountBadge: CURRENT, or SIGN IN AGAIN in the warning colour with the open lock. */
+function accountBadge(text: string, warning: boolean): HTMLElement {
+    const badge = el("span", warning ? "account-badge account-badge-warning" : "account-badge");
+    if (warning) {
+        const lock = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        lock.setAttribute("viewBox", "0 0 24 24");
+        lock.setAttribute("aria-hidden", "true");
+        const shackle = document.createElementNS(lock.namespaceURI, "path");
+        shackle.setAttribute("d", "M8 11V7a4 4 0 0 1 7.6-1.7");
+        shackle.setAttribute("fill", "none");
+        shackle.setAttribute("stroke", "currentColor");
+        shackle.setAttribute("stroke-width", "3");
+        shackle.setAttribute("stroke-linecap", "round");
+        const body = document.createElementNS(lock.namespaceURI, "path");
+        body.setAttribute("d", "M5 10.5h14a1.5 1.5 0 0 1 1.5 1.5v8a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 20v-8A1.5 1.5 0 0 1 5 10.5Z");
+        body.setAttribute("fill", "currentColor");
+        lock.append(shackle, body);
+        badge.append(lock);
+    }
+    badge.append(text);
+    return badge;
 }

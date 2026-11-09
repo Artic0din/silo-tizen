@@ -5,7 +5,7 @@ import type { RequestSpec } from "../api/http.ts";
 import { detailOperations, type PersonalAction } from "../api/detailOperations.ts";
 import { operations } from "../api/operations.ts";
 import type { Card, ItemDetail, LocalExtra } from "../contracts/v2/catalog.ts";
-import { QUALITY_KEY, TITLE_ART_KEY } from "../contracts/v2/settings.ts";
+import { TITLE_ART_KEY } from "../contracts/v2/settings.ts";
 import { playChoices, type PlayRequest } from "./browseModel.ts";
 import type { Clock } from "../api/clock.ts";
 import type { NativeSession } from "../session/session.ts";
@@ -35,8 +35,8 @@ const EPISODE_FOCUS_DWELL_MS = 120;
 export class DetailsState {
     readonly trailers: TrailerFetch;
     showAdvisoryAge = false;
-    /** The stored resolution cap that ranks versions; episode states inherit the series' value. */
-    preferredQuality: string | undefined;
+    /** The stored resolution cap that ranks versions, read from the profile's cache so the first paint is already ranked. */
+    get preferredQuality(): string | undefined { return this.quality(); }
     readonly descriptions: ItemDescriptionTranslation | undefined;
     readonly audioPreference: PreplayAudioPreference;
     readonly subtitlePreference: PreplayTrackPreference<SubtitlePreferencePick, SubtitlePreference>;
@@ -105,9 +105,11 @@ export class DetailsState {
     private readonly changed: (returnKey?: string) => void;
     private readonly watchedChanged: (detail: ItemDetail, signal: AbortSignal) => Promise<void>;
     private readonly pendingElsewhere: () => boolean;
+    private readonly quality: () => string | undefined;
 
-    constructor(detail: ItemDetail, session: NativeSession, changed: (returnKey?: string) => void, watchedChanged: (detail: ItemDetail, signal: AbortSignal) => Promise<void>, pendingElsewhere: () => boolean = () => false, translations?: DescriptionTranslations) {
+    constructor(detail: ItemDetail, session: NativeSession, changed: (returnKey?: string) => void, watchedChanged: (detail: ItemDetail, signal: AbortSignal) => Promise<void>, pendingElsewhere: () => boolean = () => false, translations?: DescriptionTranslations, quality: () => string | undefined = () => undefined) {
         this.detail = detail;
+        this.quality = quality;
         this.session = session;
         this.trailers = new TrailerFetch(
             signal => session.call({ ...detailOperations.refreshTrailers(detail.id), profileScoped: true, replayAfterRefresh: false, signal }),
@@ -229,13 +231,6 @@ export class DetailsState {
             this.showAdvisoryAge = values.get(ADVISORY_KEY)?.value === true;
             this.changed();
         }, () => { /* Missing advisory preferences keep the optional badge hidden. */ });
-        void this.read(operations.effectiveSettings([QUALITY_KEY]), controller).then(values => {
-            if (!this.current(controller)) return;
-            const quality = values.get(QUALITY_KEY)?.value;
-            this.preferredQuality = typeof quality === "string" ? quality : undefined;
-            for (const state of this.episodeStates.values()) state.preferredQuality = this.preferredQuality;
-            this.changed();
-        }, () => { /* Without a stored cap versions rank by resolution alone. */ });
         if (this.detail.type !== "series") return;
         void this.read(operations.shuffleCapabilities(), controller).then(capability => {
             if (!this.current(controller)) return;
@@ -649,8 +644,7 @@ export class DetailsState {
         this.nextEpisodeState = id === undefined ? undefined : this.episodeStates.get(id);
         const previous = id === undefined || this.episodeRefusals.has(id) ? undefined : this.previousEpisodeStates.get(id) ?? (this.previousNextEpisodeState?.detail.id === id ? this.previousNextEpisodeState : undefined);
         if (id !== undefined && this.nextEpisodeState === undefined && previous !== undefined && !previous.audioPreference.pending && !previous.audioPreference.failed && !previous.subtitlePreference.pending && !previous.subtitlePreference.failed && this.controller !== undefined) {
-            const state = new DetailsState(previous.detail, this.session, key => this.episodePreferenceChanged(state, key), this.watchedChanged, this.pendingElsewhere);
-            state.preferredQuality = this.preferredQuality;
+            const state = new DetailsState(previous.detail, this.session, key => this.episodePreferenceChanged(state, key), this.watchedChanged, this.pendingElsewhere, undefined, this.quality);
             state.restore(previous);
             this.episodeStates.set(id, state);
             state.start("playback");
@@ -686,8 +680,7 @@ export class DetailsState {
                 if (!current()) return;
                 if (detail.id !== id || detail.type !== "episode") throw new ApiError({ kind: "invalid_response", path: "nextEpisode.item" });
                 this.episodeRefusals.delete(id);
-                const state = new DetailsState(detail, this.session, key => this.episodePreferenceChanged(state, key), this.watchedChanged, this.pendingElsewhere);
-                state.preferredQuality = this.preferredQuality;
+                const state = new DetailsState(detail, this.session, key => this.episodePreferenceChanged(state, key), this.watchedChanged, this.pendingElsewhere, undefined, this.quality);
                 // The fallback already on screen can hold this visit's version, audio, or subtitles.
                 const active = this.episodeStates.get(id);
                 const retained = active ?? this.previousEpisodeStates.get(id) ?? (this.previousNextEpisodeState?.detail.id === id ? this.previousNextEpisodeState : undefined);

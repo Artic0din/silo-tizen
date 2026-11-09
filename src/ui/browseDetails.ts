@@ -477,8 +477,8 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
         return detailPanel(view, state, "Audio", options);
     }
     if (state?.panel === "version") {
-        const options = [undefined, ...playbackDetail.versions].map((version, index) => {
-            const item = actionButton(`version:${version?.fileId ?? "auto"}`, version?.label || (version === undefined ? "Auto" : `Version ${index}`), () => { tracks?.select(version?.fileId); state.closePanel(); });
+        const options = [undefined, ...playbackDetail.versions].map(version => {
+            const item = actionButton(`version:${version?.fileId ?? "auto"}`, version?.label || "Auto", () => { tracks?.select(version?.fileId); state.closePanel(); });
             if (version?.detailLabel) item.element.append(el("small", "details-option-subtext", version.detailLabel));
             item.element.setAttribute("role", "radio");
             item.element.setAttribute("aria-checked", String(version?.fileId === tracks?.selectedFileId));

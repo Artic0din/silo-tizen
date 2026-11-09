@@ -4,6 +4,7 @@ import { decodeItemDetail } from "../../src/contracts/v2/catalog.ts";
 import { compactVersionLabel, displayVersion, versionLabel, type RankedVersion } from "../../src/contracts/v2/versions.ts";
 import { playChoices } from "../../src/ui/browseModel.ts";
 import { DetailsState } from "../../src/ui/detailsState.ts";
+import { ResolutionCap } from "../../src/ui/resolutionCap.ts";
 import { fixture } from "./support/fakeSilo.ts";
 import { settle } from "./support/clock.ts";
 import type { NativeSession } from "../../src/session/session.ts";
@@ -148,21 +149,74 @@ test("a last-played file that is no longer listed falls back to the ranking", ()
     assert.equal(playChoices(detail)?.fromStart.fileId, "uhd");
 });
 
-test("Details ranks versions with the resolution cap stored for the profile", async () => {
-    const detail = detailWith([
-        { file_id: "uhd", duration: 7200, resolution: "2160p" },
-        { file_id: "hd", duration: 7200, resolution: "1080p" },
-    ]);
-    const session = { onAuthorityChange: () => () => {}, call: async <T>(request: RequestSpec<T>): Promise<T> => {
-        if (request.path.startsWith("/settings/values/effective") && request.path.includes("preferred_quality")) return new Map([["playback.preferred_quality", { value: "1080p-high" }]]) as T;
+function sessionWith(quality: { value: string | undefined; fail?: boolean }, reads: string[]): NativeSession {
+    return { onAuthorityChange: () => () => {}, call: async <T>(request: RequestSpec<T>): Promise<T> => {
+        if (request.path.startsWith("/settings/values/effective") && request.path.includes("preferred_quality")) {
+            reads.push(request.path);
+            if (quality.fail === true) throw new Error("unavailable");
+            return new Map(quality.value === undefined ? [] : [["playback.preferred_quality", { value: quality.value }]]) as T;
+        }
         throw new Error(`unexpected read ${request.path}`);
     } } as unknown as NativeSession;
-    const state = new DetailsState(detail, session, () => {}, async () => {});
-    assert.equal(playChoices(state.detail, undefined, state.preferredQuality)?.fromStart.fileId, "uhd");
+}
+
+const cappable = (): ReturnType<typeof decodeItemDetail> => detailWith([
+    { file_id: "uhd", duration: 7200, resolution: "2160p" },
+    { file_id: "hd", duration: 7200, resolution: "1080p" },
+]);
+
+test("Details ranks with the cached cap on first paint and sends no cap request of its own", async () => {
+    const reads: string[] = [];
+    const session = sessionWith({ value: "1080p" }, reads);
+    const cap = new ResolutionCap(session, () => {});
+    cap.ensure();
+    await settle();
+    assert.equal(reads.length, 1);
+    const state = new DetailsState(cappable(), session, () => {}, async () => {}, undefined, undefined, () => cap.quality);
+    assert.equal(playChoices(state.detail, undefined, state.preferredQuality)?.fromStart.fileId, "hd", "ranked before start");
     state.start();
     await settle();
     try {
-        assert.equal(state.preferredQuality, "1080p-high");
         assert.equal(playChoices(state.detail, undefined, state.preferredQuality)?.fromStart.fileId, "hd");
-    } finally { state.stop(); }
+        assert.equal(reads.length, 1, "Details read nothing for the cap");
+    } finally { state.stop(); cap.stop(); }
+});
+
+test("a Resolution change reloads the cache and ranks the next Details", async () => {
+    const reads: string[] = [];
+    const quality: { value: string | undefined } = { value: "1080p" };
+    let repaints = 0;
+    const session = sessionWith(quality, reads);
+    const cap = new ResolutionCap(session, () => repaints++);
+    cap.ensure();
+    cap.ensure();
+    await settle();
+    assert.deepEqual([reads.length, repaints, cap.quality], [1, 1, "1080p"], "concurrent ensure reads once");
+    cap.ensure();
+    await settle();
+    assert.equal(reads.length, 1, "an answered cache never rereads on its own");
+    const first = new DetailsState(cappable(), session, () => {}, async () => {}, undefined, undefined, () => cap.quality);
+    assert.equal(playChoices(first.detail, undefined, first.preferredQuality)?.fromStart.fileId, "hd");
+    quality.value = "auto";
+    cap.reload();
+    await settle();
+    assert.deepEqual([reads.length, repaints, cap.quality], [2, 2, "auto"]);
+    const next = new DetailsState(cappable(), session, () => {}, async () => {}, undefined, undefined, () => cap.quality);
+    assert.equal(playChoices(next.detail, undefined, next.preferredQuality)?.fromStart.fileId, "uhd");
+    assert.equal(playChoices(first.detail, undefined, first.preferredQuality)?.fromStart.fileId, "uhd", "a Details kept in the stack follows the current cap");
+    cap.stop();
+});
+
+test("a failed cap read ranks by resolution alone and the next ensure retries", async () => {
+    const reads: string[] = [];
+    const quality: { value: string | undefined; fail: boolean } = { value: "1080p", fail: true };
+    const cap = new ResolutionCap(sessionWith(quality, reads), () => {});
+    cap.ensure();
+    await settle();
+    assert.deepEqual([reads.length, cap.quality], [1, undefined]);
+    quality.fail = false;
+    cap.ensure();
+    await settle();
+    assert.deepEqual([reads.length, cap.quality], [2, "1080p"]);
+    cap.stop();
 });

@@ -156,7 +156,7 @@ test("a saved account that is not open yet opens from Change Account and ends at
 });
 
 test("cancelling an open leaves focus where the viewer moved it", async () => {
-    await withSignedInTv(async tv => {
+    await withSignedInTv(browser, async tv => {
         await seedAccounts(tv, 9, [{ id: "cold", baseUrl: ACTIVE, username: "cold", profileCount: 1, needsSignIn: false, lastUsedAt: 1 }]);
         await openChangeAccount(tv);
         const hold = tv.fake.hold("/system/info");

@@ -48,5 +48,7 @@ test("the automatic and initial pick never choose a track the plan flags unplaya
     assert.equal(initialSubtitle({ kind: "auto" }, [brokenForced, track], { ...prefs, audioLanguage: "en" }), undefined, "a forced pick skips it");
     assert.equal(initialSubtitle({ kind: "auto" }, [broken, track], { ...prefs, mode: "always", signature: broken }), track.trackId, "a saved signature never lands on it");
     assert.equal(initialSubtitle({ kind: "auto" }, [{ ...track, unplayable: false }], prefs), track.trackId, "an explicit false stays pickable");
-    assert.throws(() => initialSubtitle({ kind: "track", signature: broken }, [broken]), "a chosen unplayable track is no longer available");
+    const french = { ...broken, language: "fr", label: "French" };
+    assert.equal(initialSubtitle({ kind: "track", signature: french }, [french, track]), undefined, "a chosen unplayable track starts with subtitles off, as Apple does");
+    assert.throws(() => initialSubtitle({ kind: "track", signature: french }, [track]), "a chosen track missing from the plan is still an error");
 });

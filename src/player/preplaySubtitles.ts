@@ -46,14 +46,15 @@ function preferred(tracks: readonly SubtitleTrack[], wanted: string | undefined,
 }
 
 /** Only identities published by this plan may leave this resolver. */
-export function initialSubtitle(intent: SubtitleIntent, plannedInventory: readonly SubtitleTrack[], preferences?: SubtitlePreferences): string | undefined {
+export function initialSubtitle(intent: SubtitleIntent, tracks: readonly SubtitleTrack[], preferences?: SubtitlePreferences): string | undefined {
     if (intent.kind === "off") return undefined;
-    const inventory = plannedInventory.filter(track => track.unplayable !== true);
     if (intent.kind === "track") {
-        const matches = inventory.filter(track => matchesSubtitle(track, intent.signature));
+        const matches = tracks.filter(track => matchesSubtitle(track, intent.signature));
         if (matches.length !== 1) throw new Error("Selected subtitles are no longer uniquely available.");
-        return matches[0]?.trackId;
+        // Apple plays on without subtitles when the chosen row cannot be shown.
+        return matches[0] !== undefined && matches[0].unplayable !== true ? matches[0].trackId : undefined;
     }
+    const inventory = tracks.filter(track => track.unplayable !== true);
     if (preferences === undefined) throw new Error("Subtitle preferences are unavailable.");
     const forced = (): string | undefined => preferences.showForced ? preferred(inventory.filter(track => track.forced), preferences.audioLanguage)?.trackId : undefined;
     if (preferences.mode === "off") return forced();

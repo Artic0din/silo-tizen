@@ -1902,3 +1902,23 @@ test("playable choices and Off stay usable beside an unplayable track", async ()
     assert.equal(only(replans(r.h)).operation, "track_change");
     r.controller.destroy();
 });
+
+test("Details subtitle intent naming an unplayable track starts with subtitles off instead of failing", async () => {
+    const r = await rig();
+    withUnplayable(r, 1);
+    const plan = decodePlaybackDecision(fixture("playback_start_opaque_ids"));
+    assert.ok(plan.outcome === "playable");
+    const track = plan.plan.subtitle.inventory[1];
+    assert.ok(track);
+    const request = { ...MOVIE, audioTrackId: "file:42:audio:1", subtitle: { kind: "track" as const, signature: { source: track.source, language: track.language, codec: track.codec, label: track.label, forced: track.forced, hearingImpaired: track.hearingImpaired } } };
+    try {
+        r.controller.play(request);
+        await settle(r);
+        r.avplay.finishPrepare();
+        await settle(r);
+        const view = last(r.views);
+        assert.ok(view.phase !== "error", "playback is not ended");
+        assert.equal(r.avplay.calls.filter(call => call.startsWith("open")).length, 1);
+        assert.equal(replans(r.h).some(body => "subtitle" in (body.selected_tracks as object)), false, "no replan names the unplayable track");
+    } finally { r.controller.destroy(); }
+});

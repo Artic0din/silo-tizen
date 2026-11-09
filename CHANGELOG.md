@@ -27,7 +27,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
-- Listed a subtitle the server marks unplayable as dimmed with Unsupported format and made Select on it do nothing, so picking it no longer ends playback. Automatic and saved subtitle picks skip it too.
+- Listed a subtitle the server marks unplayable as dimmed with Unsupported format and made Select on it do nothing, so picking it no longer ends playback. Automatic and saved subtitle picks skip it, and a Details choice of one starts with subtitles off.
 - Moved the Series Details episode rail 40px left when its loaded window includes the series' first season. A later season whose earlier pages are not loaded keeps the previous position, and reopening Details starts from that season's neighbor window.
 - Asked before signing out from Who's watching, while profiles load, and when profiles fail to load. Cancel stays focused, and Cancel or Back returns to Sign out.
 - Choosing another account opens its only profile when that profile has no PIN. An expired sign-in shows "You were signed out of {server}. Sign in again." with the username filled in, or Change Account when another account is still signed in.

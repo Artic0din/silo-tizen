@@ -42,7 +42,7 @@ import { nextShuffle } from "./nextShuffle.ts";
 import { SubtitleAI, type SubtitleAIView } from "./subtitleAI.ts";
 import { type AppearanceMember } from "./subtitleAppearance.ts";
 import { SubtitleDisplay, type SubtitleDisplayView } from "./subtitleDisplay.ts";
-import { SubtitleSearch, type SubtitleSearchView } from "./subtitleSearch.ts";
+import { STORED, SubtitleSearch, type SubtitleSearchView } from "./subtitleSearch.ts";
 const SKIP_UNDO_MILLISECONDS = 5000;
 import { DEFAULT_APPEARANCE, decodeCues, type SubtitleAppearance, type SubtitleCue } from "../contracts/v2/subtitles.ts";
 import type { CatalogSubtitleTrack, SubtitleIntent, SubtitlePreferences } from "../contracts/v2/preplaySubtitles.ts";
@@ -1873,6 +1873,7 @@ export class PlaybackController implements PlayerControls {
             attempt.pendingAIResult = undefined;
             const track = plan.subtitle.inventory.find(track => track.syncKey === `stored-${resultId}`);
             if (track === undefined) attempt.ai?.notice("The completed subtitle is not in the refreshed inventory. Playback continues; try selecting it later.");
+            else if (track.unplayable === true) attempt.ai?.notice(STORED);
             else this.selectSubtitle(track.trackId);
         }
         if (attempt.pendingDownloadId !== undefined) {

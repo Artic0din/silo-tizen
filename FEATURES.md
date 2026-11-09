@@ -143,7 +143,7 @@ File pointers are repository-relative.
 | In-player quality picker | ✅ | ✅ | ✅ | Options come from the server plan |
 | Seek preview, Rewind/Fast Forward keys, profile seek intervals | ✅ | ✅ | ✅ | Player panel and scrubber parity open (#103). Android: `TvPlayerScrubber`, `TvHoldSeekIndicator` |
 | Seek thumbnails | ✅ | ✅ | ✅ | Needs server trickplay. Apple: `ServerTrickplay`. Android: `TrickplayPreviews` |
-| Skip intro, recap, credits | ✅ | ✅ | ✅ | Pill wording, timing, position and undo follow Apple's `IntroSkipPrompt`, `TVIntroSkipPill` and `segmentSkipLayer` (#354); the Watch Intro countdown does not freeze on pause. On-screen buttons to remove (#87). Android: `TvIntroAutoSkipBanner` |
+| Skip intro, recap, credits | ✅ | ✅ | ✅ | Pill wording, timing, position and undo follow Apple's `IntroSkipPrompt`, `TVIntroSkipPill` and `segmentSkipLayer` (#354); Watch Intro shares Skip Intro's timer, and the pills stay enabled over the options panel and a seek preview, disabled only during a timeline scrub (#358). On-screen buttons to remove (#87). Android: `TvIntroAutoSkipBanner` |
 | Autoplay next episode (10 s countdown, Cancel) | ✅ | ✅ | ✅ | Reads the server setting. Stale after the episode ends (#82) |
 | Up Next panel before the episode ends (Play Now, Keep Watching) | ➖ | ✅ | ✅ | Tizen offers Play next only after the episode ends. Apple: `PlayerView`, with a Show Next Up time setting. Android: `TvPlayerScreen` |
 | Retry after playback fails to start | ✅ | ✅ | ✅ | A retryable first start (network, server, retryable terminal, or a route recovery that ran out of attempts) focuses Retry and replays that request at the same position. Go Back stays available. Apple: `PlayerViewModel.retry()`. Android: `TvPlayerScreen` |

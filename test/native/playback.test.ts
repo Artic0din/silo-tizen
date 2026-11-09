@@ -408,11 +408,33 @@ test("automatic skip undo starts after a six-second reanchor preparation", async
     view = last(r.views);
     assert.ok(view.phase === "playing");
     assert.equal(view.undoSkipSeconds, 20);
-    await r.h.clock.advance(1);
+    // The player screen's skip timer owns the five seconds, as Apple's IntroSkipPrompt does; the controller holds the offer.
+    await r.h.clock.advance(60000);
     r.avplay.tick(62000);
     view = last(r.views);
     assert.ok(view.phase === "playing");
-    assert.equal(view.undoSkipSeconds, undefined);
+    assert.equal(view.undoSkipSeconds, 20);
+    r.controller.destroy();
+});
+
+test("an automatic intro skip offers Watch Intro as the skip is issued, so the seek counts against its five seconds", async () => {
+    const r = await rig();
+    const settings = new FakeSettings(r.h.fake);
+    settings.remainingRows = true;
+    settings.profile().set("playback.intro_skip_mode", "always");
+    r.h.fake.scripted.set("/markers/files/42", [{ status: 200, body: { file_id: "42", marker_segments: [
+        { kind: "intro", start_seconds: 20, end_seconds: 60 },
+    ] } }]);
+    await playMovie(r);
+    r.avplay.tick(20000);
+    assert.equal(r.avplay.calls.at(-1), "seekTo 60000");
+    let view = last(r.views);
+    assert.ok(view.phase === "playing");
+    assert.equal(view.undoSkipSeconds, 20, "offered while the seek is still in flight");
+    r.avplay.finishSeek();
+    view = last(r.views);
+    assert.ok(view.phase === "playing");
+    assert.equal(view.undoSkipSeconds, 20);
     r.controller.destroy();
 });
 

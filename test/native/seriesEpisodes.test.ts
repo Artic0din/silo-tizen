@@ -301,6 +301,24 @@ test("Left at the first loaded card asks again for a previous season whose autom
     assert.equal(ids[ids.indexOf("rail:5:0") - 1], "rail:4:13", "the aborted season joins the rail so focus can move on");
 });
 
+test("Left inside an already-loaded previous season sends no new read", async t => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const h = await episodeRailHarness(); t.after(() => h.state.stop());
+    const holds = [4, 5, 6].map(season => h.fake.hold(operations.listSeasonEpisodes("series:s1", season).path, true));
+    for (const season of [4, 5, 6, 7]) { h.state.focusSeason(season); t.mock.timers.tick(80); await h.settle(); }
+    for (const hold of holds) hold.release();
+    h.state.select(7); await h.settle();
+    h.state.blurSeason();
+    h.state.focus("rail:7:0"); t.mock.timers.tick(1500); await h.settle();
+    assert.equal(h.reads().at(-1), operations.listSeasonEpisodes("series:s1", 6).path, "the aborted season is read once at the edge");
+    const reads = h.reads().length;
+    for (let index = 13; index >= 1; index--) {
+        h.state.focus(`rail:6:${index}`); t.mock.timers.tick(1500); await h.settle();
+        assert.equal(h.state.seasonNumber, 6);
+        assert.equal(h.reads().length, reads, `moving to card ${index} of the loaded season never reads`);
+    }
+});
+
 test("rail boundaries cannot retry a failed automatic pill read", async t => {
     t.mock.timers.enable({ apis: ["setTimeout"] });
     const h = await episodeRailHarness(4); t.after(() => h.state.stop());

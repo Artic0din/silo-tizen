@@ -4,7 +4,9 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import type { Browser, Page } from "playwright";
+import { FakeCalendar } from "../native/support/fakeCalendar.ts";
 import { FakeCatalog } from "../native/support/fakeCatalog.ts";
+import { FakeDetails } from "../native/support/fakeDetails.ts";
 import { launchBrowser, openTv, homeDetailsRead, type Tv } from "./support/tv.ts";
 
 let browser: Browser;
@@ -173,4 +175,48 @@ artTest("a landscape episode thumbnail sizes the glow and mark from its own box"
     catalog.titles.set(episode.id, { ...episode, duration: 1200 });
     catalog.progress.set(episode.id, 600);
     await tv.page.route(/\/art\/episode%3As1e12\.svg/, route => route.abort());
+});
+
+artTest("Calendar cards with no poster draw the film mark, and episodes and seasons the tv mark", async tv => {
+    await tv.page.locator('[data-focus="calendar"]').click();
+    await tv.page.locator('.browse[data-view="calendar"] [data-calendar-busy="false"]').waitFor();
+    const film = '.calendar-event:has-text("Release 1") .browse-art';
+    await tv.page.locator(`${film}.browse-art-missing .default-artwork`).waitFor();
+    assert.equal(await tv.page.locator(`${film} .browse-art-fallback`).count(), 0, "no title placeholder");
+    assertAppleDefaultArtwork(await measure(tv.page, film), "film", 120 / 89);
+    const season = '.calendar-event:has-text("Harbor Lights"):has(.calendar-release:text("NEW SEASON")) .browse-art';
+    await tv.page.locator(`${season}.browse-art-missing .default-artwork`).waitFor();
+    assertAppleDefaultArtwork(await measure(tv.page, season), "tv", 124 / 97);
+    assert.equal(await tv.page.locator(`${season} .calendar-release`).count(), 1, "the release badge stays on the card");
+}, async (tv, catalog) => {
+    assert.ok(catalog instanceof FakeCatalog);
+    const calendar = new FakeCalendar();
+    // Release 1 is the Following event with a movie poster: drop its URL so it has none.
+    calendar.events = calendar.events.map(event => { if (event.content_id !== "movie:m0001") return event; const { poster_url: _removed, ...bare } = event; return bare; });
+    tv.fake.catalog = calendar;
+    const cdp = await tv.page.context().newCDPSession(tv.page);
+    await cdp.send("Emulation.setTimezoneOverride", { timezoneId: "Australia/Melbourne" });
+});
+
+artTest("an episode still with no image draws the tv mark in Season and in the Series Episodes rail", async tv => {
+    await openLibrary(tv, "series", "library:13");
+    await tv.page.locator('[data-focus="series:s1"]').click();
+    const rail = '.details-episodes [data-focus="episode:s1e11"] .browse-art';
+    await tv.page.locator(`${rail}.browse-art-missing .default-artwork`).waitFor();
+    assert.equal(await tv.page.locator(`${rail} .browse-art-fallback`).count(), 0, "no title placeholder");
+    assertAppleDefaultArtwork(await measure(tv.page, rail), "tv", 124 / 97);
+    await tv.page.locator('[data-focus="series:s1-S1"]').click();
+    const season = '.browse-episode[data-focus="episode:s1e11"] .browse-art';
+    await tv.page.locator(`${season}.browse-art-missing .default-artwork`).waitFor();
+    assert.equal(await tv.page.locator(`${season} .browse-art-fallback`).count(), 0, "no title placeholder");
+    assertAppleDefaultArtwork(await measure(tv.page, season), "tv", 124 / 97);
+}, async tv => { tv.fake.catalog = new FakeDetails(); });
+
+artTest("artwork that loads never builds a DefaultArtwork node", async tv => {
+    await openLibrary(tv, "movies", "library:12");
+    const loaded = tv.page.locator('[data-focus="movie:m0001"] .browse-art');
+    await loaded.locator("img").waitFor();
+    assert.equal(await loaded.evaluate(node => node.classList.contains("browse-art-missing")), false);
+    assert.equal(await loaded.locator(".default-artwork").count(), 0);
+    assert.equal(await tv.page.locator('[data-focus="movie:m0002"] .default-artwork').count(), 1, "a missing poster still draws it");
 });

@@ -58,8 +58,12 @@ const MARKS: Readonly<Record<ArtworkSymbol, { readonly viewBox: string; readonly
     },
 };
 
-/** The mark and glows of silo-apple `DefaultArtwork(symbol:)`. Decoration only: the card's label names the item. */
-export function defaultArtwork(symbol: ArtworkSymbol): HTMLElement {
+/** Builds a node on demand: most cards load their image, so the SVG is parsed only for ones that need it. */
+export type DefaultArtworkFactory = () => HTMLElement;
+
+const templates = new Map<ArtworkSymbol, HTMLElement>();
+
+function buildDefaultArtwork(symbol: ArtworkSymbol): HTMLElement {
     const art = document.createElement("div");
     art.className = "default-artwork";
     art.dataset.symbol = symbol;
@@ -76,6 +80,18 @@ export function defaultArtwork(symbol: ArtworkSymbol): HTMLElement {
     return art;
 }
 
-export function isDefaultArtwork(node: string | Node): boolean {
-    return node instanceof HTMLElement && node.classList.contains("default-artwork");
+/**
+ * The mark and glows of silo-apple `DefaultArtwork(symbol:)`, as a factory `artwork()` calls only when the
+ * image is missing or fails. One template per symbol is parsed once and cloned. Decoration only: the card's
+ * label names the item.
+ */
+export function defaultArtwork(symbol: ArtworkSymbol): DefaultArtworkFactory {
+    return () => {
+        let template = templates.get(symbol);
+        if (template === undefined) {
+            template = buildDefaultArtwork(symbol);
+            templates.set(symbol, template);
+        }
+        return template.cloneNode(true) as HTMLElement;
+    };
 }

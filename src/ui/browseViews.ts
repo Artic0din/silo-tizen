@@ -7,7 +7,7 @@ import type { FocusItem, View, Zone } from "./browseFocus.ts";
 import { artworkUrl, type Destination, type EpisodeSelection, type SeriesLine, browseCardDestination, destinationOf } from "./browseModel.ts";
 import { type CardOverlayPrefs, overlayLayer } from "./cardOverlays.ts";
 import { homeCaption } from "./cardPresentation.ts";
-import { artworkSymbol, defaultArtwork, isDefaultArtwork } from "./defaultArtwork.ts";
+import { artworkSymbol, defaultArtwork, type DefaultArtworkFactory } from "./defaultArtwork.ts";
 import { blurEpisodeStill, hidesCardImage, type EpisodeSpoilerSettings } from "./episodeSpoilers.ts";
 import { el } from "./screen.ts";
 
@@ -93,18 +93,27 @@ export function exploreAllCard(rowTitle: string, key: string, wide: boolean, onP
 
 /**
  * An <img> for signed or presigned artwork, or the fallback when it is missing or fails. A `defaultArtwork`
- * fallback fills the box as Apple's DefaultArtwork does; anything else sits in the text placeholder.
+ * factory fills the box as Apple's DefaultArtwork does and is called only when the fallback shows; any
+ * other fallback sits in the text placeholder.
  */
-export function artwork(className: string, reference: string | undefined, baseUrl: string, fallback: string | Node): HTMLElement {
+export function artwork(className: string, reference: string | undefined, baseUrl: string, fallback: string | Node | DefaultArtworkFactory): HTMLElement {
     const box = el("div", className);
     const src = artworkUrl(reference, baseUrl);
-    const drawn = isDefaultArtwork(fallback);
-    const placeholder = drawn ? fallback as HTMLElement : el("span", "browse-art-fallback");
-    if (drawn) box.classList.add("browse-art-default");
-    else placeholder.append(fallback);
-    if (src === undefined) {
+    const drawn = typeof fallback === "function";
+    const showFallback = (): void => {
         box.classList.add("browse-art-missing");
-        box.appendChild(placeholder);
+        if (drawn) {
+            // Drawn artwork is absolutely placed: first, so badges and progress added to the box stay above it.
+            box.prepend(fallback());
+        } else {
+            const placeholder = el("span", "browse-art-fallback");
+            placeholder.append(fallback);
+            box.appendChild(placeholder);
+        }
+    };
+    if (drawn) box.classList.add("browse-art-default");
+    if (src === undefined) {
+        showFallback();
         return box;
     }
     const image = el("img", "browse-art-image");
@@ -113,13 +122,10 @@ export function artwork(className: string, reference: string | undefined, baseUr
     // The signed URL authorizes itself; send nothing else about the app to the image host.
     image.referrerPolicy = "no-referrer";
     image.addEventListener("error", () => {
-        box.classList.add("browse-art-missing");
         if (image.parentNode === box) {
             box.removeChild(image);
         }
-        // Drawn artwork is absolutely placed: first, so badges and progress added to the box stay above it.
-        if (drawn) box.prepend(placeholder);
-        else box.appendChild(placeholder);
+        showFallback();
     });
     image.src = src;
     box.appendChild(image);

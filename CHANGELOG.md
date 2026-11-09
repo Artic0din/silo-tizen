@@ -43,6 +43,9 @@ All notable changes to this project are documented in this file.
 - Hid the TV's native scrollbars, drew the History returning mark as an outlined television, drew the collapsed A–Z index as Apple's 10px circle plus the faint letter marks, and centred Related captions on the poster.
 - Removed the Continue Watching playback bar, kept Search posters 247px apart, restored biography paragraphs, and matched Related captions and the Written by order to Apple TV.
 - Show the series name and episode tag while playing when Resume or Start Over starts from the series page and the episode item omits them.
+- Show that same series line when the episode starts from the episode list or Continue Watching and the episode item omits it.
+- Send a known subtitle track with playback start, and correct it before the picture opens when the plan chooses another track.
+- Auto start no longer asks for a full subtitle when the audio that will play already matches that language.
 - Move the scrub thumbnail with the playhead, 101.0234375px above the handle, in a 236.265625px card.
 - Open the hidden player panel on Video, and the options button on the last tab, which starts on Info.
 - Kept the page transparent over AVPlay. The black opening is a loading backdrop only, and a previous screen in the same root is not painted while the player is up. Once a frame has shown, that backdrop stays off through a later load, reconnect and restore.

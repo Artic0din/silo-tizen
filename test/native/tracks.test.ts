@@ -4,7 +4,10 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { decodeFileVersionTracks, decodePlaybackDecision, decodePlaybackDefaults } from "../../src/contracts/v2/playback.ts";
+import { decodeItemDetail } from "../../src/contracts/v2/catalog.ts";
+import { decodeFileVersionTracks, decodePlaybackDecision, decodePlaybackDefaults, type SubtitleTrack } from "../../src/contracts/v2/playback.ts";
+import type { CatalogSubtitleTrack } from "../../src/contracts/v2/preplaySubtitles.ts";
+import { playChoices } from "../../src/ui/browseModel.ts";
 import { PlaybackController, type PlaybackView, type PlayRequest, type TrackView } from "../../src/player/controller.ts";
 import { FakeAVPlay } from "./support/fakeAVPlay.ts";
 import { FakeCatalog } from "./support/fakeCatalog.ts";
@@ -110,6 +113,103 @@ async function playReplacement(r: Rig): Promise<void> {
         await settle(r);
     }
 }
+
+function catalogTracks(inventory: readonly SubtitleTrack[]): CatalogSubtitleTrack[] {
+    return inventory.map(track => ({ selectionIndex: track.combinedIndex, externalPath: "", source: track.source, language: track.language, codec: track.codec, label: track.label, forced: track.forced, hearingImpaired: track.hearingImpaired }));
+}
+
+function sequence(r: Rig): string[] {
+    return r.h.fake.requests.map(request => `${request.method} ${request.path}`);
+}
+
+test("a known subtitle intent is sent on start and opens AVPlay without a replan", async () => {
+    const r = await rig();
+    const plan = decodePlaybackDecision(fixture("playback_start_opaque_ids"));
+    assert.equal(plan.outcome, "playable");
+    if (plan.outcome !== "playable") return;
+    const track = plan.plan.subtitle.inventory[1];
+    assert.ok(track);
+    const request = { ...MOVIE, audioTrackId: "file:42:audio:1", subtitle: { kind: "track" as const, signature: { source: track.source, language: track.language, codec: track.codec, label: track.label, forced: track.forced, hearingImpaired: track.hearingImpaired } }, subtitleTracks: catalogTracks(plan.plan.subtitle.inventory) };
+    try {
+        r.controller.play(request);
+        await settle(r);
+        const start = only(requests(r.h, "/playback/start"));
+        assert.equal(start.body?.subtitle_track_id, "file:42:subtitle:1");
+        assert.equal(start.body?.audio_track_id, "file:42:audio:1");
+        assert.equal(replans(r.h).length, 0);
+        assert.equal(r.avplay.calls.filter(call => call.startsWith("open")).length, 1);
+        const lines = sequence(r);
+        const playback = lines.filter(line => line.includes("/playback"));
+        assert.deepEqual(playback, ["GET /playback/capabilities", "POST /playback/start"]);
+        assert.equal(lines.some(line => line.includes("/replan")), false);
+        assert.ok(lines.indexOf("GET /playback/capabilities") < lines.indexOf("POST /playback/start"));
+    } finally { r.controller.destroy(); }
+});
+
+test("a start subtitle the plan does not echo is corrected before AVPlay opens", async () => {
+    const r = await rig();
+    const plan = decodePlaybackDecision(fixture("playback_start_opaque_ids"));
+    assert.equal(plan.outcome, "playable");
+    if (plan.outcome !== "playable") return;
+    const track = plan.plan.subtitle.inventory[1];
+    assert.ok(track);
+    r.server.next.push({ subtitle: 0 });
+    const request = { ...MOVIE, audioTrackId: "file:42:audio:1", subtitle: { kind: "track" as const, signature: { source: track.source, language: track.language, codec: track.codec, label: track.label, forced: track.forced, hearingImpaired: track.hearingImpaired } }, subtitleTracks: catalogTracks(plan.plan.subtitle.inventory) };
+    try {
+        r.controller.play(request);
+        await settle(r);
+        const start = only(requests(r.h, "/playback/start"));
+        assert.equal(start.body?.subtitle_track_id, "file:42:subtitle:1");
+        const change = only(replans(r.h));
+        assert.equal(change.operation, "track_change");
+        assert.deepEqual(change.selected_tracks, { audio: { id: "file:42:audio:1", index: 1 }, subtitle: { id: "file:42:subtitle:1" } });
+        assert.equal(r.avplay.calls.filter(call => call.startsWith("open")).length, 1);
+        const lines = sequence(r);
+        const startAt = lines.indexOf("POST /playback/start");
+        const replanAt = lines.findIndex(line => line.includes("/replan"));
+        assert.ok(startAt >= 0 && replanAt > startAt);
+        const playback = lines.filter(line => line.includes("/playback"));
+        assert.deepEqual(playback.slice(0, 3), ["GET /playback/capabilities", "POST /playback/start", `POST /playback/${[...r.server.sessions.keys()][0]}/replan`]);
+    } finally { r.controller.destroy(); }
+});
+
+test("Auto with matching audio and subtitle language sends no subtitle id and does not replan", async () => {
+    const r = await rig();
+    const detail = decodeItemDetail({
+        ...fixture("get_catalog_item_ok"),
+        content_id: "movie-1",
+        type: "movie",
+        effective_subtitle_mode: "auto",
+        effective_subtitle_language: "en",
+        effective_show_forced_subtitles: false,
+        versions: [{
+            file_id: "42",
+            duration: 7200,
+            effective_audio_track_index: 0,
+            audio_tracks: [{ language: "en", default: true, codec: "aac", channels: 2 }],
+            subtitle_tracks: [{ language: "en", codec: "srt", title: "English", forced: false, hearing_impaired: false }],
+        }],
+    });
+    const choices = playChoices(detail);
+    assert.ok(choices);
+    r.h.fake.script("/watch/movie-1?file_id=42", {
+        status: 200,
+        body: {
+            content_id: "movie-1",
+            versions: [{ file_id: "42", audio_tracks: [{ language: "en", default: true }] }],
+            effective_subtitle_mode: "auto",
+            effective_subtitle_language: "en",
+            effective_show_forced_subtitles: false,
+        },
+    });
+    try {
+        r.controller.play({ ...choices.fromStart, subtitle: { kind: "auto" } });
+        await settle(r);
+        const start = only(requests(r.h, "/playback/start"));
+        assert.equal(start.body?.subtitle_track_id, undefined);
+        assert.equal(replans(r.h).length, 0);
+    } finally { r.controller.destroy(); }
+});
 
 test("Details subtitle intent selects the authoritative first-plan track before opening AVPlay", async () => {
     const r = await rig();

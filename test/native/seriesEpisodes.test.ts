@@ -9,6 +9,8 @@ import { decodeSeasons } from "../../src/contracts/v2/catalog.ts";
 import { DetailsState } from "../../src/ui/detailsState.ts";
 import { DescriptionTranslations, type DetailSurface, type ItemDescriptionTranslation } from "../../src/ui/descriptionTranslation.ts";
 
+type SeriesEpisodeUpdate = Parameters<ConstructorParameters<typeof SeriesEpisodes>[3]>[0];
+
 for (const recovery of ["retry", "selection"] as const) test(`one neighbour success preserves the other edge's failure and ${recovery} recovery`, async t => {
     t.mock.timers.enable({ apis: ["setTimeout"] });
     const h = await connected(); await signIn(h);
@@ -43,7 +45,7 @@ for (const recovery of ["retry", "selection"] as const) test(`one neighbour succ
     state.stop();
 });
 
-async function episodeRailHarness(failedSeason?: number, emptySeason?: number, heldSeason?: number, seasonCount = 7) {
+async function episodeRailHarness(failedSeason?: number, emptySeason?: number, heldSeason?: number, seasonCount = 7, changed: (reason: SeriesEpisodeUpdate) => void = () => undefined) {
     const h = await connected(); await signIn(h);
     const profile = (await h.core.profiles.list()).find(profile => profile.id === "p-owner"); assert.ok(profile); h.core.profiles.select(profile);
     const catalog = new FakeDetails(); h.fake.catalog = catalog;
@@ -53,7 +55,7 @@ async function episodeRailHarness(failedSeason?: number, emptySeason?: number, h
         const response = { status: 200, body: { items: Array.from({ length: 14 }, (_, index) => ({ ...body.items[0], content_id: `rail:${season.seasonNumber}:${index}`, season_number: season.seasonNumber, episode_number: index + 1 })) } };
         h.fake.script(operations.listSeasonEpisodes("series:s1", season.seasonNumber).path, season.seasonNumber === failedSeason ? problem(422, "validation_failed", "Unavailable") : season.seasonNumber === emptySeason ? { status: 200, body: { items: [] } } : response, response, response);
     }
-    const state = new SeriesEpisodes(h.core.session, "series:s1", seasons, () => undefined, 2);
+    const state = new SeriesEpisodes(h.core.session, "series:s1", seasons, changed, 2);
     const held = heldSeason === undefined ? undefined : h.fake.hold(operations.listSeasonEpisodes("series:s1", heldSeason).path, true);
     const settle = async (): Promise<void> => { for (let i = 0; i < 8; i++) await h.clock.advance(0); };
     const reads = () => h.fake.requests.filter(request => request.path.includes("/episodes")).map(request => request.path);
@@ -341,6 +343,81 @@ test("focus reaching the rail edge retries a neighbour whose prefetch failed", a
     assert.equal(h.reads().at(-1), operations.listSeasonEpisodes("series:s1", 1).path);
     assert.equal(h.state.boundaryFailed, false);
     assert.equal(h.state.railEpisodes?.[0]?.id, "rail:1:0", "the retried season joins the rail");
+});
+
+for (const trigger of ["edge", "explicit"] as const) test(`the boundary error hides while its ${trigger} retry is in flight and returns if the retry fails`, async t => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const h = await episodeRailHarness(1); t.after(() => h.state.stop());
+    const path = operations.listSeasonEpisodes("series:s1", 1).path;
+    assert.equal(h.state.boundaryFailed, true);
+    const start = (): void => {
+        if (trigger === "explicit") { h.state.retryNeighbors(); return; }
+        h.state.focus("rail:2:0"); t.mock.timers.tick(70);
+    };
+    h.fake.scripted.set(path, []);
+    h.fake.script(path, problem(422, "validation_failed", "Unavailable"));
+    const held = h.fake.hold(path, true);
+    start(); await h.settle();
+    assert.equal(h.state.boundaryFailed, false, "Apple clears carouselLoadFailed when the prefetch starts");
+    held.release(); await h.settle();
+    assert.equal(h.state.boundaryFailed, true, "a failed retry shows the error again");
+    h.fake.script(path, { status: 200, body: { items: [] } });
+    const second = h.fake.hold(path, true);
+    h.state.retryNeighbors(); await h.settle();
+    assert.equal(h.state.boundaryFailed, false);
+    second.release(); await h.settle();
+    assert.equal(h.state.boundaryFailed, false);
+});
+
+for (const order of ["stop then restore", "restore then stop"] as const) test(`a retry aborted by leaving Details keeps its failure (${order})`, async t => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const h = await episodeRailHarness(1);
+    const path = operations.listSeasonEpisodes("series:s1", 1).path;
+    h.fake.hold(path, true);
+    h.state.retryNeighbors(); await h.settle();
+    assert.equal(h.state.boundaryFailed, false);
+    const restored = new SeriesEpisodes(h.core.session, "series:s1", h.state.seasons, () => undefined, 2);
+    t.after(() => restored.stop());
+    if (order === "stop then restore") { h.state.stop(); restored.restore(h.state); } else { restored.restore(h.state); h.state.stop(); }
+    await h.settle();
+    assert.equal(restored.boundaryFailed, true, "the season never loaded, so the error and Retry come back");
+});
+
+test("the edge dwell announces its retry to the view while the read is still held", async t => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const changes: SeriesEpisodeUpdate[] = [];
+    const h = await episodeRailHarness(1, undefined, undefined, 7, reason => changes.push(reason)); t.after(() => h.state.stop());
+    const path = operations.listSeasonEpisodes("series:s1", 1).path;
+    h.fake.hold(path, true);
+    changes.length = 0;
+    h.state.focus("rail:2:0"); t.mock.timers.tick(70); await h.settle();
+    assert.equal(h.state.boundaryFailed, false, "the retry is running");
+    assert.deepEqual(changes, ["neighbor"], "the view repaints as the dwell starts the retry, not only when it ends");
+});
+
+test("selecting another season while an edge retry is held brings the failed season's error back", async t => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const h = await episodeRailHarness(1); t.after(() => h.state.stop());
+    h.fake.hold(operations.listSeasonEpisodes("series:s1", 1).path, true);
+    h.state.retryNeighbors(); await h.settle();
+    assert.equal(h.state.boundaryFailed, false, "the retry is running");
+    h.state.select(7); await h.settle();
+    assert.equal(h.state.seasonNumber, 7);
+    assert.equal(h.state.boundaryFailed, true, "the aborted retry never loaded season 1, so its failure returns");
+});
+
+test("selecting the season whose edge retry is in flight leaves no stale edge error after it loads", async t => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const h = await episodeRailHarness(1); t.after(() => h.state.stop());
+    const held = h.fake.hold(operations.listSeasonEpisodes("series:s1", 1).path, true);
+    h.state.retryNeighbors(); await h.settle();
+    h.state.select(1); await h.settle();
+    assert.equal(h.state.failed, false);
+    held.release(); await h.settle();
+    assert.equal(h.state.seasonNumber, 1);
+    assert.equal(h.state.boundaryFailed, false, "the loaded season is not a failed neighbour");
+    h.state.select(2); await h.settle();
+    assert.equal(h.state.boundaryFailed, false, "moving on does not resurrect the failure of a season that loaded");
 });
 
 test("a dwell back onto a season whose read was cancelled reads it again", async t => {

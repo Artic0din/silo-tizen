@@ -208,18 +208,13 @@ export function createProfileFlow(options: Options): ProfileCreateFlow {
     const begin = management.begin(options.profiles);
     if (begin === "ready") ready();
     else if (begin === "pin_required" && management.primaryProfile !== undefined) {
-        let checking = false;
         const primary = management.primaryProfile;
-        const screen = pinScreen(primary, [], () => {
-            if (checking) return;
-            const value = screen.take();
-            if (value === "") { screen.say("Enter the PIN.", "error"); screen.focusPin(); return; }
-            checking = true; screen.say("Checking the PIN.", "info");
-            void management.verifyPin(value, controller.signal).then(result => {
+        const screen = pinScreen(primary, options.server.server.http.base.baseUrl, [], pin => {
+            void management.verifyPin(pin, controller.signal).then(result => {
                 if (ended) return;
-                checking = false;
-                if (result.status === "verified") ready(); else screen.say(pinProblem(result), "error");
-            }, () => { if (!ended) { checking = false; screen.say("The PIN could not be checked. Try again.", "error"); } });
+                if (result.status === "verified") ready();
+                else screen.reject(pinProblem(result), result.status === "wrong_pin" || result.status === "locked");
+            }, () => { if (!ended) screen.reject("The PIN could not be checked. Try again.", false); });
         }, () => finish());
         options.show(screen.screen);
     } else showProblem(begin === "primary_missing" ? "The primary household profile is unavailable." : "Profile management ended. Choose a profile again.");

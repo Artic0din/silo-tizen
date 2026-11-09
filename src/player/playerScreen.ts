@@ -21,7 +21,8 @@ import type { AVPlay } from "./avplay.ts";
 import { type PlaybackError, type PlaybackExits, PlaybackController, type PlaybackView, type PlayerControls, type PlayRequest, type SubtitleToolAction, type TrackView, UNSUPPORTED_FORMAT } from "./controller.ts";
 import { fillSubtitleTools, pickerFor, type SubtitlePane } from "./subtitleMenu.ts";
 import type { AppearanceMember } from "./subtitleAppearance.ts";
-import { closeIcon, episodesIcon, optionsIcon, pauseIcon, playIcon, skipIcon, skipToEndIcon, spinnerIcon } from "./playerIcons.ts";
+import { arrowDownCircleIcon, closeIcon, episodesIcon, infoCircleIcon, optionsIcon, pauseIcon, playIcon, skipIcon, skipToEndIcon, spinnerIcon, warningTriangleIcon } from "./playerIcons.ts";
+import { COPY as BUFFERING_COPY } from "./bufferingQuality.ts";
 import { SkipPrompt, type SkipActivity } from "./skipPrompt.ts";
 import { mountSeekThumbnail } from "./seekThumbnailView.ts";
 import { mountSubtitles } from "./subtitleView.ts";
@@ -284,6 +285,43 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     const skipCaption = el("span", "player-skip-caption");
     skipCaption.setAttribute("aria-hidden", "true");
     skip.append(skipTrack, skipGlyph, skipLabel);
+    // Apple's buffering prompt, undo pill and notices: cards stacked at the top-trailing corner.
+    const alerts = el("div", "player-alerts");
+    const noticeCard = el("p", "player-alert player-alert-notice");
+    noticeCard.setAttribute("role", "status");
+    noticeCard.hidden = true;
+    const noticeMark = el("span", "player-alert-mark");
+    noticeMark.setAttribute("aria-hidden", "true");
+    const noticeTitle = el("span", "player-alert-title");
+    noticeCard.append(noticeMark, noticeTitle);
+    const bufferingCard = el("div", "player-alert player-buffering");
+    bufferingCard.setAttribute("role", "group");
+    bufferingCard.hidden = true;
+    const bufferingMark = el("span", "player-alert-mark");
+    bufferingMark.setAttribute("aria-hidden", "true");
+    const bufferingTitle = el("span", "player-alert-title");
+    const bufferingDetail = el("span", "player-alert-detail");
+    const bufferingCopy = el("span", "player-alert-copy");
+    bufferingCopy.append(bufferingTitle, bufferingDetail);
+    const bufferingHead = el("div", "player-alert-head");
+    bufferingHead.append(bufferingMark, bufferingCopy);
+    const bufferingPrimary = el("button", "player-button player-buffering-action");
+    bufferingPrimary.type = "button";
+    bufferingPrimary.tabIndex = -1;
+    bufferingPrimary.setAttribute("data-focus", "buffering-primary");
+    const bufferingKeep = el("button", "player-button player-buffering-action");
+    bufferingKeep.type = "button";
+    bufferingKeep.tabIndex = -1;
+    bufferingKeep.setAttribute("data-focus", "buffering-keep");
+    const bufferingActions = el("div", "player-buffering-actions");
+    bufferingActions.append(bufferingPrimary, bufferingKeep);
+    const bufferingTrack = el("span", "player-buffering-track");
+    const bufferingFill = el("span", "player-buffering-fill");
+    bufferingTrack.append(bufferingFill);
+    bufferingCard.append(bufferingHead, bufferingActions, bufferingTrack);
+    alerts.append(noticeCard, bufferingCard);
+    bufferingPrimary.addEventListener("click", () => controls.selectBufferingPrimary());
+    bufferingKeep.addEventListener("click", () => controls.selectBufferingKeep());
     skip.addEventListener("click", () => {
         if (skipKind === undefined || skipTarget === undefined || seekPreview !== undefined || menuOpen) return;
         const target = skipTarget;
@@ -427,7 +465,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     cancelAutoplay.addEventListener("click", () => controls.cancelAutoplay());
     actions.append(next, keep, cancelAutoplay, retry, back);
     failure.append(eyebrow, failureTitle, mark, failureText, synopsis, actions, deck);
-    section.append(surface, backdrop, spinner, overlay, status, skip, skipCaption, failure, hud);
+    section.append(surface, backdrop, spinner, overlay, status, skip, skipCaption, alerts, failure, hud);
     const covered = Array.from(root.children).flatMap((child) => child instanceof HTMLElement ? [{ element: child, display: child.style.display }] : []);
     for (const item of covered) item.element.style.display = "none";
     root.appendChild(section);
@@ -668,6 +706,58 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         }
     };
 
+    /** Which prompt button Select acts on while the controls are hidden and the pill is not focused. */
+    let bufferingTarget: "primary" | "secondary" = "primary";
+    let drawnBufferingRevision = -1;
+    /** The pill that last took the buffering slot, so a new one can ask for focus. */
+    let drawnBufferingKind: string | undefined;
+    let focusPillOnRender = false;
+    let skipShown = false;
+    const bufferingButtons = (): HTMLButtonElement[] => [bufferingPrimary, bufferingKeep].filter(button => !bufferingCard.hidden && !button.hidden);
+
+    /** Apple's buffering pill and notices, with the countdown on the controller's own timer. */
+    const drawBuffering = (): void => {
+        const live = view.phase === "playing" || view.phase === "paused" || view.phase === "loading" ? view : undefined;
+        const pill = live?.bufferingPill;
+        const notice = live?.bufferingNotice;
+        noticeCard.hidden = notice === undefined;
+        if (notice !== undefined) {
+            noticeTitle.textContent = notice.text;
+            noticeMark.innerHTML = notice.lowered ? arrowDownCircleIcon() : infoCircleIcon();
+        }
+        bufferingCard.hidden = pill === undefined;
+        if (pill?.kind !== drawnBufferingKind) {
+            drawnBufferingKind = pill?.kind;
+            // Apple's controls move focus to the pill's first button when a pill appears with the controls shown.
+            focusPillOnRender = pill !== undefined;
+        }
+        if (pill === undefined) {
+            bufferingTarget = "primary";
+            return;
+        }
+        const prompt = pill.kind === "prompt";
+        bufferingTitle.textContent = prompt ? BUFFERING_COPY.promptTitle : BUFFERING_COPY.undoCaption;
+        bufferingDetail.textContent = prompt ? BUFFERING_COPY.promptDetail : "";
+        bufferingDetail.hidden = !prompt;
+        bufferingMark.innerHTML = prompt ? warningTriangleIcon() : arrowDownCircleIcon();
+        bufferingMark.className = prompt ? "player-alert-mark player-alert-warning" : "player-alert-mark";
+        bufferingPrimary.textContent = prompt ? BUFFERING_COPY.lowerAction : BUFFERING_COPY.undoAction;
+        bufferingKeep.textContent = BUFFERING_COPY.keepAction;
+        bufferingKeep.hidden = !prompt;
+        if (!prompt) bufferingTarget = "primary";
+        bufferingCard.setAttribute("aria-label", prompt ? BUFFERING_COPY.promptTitle : BUFFERING_COPY.undoCaption);
+        if (pill.revision !== drawnBufferingRevision) {
+            // Restart the drain from where the timer stands; the countdown and the controller share one state.
+            drawnBufferingRevision = pill.revision;
+            bufferingFill.style.animation = "none";
+            void bufferingFill.offsetWidth;
+            bufferingFill.style.animation = "";
+            bufferingFill.style.animationDuration = `${pill.totalMs}ms`;
+            bufferingFill.style.animationDelay = `-${pill.totalMs - pill.remainingMs}ms`;
+        }
+        bufferingFill.style.animationPlayState = pill.running ? "running" : "paused";
+    };
+
     /** Select or Back took the pill: an intro is decided for good, and the undo goes. */
     const decideSkip = (): void => {
         if (skipKind === "intro") skipPrompt.resolve();
@@ -682,7 +772,13 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         const active = view.phase === "playing" || view.phase === "paused";
         if (!active && (seekPreview !== undefined || timeline || autoRate !== 0)) cancelScrub();
         drawSkip();
+        drawBuffering();
         if (skip.hidden && document.activeElement === skip) bar.focus();
+        if (bufferingCard.hidden && (document.activeElement === bufferingPrimary || document.activeElement === bufferingKeep)) bar.focus();
+        if (skipShown !== !skip.hidden) {
+            skipShown = !skip.hidden;
+            controls.setSkipPillShown(skipShown);
+        }
         if (seekPreview === undefined) thumbnail.clear();
         transport.hidden = !active || menuOpen;
         bar.setAttribute("aria-disabled", String(!active));
@@ -855,6 +951,15 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         const hidden = view.phase === "playing" && !view.buffering && cancelHide === undefined && !menuOpen && seekPreview === undefined;
         overlay.className = ["player-overlay", hidden ? "player-overlay-hidden" : "", conceal ? "player-overlay-clear" : ""].filter(Boolean).join(" ");
         skip.className = ["player-button", "player-skip", skipKind === "recap" || skipKind === "credits" ? "player-skip-segment" : "player-skip-intro", hidden ? "player-skip-lit" : ""].filter(Boolean).join(" ");
+        // The controls hiding takes the pill out of the focus graph, as on tvOS: Select then acts on the button that held focus.
+        if (hidden && (document.activeElement === bufferingPrimary || document.activeElement === bufferingKeep)) {
+            bufferingTarget = document.activeElement === bufferingKeep ? "secondary" : "primary";
+            bar.focus();
+        }
+        // With the controls hidden, or a load on screen, Select acts on the pill, so the button it acts on is drawn lit.
+        const pillSelects = hidden || view.phase === "loading";
+        bufferingPrimary.className = ["player-button", "player-buffering-action", pillSelects && bufferingTarget === "primary" ? "player-buffering-lit" : ""].filter(Boolean).join(" ");
+        bufferingKeep.className = ["player-button", "player-buffering-action", pillSelects && bufferingTarget === "secondary" ? "player-buffering-lit" : ""].filter(Boolean).join(" ");
         if (hidden && transport.contains(document.activeElement)) bar.focus();
         if (menuOpen && view.phase !== "loading") {
             drawMenu(view.tracks);
@@ -862,12 +967,16 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             if (document.activeElement !== overlay) overlay.focus();
         } else if (active) {
             const focusedNode = document.activeElement;
-            const held = (menuOpen && menu.contains(focusedNode)) || transport.contains(focusedNode) || focusedNode === bar || (focusedNode === skip && !skip.hidden);
+            const held = (menuOpen && menu.contains(focusedNode)) || transport.contains(focusedNode) || focusedNode === bar || (focusedNode === skip && !skip.hidden) || (focusedNode instanceof HTMLElement && bufferingButtons().includes(focusedNode as HTMLButtonElement));
             if (!held) {
                 if (!skip.hidden) skip.focus();
                 else bar.focus();
             }
         }
+        if (focusPillOnRender && active && !menuOpen && !hidden && !bufferingCard.hidden && seekPreview === undefined && !timeline && autoRate === 0 && (document.activeElement === bar || document.activeElement === overlay || document.activeElement === document.body)) {
+            bufferingPrimary.focus();
+        }
+        focusPillOnRender = false;
         if (focusScrubberOnRender && active && !menuOpen) {
             focusScrubberOnRender = false;
             bar.focus();
@@ -1274,6 +1383,31 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             return;
         }
         const hiddenPrompt = overlay.classList.contains("player-overlay-hidden") && !menuOpen && !timeline;
+        const pillButtons = bufferingButtons();
+        if (pillButtons.length > 0 && !menuOpen && !timeline && seekPreview === undefined && autoRate === 0) {
+            const at = pillButtons.findIndex(button => button === document.activeElement);
+            const prompt = pillButtons.length > 1;
+            if (key === "back" && controls.dismissBufferingPill()) {
+                render();
+                return;
+            }
+            if (at >= 0) {
+                if (key === "enter") pillButtons[at]?.click();
+                else if (key === "left" || key === "right") pillButtons[Math.max(0, Math.min(pillButtons.length - 1, at + (key === "left" ? -1 : 1)))]?.focus();
+                else if (key === "down") pause.focus();
+                if (key === "enter" || key === "left" || key === "right" || key === "down") {
+                    render();
+                    return;
+                }
+            } else if ((hiddenPrompt || view.phase === "loading") && key === "enter") {
+                (bufferingTarget === "secondary" && prompt ? bufferingKeep : bufferingPrimary).click();
+                return;
+            } else if ((hiddenPrompt || view.phase === "loading") && prompt && (key === "left" || key === "right")) {
+                bufferingTarget = key === "left" ? "primary" : "secondary";
+                render();
+                return;
+            }
+        }
         if (!skip.hidden && (document.activeElement === skip || hiddenPrompt) && (key === "enter" || key === "play")) {
             skip.click();
             return;
@@ -1337,6 +1471,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         if (key === "up") {
             if (transport.contains(document.activeElement)) bar.focus();
             else if (!skip.hidden) skip.focus();
+            else if (pillButtons.length > 0) pillButtons[0]?.focus();
             render();
             return;
         }

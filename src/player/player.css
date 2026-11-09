@@ -263,6 +263,151 @@
     display: none;
 }
 
+/*
+ * Apple PlayerNoticeOverlay and TVBufferingQualityPill: a dark card at the top-trailing corner, the notice above the pill.
+ * Card metrics are PlayerNoticeCardMetrics on tvOS; the buttons are the intro pill's capsule without its fill.
+ */
+.player-alerts {
+    position: absolute;
+    top: 112px;
+    right: 80px;
+    z-index: 3;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 16px;
+    max-width: 760px;
+    pointer-events: none;
+}
+
+.player-alert {
+    position: relative;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+    margin: 0;
+    padding: 26px 32px;
+    overflow: hidden;
+    border-radius: 28px;
+    background: rgba(24, 24, 24, 0.82);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.player-alert[hidden] {
+    display: none;
+}
+
+.player-alert-notice {
+    flex-direction: row;
+    align-items: baseline;
+    gap: 18px;
+}
+
+.player-alert-head {
+    display: flex;
+    align-items: baseline;
+    gap: 18px;
+}
+
+.player-alert-mark {
+    flex: none;
+    width: 30px;
+    height: 30px;
+    color: #ededed;
+    transform: translateY(4px);
+}
+
+.player-alert-mark.player-alert-warning {
+    color: #ffc107;
+}
+
+.player-alert-mark svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+.player-alert-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.player-alert-title {
+    font-size: 30px;
+    font-weight: 600;
+    line-height: 36px;
+    color: var(--silo-text);
+}
+
+.player-alert-detail {
+    font-size: 24px;
+    line-height: 30px;
+    color: rgba(255, 255, 255, 0.72);
+}
+
+.player-alert-detail[hidden] {
+    display: none;
+}
+
+.player-buffering-actions {
+    display: flex;
+    gap: 22px;
+}
+
+.player-buffering-actions .player-buffering-action {
+    box-sizing: border-box;
+    height: 72px;
+    min-width: 0;
+    padding: 0 40px;
+    border: 0;
+    border-radius: 36px;
+    background: rgba(0, 0, 0, 0.65);
+    color: rgba(255, 255, 255, 0.85);
+    font-size: 28px;
+    font-weight: 600;
+    white-space: nowrap;
+    box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.25), 0 6px 20px rgba(0, 0, 0, 0.3);
+    pointer-events: auto;
+    transition: transform 180ms ease-in-out, box-shadow 180ms ease-in-out, color 180ms ease-in-out;
+}
+
+.player-buffering-actions .player-buffering-action[hidden] {
+    display: none;
+}
+
+.player-buffering-actions .player-buffering-action:focus,
+.player-buffering-actions .player-buffering-action.player-buffering-lit {
+    color: #ffffff;
+    transform: scale(1.06);
+    box-shadow: inset 0 0 0 3px #ffffff, 0 6px 36px rgba(0, 0, 0, 0.45);
+}
+
+/* The countdown drains along the card's bottom edge on the controller's timer. */
+.player-buffering-track {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    height: 4px;
+    background: rgba(255, 255, 255, 0.12);
+}
+
+.player-buffering-fill {
+    display: block;
+    width: 100%;
+    height: 100%;
+    background: rgba(255, 255, 255, 0.7);
+    transform-origin: left center;
+    animation: player-buffering-drain 15000ms linear forwards;
+}
+
+@keyframes player-buffering-drain {
+    from { transform: scaleX(1); }
+    to { transform: scaleX(0); }
+}
+
 .player-error {
     top: 0;
     padding: 320px 88px 64px;

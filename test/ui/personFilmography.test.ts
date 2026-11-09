@@ -509,6 +509,22 @@ journey("failed append retains cards without an error panel and waits for near-e
     assert.equal(lastQuery(tv)?.body?.cursor, target);
 });
 
+journey("Details Back after a failed append keeps the loaded pages without reading them again", async (tv, catalog) => {
+    await all(tv);
+    catalog.personReplies.push(problem(500, "internal_error", "Synthetic lookup failure"));
+    await grid(tv).last().scrollIntoViewIfNeeded();
+    await tv.eventually(async () => queries(tv).length === 2 && await tv.page.locator('[aria-label="Loading more titles"]').count() === 0, "failed append settled");
+    const ids = await grid(tv).evaluateAll(nodes => nodes.map(node => node.getAttribute("data-focus")));
+    const count = queries(tv).length;
+    await grid(tv).first().click();
+    await tv.page.locator(".details-hero").waitFor();
+    await tv.remote(BACK);
+    await tv.page.locator(".details-person-hero").waitFor();
+    await tv.jump(300);
+    assert.equal(queries(tv).length, count, "Back reads no filmography page");
+    assert.deepEqual(await grid(tv).evaluateAll(nodes => nodes.map(node => node.getAttribute("data-focus"))), ids);
+});
+
 for (const continuation of ["missing", "empty", "repeated"]) journey(`malformed ${continuation} continuation is recoverable and cannot silently end or loop`, async (tv, catalog) => {
     await all(tv);
     await next(tv, 2);
@@ -614,74 +630,6 @@ journey("Details Back restarts the availability probes that opening Details abor
     await tv.eventually(async () => await tv.page.locator('[data-focus="filter:series"]').count() === 0, "Series hidden after the probes restart");
     assert.equal(probes(), sent + 2, "one probe per type, sent again on Back");
     assert.equal(await tv.page.locator('[data-focus="filter:movie"]').count(), 1);
-});
-
-journey("Details marking a title watched updates its filmography card without re-reading the pages", async (tv, catalog) => {
-    await all(tv);
-    const marked = (id: string): boolean => tv.fake.requests.some(request => request.method === "POST" && request.path === `/watched/${encodeURIComponent(id)}`);
-    const route = catalog.route.bind(catalog);
-    catalog.route = (...args) => {
-        const reply = route(...args);
-        const body = reply?.body as { items?: Record<string, unknown>[] } | undefined;
-        if (args[3]?.source === "person" && body?.items !== undefined) body.items = body.items.map(item => ({ ...item, user_state: { played: marked(String(item.content_id)) } }));
-        return reply;
-    };
-    const id = await grid(tv).first().getAttribute("data-focus");
-    assert.ok(id);
-    await tv.page.locator(`.browse-grid [data-focus="${id}"]`).click();
-    await tv.page.locator(".details-hero").waitFor();
-    await tv.page.locator('[data-focus="more"]').click();
-    await tv.page.getByRole("dialog", { name: "More", exact: true }).locator('[data-focus="watched"]').click();
-    await tv.eventually(async () => marked(id), "watched write");
-    const count = queries(tv).length;
-    for (let attempt = 0; attempt < 3 && await tv.page.locator(".details-person-hero").count() === 0; attempt++) await tv.remote(BACK);
-    await tv.page.locator(".details-person-hero").waitFor();
-    await tv.eventually(async () => await tv.page.locator(`.browse-grid [data-focus="${id}"] .browse-watched`).count() === 1, "watched tick on the card");
-    assert.equal(queries(tv).length, count, "Back reads no filmography page");
-    assert.equal(await grid(tv).count(), 60);
-    assert.equal(await tv.page.locator(".browse-grid .browse-watched").count(), 1, "only the changed card");
-});
-
-journey("a late watched read cannot overwrite a card from a newer filmography read", async (tv, catalog) => {
-    await all(tv);
-    const marked = (id: string): boolean => tv.fake.requests.some(request => request.method === "POST" && request.path === `/watched/${encodeURIComponent(id)}`);
-    const id = await grid(tv).first().getAttribute("data-focus");
-    assert.ok(id);
-    let outdated = false;
-    const route = catalog.route.bind(catalog);
-    catalog.route = (...args) => {
-        const reply = route(...args);
-        const body = reply?.body as { items?: Record<string, unknown>[]; content_id?: string } | undefined;
-        if (args[3]?.source === "person" && body?.items !== undefined) body.items = body.items.map(item => ({ ...item, user_state: { played: marked(String(item.content_id)) } }));
-        if (outdated && args[0] === "GET" && body?.content_id === id) Object.assign(body, { user_state: { played: false }, user_data: { played: false } });
-        return reply;
-    };
-    await tv.page.locator(`.browse-grid [data-focus="${id}"]`).click();
-    await tv.page.locator(".details-hero").waitFor();
-    await tv.page.locator('[data-focus="more"]').click();
-    await tv.page.getByRole("dialog", { name: "More", exact: true }).locator('[data-focus="watched"]').click();
-    await tv.eventually(async () => marked(id), "watched write");
-    // Details can still have one read of its own out; hold two so the filmography's read is held whichever comes first.
-    const held = [tv.fake.hold(`/catalog/items/${encodeURIComponent(id)}`, true), tv.fake.hold(`/catalog/items/${encodeURIComponent(id)}`, true)];
-    outdated = true;
-    for (let attempt = 0; attempt < 3 && await tv.page.locator(".details-person-hero").count() === 0; attempt++) await tv.remote(BACK);
-    await tv.page.locator(".details-person-hero").waitFor();
-    await tv.jump(300);
-    outdated = false;
-    await tv.page.locator('[data-focus="filter:movie"]').click();
-    await tv.eventually(async () => lastQuery(tv)?.body?.type === "movie" && await tv.page.locator(`.browse-grid [data-focus="${id}"] .browse-watched`).count() === 1, "newer read shows the tick");
-    const itemReads = (): number => tv.fake.requests.filter(request => request.method === "GET" && request.path.split("?")[0] === `/catalog/items/${encodeURIComponent(id)}`).length;
-    for (const hold of held) hold.release();
-    await tv.jump(300);
-    await tv.page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(undefined)))));
-    assert.equal(await tv.page.locator(`.browse-grid [data-focus="${id}"] .browse-watched`).count(), 1, "the late read leaves the newer card alone");
-    // The discarded answer did not settle the card, so the next return reads the title again.
-    const before = itemReads();
-    await grid(tv).nth(1).click();
-    await tv.page.locator(".details-hero").waitFor();
-    for (let attempt = 0; attempt < 3 && await tv.page.locator(".details-person-hero").count() === 0; attempt++) await tv.remote(BACK);
-    await tv.page.locator(".details-person-hero").waitFor();
-    await tv.eventually(async () => itemReads() > before, "the unsettled card is read again");
 });
 
 journey("Details Back resumes the unfinished metadata refresh without re-reading the filmography", async tv => {

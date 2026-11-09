@@ -743,6 +743,12 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     if (top() === current) render(host.focused());
                     return;
                 }
+                // Apple PersonDetailView: a failed later page keeps the cards; a stale failure would make Back read every loaded page again.
+                if (current.kind === "person" && (current.pages.page?.items.length ?? 0) > 0 && text !== undefined) {
+                    current.failure = undefined;
+                    if (top() === current) render(host.focused());
+                    return;
+                }
                 current.failure = text ?? "Something went wrong. Try again.";
                 if (current.kind === "item") current.error = errorState(error);
                 if (current.kind === "search" && current.pages?.page === undefined) {
@@ -930,7 +936,6 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         const seriesId = detail.type === "series" ? detail.id : detail.seriesId;
         for (const entry of new Set([...roots.values(), ...stack])) {
             if (entry === current) continue;
-            if (entry.kind === "person") (entry.watchedCards ??= new Set()).add(seriesId ?? detail.id);
             if (entry.kind === "home" || entry.kind === "for_you" || entry.kind === "recommendationSection" || isSectionRoute(entry) || entry.kind === "calendar" || (entry.kind === "library" && entry.discovery?.mode === "Browse")) entry.stale = true;
             if (entry.kind === "season" && entry.seriesId === seriesId && (detail.type !== "season" || entry.seasonNumber === detail.seasonNumber)) entry.stale = true;
             if (entry.kind === "item") {
@@ -1501,33 +1506,6 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         });
     };
 
-    /** Back from Details: patch the cards whose watched state changed there, one title read each and one repaint, without reading the pages again. */
-    const reconcilePersonWatched = (current: Extract<Route, { kind: "person" }>, signal: AbortSignal): void => {
-        const ids = [...current.watchedCards ?? []].filter(id => {
-            const shown = current.pages.page?.items.some(item => item.id === id) === true;
-            if (!shown) current.watchedCards?.delete(id);
-            return shown;
-        });
-        if (ids.length === 0) return;
-        // A newer filmography read replaces the card objects; an answer for the older ones must not overwrite them.
-        const asked = new Map(current.pages.page?.items.filter(item => ids.includes(item.id)).map(item => [item.id, item]));
-        // A failed read keeps its id, so the next return tries again.
-        void Promise.all(ids.map(async id => {
-            cache.discard(operations.getCatalogItem(id));
-            try { return { id, played: (await read(operations.getCatalogItem(id), signal)).played }; } catch { return undefined; }
-        })).then(results => {
-            const page = current.pages.page;
-            if (signal.aborted || page === undefined) return;
-            const played = new Map(results.flatMap(result => result === undefined ? [] : [[result.id, result.played] as const]));
-            // An answer for a card a newer read replaced is dropped and its id stays pending for the next return.
-            const applied = new Set(page.items.filter(item => played.has(item.id) && asked.get(item.id) === item).map(item => item.id));
-            if (applied.size === 0) return;
-            for (const id of applied) current.watchedCards?.delete(id);
-            current.pages.page = { ...page, items: page.items.map(item => applied.has(item.id) ? { ...item, played: played.get(item.id) } : item) };
-            if (top() === current) render(host.focused());
-        });
-    };
-
     const loadPage = (current: Route, pages: Pages, index: number, quiet = false): void => {
         if (current.kind === "person") {
             current.pendingIndex = index;
@@ -1763,10 +1741,9 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 const signal = resumePersonRefresh(current);
                 // A visit without its first page reads everything through load(); otherwise only what Details aborted or changed.
                 if (current.pages.page !== undefined) {
-                    // Apple loadInitial also re-runs while person == nil: Details can abort the first metadata read.
+                    // Deliberate improvement over Apple (its loadInitial needs the person and the items both missing): read a missing person once the titles are loaded, because Details can abort the first metadata read.
                     if (current.data === undefined && current.metadataLoading !== true) { current.metadataLoading = true; void readPersonMetadata(current, signal); }
                     if (availabilityPending(current)) void probeAvailability(current, signal);
-                    reconcilePersonWatched(current, signal);
                 }
             }
         }

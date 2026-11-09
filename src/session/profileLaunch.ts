@@ -11,9 +11,14 @@ interface LaunchChoice {
     readonly selectionRequired?: boolean;
     readonly profileId?: string;
     readonly proofAlias?: string;
+    /** Proofs a newer choice replaced; each stays named here until the key store confirms its removal. */
+    readonly retiredAliases?: readonly string[];
     /** The sign-in epoch the choice was made under; a choice without the current one never restores. */
     readonly epoch?: string;
     readonly profile?: Pick<ProfileSummary, "name" | "isPrimary" | "isChild">;
+}
+function clearedChoice(proofAlias: string | undefined, retiredAliases: readonly string[]): LaunchChoice {
+    return { remember: false, ...(proofAlias === undefined ? {} : { proofAlias }), ...(retiredAliases.length === 0 ? {} : { retiredAliases }) };
 }
 export type LaunchBehavior = "automatic" | "askEveryLaunch" | "afterOneHour" | "afterTwelveHours";
 
@@ -47,12 +52,13 @@ export class ProfileLaunch {
         });
     }
 
-    /** A choice an earlier sign-in left behind, or a cleared one whose proof is still stored, is cleared and retried. */
+    /** A choice an earlier sign-in left behind, or a cleared one whose proof is still stored, is cleared and retried; so is any replaced proof. */
     private sweep(): void {
         const key = this.key();
         const leftover = key === undefined ? undefined : this.stored(key);
         if (key === undefined || leftover === undefined) return;
         if (leftover.remember ? this.choice(key)?.remember !== true : leftover.proofAlias !== undefined) this.invalidate(key);
+        else for (const alias of leftover.retiredAliases ?? []) void this.dropProof(key, alias);
     }
 
     private key(): string | undefined {
@@ -70,13 +76,15 @@ export class ProfileLaunch {
             const value: unknown = JSON.parse(raw);
             if (typeof value !== "object" || value === null || !("remember" in value) || typeof value.remember !== "boolean") return undefined;
             const proofAlias = "proofAlias" in value && typeof value.proofAlias === "string" ? value.proofAlias : undefined;
-            if (!value.remember) return { remember: false, ...(proofAlias === undefined ? {} : { proofAlias }) };
+            const retired = "retiredAliases" in value && Array.isArray(value.retiredAliases) ? value.retiredAliases.filter((alias): alias is string => typeof alias === "string") : [];
+            const retiredAliases = retired.length === 0 ? {} : { retiredAliases: retired };
+            if (!value.remember) return { remember: false, ...(proofAlias === undefined ? {} : { proofAlias }), ...retiredAliases };
             if (!("profileId" in value) || typeof value.profileId !== "string") return undefined;
             const epoch = "epoch" in value && typeof value.epoch === "string" && value.epoch !== "" ? value.epoch : undefined;
             const profile = "profile" in value ? value.profile : undefined;
             const summary = typeof profile === "object" && profile !== null && "name" in profile && typeof profile.name === "string" && "isPrimary" in profile && typeof profile.isPrimary === "boolean" && "isChild" in profile && typeof profile.isChild === "boolean" ? { name: profile.name, isPrimary: profile.isPrimary, isChild: profile.isChild } : undefined;
             const behavior = "behavior" in value && (value.behavior === "automatic" || value.behavior === "askEveryLaunch" || value.behavior === "afterOneHour" || value.behavior === "afterTwelveHours") ? value.behavior : undefined;
-            return { remember: true, profileId: value.profileId, ...(epoch === undefined ? {} : { epoch }), ...(behavior === undefined ? {} : { behavior }), ...("selectionRequired" in value && value.selectionRequired === true ? { selectionRequired: true } : {}), ...(proofAlias === undefined ? {} : { proofAlias }), ...(summary === undefined ? {} : { profile: summary }) };
+            return { remember: true, profileId: value.profileId, ...(epoch === undefined ? {} : { epoch }), ...(behavior === undefined ? {} : { behavior }), ...("selectionRequired" in value && value.selectionRequired === true ? { selectionRequired: true } : {}), ...(proofAlias === undefined ? {} : { proofAlias }), ...retiredAliases, ...(summary === undefined ? {} : { profile: summary }) };
         } catch { return undefined; }
     }
 
@@ -143,18 +151,25 @@ export class ProfileLaunch {
     }
 
     private invalidate(key: string): void {
-        const alias = this.stored(key)?.proofAlias;
-        const cleared: LaunchChoice = { remember: false, ...(alias === undefined ? {} : { proofAlias: alias }) };
+        const old = this.stored(key);
+        const cleared = clearedChoice(old?.proofAlias, old?.retiredAliases ?? []);
         try { this.persist(key, cleared); } catch { this.unsaved.set(key, cleared); }
-        if (alias !== undefined) void this.dropProof(key, alias);
+        for (const alias of [old?.proofAlias, ...(old?.retiredAliases ?? [])]) if (alias !== undefined) void this.dropProof(key, alias);
     }
 
-    /** The cleared choice keeps the alias until the key store confirms the removal, so the next start retries it. */
+    /** The choice keeps naming the alias until the key store confirms the removal, so the next start retries it. */
     private async dropProof(key: string, alias: string): Promise<void> {
         if ((await this.secrets.remove(alias)) === "failed") return;
         const current = this.stored(key);
-        if (current?.remember !== false || current.proofAlias !== alias) return;
-        try { this.persist(key, { remember: false }); } catch { this.unsaved.set(key, { remember: false }); }
+        if (current === undefined) return;
+        const retired = (current.retiredAliases ?? []).filter(item => item !== alias);
+        const clearedAlias = current.remember === false && current.proofAlias === alias;
+        if (!clearedAlias && retired.length === (current.retiredAliases ?? []).length) return;
+        const { retiredAliases: _retired, ...rest } = current;
+        const next: LaunchChoice = current.remember
+            ? { ...rest, ...(retired.length === 0 ? {} : { retiredAliases: retired }) }
+            : clearedChoice(clearedAlias ? undefined : current.proofAlias, retired);
+        try { this.persist(key, next); } catch { this.unsaved.set(key, next); }
     }
 
     async setRemember(remember: boolean, signal?: AbortSignal, profileOrBehavior?: ProfileSummary | LaunchBehavior): Promise<void> {
@@ -164,10 +179,12 @@ export class ProfileLaunch {
         if (key === undefined || active === undefined || epoch === undefined) throw new Error("Choose a profile first");
         const generation = this.session.authorityGeneration;
         const old = this.choice(key);
-        const oldAlias = this.stored(key)?.proofAlias;
+        const oldStored = this.stored(key);
+        const oldAlias = oldStored?.proofAlias;
+        const oldRetired = oldStored?.retiredAliases ?? [];
         let newAlias: string | undefined;
         if (!remember) {
-            this.persist(key, { remember: false, ...(oldAlias === undefined ? {} : { proofAlias: oldAlias }) });
+            this.persist(key, clearedChoice(oldAlias, oldRetired));
         } else {
             let proofAlias: string | undefined;
             if (active.token !== undefined) {
@@ -181,14 +198,15 @@ export class ProfileLaunch {
                 const behavior = profileOrBehavior === "automatic" || profileOrBehavior === "askEveryLaunch" || profileOrBehavior === "afterOneHour" || profileOrBehavior === "afterTwelveHours" ? profileOrBehavior : undefined;
                 const profile = behavior === undefined && typeof profileOrBehavior === "object" && profileOrBehavior !== null ? profileOrBehavior : undefined;
                 const summary = profile !== undefined ? (profile.id === active.id ? { name: profile.name, isPrimary: profile.isPrimary, isChild: profile.isChild } : undefined) : old?.profile;
-                this.persist(key, { remember: true, behavior: behavior ?? old?.behavior ?? "automatic", profileId: active.id, epoch, ...(proofAlias === undefined ? {} : { proofAlias }), ...(summary === undefined ? {} : { profile: summary }) });
+                const retiredAliases = [...oldRetired, ...(oldAlias === undefined || oldAlias === proofAlias ? [] : [oldAlias])];
+                this.persist(key, { remember: true, behavior: behavior ?? old?.behavior ?? "automatic", profileId: active.id, epoch, ...(proofAlias === undefined ? {} : { proofAlias }), ...(retiredAliases.length === 0 ? {} : { retiredAliases }), ...(summary === undefined ? {} : { profile: summary }) });
             } catch (error) {
                 if (proofAlias !== undefined) await this.secrets.remove(proofAlias);
                 throw error;
             }
             newAlias = proofAlias;
         }
-        if (oldAlias !== undefined && oldAlias !== newAlias) await this.dropProof(key, oldAlias);
+        for (const alias of [oldAlias, ...oldRetired]) if (alias !== undefined && alias !== newAlias) await this.dropProof(key, alias);
         this.recordActive();
     }
 

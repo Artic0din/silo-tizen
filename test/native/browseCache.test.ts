@@ -40,7 +40,7 @@ test("retained offline Details retries shuffle and advisory reads on recovery", 
     await settle();
     try {
         assert.equal(reads.filter(path => path === "/shuffles/capabilities").length, 2);
-        assert.equal(reads.filter(path => path.startsWith("/settings/values/effective")).length, 2);
+        assert.equal(reads.filter(path => path.startsWith("/settings/values/effective") && path.includes("show_advisory_age")).length, 2);
         assert.equal(state.shuffleSupported, true);
         assert.equal(state.showAdvisoryAge, true);
     } finally { state.stop(); }

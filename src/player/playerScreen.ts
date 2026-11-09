@@ -284,12 +284,15 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     const skipCaption = el("span", "player-skip-caption");
     skipCaption.setAttribute("aria-hidden", "true");
     skip.append(skipTrack, skipGlyph, skipLabel);
+    // A pointer press with the options panel up must not move focus off the panel.
+    skip.addEventListener("mousedown", event => { if (menuOpen) event.preventDefault(); });
     skip.addEventListener("click", () => {
         if (skipKind === undefined || skipTarget === undefined) return;
         const target = skipTarget;
         // A tapped seek preview is dropped, so its debounced seek cannot land after the skip.
         if (seekPreview !== undefined) cancelScrub();
         decideSkip();
+        pendingSkipTarget = target;
         controls.seekToSeconds(target);
         // The options panel keeps its focus.
         if (!menuOpen) {

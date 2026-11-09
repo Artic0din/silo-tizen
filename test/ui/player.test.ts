@@ -1092,6 +1092,37 @@ test("Select on Skip Intro reached from a seek preview skips and drops the previ
     } finally { await page.close(); }
 });
 
+test("a skip pressed while an earlier seek is still pending shows the skip's position, not the stale target", async () => {
+    const { page } = await open();
+    try {
+        await show(page, inMarker(INTRO, 25));
+        await remote(page, DOWN);
+        await remote(page, UP);
+        await remote(page, RIGHT);
+        await page.clock.runFor(300);
+        assert.equal((await commands(page)).length, 1, "the tapped seek is in flight; the view has not caught up");
+        await remote(page, UP);
+        assert.equal(await focused(page), "skip");
+        await remote(page, ENTER);
+        assert.equal((await commands(page)).at(-1), "seekToSeconds 60");
+        assert.equal(await page.locator(".player-time-elapsed").innerText(), "1:00");
+    } finally { await page.close(); }
+});
+
+test("clicking a pill with the options panel open skips without taking focus from the panel", async () => {
+    const { page } = await open();
+    try {
+        await show(page, inMarker(RECAP, 5));
+        await openPanel(page);
+        const inPanel = (): Promise<boolean> => page.evaluate(() => document.querySelector(".player-hud")!.contains(document.activeElement));
+        assert.equal(await inPanel(), true);
+        await page.locator(".player-skip").click();
+        assert.deepEqual(await commands(page), ["seekToSeconds 15"]);
+        assert.equal(await inPanel(), true, "the next Select operates the panel, not the pill again");
+        assert.equal(await page.locator(".player-hud").isVisible(), true);
+    } finally { await page.close(); }
+});
+
 test("pills are disabled, and focus never lands on them, during a timeline scrub", async () => {
     const { page } = await open();
     try {

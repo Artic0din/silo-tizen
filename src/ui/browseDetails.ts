@@ -22,6 +22,7 @@ import { heroBackdrop, type Tints } from "./heroBackdrop.ts";
 import { episodeAirDate, episodeRuntime } from "./episodeCaption.ts";
 import { TMDB_LOGO_PATH } from "./acknowledgements.ts";
 import { spinner } from "./marquee.ts";
+import { defaultArtwork } from "./defaultArtwork.ts";
 
 const detailPalette = new Map<string, Tints>();
 /** Logo URLs that have decoded on a visible Details page. Later paints of the same visit seed that image, as TVDecodedLogoTitle does from the pipeline cache (silo-apple e28300c61f044a9322f588203c8819d6f06e6197, TVDetailHero.swift). */
@@ -724,7 +725,7 @@ export function seasonView(name: string, title: string, episodes: readonly Episo
         const element = el("button", "browse-episode");
         element.type = "button";
         element.setAttribute("data-focus", episode.id);
-        const art = artwork("browse-art browse-still", episode.stillUrl, context.baseUrl, episode.title);
+        const art = artwork("browse-art browse-still", episode.stillUrl, context.baseUrl, defaultArtwork("tv"));
         if (hidesEpisodeListStill(episode, context.spoilers?.() ?? { hidesImages: false, hidesOverviews: false })) blurEpisodeStill(art);
         element.appendChild(art);
         const info = el("span", "browse-episode-info");

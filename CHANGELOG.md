@@ -15,6 +15,7 @@ All notable changes to this project are documented in this file.
 - Added Paired Silo Profile on General, showing the profile this TV reopens and opening the profile picker to change it.
 - Added Remove Request for a failed request of yours, including the confirmation, the notice, and focus on the card that takes its place.
 - Hid unwatched episode stills and descriptions from Playback when the server supports the profile spoiler settings.
+- Loaded Person filmography in 60-title batches while scrolling and refreshed incomplete person metadata automatically.
 - Show Trailers & More on movie and series Details for local extras and YouTube listings, using Apple's card size and the 76px gap to the next heading. Local extras still play from the start. YouTube listings stay on their card because this TV cannot play them.
 - Added description translation on Details and the featured marquee, matching Apple TV's Translate Description action, Translating… status and Translated by AI label.
 - Added Change Account with several saved accounts per server and account management.
@@ -34,6 +35,9 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Changed the Series Details episode rail error to Apple TV's text-only "Couldn't load more episodes. Move away and back to retry." and removed the Retry more episodes button. The error now uses Apple TV's 18-point secondary text. Choosing another season or reopening Details, including going Back to it, now clears the error and reads each missing neighbouring season at once, as Apple TV does, instead of waiting for focus to reach the rail edge.
+- Hid the Series Details rail edge error while its retry runs and showed it again if it fails, as Apple TV does. Focus stays on the edge card.
+- Matched Apple TV's skip pills in the player. Skip Intro shows for five seconds with a filling bar, Back takes it down, and Skip Recap and Skip Credits stay up for the whole recap or credits. After an automatic intro skip the pill reads Intro skipped over Watch Intro, with the same filling bar. The Skip Recap and Skip Credits pill is 260 px wide and widens to 360 px with focus, and Back on it works as it does anywhere else in the player. Credits skips no longer offer an undo, and Skip automatically never offers Skip Intro.
 - Hid "Could not load more episodes." and Retry more episodes on Series Details while the retry runs, and showed them again if it fails, as Apple TV does. Focus stays on the edge card.
 - Kept the top bar on Requests opened from the profile menu, so Up from the first row reaches it and Back returns to the tab underneath. Requests closes back to that tab when the server turns requests off. Watchlist, Favorites and Requests now replace each other, so Back from the bar returns to the tab, and a page opened above Requests stays open until you leave it.
 - Retried a season that failed to load beside the Series Details episode rail when focus reaches the rail edge, and re-read a season whose load was cancelled when its chip is focused again, as Apple TV does.

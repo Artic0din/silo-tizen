@@ -24,6 +24,11 @@ export function closeIcon(): string {
     return svg(`<path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" d="M6 6l12 12M18 6L6 18"/>`);
 }
 
+/** `forward.end.fill`: the Skip Recap and Skip Credits symbol. */
+export function skipToEndIcon(): string {
+    return svg(`<g fill="currentColor"><path d="M3.5 5.6v12.8L14 12z"/><rect x="15.6" y="5.6" width="3.4" height="12.8" rx="1"/></g>`);
+}
+
 /** `rectangle.stack.fill`: the tvOS Show Up Next episodes icon. */
 export function episodesIcon(): string {
     return svg(`<g fill="currentColor"><path opacity="0.55" d="M7 3.2h11.2A1.6 1.6 0 0 1 19.8 4.8V6H6.2V4.8A1.6 1.6 0 0 1 7 3.2z"/><path opacity="0.8" d="M5 6.2h13.2A1.6 1.6 0 0 1 19.8 7.8V9H4.2V7.8A1.6 1.6 0 0 1 5 6.2z"/><rect x="3" y="9" width="18" height="11" rx="1.8"/></g>`);

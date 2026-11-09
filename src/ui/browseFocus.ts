@@ -204,6 +204,10 @@ export class FocusHost {
         this.view = view;
         this.container.setAttribute("data-view", view.name);
         view.prepare?.();
+        // Moving the retained grid past rebuilt headings can blur its card; keep its reveal running.
+        const retainedPerson = sameVisit && view.name.startsWith("person:") && kept !== undefined
+            && (focus === undefined || (focus.zone === kept.zone && focus.key === kept.key))
+            && view.zones.find(zone => zone.id === kept.zone)?.items.find(candidate => candidate.key === kept.key)?.element === previous?.item.element;
         place(this.container, view.content);
         this.applyVisit(visit);
         const restoring = !sameVisit && visit !== undefined;
@@ -211,16 +215,20 @@ export class FocusHost {
         const item = target === undefined ? undefined : view.zones.find(zone => zone.id === target.zone)?.items.find(candidate => candidate.key === target.key);
         const offscreenShelf = restoring && item?.element.closest(".browse-row") != null && !this.intersects(item.element);
         const returnSnap = restoring && !offscreenShelf && item !== undefined && this.intersects(item.element) && this.insideRow(item.element);
-        this.focusFirst(offscreenShelf ? [view.focus] : [focus, nearby === undefined ? kept : { zone: previous?.zone.id ?? "", key: nearby.key }, restoring ? this.memoryTarget() : undefined, view.focus]);
+        if (retainedPerson && previous !== undefined) {
+            previous.item.element.focus({ preventScroll: true });
+            this.scroll.reveal(previous.item.element, this.container);
+        }
+        else this.focusFirst(offscreenShelf ? [view.focus] : [focus, nearby === undefined ? kept : { zone: previous?.zone.id ?? "", key: nearby.key }, restoring ? this.memoryTarget() : undefined, view.focus]);
         this.settlePrimaryFocus(view);
         const focused = this.focused();
         const sameIdentity = unchanged !== undefined && focused?.zone === unchanged.zone && focused.key === unchanged.key;
-        if ((sameIdentity || returnSnap) && visit !== undefined) {
+        if ((sameIdentity || returnSnap) && visit !== undefined && !retainedPerson) {
             // Repainting the same identity (including a dismissed modal) must keep its viewport.
             this.scroll.stop();
             this.applyVisit(visit);
             const element = this.locate(document.activeElement)?.item.element;
-            if ((this.container.dataset.view === "search" || this.container.classList.contains("section-catalog") || this.container.classList.contains("library-browse") || this.container.classList.contains("requests-hub") || this.container.classList.contains("details-series-scene") || this.container.classList.contains("accounts-screen") || element?.closest(".settings-modal-options") != null) && element !== undefined) {
+            if ((this.container.dataset.view === "search" || this.container.dataset.view?.startsWith("person:") || this.container.classList.contains("section-catalog") || this.container.classList.contains("library-browse") || this.container.classList.contains("requests-hub") || this.container.classList.contains("details-series-scene") || this.container.classList.contains("accounts-screen") || element?.closest(".settings-modal-options") != null) && element !== undefined) {
                 const viewport = element.closest<HTMLElement>(".browse-panel-list, .settings-modal-options, .settings-pane, .skyline-content, .accounts-rail, .accounts-pane, .accounts-settings") ?? this.container;
                 const card = element.getBoundingClientRect(), bounds = viewport.getBoundingClientRect();
                 if (card.top < bounds.top + 12 || card.bottom > bounds.bottom - 32 || !this.insideRow(element)) this.scroll.reveal(element, this.container);

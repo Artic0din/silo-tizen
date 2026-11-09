@@ -7,6 +7,7 @@ import type { FocusItem, View, Zone } from "./browseFocus.ts";
 import { artworkUrl, type Destination, type EpisodeSelection, type SeriesLine, browseCardDestination, destinationOf } from "./browseModel.ts";
 import { type CardOverlayPrefs, overlayLayer } from "./cardOverlays.ts";
 import { homeCaption } from "./cardPresentation.ts";
+import { artworkSymbol, defaultArtwork, isDefaultArtwork } from "./defaultArtwork.ts";
 import { blurEpisodeStill, hidesCardImage, type EpisodeSpoilerSettings } from "./episodeSpoilers.ts";
 import { el } from "./screen.ts";
 
@@ -90,12 +91,17 @@ export function exploreAllCard(rowTitle: string, key: string, wide: boolean, onP
     return { key, element };
 }
 
-/** An <img> for signed or presigned artwork, or the title as a placeholder when it is missing or fails. */
+/**
+ * An <img> for signed or presigned artwork, or the fallback when it is missing or fails. A `defaultArtwork`
+ * fallback fills the box as Apple's DefaultArtwork does; anything else sits in the text placeholder.
+ */
 export function artwork(className: string, reference: string | undefined, baseUrl: string, fallback: string | Node): HTMLElement {
     const box = el("div", className);
     const src = artworkUrl(reference, baseUrl);
-    const placeholder = el("span", "browse-art-fallback");
-    placeholder.append(fallback);
+    const drawn = isDefaultArtwork(fallback);
+    const placeholder = drawn ? fallback as HTMLElement : el("span", "browse-art-fallback");
+    if (drawn) box.classList.add("browse-art-default");
+    else placeholder.append(fallback);
     if (src === undefined) {
         box.classList.add("browse-art-missing");
         box.appendChild(placeholder);
@@ -111,7 +117,9 @@ export function artwork(className: string, reference: string | undefined, baseUr
         if (image.parentNode === box) {
             box.removeChild(image);
         }
-        box.appendChild(placeholder);
+        // Drawn artwork is absolutely placed: first, so badges and progress added to the box stay above it.
+        if (drawn) box.prepend(placeholder);
+        else box.appendChild(placeholder);
     });
     image.src = src;
     box.appendChild(image);
@@ -150,7 +158,7 @@ export function cardItem(card: Card, context: ViewContext): FocusItem | undefine
     element.setAttribute("data-focus", card.id);
     const continuing = context.continueWatching === true;
     const thumbnail = context.cardLayout === "thumbnail" || (context.cardLayout === undefined && continuing);
-    const art = artwork("browse-art", thumbnail ? card.backdropUrl ?? card.posterUrl : card.posterUrl, context.baseUrl, card.title);
+    const art = artwork("browse-art", thumbnail ? card.backdropUrl ?? card.posterUrl : card.posterUrl, context.baseUrl, defaultArtwork(artworkSymbol(card.type)));
     if (hidesCardImage(card, spoilerSettings(context), thumbnail)) blurEpisodeStill(art);
     element.appendChild(art);
     if (thumbnail) {

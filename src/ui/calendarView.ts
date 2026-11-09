@@ -3,6 +3,7 @@ import type { FocusItem, FocusTarget, View, Zone } from "./browseFocus.ts";
 import { actionButton, artwork, FAILURE_ICON, mediaItem, searchState, zoneNode, type ViewContext } from "./browseViews.ts";
 import { calendarDateLabel, calendarDestination, calendarEventKeys, calendarWeek, CalendarTimezoneError, dayDate, eventTime, localDateKey, shiftDay, type CalendarState } from "./calendarState.ts";
 import { el } from "./screen.ts";
+import { artworkSymbol, defaultArtwork } from "./defaultArtwork.ts";
 
 export interface CalendarHandlers {
     readonly now: number;
@@ -23,7 +24,7 @@ function eventCard(event: CalendarEvent, key: string, timezone: string, context:
     const destination = calendarDestination(event);
     const item = actionButton(key, "", () => { if (destination !== undefined) context.open(destination); });
     item.element.className = "browse-card calendar-event";
-    const art = artwork("browse-art", event.posterUrl, context.baseUrl, event.title);
+    const art = artwork("browse-art", event.posterUrl, context.baseUrl, defaultArtwork(artworkSymbol(event.type)));
     const time = eventTime(event, timezone);
     const badges = event.badges.map(badge => Object.prototype.hasOwnProperty.call(BADGES, badge) ? BADGES[badge] : undefined).filter(label => label !== undefined);
     const releases = el("span", "calendar-releases");

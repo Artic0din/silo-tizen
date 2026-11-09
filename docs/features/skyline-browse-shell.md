@@ -121,7 +121,10 @@ Paths below are relative to `iosApp/iosApp/`.
 Remote navigation retains one FocusHost owner: Left/Right within action, season, episode, cast, extras and related rows; Up/Down through nonempty rows; Back closes the active dialog before popping the page.
 Seasons require explicit activation, including Specials; focus movement does not read data.
 The existing route status owner retains initial loading, error, Retry and Back; season loading/error/empty states stay in SeriesEpisodes.
-Missing metadata keeps a text title and usable controls; missing or failed artwork falls back to the shared tint surface.
+Missing metadata keeps a text title and usable controls.
+A poster, thumbnail or episode still with no artwork URL or a failed load draws Apple's `DefaultArtwork` (`src/ui/defaultArtwork.ts`): a #16171C base, blue, orange and red glows sized from the longer side, and a 13% white film, tv, headphones or book mark chosen by catalog type and sized at 24% of the box width, held to 14–64.
+While the artwork loads, the box is #0E0F12, as Apple's ThumbHash placeholder is without a hash; the mark appears only once the artwork is known to be missing.
+Cast photos, collection tiles, Trailers & More stills and Requests posters keep their own Apple fallbacks.
 Version labels retain the server edition, resolution and codec fields.
 
 Native acceptance remains required before merge.

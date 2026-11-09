@@ -251,7 +251,11 @@ function gatedSession(): { session: NativeSession; reads: () => number; answer: 
         return new Promise<T>((resolve, reject) => {
             const answer = (value: string | Error): void => value instanceof Error ? reject(value) : resolve(new Map([["playback.preferred_quality", { value }]]) as T);
             waiting.push(answer);
-            request.signal?.addEventListener("abort", () => { waiting.splice(waiting.indexOf(answer), 1); reject(new DOMException("Aborted", "AbortError")); }, { once: true });
+            request.signal?.addEventListener("abort", () => {
+                const queued = waiting.indexOf(answer);
+                if (queued >= 0) waiting.splice(queued, 1);
+                reject(new DOMException("Aborted", "AbortError"));
+            }, { once: true });
         });
     } } as unknown as NativeSession;
     return { session, reads: () => reads, answer: value => waiting.shift()?.(value) };

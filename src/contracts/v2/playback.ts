@@ -220,6 +220,8 @@ export interface PlaybackPlan {
     readonly selectedTracks: SelectedTracks;
     /** Full runtime; undefined when the server does not know it. Never the engine's duration. */
     readonly durationSeconds: number | undefined;
+    /** `source.bitrate_kbps`: what the buffering controller steps down from when the recipe names none. */
+    readonly sourceBitrateKbps: number | undefined;
     /** The edition the plan plays; its track identities belong to this file, not the requested one. */
     readonly effectiveMediaFileId: string;
     readonly subtitle: PlanSubtitle;
@@ -421,6 +423,7 @@ function decodePlan(value: unknown, path: string): PlaybackPlan {
         timeline: decodeTimeline(obj.timeline, `${path}.timeline`),
         selectedTracks: { ...(audio === undefined ? {} : { audio }), ...(subtitle === undefined ? {} : { subtitle }) },
         durationSeconds: optionalNumber(source, "duration_seconds", `${path}.source`),
+        sourceBitrateKbps: optionalInteger(source, "bitrate_kbps", `${path}.source`),
         // openapi.json types it as an opaque string id (the v3 design schema shows an integer).
         effectiveMediaFileId: nonEmptyString(obj, "effective_media_file_id", path),
         subtitle: decodeSubtitle(obj.subtitle, `${path}.subtitle`),
@@ -566,6 +569,10 @@ export type StartPlaybackBody = {
     readonly bandwidth_cap_kbps?: number;
     /** The highest fresh stored speed reading. Omitted when there is none. */
     readonly bandwidth_estimate_kbps?: number;
+    /** Sent with the estimate only to a server that advertises `buffering_quality_v1`. */
+    readonly bandwidth_estimate_source?: "probe";
+    /** `ignore` when the viewer turned buffering quality off. Only with `buffering_quality_v1`. */
+    readonly learned_limit?: "ignore";
     readonly subtitle_fidelity_preference: "preserve" | "compatible";
     /** Omitted: the server resumes from the profile's saved position. */
     readonly start_position?: number;
@@ -593,6 +600,11 @@ export type ReplanPlaybackBody = {
     readonly attempt_count: number;
     readonly quality_preference: string;
     readonly bandwidth_cap_kbps?: number;
+    readonly bandwidth_estimate_kbps?: number;
+    /** The members below go only to a server that advertises `buffering_quality_v1`. */
+    readonly bandwidth_estimate_source?: "observed_rebuffer";
+    readonly learned_limit?: "clear" | "ignore";
+    readonly observed_throughput_kbps?: number;
     readonly position_seconds: number;
     readonly selected_tracks: SelectedTracks;
     readonly failure?: { readonly classification: string };

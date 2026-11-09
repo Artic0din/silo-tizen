@@ -6,6 +6,7 @@ import { requestsView, type RequestsHandlers, type RequestsState, type RequestWr
 import type { TextSearchScope } from "../api/operations.ts";
 import type { CatalogPage, Episode, HomeSection, ItemDetail, Season, UserLibrary } from "../contracts/v2/catalog.ts";
 import type { Person } from "../contracts/v2/details.ts";
+import type { PersonMetadataRefresh } from "./personMetadataRefresh.ts";
 import type { DetailsState } from "./detailsState.ts";
 import { SessionError, SessionRefreshError } from "../session/session.ts";
 import type { FocusTarget, View } from "./browseFocus.ts";
@@ -42,7 +43,7 @@ export interface Pages {
 export type RouteData =
     | { readonly kind: "for_you"; data: RecommendationRow[] | undefined }
     | { readonly kind: "recommendationSection"; readonly locator: RecommendationLocator; readonly title: string; pages: Pages }
-    | { readonly kind: "requests"; readonly requests: RequestsState }
+    | { readonly kind: "requests"; readonly requests: RequestsState; readonly anchor?: string }
     | { readonly kind: "calendar"; readonly calendar: CalendarState }
     | { readonly kind: "personal"; readonly source: PersonalSource; readonly anchor?: string; filter: PersonalFilter; capability: PersonalListCapability | undefined; pages: Pages; pendingIndex: number | undefined; error?: ErrorState | undefined; elsewhere?: boolean }
     | { readonly kind: "home"; data: { libraries: UserLibrary[]; sections: HomeSection[] } | undefined }
@@ -54,7 +55,7 @@ export type RouteData =
     | { readonly kind: "search"; query: string; pages: Pages | undefined; resultsFor: string; searchType?: TextSearchScope; filter?: "movie" | "series" | undefined; peopleSupported?: boolean; boxSetsSupported?: boolean; supplement?: SearchSupplement }
     | { readonly kind: "boxSet"; readonly id: string; readonly libraryId: string; readonly title: string; data: CatalogBoxSetDetail | undefined }
     | { readonly kind: "item"; readonly id: string; readonly title: string; readonly seriesContext?: SeriesContext; error?: ErrorState; data: { detail: ItemDetail; seasons: Season[]; details?: DetailsState; boxSet?: BoxSetRowState } | undefined }
-    | { readonly kind: "person"; readonly id: string; readonly title: string; data: { person: Person } | undefined; metadataLoading?: boolean; metadataFailure?: string | undefined; availabilityLoading?: boolean; availableFilters?: MediaScope[]; filter: MediaScope; pages: Pages; pendingIndex: number | undefined }
+    | { readonly kind: "person"; readonly id: string; readonly title: string; data: { person: Person } | undefined; metadataLoading?: boolean; metadataRefresh?: PersonMetadataRefresh; metadataFailure?: string | undefined; availabilityLoading?: boolean; availableFilters?: MediaScope[]; filter: MediaScope; pages: Pages; pendingIndex: number | undefined }
     | { readonly kind: "season"; readonly seriesId: string; readonly seasonNumber: number; readonly title: string; readonly id?: string; readonly episodeId?: string; data: { episodes: Episode[]; detail: ItemDetail | undefined; details?: DetailsState } | undefined };
 
 export type Route = RouteData & {
@@ -85,7 +86,8 @@ export function hasData(current: Route): boolean {
             return current.pages.page !== undefined || current.capability !== undefined;
         case "library":
             return current.discovery?.mode === "Browse" ? current.discovery.snapshot !== undefined : current.discovery?.data !== undefined && (!(current.discovery.mode === "A–Z" || current.discovery.mode === "Recently Added" || current.discovery.genre !== undefined) || current.pages.page !== undefined);
-        case "person": return current.data !== undefined;
+        // A loaded filmography is kept; only a missing person is read again (Apple loadInitial: person == nil, items.isEmpty).
+        case "person": return current.data !== undefined || current.pages.page !== undefined;
         case "libraryResults":
         case "homeSection":
         case "recommendationSection":
@@ -107,6 +109,7 @@ export interface RouteHandlers {
     readonly shuffle: { readonly starting: boolean; readonly failure: string | undefined; readonly start: (route: Extract<Route, { kind: "library" | "libraryResults" }>) => void; readonly dismiss: () => void } | undefined;
     readonly requests: (route: Extract<Route, { kind: "requests" }>) => RequestsHandlers;
     readonly personFilter: (route: Extract<Route, { kind: "person" }>, filter: MediaScope) => void;
+    readonly morePerson: (route: Extract<Route, { kind: "person" }>) => void;
     readonly calendar: (route: Extract<Route, { kind: "calendar" }>) => CalendarHandlers;
     readonly personalFilter: (route: Extract<Route, { kind: "personal" }>, filter: PersonalFilter) => void;
     readonly morePersonal: (route: Extract<Route, { kind: "personal" }>) => void;

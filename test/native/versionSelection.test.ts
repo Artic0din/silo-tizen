@@ -1,0 +1,337 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { decodeItemDetail } from "../../src/contracts/v2/catalog.ts";
+import { compactVersionLabel, displayVersion, versionLabel, type RankedVersion } from "../../src/contracts/v2/versions.ts";
+import { playChoices } from "../../src/ui/browseModel.ts";
+import { DetailsState } from "../../src/ui/detailsState.ts";
+import { ResolutionCap } from "../../src/ui/resolutionCap.ts";
+import { fixture } from "./support/fakeSilo.ts";
+import { settle } from "./support/clock.ts";
+import type { NativeSession } from "../../src/session/session.ts";
+import type { RequestSpec } from "../../src/api/http.ts";
+
+// Expected values follow silo-apple DetailVersionSelection.displayVersion and
+// DetailPlaybackFormatting.versionShortLabel / versionCompactLabel.
+
+function files(...resolutions: (string | undefined)[]): RankedVersion[] {
+    return resolutions.map((resolution, index) => ({ fileId: String.fromCharCode(97 + index), ...(resolution === undefined ? {} : { resolution }) }));
+}
+
+function best(versions: readonly RankedVersion[], options: { selected?: string | undefined; last?: string | undefined; quality?: string | undefined } = {}): string | undefined {
+    return displayVersion(versions, options.selected, options.last, options.quality)?.fileId;
+}
+
+test("the default version is the highest resolution, whatever order the server lists", () => {
+    assert.equal(best(files("720p", "2160p", "1080p")), "b");
+    assert.equal(best(files("480p", "720p", "1080p")), "c");
+    assert.equal(best(files("1080p", "480p", "720p")), "a");
+});
+
+test("4K and 2160p spellings share one rank, and the first listed file wins every tie", () => {
+    assert.equal(best(files("4K", "2160p")), "a");
+    assert.equal(best(files("2160p", "4k")), "a");
+    assert.equal(best(files("1920x1080", "1080p", "1080i")), "a");
+    assert.equal(best(files("1080p", "1080p")), "a");
+    assert.equal(best(files("720p", "1080p", "1080p")), "b");
+});
+
+test("files without a recognised resolution rank last but stay selectable", () => {
+    assert.equal(best(files(undefined, "480p")), "b");
+    assert.equal(best(files("SD", undefined, "720p")), "c");
+    assert.equal(best(files(undefined, undefined)), "a");
+    assert.equal(best(files("")), "a");
+    assert.equal(displayVersion([], undefined, undefined, undefined), undefined);
+});
+
+test("a selected file wins, then the last-played file, then the ranking", () => {
+    const versions = files("2160p", "1080p", "720p");
+    assert.equal(best(versions, { selected: "c", last: "b" }), "c");
+    assert.equal(best(versions, { last: "b" }), "b");
+    assert.equal(best(versions, { selected: "missing", last: "b" }), "b", "Apple falls back past a selection that is gone");
+    assert.equal(best(versions, { selected: "missing", last: "missing" }), "a");
+});
+
+test("a stored resolution cap prefers files at or under it and demotes files above it", () => {
+    const versions = files("2160p", "1080p", "720p");
+    assert.equal(best(versions, { quality: "1080p" }), "b");
+    assert.equal(best(versions, { quality: "720p" }), "c");
+    assert.equal(best(files("2160p", "1080p"), { quality: "480p" }), "a", "every file is over the cap, so the smaller demotion loses nothing");
+    assert.equal(best(files("1080p", "2160p"), { quality: "480p" }), "b");
+    assert.equal(best(files("720p", "1080p", "1080p"), { quality: "1080p" }), "b", "ties under a cap keep server order");
+    assert.equal(best(files("480p", "720p"), { quality: "1080p" }), "b", "under the cap, higher still wins");
+    assert.equal(best(files(undefined, "2160p"), { quality: "1080p" }), "a", "an unranked file is never demoted, so it beats a file over the cap");
+    assert.equal(best(files(undefined, "720p"), { quality: "1080p" }), "b", "an unranked file never gets the cap bonus");
+});
+
+test("stored quality spellings that cap nothing are ignored", () => {
+    const versions = files("720p", "2160p", "1080p");
+    for (const quality of [undefined, "", "  ", "auto", "AUTO", "original", "source", "max", "2160p", "4K", "uhd", "unknown"]) {
+        assert.equal(best(versions, { quality }), "b", `quality ${JSON.stringify(quality)}`);
+    }
+});
+
+test("stored quality tiers and their legacy spellings cap at their resolution", () => {
+    const versions = files("2160p", "1080p", "720p", "480p");
+    assert.equal(best(versions, { quality: "1080p-high" }), "b");
+    assert.equal(best(versions, { quality: " 1080P-Medium " }), "b");
+    assert.equal(best(versions, { quality: "1080p-8" }), "b");
+    assert.equal(best(versions, { quality: "720p-high" }), "c");
+    assert.equal(best(versions, { quality: "720p-medium" }), "c");
+    assert.equal(best(versions, { quality: "480p" }), "d");
+    assert.equal(best(versions, { quality: "328p" }), "a", "328p ranks nothing, so every ranked file is demoted equally");
+    assert.equal(best(versions, { quality: "420p" }), "a", "420p is the old spelling of 328p");
+});
+
+test("version labels read resolution, video codec, dynamic range and audio codec, never the edition", () => {
+    assert.equal(versionLabel({ resolution: "2160p", codecVideo: "hevc", hdr: true, dolbyVision: "profile 8", codecAudio: "eac3" }), "2160p · HEVC · DV · EAC3");
+    assert.equal(versionLabel({ resolution: "2160p", codecVideo: "h265", hdr: true, codecAudio: "truehd" }), "2160p · HEVC · HDR · TrueHD");
+    assert.equal(versionLabel({ resolution: "1080p", codecVideo: "h264", hdr: false, codecAudio: "aac" }), "1080p · H.264 · AAC");
+    assert.equal(versionLabel({ resolution: "1080p", codecVideo: "avc1", codecAudio: "dts" }), "1080p · H.264 · DTS");
+    assert.equal(versionLabel({ resolution: "2160p", codecVideo: "av1" }), "2160p · AV1");
+    assert.equal(versionLabel({ codecVideo: "vp9", codecAudio: "opus" }), "VP9 · OPUS");
+    assert.equal(versionLabel({ resolution: "  720p  ", dolbyVision: "  " }), "720p");
+    assert.equal(versionLabel({}), "");
+});
+
+test("the compact label keeps only resolution and dynamic range", () => {
+    assert.equal(compactVersionLabel({ resolution: "2160p", hdr: true, dolbyVision: "profile 5" }), "2160p · DV");
+    assert.equal(compactVersionLabel({ resolution: "2160p", hdr: true }), "2160p · HDR");
+    assert.equal(compactVersionLabel({ resolution: "1080p", hdr: false }), "1080p");
+    assert.equal(compactVersionLabel({ hdr: true }), "HDR");
+    assert.equal(compactVersionLabel({}), "");
+});
+
+const base = { ...fixture("get_catalog_item_ok"), duration_seconds: 7200 };
+
+function detailWith(versions: object[], lastFileId?: string): ReturnType<typeof decodeItemDetail> {
+    return decodeItemDetail({ ...base, versions, user_data: { played: false, ...(lastFileId === undefined ? {} : { last_file_id: lastFileId }) } });
+}
+
+test("decoded versions carry the resolution and the Apple label without the edition", () => {
+    const detail = detailWith([
+        { file_id: "x", duration: 7200, resolution: "2160p", codec_video: "hevc", codec_audio: "eac3", hdr: true, edition_raw: "Director's Cut", video_tracks: [{ dolby_vision: "profile 8" }] },
+        { file_id: "y", duration: 7200, resolution: "1080p", codec_video: "h264", codec_audio: "aac", hdr: false, container: "mkv", file_size: 8_430_000_000 },
+    ]);
+    assert.deepEqual(detail.versions.map(file => [file.fileId, file.resolution, file.label, file.compactLabel]), [
+        ["x", "2160p", "2160p · HEVC · DV · EAC3", "2160p · DV"],
+        ["y", "1080p", "1080p · H.264 · AAC", "1080p"],
+    ]);
+    assert.equal(detail.versions[1]?.detailLabel, "H.264 · MKV · 8.43 GB");
+});
+
+test("Details starts the best version, not the first one the server lists", () => {
+    const detail = detailWith([
+        { file_id: "sd", duration: 7200, resolution: "720p" },
+        { file_id: "uhd", duration: 7200, resolution: "2160p" },
+        { file_id: "hd", duration: 7200, resolution: "1080p" },
+    ]);
+    assert.equal(playChoices(detail)?.fromStart.fileId, "uhd");
+    assert.equal(playChoices(detail)?.fromStart.allowAlternateVersions, undefined);
+    assert.equal(playChoices(detail, undefined, "1080p")?.fromStart.fileId, "hd");
+    assert.equal(playChoices(detail, "sd", "1080p")?.fromStart.fileId, "sd");
+    assert.equal(playChoices(detail, "sd")?.fromStart.allowAlternateVersions, false);
+});
+
+test("Details keeps the last-played version over a better-ranked one", () => {
+    const detail = detailWith([
+        { file_id: "uhd", duration: 7200, resolution: "2160p" },
+        { file_id: "sd", duration: 7200, resolution: "720p" },
+    ], "sd");
+    assert.equal(playChoices(detail)?.fromStart.fileId, "sd");
+    assert.equal(playChoices(detail, undefined, "2160p")?.fromStart.fileId, "sd");
+});
+
+test("a last-played file that is no longer listed falls back to the ranking", () => {
+    const detail = detailWith([
+        { file_id: "sd", duration: 7200, resolution: "720p" },
+        { file_id: "uhd", duration: 7200, resolution: "2160p" },
+    ], "gone");
+    assert.equal(playChoices(detail)?.fromStart.fileId, "uhd");
+});
+
+function sessionWith(quality: { value: string | undefined; fail?: boolean }, reads: string[]): NativeSession {
+    return { onAuthorityChange: () => () => {}, call: async <T>(request: RequestSpec<T>): Promise<T> => {
+        if (request.path.startsWith("/settings/values/effective") && request.path.includes("preferred_quality")) {
+            reads.push(request.path);
+            if (quality.fail === true) throw new Error("unavailable");
+            return new Map(quality.value === undefined ? [] : [["playback.preferred_quality", { value: quality.value }]]) as T;
+        }
+        throw new Error(`unexpected read ${request.path}`);
+    } } as unknown as NativeSession;
+}
+
+const cappable = (): ReturnType<typeof decodeItemDetail> => detailWith([
+    { file_id: "uhd", duration: 7200, resolution: "2160p" },
+    { file_id: "hd", duration: 7200, resolution: "1080p" },
+]);
+
+test("Details ranks with the cached cap on first paint and sends no cap request of its own", async () => {
+    const reads: string[] = [];
+    const session = sessionWith({ value: "1080p" }, reads);
+    const cap = new ResolutionCap(session, () => {});
+    cap.ensure();
+    await settle();
+    assert.equal(reads.length, 1);
+    const state = new DetailsState(cappable(), session, () => {}, async () => {}, undefined, undefined, () => cap.quality);
+    assert.equal(playChoices(state.detail, undefined, state.preferredQuality)?.fromStart.fileId, "hd", "ranked before start");
+    state.start();
+    await settle();
+    try {
+        assert.equal(playChoices(state.detail, undefined, state.preferredQuality)?.fromStart.fileId, "hd");
+        assert.equal(reads.length, 1, "Details read nothing for the cap");
+    } finally { state.stop(); cap.stop(); }
+});
+
+test("a Resolution change reloads the cache and ranks the next Details", async () => {
+    const reads: string[] = [];
+    const quality: { value: string | undefined } = { value: "1080p" };
+    let repaints = 0;
+    const session = sessionWith(quality, reads);
+    const cap = new ResolutionCap(session, () => repaints++);
+    cap.ensure();
+    cap.ensure();
+    await settle();
+    assert.deepEqual([reads.length, repaints, cap.quality], [1, 1, "1080p"], "concurrent ensure reads once");
+    cap.ensure();
+    await settle();
+    assert.equal(reads.length, 1, "an answered cache never rereads on its own");
+    const first = new DetailsState(cappable(), session, () => {}, async () => {}, undefined, undefined, () => cap.quality);
+    assert.equal(playChoices(first.detail, undefined, first.preferredQuality)?.fromStart.fileId, "hd");
+    quality.value = "auto";
+    cap.reload();
+    await settle();
+    assert.deepEqual([reads.length, repaints, cap.quality], [2, 2, "auto"]);
+    const next = new DetailsState(cappable(), session, () => {}, async () => {}, undefined, undefined, () => cap.quality);
+    assert.equal(playChoices(next.detail, undefined, next.preferredQuality)?.fromStart.fileId, "uhd");
+    assert.equal(playChoices(first.detail, undefined, first.preferredQuality)?.fromStart.fileId, "uhd", "a Details kept in the stack follows the current cap");
+    cap.stop();
+});
+
+test("a failed reload keeps the last cap and the next ensure retries it", async () => {
+    const reads: string[] = [];
+    const quality: { value: string | undefined; fail: boolean } = { value: "1080p", fail: false };
+    const cap = new ResolutionCap(sessionWith(quality, reads), () => {});
+    cap.ensure();
+    await settle();
+    quality.fail = true;
+    quality.value = "720p";
+    cap.reload();
+    await settle();
+    assert.deepEqual([reads.length, cap.quality], [2, "1080p"], "the failed reload keeps the last answer");
+    quality.fail = false;
+    cap.ensure();
+    await settle();
+    assert.deepEqual([reads.length, cap.quality], [3, "720p"]);
+    cap.ensure();
+    await settle();
+    assert.equal(reads.length, 3, "an answered cache stops retrying");
+    cap.stop();
+});
+
+test("a failed cap read ranks by resolution alone and the next ensure retries", async () => {
+    const reads: string[] = [];
+    const quality: { value: string | undefined; fail: boolean } = { value: "1080p", fail: true };
+    const cap = new ResolutionCap(sessionWith(quality, reads), () => {});
+    cap.ensure();
+    await settle();
+    assert.deepEqual([reads.length, cap.quality], [1, undefined]);
+    quality.fail = false;
+    cap.ensure();
+    await settle();
+    assert.deepEqual([reads.length, cap.quality], [2, "1080p"]);
+    cap.stop();
+});
+
+function gatedSession(): { session: NativeSession; reads: () => number; answer: (value: string | Error) => void } {
+    const waiting: ((value: string | Error) => void)[] = [];
+    let reads = 0;
+    const session = { onAuthorityChange: () => () => {}, call: <T>(request: RequestSpec<T>): Promise<T> => {
+        if (!request.path.includes("preferred_quality")) return Promise.reject(new Error(`unexpected read ${request.path}`));
+        reads++;
+        return new Promise<T>((resolve, reject) => {
+            const answer = (value: string | Error): void => value instanceof Error ? reject(value) : resolve(new Map([["playback.preferred_quality", { value }]]) as T);
+            waiting.push(answer);
+            request.signal?.addEventListener("abort", () => {
+                const queued = waiting.indexOf(answer);
+                if (queued >= 0) waiting.splice(queued, 1);
+                reject(new DOMException("Aborted", "AbortError"));
+            }, { once: true });
+        });
+    } } as unknown as NativeSession;
+    return { session, reads: () => reads, answer: value => waiting.shift()?.(value) };
+}
+
+test("ready retries a failed first read and resolves once it is answered", async () => {
+    const gate = gatedSession();
+    const cap = new ResolutionCap(gate.session, () => {});
+    cap.ensure();
+    gate.answer(new Error("unavailable"));
+    await settle();
+    assert.deepEqual([gate.reads(), cap.quality], [1, undefined]);
+    let ready = false;
+    const waited = cap.ready(new AbortController().signal).then(() => { ready = true; });
+    await settle();
+    assert.deepEqual([gate.reads(), ready], [2, false], "ready retries and waits for the new read");
+    gate.answer("1080p");
+    await waited;
+    assert.equal(cap.quality, "1080p");
+    cap.stop();
+});
+
+test("ready waits for a read already in flight instead of starting another", async () => {
+    const gate = gatedSession();
+    const cap = new ResolutionCap(gate.session, () => {});
+    cap.ensure();
+    let ready = false;
+    const waited = cap.ready(new AbortController().signal).then(() => { ready = true; });
+    await settle();
+    assert.deepEqual([gate.reads(), ready], [1, false]);
+    gate.answer("720p");
+    await waited;
+    assert.deepEqual([gate.reads(), cap.quality], [1, "720p"]);
+    cap.stop();
+});
+
+test("ready resolves with no cap when the read fails, and when the caller aborts", async () => {
+    const gate = gatedSession();
+    const cap = new ResolutionCap(gate.session, () => {});
+    const failed = cap.ready(new AbortController().signal);
+    gate.answer(new Error("unavailable"));
+    await failed;
+    assert.equal(cap.quality, undefined);
+    const controller = new AbortController();
+    const aborted = cap.ready(controller.signal);
+    controller.abort();
+    await aborted;
+    assert.equal(gate.reads(), 2);
+    cap.stop();
+});
+
+test("ready returns at once when the cap is already answered", async () => {
+    const gate = gatedSession();
+    const cap = new ResolutionCap(gate.session, () => {});
+    cap.ensure();
+    gate.answer("1080p");
+    await settle();
+    await cap.ready(new AbortController().signal);
+    assert.equal(gate.reads(), 1);
+    cap.stop();
+});
+
+test("ready keeps waiting when a reload replaces the read it was waiting on", async () => {
+    const gate = gatedSession();
+    const cap = new ResolutionCap(gate.session, () => {});
+    cap.ensure();
+    gate.answer("1080p");
+    await settle();
+    cap.reload();
+    let ready = false;
+    const waited = cap.ready(new AbortController().signal).then(() => { ready = true; });
+    cap.reload();
+    await settle();
+    assert.deepEqual([gate.reads(), ready, cap.quality], [3, false, "1080p"], "the aborted read does not release ready");
+    gate.answer("720p");
+    await waited;
+    assert.equal(cap.quality, "720p");
+    cap.stop();
+});

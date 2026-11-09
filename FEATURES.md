@@ -128,7 +128,7 @@ File pointers are repository-relative.
 
 | Feature | Tizen | Apple TV | Android TV | Notes |
 |---|:---:|:---:|:---:|---|
-| Requests hub, discover rows, search, detail, My Requests, cancel, remove a failed request | ✅ | ✅ | ✅ | Shown only when the server enables it. Remove Request needs `remove_failed_supported` and a failed request with nothing delivered. Bugs: focus (#74), status text (#75), artwork (#76). Layout parity open (#98). Tizen: a top-bar tab (`src/ui/navigation.ts`). Apple: in the profile menu (`TVMainTabView`). Android: `TvRequestsPage`, in the profile menu |
+| Requests hub, discover rows, search, detail, My Requests, cancel, remove a failed request | ✅ | ✅ | ✅ | Shown only when the server enables it. Remove Request needs `remove_failed_supported` and a failed request with nothing delivered. Bugs: focus (#74), status text (#75), artwork (#76). Layout parity open (#98). Tizen: a profile-menu item (`src/ui/skyline.ts`) that opens a root page with the top bar. Apple: in the profile menu (`TVMainTabView`). Android: `TvRequestsPage`, in the profile menu |
 | Follow / unfollow a requested title | ✅ | ✅ | ✅ | Android: "Notify me when available" when the server reports `follow_supported`. Apple: "Notify Me" in `RequestDetailView`, gated on `followSupported` |
 | Request administration | ➖ | ➖ | ➖ | Stays in web admin |
 
@@ -143,7 +143,7 @@ File pointers are repository-relative.
 | In-player quality picker | ✅ | ✅ | ✅ | Options come from the server plan |
 | Seek preview, Rewind/Fast Forward keys, profile seek intervals | ✅ | ✅ | ✅ | Player panel and scrubber parity open (#103). Android: `TvPlayerScrubber`, `TvHoldSeekIndicator` |
 | Seek thumbnails | ✅ | ✅ | ✅ | Needs server trickplay. Apple: `ServerTrickplay`. Android: `TrickplayPreviews` |
-| Skip intro, recap, credits | ✅ | ✅ | ✅ | Enter on Skip pauses instead of skipping (#73); on-screen buttons to remove (#87). Android: `TvIntroAutoSkipBanner` |
+| Skip intro, recap, credits | ✅ | ✅ | ✅ | Pill wording, timing, position and undo follow Apple's `IntroSkipPrompt`, `TVIntroSkipPill` and `segmentSkipLayer` (#354); the Watch Intro countdown does not freeze on pause. On-screen buttons to remove (#87). Android: `TvIntroAutoSkipBanner` |
 | Autoplay next episode (10 s countdown, Cancel) | ✅ | ✅ | ✅ | Reads the server setting. Stale after the episode ends (#82) |
 | Up Next panel before the episode ends (Play Now, Keep Watching) | ➖ | ✅ | ✅ | Tizen offers Play next only after the episode ends. Apple: `PlayerView`, with a Show Next Up time setting. Android: `TvPlayerScreen` |
 | Retry after playback fails to start | ✅ | ✅ | ✅ | A retryable first start (network, server, retryable terminal, or a route recovery that ran out of attempts) focuses Retry and replays that request at the same position. Go Back stays available. Apple: `PlayerViewModel.retry()`. Android: `TvPlayerScreen` |

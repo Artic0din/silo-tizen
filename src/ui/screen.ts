@@ -15,6 +15,8 @@ export interface Control {
     readonly done?: string;
     /** Grid: entering this control's row lands here, as a SwiftUI `defaultFocus` in a focus section. */
     readonly landing?: boolean;
+    /** Grid: horizontal slot, so a row with a gap (the number pad's blank key) still moves straight up and down. */
+    readonly column?: number;
 }
 
 export interface Screen {
@@ -157,6 +159,11 @@ function gridTarget(controls: readonly Control[], index: number, key: "up" | "do
         return index;
     }
     const target = inRow(next);
+    const here = controls[index]?.column;
+    if (here !== undefined && target.every(at => controls[at]?.column !== undefined)) {
+        const distance = (at: number): number => Math.abs((controls[at]?.column ?? 0) - here);
+        return target.reduce((best, at) => (distance(at) < distance(best) ? at : best));
+    }
     const landing = target.find(at => controls[at]?.landing === true);
     const inputAt = target.find(at => controls[at]?.element instanceof HTMLInputElement);
     const verticalColumn = current.some(at => controls[at]?.element instanceof HTMLInputElement) ? 0 : column;

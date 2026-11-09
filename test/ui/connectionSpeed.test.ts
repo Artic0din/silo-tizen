@@ -339,6 +339,50 @@ test("the learned limit sits under the buffering row and Reset clears it with fo
     } finally { await tv.page.context().close(); }
 });
 
+test("Reset leaves focus alone when the user has already moved to Test speed", async () => {
+    const { tv, settings } = await setup();
+    settings.bufferingRows = true;
+    serveLimit(tv);
+    const hold = tv.fake.hold("/playback/connection/learned-limit");
+    try {
+        await openSettings(tv);
+        await tv.page.locator('[data-focus="playback"]').click();
+        const row = tv.page.locator('[data-focus="learned-limit"]');
+        await row.waitFor();
+        await row.focus();
+        await tv.page.keyboard.press("Enter");
+        await tv.eventually(async () => tv.fake.requests.some(request => request.method === "DELETE" && request.path === "/playback/connection/learned-limit"), "reset request");
+        await tv.page.keyboard.press("ArrowDown");
+        assert.equal(await tv.focused(), "connection-speed");
+        hold.release();
+        await tv.page.locator('[data-focus="learned-limit"]').waitFor({ state: "detached" });
+        assert.equal(await tv.focused(), "connection-speed");
+    } finally { hold.release(); await tv.page.context().close(); }
+});
+
+test("choosing Never hides the learned limit and the Auto budget live, and Automatically brings them back", async () => {
+    const { tv, settings } = await setup();
+    settings.bufferingRows = true;
+    serveLimit(tv);
+    try {
+        await openSettings(tv);
+        await tv.page.locator('[data-focus="playback"]').click();
+        await tv.page.locator('[data-focus="learned-limit"]').waitFor();
+        await tv.page.locator(".settings-connection-budget").waitFor();
+        await tv.page.locator('[data-focus="buffering-mode"]').click();
+        await tv.page.locator('[data-focus="choice:never"]').click();
+        await tv.page.locator('[data-focus="buffering-mode"] .settings-row-value', { hasText: "Never" }).waitFor();
+        assert.equal(await tv.page.locator('[data-focus="learned-limit"]').count(), 0);
+        assert.equal(await tv.page.locator(".settings-connection-budget").count(), 0);
+        await tv.page.locator('[data-focus="buffering-mode"]').click();
+        await tv.page.locator('[data-focus="choice:always"]').click();
+        await tv.page.locator('[data-focus="buffering-mode"] .settings-row-value', { hasText: "Automatically" }).waitFor();
+        await tv.page.locator('[data-focus="learned-limit"]').waitFor();
+        await tv.page.locator(".settings-connection-budget").waitFor();
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
+
 test("a failed Reset keeps the row and says to try again, and the next Reset clears the message", async () => {
     const { tv, settings } = await setup();
     settings.bufferingRows = true;

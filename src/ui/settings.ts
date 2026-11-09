@@ -566,8 +566,10 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
             const text = learnedLimitText(learned);
             const item = button("learned-limit", text, () => {
                 void connection.resetLearnedLimit().then(cleared => {
-                    // The row is gone, so focus moves to the row above it (TVPlaybackSettingsView.swift:122-131).
-                    if (cleared && !torn) render({ zone: "settings-rows", key: bufferingRow === undefined ? "bitrate" : BUFFERING_ROW_ID });
+                    if (!cleared || torn) return;
+                    // The row is gone, so focus moves to the row above it only if it is still on Reset (TVPlaybackSettingsView.swift:116-124).
+                    const focused = host.focused();
+                    render(focused?.key === "learned-limit" ? { zone: "settings-rows", key: bufferingRow === undefined ? "bitrate" : BUFFERING_ROW_ID } : focused);
                 });
             });
             item.element.replaceChildren(el("span", "settings-row-title", text), el("span", "settings-row-value", LEARNED_LIMIT_RESET_ACTION));

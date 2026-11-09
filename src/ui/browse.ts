@@ -483,6 +483,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         while (stack.length > 1 && top()?.kind === "requests") closedHub = isHubRoot(stack.pop()) || closedHub;
         const origin = top();
         if (origin === undefined) return;
+        container.classList.toggle("search-restored", origin.kind === "search");
         showRoute(origin, closedHub ? undefined : origin.focus);
         if (closedHub && hasData(origin)) host.focusDefault();
     };

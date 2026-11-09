@@ -2009,6 +2009,22 @@ test("capability loss while a request menu is open paints Home after dismiss", a
     } finally { await tv.page.context().close(); }
 });
 
+test("Requests closing over Search restores the pinned Search title class like Back", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const fake = await start(tv);
+        await button(tv, "search").click();
+        const input = tv.page.getByRole("searchbox");
+        await input.fill("Heat"); await input.press("Enter");
+        await button(tv, "movie:949").waitFor();
+        await button(tv, "movie:949").click(); await view(tv, "media");
+        assert.equal(await tv.page.locator(".browse.search-restored").count(), 0);
+        fake.enabled = false;
+        await tv.page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+        await tv.page.locator(".browse.search-scene").waitFor();
+        assert.equal(await tv.page.locator(".browse.search-restored").count(), 1);
+    } finally { await tv.page.context().close(); }
+});
 test("a list cancel that settles after Requests was reopened refreshes the visible hub", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {

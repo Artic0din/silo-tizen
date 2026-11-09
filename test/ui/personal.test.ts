@@ -4,7 +4,7 @@ import type { Browser } from "playwright";
 import { mkdir } from "node:fs/promises";
 import { FakeDetails } from "../native/support/fakeDetails.ts";
 import { problem, type Reply } from "../native/support/fakeSilo.ts";
-import { launchBrowser, openTv, type Tv } from "./support/tv.ts";
+import { jumpUntil, launchBrowser, openTv, type Tv } from "./support/tv.ts";
 import { personalQuery, readPersonalPage } from "../../src/ui/personalLists.ts";
 import { FakeSettings } from "../native/support/fakeSettings.ts";
 import { CARD_PRESENTATION_KEY } from "../../src/contracts/v2/settings.ts";
@@ -895,7 +895,11 @@ test("a failed later page keeps the rows, and an invalid cursor restarts from th
             await revealEnd(tv);
             return listReads(tv).length > before;
         }, "later page attempted");
-        await tv.jump(1000);
+        // The safe read retries after a 1 s page-clock sleep that exists only once the first 503 has
+        // arrived; a single jump on a slow runner fires nothing and the retry never happens.
+        // The feed also re-arms only on the end leaving and re-entering view, which it ignores while
+        // the read is in flight, so both attempts must have been answered before the test scrolls.
+        await jumpUntil(tv, 1000, async () => listReads(tv).length >= before + 2 && tv.pendingReplies === 0, "failed read retried and answered");
         assert.equal(await tv.page.locator(".browse .browse-card").count(), 24);
         assert.equal(await tv.page.locator(".browse .browse-card").first().getAttribute("data-focus"), "movie:m0001");
         assert.equal(await tv.page.locator('[data-focus="retry"]').count(), 0);

@@ -263,6 +263,20 @@ export async function readLive<T, Arg>(tv: Pick<Tv, "page" | "eventually">, read
     return last;
 }
 
+/**
+ * Moves both clocks `stepMs` at a time until `check` holds. A single `jump` fires only the
+ * timers already due, so a retry or refresh timer that the page schedules after the jump
+ * (because its request had not failed yet on a slow runner) never fires on a paused clock.
+ * Stepping re-fires whatever was scheduled meanwhile.
+ */
+export async function jumpUntil(tv: Pick<Tv, "jump" | "eventually">, stepMs: number, check: () => Promise<boolean>, what: string): Promise<void> {
+    await tv.eventually(async () => {
+        if (await check()) return true;
+        await tv.jump(stepMs);
+        return check();
+    }, what);
+}
+
 /** Call before starting a deadline or intermediate animation under test. */
 export async function pauseTvClock(tv: Tv): Promise<void> {
     // pauseAt advances existing timers; leave room for the protocol round trip

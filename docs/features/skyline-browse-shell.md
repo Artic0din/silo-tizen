@@ -17,9 +17,9 @@ Auto audio stays server-resolved until a viewer explicitly picks a track.
 Local extras and YouTube listings appear together in Trailers & More. Local extras start at zero through the existing player and restore their card on Back.
 If the embedded extra omits its file ID, Select resolves its existing catalog versions endpoint before playback; failure keeps Retry on that card and Back cancels the lookup.
 YouTube cards use the same rail. Select does not start playback and does not leave Silo, because AVPlay cannot play a site key and no Samsung YouTube handoff has been verified.
-More retains watched/favorite actions, the full-synopsis dialog and the movie/series rating dialog.
+More retains watched/favorite actions.
 Each dialog owns focus, hides the underlying page from accessibility, and restores its initiating control on Back.
-The inline synopsis clamps to three lines with ellipsis; the full text remains available in More.
+The inline synopsis clamps to three lines with ellipsis, matching the non-focusable tvOS synopsis.
 Cast portraits remain 200 px circles, with 60 px gaps and centered two-line names.
 
 Series Details use season chips and an inline landscape episode rail.
@@ -27,12 +27,30 @@ Initial selection follows Apple's resume priority: an explicit season, a season 
 Episode-row entry uses the in-progress episode, first unwatched episode, or first episode, and remembers the last focused episode on re-entry.
 The rail anchors the current card to the leading slot and applies the profile's poster-size scale to Apple's 360×200 base stills.
 Watched episodes carry a check disc over the still, and moving Down to Cast & Crew centres that section in the viewport.
-These values follow Apple main at `ffa6e5188c70664090a6dc9beb8c7cbbc3ce43e7`; observed 310×174 thumbnails and centered episode placement do not match that revision's Series Swift and remain a native comparison question.
-The accepted initial season loads independently; subsequent season reads require explicit selection and replace obsolete reads.
+Compact scales the base still to 309.6×172px; terminal focus is bounded by the loaded row's end.
+The accepted initial season loads independently; neighbouring seasons then warm at least eight distinct episodes per side, crossing empty pages and stopping at missing or failed pages.
+The rail joins contiguous loaded seasons, sorts episodes numerically and removes duplicate content identities.
+It retains the nearest five nonempty pages plus enough adjacent pages for eight episodes per side; empty pages remain cached.
+These window rules port `Screens/Detail/SeriesEpisodeWindow.swift:26-81` and tvOS `Screens/Detail/TVItemDetailView.swift:924-1002` at `7baff3ef657757cc0a69202e86dd4bd5c7fcb585`.
 Re-selecting a loading chip keeps the same request and Calendar episode context.
-Moving focus makes no request.
+Moving within the selected loaded season makes no request.
+Crossing into another loaded season selects its cached page and warms its neighbours, as `ItemDetailViewModel.swift:1290-1303` does under tvOS.
+Re-entering a boundary after a failed neighbour read retries it; existing cards remain usable and show an inline error.
+Entry and focus share the stepped offset in `TVEpisodeRail.swift:400-414,436-468`; `SkylineScroll` remains the only scrolling owner.
+All DOM cards stay focusable offscreen, providing the predecessor that SwiftUI's lazy stack keeps via its hidden lookbehind (`TVEpisodeRail.swift:331-378`).
+The supplied 5 November final-season case has ten S13 episodes and six S14 episodes, with S14E05 focused and one successor.
+At Compact size the content width is `16 * 309.6 + 15 * 40 = 5553.6`, and Swift's 1820px viewport gives `ceil((5553.6 - 1820) / 349.6) * 349.6 = 3845.6` maximum scroll.
+Swift's leading hover inset is `309.6 * .025 + 2 = 9.74`; its added trailing inset is `3845.6 - (9.74 + 5553.6 - 1820) = 102.26` (`TVEpisodeRail.swift:420-435`, `TVDetailHero.swift:10`).
+The hidden lookbehind adds one pitch to both content and viewport and cancels out of this maximum.
+The former fourteen-episode S14 fixture never reached this boundary at E05.
+`SkylineScroll` preserves fractional CSS widths when calculating the terminal step; integer `offsetWidth` accumulated rounding error at Compact size.
+Rendered regression requires focused E05 near x1158 and E06's right edge near x1824.74, within 12px of the approximate supplied x1815 edge.
+The existing Tizen leading slot is 7px right of Swift's 100px inset; this is disclosed rather than corrected with an episode-specific offset.
+No native comparison has run for this revision.
 Accepting a season queues its episode catalog details with at most four reads in flight, deduplicated against the next-up read and this visit's cache.
-Each accepted episode detail starts its existing playback/preference owner before focus reaches it.
+Season acceptance loads the playback episode; missing focused episode details load after a 120 ms dwell and then start the existing playback/preference owner.
+Leaving the card cancels pending focus work, while explicit selector and playback requests retain their queue ownership.
+The episode-detail dwell is an approved no-focus-fetch exception; see [TV focus](../tv-focus.md) and [Details actions](details-actions.md).
 All cached episodes share a series-wide playback gate while any series preference save is pending or unconfirmed.
 A confirmed save refreshes accepted episode details in the same bounded queue, clears other episodes' stale track intents, and retains their selected versions.
 Interrupted prefetches resume on return; watched mutations cancel older cache generations before refreshing them.
@@ -42,15 +60,45 @@ While a detail is pending or failed, the loaded episode row still supplies its s
 More > Show Series Info restores the overview without a read.
 Rail Select carries confirmed version/audio/subtitle selections through the existing fresh catalog and progress resolution route.
 Ordinary episode Details/Back retains the selected season, loaded rail and focused episode.
-The existing season-information destination remains available in More.
-Episode Select on the rail, season list and ordinary media cards prepares playback directly.
+Season tabs select the inline episode rail.
+Episode Select on the Details rail and season list prepares playback directly.
+Select on shared browse cards opens Details: episodes open their parent series with their season and episode active; movies open themselves.
+Remote MediaPlay and MediaPlayPause resume a focused movie or episode through the existing resolution route, including the last-used version on Continue Watching.
 The existing resolution route owns catalog/file selection, fresh resume, loading, Retry and cancellation before the player handoff.
 It checks fresh progress even when cached progress is zero, while explicit Start Over sends zero without a progress read.
 Series and season primary actions resolve the server's target episode on entry and show Play/Resume S#:E#; unavailable metadata or files retain a truthful loading, retry or unavailable action.
 Default direct activation uses automatic audio and subtitle selection without borrowing another episode's choices.
 Hold Select or right-click an episode to choose Episode information for its full synopsis and visit-only version/audio/subtitle controls.
 Calendar retains its existing series-context navigation rather than becoming a playback command.
-Playback return restores the originating card or action, selected season and visit scroll; the discarded resolution route cannot replay.
+Playback return restores the originating card or action and selected season; the discarded resolution route cannot replay.
+Returning to hero actions pins the page to the top, including after a repaint restores an intermediate scroll position.
+Opening a new Details route starts at its hero instead of reusing the previous presentation's focus and scroll.
+Back to the existing Series route still retains its selected season and episode.
+
+### Details scroll reference for issue 247
+
+The reference is silo-apple `7baff3ef657757cc0a69202e86dd4bd5c7fcb585`, under `iosApp/iosApp/tvOS/Screens/Detail/`.
+`TVDetailFocusScroll.swift:70-81` pins hero actions to `.top` and centers identified poster sections.
+`TVMovieDetailView.swift:102-130` identifies the hero, box-set and similar sections and defaults focus to Play.
+`TVSeriesDetailView.swift:140-176` pins its primary viewport to the top and clamps a supporting anchor's center to the scroll range.
+The first available Series supporting section supplies that anchor (`TVSeriesDetailView.swift:1113-1165`); later sections use native focus reveal.
+`TVTrailersRail.swift:28-63` has a heading, 14px heading gap, 12px rail padding and first-card default focus, with no vertical scroll position or explicit offset.
+`TVDetailFactsSection.swift:25-61` makes the complete table focusable, also with no explicit scroll anchor.
+Both pages use 140px page-bottom padding (`TVDetailHero.swift:18`, `TVMovieDetailView.swift:120`, `TVSeriesDetailView.swift:292`).
+
+The measured 5 November heading targets remain unverified: Details y524, series page-end Details about y400, and trailer heading/card y501/y570.
+They are native-focus outcomes rather than constants in these Swift files.
+The supplied differences require 110px more scroll for Details (`634 - 524`), about 110px at series page end (`510 - 400`), and 149px for trailers (`719 - 570`, `650 - 501`).
+Those are different deltas; this change adds no per-state offsets and does not claim those targets are fixed.
+Desktop fake-data probes are not the same state: a three-row movie table reached the scroll clamp at 1025px, putting its heading at `1639.40625 - 1025 = 614.40625`.
+A two-row series fixture put its heading at `2075.203125 - 1663 = 412.203125`; at its 1873px scroll limit that becomes 202.203125.
+These values cannot establish the supplied native measurements without the same data and running-app comparison.
+
+Main already uses Related Movies and Recommended Series.
+Its content-rating chip matches `TVDetailHero.swift:434-443`; external ratings are inline after the facts (`TVDetailHero.swift:406-425`).
+The pinned movie and Series metadata builders emit text facts (`TVDetailHero.swift:692-738`), despite the older quality-chip comment.
+The optional advisory-age chip (`TVDetailHero.swift:446-453`) still needs a same-state preference/data comparison; no badge is invented here.
+No simulator, signed package, live server or TV comparison was run for this change.
 
 ### Apple source reference and outstanding comparison
 
@@ -64,7 +112,7 @@ Paths below are relative to `iosApp/iosApp/`.
 | Title | `tvOS/Screens/Detail/TVDetailHero.swift:505`: 92-point compressed primary, 40-point secondary | Requests shared title treatment; colon-separated fallback; guarded logo loading retained |
 | Summary | `tvOS/Screens/Detail/TVDetailHero.swift:763`: gap 8; slots 313/364/338; height 44 | Three passive slots above actions |
 | Series baseline | `tvOS/Screens/Detail/TVSeriesDetailView.swift:405`: editorial 435, metadata 36, synopsis 112, credit 28, action spacing 4 | Primary editorial clipped at 351; 80-point disclosure bottom-locked inside 435; actions at y=557 |
-| Controls | `tvOS/Screens/Detail/TVDetailActions.swift:354`: minimum circle width 76 and height 76; `TVMovieDetailView.swift:176`: primary width 340 | Existing dialogs and personal/rating ownership retained; next-episode controls now use the same selection owner |
+| Controls | `tvOS/Screens/Detail/TVDetailActions.swift:354`: minimum circle width 76 and height 76; `TVMovieDetailView.swift:176`: primary width 340 | Existing playback dialogs and personal-action ownership retained; next-episode controls now use the same selection owner |
 | Credits | `tvOS/Screens/Detail/TVDetailHero.swift:741`: first two directors for movies; first three cast names otherwise | Same text and limits |
 | Cast | `tvOS/Screens/Detail/TVDetailCastRail.swift:15`: 200-point circles | Existing circular cards, role deduplication and focus unchanged |
 | Extras | `tvOS/Screens/Detail/TVTrailersRail.swift:23`: gap 48; `:24` and `TVDetailHero.swift:16`: 12px rail padding plus 64px section spacing, 76px from the caption to the next heading; `:74-76`: 470×264 cards, radius 18 | Local extras and YouTube listings. Same card geometry. YouTube Select stays on the card |
@@ -78,7 +126,7 @@ Version labels retain the server edition, resolution and codec fields.
 
 Native acceptance remains required before merge.
 Compare identical Movie and Series items, profile, selected file and tracks, card-size setting and 1920×1080 viewport on both clients.
-Capture entry with Play focused; each selector open; subtitle Off selected; More then rating and full synopsis; Cast focused; Trailers & More focused; related focused; and Back restoration.
+Capture entry with Play focused; each selector open; subtitle Off selected; More; Cast focused; Trailers & More focused; related focused; and Back restoration.
 For Series additionally capture Season 1 selected, the first episode focused, the second episode focused, another season explicitly selected, Specials selected, and Back from Episode information.
 Apple's Movie hero uses an unreserved editorial stack inside `heroComposition.clipped()` (`TVDetailHero.swift:149-166,263-270`); title and synopsis retain their vertical size (`:493,501`, `TVHeroSynopsis.swift:24`).
 It has no grow-the-hero or shrink-the-title rule.
@@ -147,7 +195,7 @@ A valid older response without the optional flag, a false flag, or a confirmed u
 Network, server and malformed capability responses fail visibly with Try again; they never fabricate unsupported status or empty results.
 The optional flag is strictly boolean when present, while unknown additive fields remain accepted.
 
-The operation remains `listCatalogItems`, **GET `/api/v2/catalog`**, with `q`, `type`, `limit=24`, opaque continuation and small artwork.
+The operation remains `listCatalogItems`, **GET `/api/v2/catalog`**, with `q`, `type`, `limit=60`, opaque continuation and small artwork.
 At [server cc851494](https://github.com/Silo-Server/silo-server/blob/cc8514943289045e7b9f7ac8d36d4968bfe93926/internal/catalog/catalog_parser.go), `video_with_episodes` is legal only on the query source; with text it includes movies, series and episodes, and without text it browses movies and series.
 The typed client exposes that scope only for text Search, leaving library/Home types and POST source requests unchanged.
 Resolved scope belongs to the active Search route and stays fixed through its cursor sequence, retries and returns from Details.
@@ -274,9 +322,8 @@ An unknown image API or a server without per-slot widths gets the Apple TV `larg
 At scale 1 the server resolves the 1344 px fill request to a 1920 px backdrop; scale 2 requests 2688 px and may resolve to the original, capped at 3840 px.
 The one-size fallback resolves backdrops to 2560 px and episode stills to 1280 px.
 The probe runs once per Home session, and its last answer for the server is remembered so Home does not wait for it.
-Apple reads item detail when focus rests for the aired-date and cast line and for Continue Watching's last-played file.
-Tizen never reads on focus: when Home's rows load it reads detail once for each distinct title Home draws, four at a time, Continue Watching first, using the item-detail endpoint with the `large` fallback.
-Answers are kept for the Home session; a reload reads only titles not read yet and Continue Watching titles whose `progress_updated_at` moved.
+Apple reads item detail when focus rests for the aired-date and cast line, and Continue Watching reads the last-played file when that card is mounted.
+Tizen reads Continue Watching's saved file when the row loads, four titles at a time. The row draws every card up front, and the reads stay on that queue of four. Every other title waits until focus has rested for 150 ms, then reads that one card. A move before the answer cancels it. For You also warms at most sixteen cards that omit a content rating, three at a time. Answers stay for the Browse session; Continue Watching reads again when `progress_updated_at` moves.
 The aired line (`Aired 12 Mar 2026 · first three billed cast`, in an Australian region) fills in place when its answer lands and keeps its space until then.
 Dates follow the device region and retain the server's calendar day.
 Detail also supplies a runtime or content rating omitted by a row, without replacing the row's confirmed values.
@@ -382,13 +429,13 @@ Focus and scroll return to the origin identity, with the next surviving card at 
 Late replies preserve subsequent navigation.
 The desktop keyboard/release tests do not establish physical Samsung Select repeat or release delivery; real-TV validation remains required.
 An invalid cursor clears that row's continuation; only explicit Retry restarts it.
-Continue Watching activation resolves the profile-authorized item and reuses `playChoices` for its last available file, source resume position and file-duration end margin.
+Continue Watching remote Play resolves the profile-authorized item and reuses `playChoices` for its last available file, source resume position and file-duration end margin.
 It hands off once through the existing app/player owner without showing Details.
 Back or account/profile authority changes cancel resolution; unavailable files and unreadable or failed reads retain Retry and Back.
 Playback return restores the originating row rather than replaying the resolution route.
-Other Home rows still open normal Details pages.
+Select on all Home rows opens Details; Continue Watching hold Select also offers Play or Resume in Card actions.
 This is a scoped Home journey delivery against canonical Apple `f33479404712737499b22365430db1885cf6c6ab` and the guide hash `2d42d292e01ab6ee539278b63c286756fc432edf876a9286a33c9e853672cac2`.
-The guide takes precedence over Apple's current Details activation for Continue Watching.
+The Select and Play behavior follows Apple `7baff3ef657757cc0a69202e86dd4bd5c7fcb585`; native same-state acceptance remains pending.
 It does not complete whole-Home parity, issue #28, preplay controls, next-up behaviour or hardware acceptance.
 Progress appears only when the server supplies position and duration.
 The first card previews immediately; subsequent previews wait 150 ms and crossfade for 240 ms.
@@ -400,8 +447,6 @@ The shell receives a library/type/mode identity separately from the loading view
 Loading, data completion and selector refreshes do not start a second transition.
 Rapid changes replace the outgoing layer, and stopping or destroying the focus host removes that layer, incoming motion classes and its cleanup timer.
 The noninteractive outgoing layer keeps its CSS classes and scroll position without serializing computed styles for each card.
-The synopsis dialog exposes the complete detail overview with remote scrolling and restores focus on close.
-Optional Details responses retain the active synopsis and its focus; closing shows the latest data, and route or profile teardown removes the dialog.
 
 Pushed Details pages show optional title artwork, server-ordered ratings, facts and credits from the pinned v2 contract.
 Details shares Home's 1228.8×756 top-right artwork frame and fade masks, with an image contained in that frame rather than fixed to the viewport.

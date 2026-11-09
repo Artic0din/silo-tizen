@@ -1,14 +1,61 @@
+import { episodeRailOffset } from "./episodeRail.ts";
+
 /** Apple's focused History rows 2 and 3 put the unlifted poster top here. */
 const HISTORY_POSTER_TOP = 554;
 
-/** Retarget from the visible position; focus itself must never invoke browser scrolling. */
-const DETAILS_CAST_HEADING_CENTRE_OFFSET = 6;
+// Measured from the running Apple TV app at 7baff3e, 6 Nov 2026: tvOS focus reveal, not Swift offsets.
+const DETAILS_DOWN_HEADING = { cast: 546, trailers: 501, posters: 547 };
+const DETAILS_UP_HEADING = 111;
+// The local section heights differ from Swift's complete centered anchors.
+const DETAILS_CENTER_HEADING = { moviePosters: 321, seriesCast: 367 };
+
+/**
+ * A Settings caption is not focusable. Extend the focused row through the
+ * following footer so the last row cannot leave that caption below the pane
+ * (measured shortfalls: Subtitles 617.5 of 732, Playback 119.5 of 194).
+ */
+function settingsRevealBottom(element: HTMLElement, rowBottom: number): number {
+    const pane = element.closest(".settings-pane");
+    if (pane === null) return rowBottom;
+    let bottom = rowBottom;
+    let node: HTMLElement | null = element;
+    while (node !== null && node !== pane) {
+        let sibling = node.nextElementSibling;
+        while (sibling instanceof HTMLElement) {
+            if (sibling.matches("[data-focus]") || sibling.querySelector("[data-focus]") !== null) return bottom;
+            bottom = Math.max(bottom, sibling.getBoundingClientRect().bottom);
+            sibling = sibling.nextElementSibling;
+        }
+        node = node.parentElement;
+    }
+    return bottom;
+}
 
 export class SkylineScroll {
+    /** TVSeriesDetailView.swift:653-674 centers the selected mode. */
+    static seasonOffset(row: HTMLElement, element: HTMLElement): number {
+        return Math.max(0, Math.min(row.scrollWidth - row.clientWidth, element.offsetLeft - row.offsetLeft + element.offsetWidth / 2 - row.clientWidth / 2));
+    }
     private readonly frames = new Map<HTMLElement, number>();
     private readonly targets = new WeakMap<HTMLElement, { left: number; top: number }>();
     /** Shelf already bottom-aligned. Horizontal moves inside it do not scroll again. */
     private pinnedShelf: HTMLElement | null = null;
+
+    restoreDetailsAnchor(element: HTMLElement, viewport: HTMLElement, immediate = false): boolean {
+        // TVDetailFocusScroll pins actions; TVSeriesDetailView pins the primary episode viewport.
+        if (element.closest(".details-editorial, .details-season-chips, .details-episodes") === null) return false;
+        if (immediate) {
+            // Repaints must not restart a 200 ms move from an intermediate scrollTop.
+            const previous = this.frames.get(viewport);
+            if (previous !== undefined) cancelAnimationFrame(previous);
+            this.frames.delete(viewport);
+            viewport.scrollLeft = 0;
+            viewport.scrollTop = 0;
+            return true;
+        }
+        this.move(viewport, 0, 0);
+        return true;
+    }
 
     static prepareEpisodeRow(row: HTMLElement): number | undefined {
         if (!row.classList.contains("details-episodes")) return undefined;
@@ -16,13 +63,26 @@ export class SkylineScroll {
         const first = cards[0], last = cards.at(-1);
         if (first === undefined || last === undefined) return 0;
         const style = getComputedStyle(row), inset = parseFloat(style.paddingLeft);
-        const spacing = parseFloat(getComputedStyle(first).marginRight);
-        const step = first.offsetWidth + spacing;
-        const contentWidth = last.offsetLeft - first.offsetLeft + last.offsetWidth;
-        // TVEpisodeRail rounds its terminal boundary to a complete card step.
-        const maximum = Math.ceil(Math.max(0, contentWidth - (row.clientWidth - 2 * inset)) / step) * step;
+        const cardStyle = getComputedStyle(first);
+        // offsetWidth rounds Compact's 309.6px still before multiplying the pitch.
+        const width = parseFloat(cardStyle.width), spacing = parseFloat(cardStyle.marginRight);
+        const contentWidth = cards.length * width + (cards.length - 1) * spacing;
+        // Extra right-edge paint must not move the stepped terminal boundary.
+        const paintEnd = parseFloat(style.getPropertyValue("--episode-paint-end")) || 0;
+        // Leading padding includes one card spacing (episodeRailSlot), unless the
+        // loaded window includes the series' first season and the measured 40px
+        // shift has removed it. Scroll steps do not include that spacing, so the
+        // clamp viewport adds it back.
+        const viewport = row.clientWidth - paintEnd - inset + width * .025 + 2 + spacing;
+        const maximum = episodeRailOffset(cards.length - 1, cards.length, width, spacing, viewport);
         row.style.paddingRight = `${Math.max(0, row.clientWidth + maximum - inset - contentWidth - spacing)}px`;
         return maximum;
+    }
+
+    static episodeOffset(row: HTMLElement, element: HTMLElement): number {
+        const maximum = SkylineScroll.prepareEpisodeRow(row) ?? 0;
+        const first = row.firstElementChild as HTMLElement | null;
+        return first === null ? 0 : Math.min(maximum, Math.max(0, element.offsetLeft - first.offsetLeft));
     }
 
     move(node: HTMLElement, left: number, top: number): void {
@@ -56,9 +116,10 @@ export class SkylineScroll {
         this.frames.set(node, requestAnimationFrame(frame));
     }
 
-    reveal(element: HTMLElement, container: HTMLElement): void {
+    reveal(element: HTMLElement, container: HTMLElement, previous?: Element | null): void {
+        if (element.closest(".settings-categories") !== null) return;
         if (element.closest(".browse-nav, .skyline-selector:not(.details-audio-picker)") !== null) return;
-        const viewport = element.closest<HTMLElement>(".browse-panel-list, .details-audio-picker, .skyline-content, .accounts-rail, .accounts-pane, .accounts-settings") ?? container;
+        const viewport = element.closest<HTMLElement>(".browse-panel-list, .details-audio-picker, .settings-modal-options, .settings-pane, .skyline-content, .accounts-rail, .accounts-pane, .accounts-settings") ?? container;
         if (element.closest("[data-scroll-top]") !== null) {
             this.pinnedShelf = null;
             this.move(viewport, 0, 0);
@@ -78,10 +139,8 @@ export class SkylineScroll {
             const left = Math.max(12, parseFloat(style.paddingLeft));
             const right = Math.max(12, parseFloat(style.getPropertyValue("--reveal-end")) || parseFloat(style.paddingRight));
             // Apple keeps a final group of cards; the terminal episode need not occupy the leading slot.
-            const delta = row.classList.contains("details-episodes") ? card.left - bounds.left - left
-                : card.left < bounds.left + left ? card.left - bounds.left - left : card.right > bounds.right - right ? card.right - bounds.right + right : 0;
-            const maximum = SkylineScroll.prepareEpisodeRow(row) ?? Infinity;
-            this.move(row, Math.min(maximum, Math.max(0, row.scrollLeft + delta)), 0);
+            const delta = card.left < bounds.left + left ? card.left - bounds.left - left : card.right > bounds.right - right ? card.right - bounds.right + right : 0;
+            this.move(row, row.classList.contains("details-episodes") ? SkylineScroll.episodeOffset(row, element) : row.classList.contains("details-season-chips") && element.getAttribute("aria-pressed") === "true" ? SkylineScroll.seasonOffset(row, element) : Math.max(0, row.scrollLeft + delta), 0);
         }
         if (container.dataset.view === "search" && element.closest(".search-people-rail") !== null) {
             this.move(viewport, 0, 0);
@@ -90,23 +149,27 @@ export class SkylineScroll {
         const rect = element.getBoundingClientRect();
         const bounds = viewport.getBoundingClientRect();
         // tvOS pins the primary Series viewport; Large lifts the hero so its rail still fits.
-        if (element.closest(".details-editorial, .details-season-chips, .details-episodes") !== null) {
-            this.move(viewport, 0, 0);
-            return;
-        }
-        const related = element.closest<HTMLElement>('[data-detail-section="related"]');
-        if (related !== null) {
-            const rail = related.getBoundingClientRect();
-            const header = related.previousElementSibling?.getBoundingClientRect();
-            const centre = ((header?.top ?? rail.top) + rail.bottom) / 2;
-            this.move(viewport, 0, Math.max(0, viewport.scrollTop + centre - (bounds.top + bounds.bottom) / 2));
-            return;
-        }
-        const cast = element.closest<HTMLElement>(".details-people");
-        if (cast !== null) {
-            // tvOS centers the supporting section's leading anchor, not the full portrait rail.
-            const header = cast.previousElementSibling?.getBoundingClientRect();
-            this.move(viewport, 0, Math.max(0, viewport.scrollTop + (header?.top ?? rect.top) - bounds.top - bounds.height / 2 - DETAILS_CAST_HEADING_CENTRE_OFFSET));
+        if (this.restoreDetailsAnchor(element, viewport)) return;
+        const section = element.closest<HTMLElement>('.details-people, .details-extras, [data-detail-section="related"], .details-facts');
+        if (section !== null) {
+            if (previous !== undefined && previous !== element && section.contains(previous)) return;
+            if (section.classList.contains('details-facts')) {
+                this.move(viewport, 0, viewport.scrollHeight - viewport.clientHeight);
+                return;
+            }
+            const header = section.previousElementSibling?.getBoundingClientRect();
+            if (header === undefined) return;
+            const headingTop = viewport.scrollTop + header.top - bounds.top;
+            const up = previous?.isConnected === true && previous.getBoundingClientRect().top > rect.top;
+            const series = container.querySelector('.details-hero')?.getAttribute('data-media-type') === 'series';
+            const cast = section.classList.contains('details-people');
+            const posters = section.hasAttribute('data-detail-section');
+            const centered = series && cast ? DETAILS_CENTER_HEADING.seriesCast : !series && posters ? DETAILS_CENTER_HEADING.moviePosters : undefined;
+            const target = centered ?? (up ? DETAILS_UP_HEADING : cast ? DETAILS_DOWN_HEADING.cast : posters ? DETAILS_DOWN_HEADING.posters : DETAILS_DOWN_HEADING.trailers);
+            // A section fully reachable on the unscrolled page needs no upward reveal.
+            const artwork = element.querySelector('.browse-art');
+            const visibleAtTop = headingTop >= 0 && viewport.scrollTop + (artwork ?? element).getBoundingClientRect().bottom - bounds.top <= viewport.clientHeight;
+            this.move(viewport, 0, up && visibleAtTop ? 0 : Math.max(0, headingTop - target));
             return;
         }
         const shelf = element.closest<HTMLElement>('[data-scroll-align="bottom"]');
@@ -190,7 +253,8 @@ export class SkylineScroll {
         const bottomEdge = bounds.bottom - (container.dataset.view === "search"
             ? Math.max(32, parseFloat(getComputedStyle(viewport).scrollPaddingBottom) || 0)
             : Math.max(32, parseFloat(margins.scrollMarginBottom)));
-        const delta = posterTop < topEdge ? posterTop - topEdge : rect.bottom > bottomEdge ? rect.bottom - bottomEdge : 0;
+        const revealBottom = viewport.classList.contains("settings-pane") ? settingsRevealBottom(element, rect.bottom) : rect.bottom;
+        const delta = posterTop < topEdge ? posterTop - topEdge : revealBottom > bottomEdge ? revealBottom - bottomEdge : 0;
         // Opening selectors scale their rectangles, while scrollTop stays in unscaled CSS pixels.
         const scale = bounds.height / viewport.offsetHeight;
         this.move(viewport, 0, Math.max(0, viewport.scrollTop + delta / scale));

@@ -193,8 +193,9 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
             await signedIn(tv);
             await openLibrary(tv);
             await tv.jump(300);
-            const titles = await tv.page.locator('.home-section .browse-card:not(.skyline-explore)').evaluateAll(nodes => nodes.map(node => node.getAttribute("data-focus") ?? ""));
-            await tv.eventually(async () => titles.every(id => tv.fake.requests.some(request => request.path.split("?")[0] === `/catalog/items/${encodeURIComponent(id)}`)), "Recommended enrichment queue dispatched");
+            await tv.jump(150);
+            const rested = await tv.focused();
+            await tv.eventually(async () => rested !== null && tv.fake.requests.some(request => request.path.split("?")[0] === `/catalog/items/${encodeURIComponent(rested)}`), "rested Recommended card");
             const reads = tv.fake.requests.length;
             for (const moves of [0, 19]) {
                 for (let step = 0; step < moves; step++) await tv.remote(39);
@@ -232,7 +233,9 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
                     assert.deepEqual(style.transitions, ["0s", "0s", "0s"], "reduced motion disables artwork and caption transitions");
                 }
             }
-            assert.equal(tv.fake.requests.length, reads, "shelf focus movement makes no requests");
+            const extra = tv.fake.requests.slice(reads).map(request => request.path.split("?")[0]);
+            assert.ok(extra.every(path => path?.startsWith("/catalog/items/")), extra.join(" "));
+            assert.equal(new Set(extra).size, extra.length, "each rested card is read once");
             assert.deepEqual(tv.console, []);
         } finally { await tv.page.context().close(); }
     });
@@ -485,6 +488,11 @@ for (const destination of ["mode", "settings"] as const) test(`pending library r
             await tv.page.locator('[data-focus="playback"]').waitFor();
             held.release();
             await tv.remote(BACK);
+            // The rail's Back selects Home. The saved visit still has to be there when Movies opens again.
+            await showing(tv, "home");
+            assert.equal(await tv.focused(), "home", "Settings Back selects Home");
+            await activate(tv, "movies");
+            await showing(tv, "library:12");
         }
         await tv.page.locator(`[data-focus="${committed.key}"]`).waitFor();
         await tv.jump(300);
@@ -576,7 +584,15 @@ test("a removed library card falls back to a visible title", async () => {
         await tv.eventually(async () => await tv.page.evaluate(() => window.browseHarness.plays.length) === 1, "playback handoff");
         catalog.removed.add("movie:m0005");
         await tv.page.evaluate(() => window.browseHarness.resume());
-        await tv.page.locator('[data-focus="play"]').waitFor();
+        // Resume rereads the title. Once that read sees the removal, Play is gone and the
+        // not-found page is what stays on screen; waiting only for Play misses that page.
+        await tv.eventually(async () => {
+            const view = await tv.page.evaluate(() => {
+                const browse = document.querySelector(".browse");
+                return browse instanceof HTMLElement && !browse.hidden ? browse.getAttribute("data-view") : null;
+            });
+            return view === "item:failed";
+        }, "resumed details");
         const reads = tv.fake.requests.filter(request => request.path.startsWith("/library/12/sections")).length;
         const held = tv.fake.hold("/library/12/sections", true);
         await tv.remote(BACK);
@@ -609,15 +625,17 @@ test("settings, audio, calendar, filmography, personal and card actions keep vis
         assert.ok(file);
         catalog.audioFiles.set("42", { ...file, audio: Array.from({ length: 16 }, (_, index) => ({ default: index === 0, language: "en", title: `Audio ${index + 1}` })) });
         await signedIn(tv, catalog);
-        new FakeSettings(tv.fake);
+        const settings = new FakeSettings(tv.fake);
+        settings.remainingRows = true;
         await tv.page.locator('[data-focus="profiles"]').focus();
         await tv.page.keyboard.press("Enter");
         await tv.page.getByRole("menuitem", { name: "Settings", exact: true }).click();
-        await tv.page.locator('[data-focus="playback"]').click();
-        await tv.page.locator('[data-focus="seek-forward"]').click();
-        for (let step = 0; step < 7; step++) await tv.page.keyboard.press("ArrowDown");
+        await tv.page.locator('[data-focus="subtitles"]').click();
+        await tv.page.locator('[data-focus="appearance-textOpacity"]').click();
+        for (let step = 0; step < 19; step++) await tv.page.keyboard.press("ArrowUp");
+        for (let step = 0; step < 19; step++) await tv.page.keyboard.press("ArrowDown");
         await tv.jump(250);
-        assert.equal(await tv.focused(), "seek-forward:90");
+        assert.equal(await tv.focused(), "choice:100");
         assert.equal(await visibleFocus(tv), true, "settings selector reveals the focused choice");
         await tv.remote(BACK);
         await tv.remote(BACK);
@@ -641,7 +659,7 @@ test("settings, audio, calendar, filmography, personal and card actions keep vis
         assert.equal(await visibleFocus(tv), true, "audio overflow keeps the focused track visible");
         await tv.remote(BACK);
         assert.equal(await tv.focused(), "audio");
-        await tv.page.locator('[data-focus="person:7"]').first().click();
+        await tv.page.locator('.details-people [data-focus^="credit:7:"]').first().click();
         const personCard = tv.page.locator(".browse-grid .browse-card").first();
         await personCard.waitFor();
         const personId = await personCard.getAttribute("data-focus");
@@ -651,7 +669,7 @@ test("settings, audio, calendar, filmography, personal and card actions keep vis
         assert.equal(await tv.focused(), personId);
         assert.equal(await visibleFocus(tv), true, "Person return keeps its card visible");
         await tv.remote(BACK);
-        assert.equal(await tv.focused(), "person:7");
+        assert.match(await tv.focused() ?? "", /^credit:7:/);
         await tv.remote(BACK);
         await showing(tv, "home");
         await tv.page.locator('[data-focus="for_you"]').focus(); await tv.remote(40);

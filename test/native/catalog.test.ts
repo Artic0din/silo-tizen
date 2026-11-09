@@ -23,6 +23,15 @@ test("episode rows retain air date, overview and episode ratings", () => {
     assert.deepEqual(episodes[0]?.ratings, [{ name: "IMDb", display: "8.1" }]);
 });
 
+test("episode rows retain resume seconds from user data", () => {
+    const episode = { content_id: "episode:1", season_number: 1, episode_number: 2, title: "Pilot", runtime: 52 };
+    const decode = (user_data: Record<string, unknown>) => decodeEpisodes({ items: [{ ...episode, user_data }] })[0];
+    assert.equal(decode({ played: true, position_seconds: 60.5, duration_seconds: 240 })?.positionSeconds, 60.5);
+    assert.equal(decode({ played: true, position_seconds: 60.5, duration_seconds: 240 })?.durationSeconds, 240);
+    assert.throws(() => decode({ played: false, position_seconds: "60", duration_seconds: 240 }), WireError);
+    assert.throws(() => decode({ played: false, position_seconds: 60, duration_seconds: "240" }), WireError);
+});
+
 test("local extras retain authoritative watch targets and numeric file IDs", () => {
     const detail = decodeItemDetail({ ...fixture("get_catalog_item_ok"), extras: [{ content_id: "extra:1", file_id: 71, kind: "trailer", title: "Trailer", duration_seconds: 90, still_url: "/extra.jpg" }] });
     assert.deepEqual(detail.extras, [{ contentId: "extra:1", fileId: "71", kind: "trailer", title: "Trailer", durationSeconds: 90, stillUrl: "/extra.jpg" }]);
@@ -40,7 +49,7 @@ test("item videos keep the contract fields and a missing official flag does not 
     assert.deepEqual(decodeItemDetail(fixture("get_catalog_item_ok")).videos, []);
     assert.throws(() => decodeItemDetail({ ...fixture("get_catalog_item_ok"), videos: [{ kind: "trailer", site: "youtube", site_key: "k", is_official: "yes" }] }), WireError);
 });
-import { artworkUrl, clockTime, destinationOf, playChoices, resumeSeconds, visibleLibraries } from "../../src/ui/browseModel.ts";
+import { artworkUrl, clockTime, destinationOf, playChoices, resumeSeconds, browseCardDestination, seriesPlayback, visibleLibraries } from "../../src/ui/browseModel.ts";
 import { moveWithin } from "../../src/ui/browseFocus.ts";
 import { fixture } from "./support/fakeSilo.ts";
 
@@ -93,6 +102,8 @@ test("browse fixtures decode with the production decoders", () => {
     assert.ok(page.nextCursor?.startsWith("eyJ2Ijox"));
 
     const detail = decodeItemDetail(fixture("get_catalog_item_ok"));
+    assert.equal(detail.advisorySource, undefined);
+    assert.equal(decodeItemDetail({ ...fixture("get_catalog_item_ok"), advisory_age: 13, advisory_source: "commonsense" }).advisorySource, "commonsense");
     assert.equal(detail.type, "movie");
     assert.equal(detail.tagline, "A Los Angeles crime saga");
     assert.deepEqual(detail.versions, [{ detailLabel: "0 MB", fileId: "120", effectiveAudioTrackIndex: 1, durationSeconds: 0, audio: [], label: "2160p" }]);
@@ -197,6 +208,23 @@ test("Home keeps movies, series, seasons and episodes, and leaves other media ou
     assert.equal(destinationOf({ ...card, type: "unknown" }), undefined);
 });
 
+test("Search Select opens an episode or season on its series and leaves movies and series on themselves", () => {
+    const card = { id: "episode:s1e12", title: "Pilot", year: undefined, posterUrl: undefined, seriesId: "series:s1", seriesTitle: "Harbor Lights", seasonNumber: 1, episodeNumber: 2 };
+    assert.deepEqual(browseCardDestination({ ...card, type: "episode" }), {
+        kind: "item", id: "series:s1", title: "Harbor Lights", seriesContext: { seasonNumber: 1, episodeId: "episode:s1e12" },
+    });
+    assert.deepEqual(browseCardDestination({ ...card, type: "episode", seriesTitle: "  " }), {
+        kind: "item", id: "series:s1", title: "Pilot", seriesContext: { seasonNumber: 1, episodeId: "episode:s1e12" },
+    });
+    assert.deepEqual(browseCardDestination({ ...card, type: "episode", seriesId: " episode:s1e12 " }), { kind: "item", id: "episode:s1e12", title: "Pilot" });
+    assert.deepEqual(browseCardDestination({ ...card, id: "season:s1", type: "season", episodeNumber: undefined, title: "Season 1" }), {
+        kind: "item", id: "series:s1", title: "Harbor Lights", seriesContext: { seasonNumber: 1, episodeId: undefined },
+    });
+    assert.deepEqual(browseCardDestination({ ...card, id: "movie:heat", type: "movie", seriesId: undefined, title: "Heat" }), { kind: "item", id: "movie:heat", title: "Heat" });
+    assert.deepEqual(browseCardDestination({ ...card, id: "series:s1", type: "series", seriesId: undefined, title: "Harbor Lights" }), { kind: "item", id: "series:s1", title: "Harbor Lights" });
+    assert.equal(browseCardDestination({ ...card, type: "unknown" }), undefined);
+});
+
 test("libraries: video kinds in server order, minus the profile's own hidden list", () => {
     const libraries = [
         { id: "13", name: "Shows", type: "series" as const, sortOrder: 3 },
@@ -246,6 +274,41 @@ test("play: the last-played version when still listed, else the first; resume po
     assert.equal(gone?.resume, undefined, "7198 of the file's 7200 seconds is finished");
     assert.equal(playChoices(movie({ versions: [] })), undefined);
     assert.equal(playChoices(movie({ type: "series" })), undefined);
+});
+
+test("series Resume and Start Over keep the page series line when the episode item omits it", () => {
+    const episode = movie({
+        id: "episode:s1e25",
+        type: "episode",
+        title: "Going Green",
+        seriesId: "series:spidey",
+        seriesTitle: undefined,
+        seasonNumber: undefined,
+        episodeNumber: undefined,
+        versions: [{ fileId: "42", durationSeconds: 1500 }],
+        watch: { played: false, positionSeconds: 90, lastFileId: "42" },
+    });
+    const choices = playChoices(episode);
+    assert.ok(choices?.resume);
+    assert.equal(choices.resume.seriesTitle, undefined);
+    assert.equal(choices.resume.seasonNumber, undefined);
+    const series = movie({ id: "series:spidey", type: "series", title: "Spidey and His Amazing Friends", versions: [] });
+    const rail = { seasonNumber: 1, episodeNumber: 25 };
+    const resume = seriesPlayback({ ...choices.resume, subtitle: { kind: "auto" } }, series, rail);
+    const startOver = seriesPlayback({ ...choices.fromStart, startSeconds: 0, subtitle: { kind: "auto" } }, series, rail);
+    assert.equal(resume.seriesTitle, "Spidey and His Amazing Friends");
+    assert.equal(resume.seasonNumber, 1);
+    assert.equal(resume.episodeNumber, 25);
+    assert.equal(resume.title, "Going Green");
+    assert.equal(resume.startSeconds, 90);
+    assert.equal(startOver.seriesTitle, resume.seriesTitle);
+    assert.equal(startOver.seasonNumber, 1);
+    assert.equal(startOver.episodeNumber, 25);
+    assert.equal(startOver.startSeconds, 0);
+    const kept = seriesPlayback({ ...choices.fromStart, seriesTitle: "Kept", seasonNumber: 2, episodeNumber: 3 }, series, rail);
+    assert.equal(kept.seriesTitle, "Kept");
+    assert.equal(kept.seasonNumber, 2);
+    assert.equal(kept.episodeNumber, 3);
 });
 
 test("focus moves inside rows, columns and grids, and reports the edges", () => {

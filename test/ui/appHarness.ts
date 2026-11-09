@@ -25,7 +25,8 @@ const mount = (withPlayer = true): void => {
         core: {
             fetch: (url, init) => window.fetch(url, init),
             publicStorage: storage,
-            keyManager,
+            // Without a key manager the app keeps accounts for this run only.
+            keyManager: location.hash === "#session-only" ? undefined : keyManager,
             randomBytes,
             deviceName: "Living room TV",
             devicePlatform: "tizen",

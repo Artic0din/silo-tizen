@@ -1,7 +1,9 @@
 import type { DetailsState } from "./detailsState.ts";
 import type { FocusItem, View } from "./browseFocus.ts";
-import { actionButton, zoneNode } from "./browseViews.ts";
+import { zoneNode } from "./browseViews.ts";
 import { el } from "./screen.ts";
+import { remoteKey } from "./keys.ts";
+import { icon as libraryIcon } from "./libraryBrowseViews.ts";
 
 const ICONS: Readonly<Record<string, string>> = {
     play: "M8 4 21 12 8 20Z",
@@ -15,11 +17,11 @@ const ICONS: Readonly<Record<string, string>> = {
 };
 
 export function detailAction(item: FocusItem): FocusItem {
-    const startOver = item.key === "play" && item.element.textContent === "Play from start";
+    const startOver = item.key === "start-over-episode" || item.key === "play" && item.element.textContent === "Play from start";
     const path = startOver ? "M5 4V20M19 4 7 12 19 20Z" : ICONS[item.key];
     if (path === undefined) return item;
     const button = item.element;
-    const accessibleLabel = button.textContent ?? "";
+    const accessibleLabel = startOver ? "Start Over" : button.textContent ?? "";
     const label = item.key === "version" ? "Versions" : item.key === "audio" ? "Audio Tracks" : item.key === "subtitles" ? "Subtitles" : accessibleLabel;
     button.textContent = "";
     button.setAttribute("aria-label", accessibleLabel);
@@ -31,38 +33,30 @@ export function detailAction(item: FocusItem): FocusItem {
     icon.setAttribute("viewBox", "0 0 24 24");
     icon.setAttribute("aria-hidden", "true");
     if (item.key === "subtitles") icon.dataset.symbol = "captions.bubble";
+    if (startOver) icon.dataset.symbol = "backward.end.fill";
     icon.setAttribute("fill", "none");
     icon.setAttribute("stroke", "currentColor");
     icon.setAttribute("stroke-width", item.key === "more" ? "4" : "1.8");
     const shape = document.createElementNS(icon.namespaceURI, "path");
     shape.setAttribute("d", path);
-    if (["play", "resume", "next-episode"].includes(item.key)) shape.setAttribute("fill", "currentColor");
+    if (startOver || ["play", "resume", "next-episode"].includes(item.key)) shape.setAttribute("fill", "currentColor");
     if (item.key === "watchlist" && button.getAttribute("aria-pressed") === "true") shape.setAttribute("fill", "currentColor");
     icon.appendChild(shape);
+    if (item.key === "more") {
+        icon.dataset.symbol = "ellipsis";
+        shape.remove();
+        for (const x of [5, 12, 19]) {
+            const dot = document.createElementNS(icon.namespaceURI, "circle");
+            dot.setAttribute("cx", String(x));
+            dot.setAttribute("cy", "12");
+            dot.setAttribute("r", "1.9");
+            dot.setAttribute("fill", "currentColor");
+            dot.setAttribute("stroke", "none");
+            icon.append(dot);
+        }
+    }
     button.append(icon, el("span", "details-action-label", label));
     return item;
-}
-
-export function ratingControls(state: DetailsState): { items: FocusItem[]; note: HTMLElement } {
-    const rating = state.rating;
-    const items = [1, 2, 3, 4, 5].map(stars => {
-        const item = actionButton(`rating:${stars}`, `${stars} ${stars === 1 ? "star" : "stars"}`, () => rating.save(stars));
-        item.element.setAttribute("aria-pressed", String(rating.value === stars));
-        item.element.setAttribute("aria-disabled", String(state.busy || rating.loading || rating.value === undefined));
-        return item;
-    });
-    const clear = actionButton("rating:clear", "Clear rating", () => rating.save(null));
-    clear.element.setAttribute("aria-disabled", String(state.busy || rating.loading || rating.value === undefined));
-    items.push(clear);
-    if (rating.failed) {
-        const retry = actionButton("rating:retry", "Retry rating", () => rating.failedTarget === undefined ? rating.load() : rating.save(rating.failedTarget, true));
-        retry.element.setAttribute("aria-disabled", String(state.busy || rating.loading || rating.pending));
-        items.push(retry);
-    }
-    const status = rating.failed ? "Could not confirm rating." : rating.pending ? "Saving rating…" : rating.loading ? "Loading rating…" : rating.value == null ? "Your rating: Not rated" : `Your rating: ${rating.value} of 5 stars`;
-    const note = el("p", "browse-text", status);
-    note.setAttribute("role", rating.failed ? "alert" : "status");
-    return { items, note };
 }
 
 export function detailPanel(view: View, state: DetailsState, title: string, items: FocusItem[], notes: HTMLElement[] = []): View {
@@ -72,13 +66,49 @@ export function detailPanel(view: View, state: DetailsState, title: string, item
     panel.setAttribute("role", "dialog");
     panel.setAttribute("aria-modal", "true");
     panel.setAttribute("aria-label", title);
-    panel.append(el("h2", "browse-section-title", ["audio", "subtitles", "version"].includes(name) ? title.toUpperCase() : title), ...notes, zoneNode("details-audio-options", items));
-    const popover = ["audio", "subtitles", "version"].includes(name);
+    const popover = ["audio", "subtitles", "version", "more"].includes(name);
+    panel.append(el("h2", "browse-section-title", popover ? title.toUpperCase() : title), ...notes, zoneNode("details-audio-options", items));
     if (popover) {
         panel.classList.add("details-track-popover");
+        if (name === "more") panel.classList.add("details-more-popover");
         for (const item of items) {
             const title = item.element.firstChild;
             if (title?.nodeType === Node.TEXT_NODE) title.replaceWith(el("span", "details-option-title", title.textContent ?? ""));
+            if (name === "more" && ["shuffle-series", "favorites", "watched", "season-watched", "series-overview", "find-trailers", "translate-description"].includes(item.key)) {
+                const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+                icon.setAttribute("viewBox", "0 0 24 24");
+                icon.setAttribute("aria-hidden", "true");
+                icon.setAttribute("fill", "none");
+                icon.setAttribute("stroke", "currentColor");
+                icon.setAttribute("stroke-width", "2");
+                const path = document.createElementNS(icon.namespaceURI, "path");
+                path.setAttribute("d", item.key === "favorites" ? "M12 21 3 12C-3 3 8-1 12 6 16-1 27 3 21 12Z" : item.key === "series-overview" ? "M12 11V17M12 7V8M22 12A10 10 0 1 1 2 12 10 10 0 0 1 22 12" : "M7 12 10 15 17 8M22 12A10 10 0 1 1 2 12 10 10 0 0 1 22 12");
+                const selected = item.key === "favorites" ? state.values.get("favorites") === true : item.key === "season-watched" ? state.series?.seasonNumber !== undefined && state.seasonStates.get(state.series.seasonNumber)?.values.get("watched") === true : state.values.get("watched") === true;
+                icon.dataset.symbol = item.key === "favorites" ? selected ? "heart.fill" : "heart" : item.key === "series-overview" ? "info.circle" : selected ? "checkmark.circle.fill" : "checkmark.circle";
+                if (item.key === "favorites" && selected) path.setAttribute("fill", "currentColor");
+                if (["watched", "season-watched"].includes(item.key) && selected) {
+                    const circle = document.createElementNS(icon.namespaceURI, "circle");
+                    circle.setAttribute("cx", "12"); circle.setAttribute("cy", "12"); circle.setAttribute("r", "10"); circle.setAttribute("fill", "currentColor");
+                    icon.append(circle);
+                    path.setAttribute("d", "M7 12 10 15 17 8");
+                    path.setAttribute("stroke", "var(--icon-ink, #000)");
+                }
+                if (item.key === "shuffle-series") {
+                    icon.dataset.symbol = "shuffle";
+                    icon.replaceChildren(...Array.from(libraryIcon("shuffle").querySelector("svg")?.childNodes ?? []));
+                }
+                if (item.key === "find-trailers") {
+                    icon.dataset.symbol = "film.stack";
+                    path.setAttribute("d", "M3 6H21V21H3ZM6 3H18M3 11H21M3 16H21M7 6V21M17 6V21");
+                }
+                if (item.key === "translate-description") {
+                    icon.dataset.symbol = "translate";
+                    path.setAttribute("d", "M2 5H14M8 2V5M5 5C5 11 10 14 14 15M12 5C12 11 7 14 3 15M13 22 18 10 23 22M15 18H21");
+                }
+                if (item.key !== "shuffle-series") icon.append(path);
+                item.element.prepend(icon);
+                icon.classList.add("details-more-icon");
+            }
         }
         const anchor = document.querySelector<HTMLElement>(`.details-editorial [data-focus="${name}"]`)?.getBoundingClientRect();
         if (anchor !== undefined) {
@@ -99,7 +129,7 @@ export function detailPanel(view: View, state: DetailsState, title: string, item
             });
         }
         const auto = items[0];
-        if (auto !== undefined) auto.element.append(el("small", "details-option-subtext", name === "audio" ? "Use your Playback audio preference" : name === "subtitles" ? "Use your subtitle preferences" : "Best match for this device"));
+        if (auto !== undefined && name !== "more") auto.element.append(el("small", "details-option-subtext", name === "audio" ? "Use your Playback audio preference" : name === "subtitles" ? "Use your subtitle preferences" : "Best match for this device"));
     }
     const scrim = el("div", "skyline-dropdown-scrim");
     if (popover) {
@@ -107,6 +137,11 @@ export function detailPanel(view: View, state: DetailsState, title: string, item
         trigger?.setAttribute("aria-expanded", "true");
     }
     scrim.addEventListener("click", () => state.closePanel());
+    if (name === "more") panel.addEventListener("keydown", event => {
+        if (remoteKey(event) === "left" || remoteKey(event) === "right") {
+            event.preventDefault(); event.stopPropagation(); state.closePanel();
+        }
+    });
     for (const node of underlying) { node.inert = true; node.setAttribute("aria-hidden", "true"); }
     const selected = popover ? items[0] : items.find(item => item.element.getAttribute("aria-checked") === "true") ?? items[0];
     return { name: `${view.name}:${name}`, content: [...underlying, ...popover ? [] : [scrim], panel], zones: [{ id: name, layout: "column", items }], focus: selected === undefined ? undefined : { zone: name, key: selected.key }, back: () => state.closePanel() };

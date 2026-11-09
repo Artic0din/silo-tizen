@@ -5,25 +5,31 @@
 import { type Clock, systemClock } from "../api/clock.ts";
 import { ApiError } from "../api/errors.ts";
 import { operations } from "../api/operations.ts";
+import type { ServerConnection } from "../api/discovery.ts";
 import { type AdvancedScheme, advancedAddress, plainHttpFallbacks, portFieldFault } from "../api/serverUrl.ts";
 import { resolveBrandingAsset } from "../contracts/v2/branding.ts";
-import { type ConnectedServer, type ConnectResult, connect, forgetStoredCredential, type SessionCoreDeps } from "../session/core.ts";
+import { type ConnectedServer, type ConnectResult, connect, forgetStoredCredential, openDiscoveredServer, type SessionCoreDeps } from "../session/core.ts";
 import type { DeviceCodeView, DeviceLogin, DeviceLoginState } from "../session/deviceLogin.ts";
 import { passwordLogin } from "../session/passwordLogin.ts";
 import type { LogoutResult } from "../session/session.ts";
 import { cachedBranding, storeBranding } from "./brandingCache.ts";
 import { codeScreen, type CodeScreen } from "./codeScreen.ts";
 import { credentialsScreen, type CredentialsScreen } from "./credentialsScreen.ts";
-import { actionRow, chip, errorText, field, headline, keyboardCard, lead, marqueeButton, marqueeScreen, noteChips, setServerMark, textInput } from "./marquee.ts";
-import { MarqueeBackdrop } from "./marqueeBackdrop.ts";
+import { actionRow, chip, errorText, field, headline, keyboardCard, lead, marqueeButton, marqueeScreen, noteChips, setServerMark, setupNeededCard, textInput } from "./marquee.ts";
+import { MarqueeBackdrop, marqueeScene } from "./marqueeBackdrop.ts";
 import { type Control, el, type Note, type Screen, ScreenHost } from "./screen.ts";
 import * as text from "./signInText.ts";
-import { AccountDirectory } from "../session/accounts.ts";
+import { AccountDirectory, type SavedAccount } from "../session/accounts.ts";
 
 export interface SignInOptions {
     readonly address?: string;
     readonly username?: string;
     readonly onChangeAccount?: () => void;
+    /** Started from Change Account, so leaving returns there (AccountSignInRequest.returnsToChangeAccount). */
+    readonly returnToAccounts?: boolean;
+    /** The session just expired. The code screen explains it (LoginNotice.sessionExpired). */
+    readonly sessionExpired?: boolean;
+    readonly onCancel?: () => void;
     /** Explicit server switching preserves saved sign-ins and starts at server entry. */
     readonly chooseServer?: boolean;
     readonly core: SessionCoreDeps;
@@ -75,6 +81,8 @@ interface Active {
     readonly login: DeviceLogin;
     readonly stop: () => void;
     readonly notes: readonly Note[];
+    /** The session just expired; the notice names the server as currently known. */
+    readonly expiredSession: boolean;
     serverName?: string | undefined;
     /** The branding mark, resolved against this server; and its accent, unclamped. */
     markUrl?: string | undefined;
@@ -136,11 +144,17 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
     let connecting: AbortController | undefined;
     let active: Active | undefined;
     let destroyed = false;
+    /** The server whose setup screen is showing. */
+    let pendingSetup: ServerConnection | undefined;
+    let setupProbe: AbortController | undefined;
+    let checkingSetup = false;
 
     const destroy = (): void => {
         destroyed = true;
         connecting?.abort();
         connecting = undefined;
+        setupProbe?.abort();
+        setupProbe = undefined;
         leaveSignIn();
         document.removeEventListener("visibilitychange", onVisibility);
         backdrop.destroy();
@@ -148,10 +162,15 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
         root.classList.remove("signin", "signin-auth");
     };
 
-    /** MarqueeScene: the generic light until a server answers, then the server's, with its accent. */
+    /** MarqueeScene: choosing a server is generic; a confirmed server is the account stage. */
     const show = (screen: Screen, focus?: string): void => {
         const choosing = SERVER_SCREENS.has(screen.name);
-        backdrop.setStage(choosing ? 0 : 1);
+        if (choosing) marqueeScene.showGeneric();
+        else {
+            marqueeScene.showServer();
+            marqueeScene.focus = "account";
+        }
+        backdrop.setStage(marqueeScene.stage);
         backdrop.setAccent(choosing ? undefined : active?.accent);
         host.show(screen, focus);
         fitCodeActions(root);
@@ -255,9 +274,9 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
             copy.push(options);
         }
         const row = [connect];
-        if (options.onChangeAccount) {
-            const canReturn = new AccountDirectory(options.core.publicStorage, options.core.randomBytes).list().some(account => !account.needsSignIn);
-            row.push(marqueeButton("change-account", canReturn ? "Back to profiles" : "Change account", "plain", changeServer));
+        if (options.onCancel) row.push(marqueeButton("back", "Back", "plain", () => { destroy(); options.onCancel?.(); }));
+        else if (options.onChangeAccount && opensAccountList()) {
+            row.push(marqueeButton("change-account", options.returnToAccounts ? "Back to accounts" : savedAccounts().some(account => !account.needsSignIn) ? "Back to profiles" : "Change account", "plain", changeServer));
         }
         if (offerForget) {
             row.push(marqueeButton("forget", "Remove saved sign-in", "plain", () => void forget()));
@@ -278,7 +297,7 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
             controls: busy ? controls.filter((control) => control.key === "connect") : controls,
             focus: address === "" ? "address" : "connect",
             // Leaving mid-probe would let a late connect pull the app on, so Back waits for it.
-            back: busy ? () => undefined : undefined,
+            back: busy ? () => undefined : options.onCancel ? () => { destroy(); options.onCancel?.(); } : undefined,
         };
     };
 
@@ -340,7 +359,7 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
      * `fallbacks`: plain-HTTP addresses the person agreed to, tried in order after `target`.
      * `chosen`: the protocol picked in Advanced options; only Auto asks about plain HTTP.
      */
-    const startConnect = (fallbacks: readonly string[] = [], target = address, chosen: AdvancedScheme = "auto"): void => {
+    const startConnect = (fallbacks: readonly string[] = [], target = address, chosen: AdvancedScheme = "auto", offlineRestore = false): void => {
         connecting?.abort();
         const controller = new AbortController();
         connecting = controller;
@@ -355,7 +374,7 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
         pendingAccountCleanup.then(() => {
             cancelCleanupWait();
             if (!controller.signal.aborted && !destroyed) {
-                return connectInOrder([target, ...fallbacks], controller.signal);
+                return connectInOrder([target, ...fallbacks], controller.signal, offlineRestore);
             }
             return undefined;
         }).then(
@@ -388,11 +407,11 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
     };
 
     /** Like the Apple TV app, the first plain-HTTP address that answers as Silo wins. */
-    const connectInOrder = async (addresses: readonly string[], signal: AbortSignal): Promise<ConnectResult> => {
+    const connectInOrder = async (addresses: readonly string[], signal: AbortSignal, offlineRestore: boolean): Promise<ConnectResult> => {
         let result: ConnectResult = { status: "unreachable" };
         for (const candidate of addresses) {
-            result = await connect(candidate, core, signal);
-            if (result.status === "connected" || signal.aborted) {
+            result = await connect(candidate, { ...core, allowOfflineRestore: offlineRestore }, signal);
+            if (result.status === "connected" || result.status === "needs_setup" || signal.aborted) {
                 break;
             }
         }
@@ -434,7 +453,137 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
         show({ name: "insecure", content: [behind, alert], controls, focus: "connect", back: decline });
     };
 
+    const cancelSetupCheck = (): void => {
+        setupProbe?.abort();
+        setupProbe = undefined;
+        checkingSetup = false;
+    };
+
+    /** Check again found a ready server, or Back popped to the login screen underneath. */
+    const enterSignIn = (server: ConnectedServer): void => {
+        if (destroyed) {
+            return;
+        }
+        pendingSetup = undefined;
+        connected(server);
+    };
+
+    const showNeedsSetup = (checking: boolean, error?: string): void => {
+        const server = pendingSetup;
+        if (server === undefined) {
+            return;
+        }
+        const base = server.http.base.baseUrl;
+        const retry = marqueeButton("retry", checking ? "Checking…" : "Check again", "primary", () => {
+            checkAgain();
+        }, { glyph: "retry", loading: checking });
+        const change = marqueeButton("change", "Change server", "plain", () => {
+            leaveForAddress();
+        });
+        const copy = [
+            setupNeededCard(text.serverHostLabel(base), base, text.SETUP_NEEDED),
+            headline(text.SERVER_NOT_READY_TITLE),
+            lead(text.SERVER_NOT_READY_BODY),
+        ];
+        if (error !== undefined) {
+            copy.push(errorText(error));
+        }
+        copy.push(actionRow([retry, change]));
+        show({
+            name: "needs-setup",
+            content: marqueeScreen(copy),
+            controls: [
+                { ...retry, row: 0, landing: true },
+                { ...change, row: 0 },
+            ],
+            focus: "retry",
+            back: () => {
+                backToSignIn();
+            },
+        });
+    };
+
+    /** ServerNeedsSetupRetryModel.retry. A check already running is ignored, and the button stays enabled. */
+    const checkAgain = (): void => {
+        if (checkingSetup || pendingSetup === undefined) {
+            return;
+        }
+        const expected = address;
+        checkingSetup = true;
+        setupProbe?.abort();
+        const controller = new AbortController();
+        setupProbe = controller;
+        showNeedsSetup(true);
+        void connect(expected, { ...core, allowOfflineRestore: false }, controller.signal).then((result) => {
+            if (controller.signal.aborted || destroyed || address !== expected || host.name !== "needs-setup") {
+                return;
+            }
+            checkingSetup = false;
+            setupProbe = undefined;
+            if (result.status === "needs_setup") {
+                pendingSetup = result.server;
+                showNeedsSetup(false, text.STILL_NEEDS_SETUP);
+                return;
+            }
+            if (result.status !== "connected") {
+                showNeedsSetup(false, text.SETUP_UNREACHABLE);
+                return;
+            }
+            enterSignIn(result);
+        }, (error: unknown) => {
+            if (controller.signal.aborted || destroyed || host.name !== "needs-setup") {
+                return;
+            }
+            checkingSetup = false;
+            setupProbe = undefined;
+            showNeedsSetup(false, text.SETUP_UNREACHABLE);
+            if (!(error instanceof ApiError)) {
+                clock.schedule(() => {
+                    throw error;
+                }, 0);
+            }
+        });
+    };
+
+    /** Menu pops to the login screen already under this one. The probe is cancelled first. */
+    const backToSignIn = (): void => {
+        const server = pendingSetup;
+        if (server === undefined) {
+            return;
+        }
+        cancelSetupCheck();
+        // The screen stays up until sign-in replaces it. Ignore another check in that moment.
+        checkingSetup = true;
+        void openDiscoveredServer(server, core).then((opened) => {
+            // Change server clears or replaces pendingSetup while the saved account is still being read.
+            if (!destroyed && host.name === "needs-setup" && pendingSetup === server) {
+                enterSignIn(opened);
+            }
+        }, (error: unknown) => {
+            clock.schedule(() => {
+                throw error;
+            }, 0);
+        });
+    };
+
+    const leaveForAddress = (): void => {
+        cancelSetupCheck();
+        pendingSetup = undefined;
+        showEntry([], false, "connect");
+    };
+
     const connected = (result: ConnectResult): void => {
+        if (result.status === "needs_setup") {
+            address = result.server.http.base.baseUrl;
+            scheme = "auto";
+            port = "";
+            advanced = false;
+            writeServer(core, address);
+            pendingSetup = result.server;
+            checkingSetup = false;
+            showNeedsSetup(false);
+            return;
+        }
         if (result.status !== "connected") {
             showEntry([], result.status !== "invalid_url", "connect", text.connectProblem(result));
             return;
@@ -452,6 +601,7 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
         signIn(result, notice === undefined ? [] : [{ text: notice, tone: "info" }]);
     };
 
+    let sessionExpired = options.sessionExpired === true;
     const signIn = (server: ConnectedServer, notes: readonly Note[]): void => {
         leaveSignIn();
         const login = server.createDeviceLogin();
@@ -465,8 +615,8 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
         const remembered = cachedBranding(core.publicStorage, base);
         const now = clock.now();
         const current: Active = {
-            server, login, stop, notes, code: undefined, typed: undefined, left: new AbortController(), options: undefined,
-            credentials: false, submitting: false, username: "", password: "", shown: false, error: undefined, errorField: undefined,
+            server, login, stop, notes, expiredSession: sessionExpired, code: undefined, typed: undefined, left: new AbortController(), options: undefined,
+            credentials: false, submitting: false, username: options.username ?? "", password: "", shown: false, error: undefined, errorField: undefined,
             status: { kind: "getting_code" }, shownCode: undefined, renewed: false, windowStart: now, startedAt: now,
             sawCode: false, startStreak: undefined, cancelTimer: undefined, pendingStart: undefined,
             // ServerBrandingCache: the last answer shows at once; the server's new one replaces it.
@@ -478,6 +628,11 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
         readOptions(current);
         readBranding(current);
     };
+
+    const EXPIRY_NOTE = "session-expired";
+    const shownNotes = (current: Active): readonly Note[] => current.expiredSession
+        ? [{ text: text.sessionExpiredNotice(current.serverName ?? text.serverHost(current.server.server.http.base.baseUrl)), tone: "info", id: EXPIRY_NOTE }, ...current.notes]
+        : current.notes;
 
     const readBranding = (current: Active): void => {
         const base = current.server.server.http.base.baseUrl;
@@ -499,6 +654,8 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
             for (const node of Array.from(root.querySelectorAll<HTMLElement>(".marquee-server-mark"))) setServerMark(node, name, current.markUrl);
             const title = root.querySelector<HTMLElement>("[data-server-headline]");
             if (title !== null) title.textContent = `Sign in to ${name}`;
+            const expiry = root.querySelector<HTMLElement>(`[data-note="${EXPIRY_NOTE}"] span`);
+            if (expiry !== null) expiry.textContent = text.sessionExpiredNotice(name);
             if (current.credentials) {
                 const passwordLead = root.querySelector<HTMLElement>('[data-screen="credentials"] .marquee-lead');
                 if (passwordLead !== null) passwordLead.textContent = text.passwordLead(name, passwordOnly(current));
@@ -571,8 +728,37 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
         }
     };
 
+    const savedAccounts = (): readonly SavedAccount[] => {
+        try {
+            return new AccountDirectory(options.core.publicStorage, options.core.randomBytes).list();
+        } catch {
+            return [];
+        }
+    };
+    /** TVLoginView.leaveTitle at silo-apple 54cf0f34. The sign-in harness has nowhere else to go. */
+    const leaveTitle = (): string => {
+        if (!options.onChangeAccount && !options.returnToAccounts) return "Change server";
+        if (options.returnToAccounts) return "Back to accounts";
+        const rows = savedAccounts();
+        if (rows.some(account => !account.needsSignIn)) return "Back to profiles";
+        return rows.length > 1 ? "Change account" : "Change server";
+    };
+    /**
+     * AppRouter.leaveSignIn. A first sign-in has no account yet, and Back still opens Change
+     * Account. One expired account returns to the address. Anything else saved, or a sign-in
+     * started from Change Account, goes back there.
+     */
+    const opensAccountList = (): boolean => {
+        if (!options.onChangeAccount) return false;
+        if (options.returnToAccounts) return true;
+        const rows = savedAccounts();
+        if (rows.some(account => !account.needsSignIn)) return true;
+        return rows.length !== 1;
+    };
     const changeServer = (): void => {
-        if (options.onChangeAccount) { destroy(); options.onChangeAccount(); return; }
+        if (opensAccountList()) { destroy(); options.onChangeAccount?.(); return; }
+        // AppRouter.resetToServerSetup clears loginNotice: a new connection is not an expiry.
+        sessionExpired = false;
         leaveSignIn();
         showEntry([], false, "connect");
     };
@@ -744,7 +930,7 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
             secure: base.startsWith("https:"),
             markUrl: current.markUrl,
             typed: current.typed,
-            notes: current.notes,
+            notes: shownNotes(current),
             controls,
             rest: controls.some((control) => control.key === "password") ? "password" : "change",
             back: changeServer,
@@ -759,7 +945,7 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
     /** "Sign in with a password" unless the server says no provider takes one; then "Change server". */
     const codeActions = (current: Active): Control[] => [
         ...(current.options?.passwordLogin === false ? [] : [marqueeButton("password", "Sign in with a password", "glass", () => openCredentials(current), { glyph: "key" })]),
-        marqueeButton("change", "Change server", "plain", changeServer),
+        marqueeButton("change", leaveTitle(), "plain", changeServer),
     ];
 
     const openCredentials = (current: Active): void => {
@@ -794,7 +980,7 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
                 host: text.serverHost(base),
                 secure: base.startsWith("https:"),
                 markUrl: current.markUrl,
-                notes: current.notes,
+                notes: shownNotes(current),
                 passwordOnly: !phoneRoute,
                 hint: phoneRoute ? text.phoneHint(current.options?.oauthProviders ?? []) : undefined,
                 username: current.username,
@@ -815,7 +1001,7 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
                 submit: () => submitPassword(current),
                 phone: phoneRoute ? () => returnToCode(current) : undefined,
                 change: changeServer,
-                changeLabel: options.onChangeAccount ? "Change account" : "Change server",
+                changeLabel: leaveTitle(),
                 back: current.submitting ? () => undefined : phoneRoute ? () => returnToCode(current) : changeServer,
             }),
             focus,
@@ -927,7 +1113,7 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
     } else if (options.chooseServer === true) {
         showEntry([], false, "connect");
     } else if (address !== "") {
-        startConnect();
+        startConnect([], address, "auto", true);
     } else {
         showEntry([], false);
     }

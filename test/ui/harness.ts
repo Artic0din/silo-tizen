@@ -7,6 +7,8 @@ import type { ConnectedServer } from "../../src/session/core.ts";
 import type { LogoutResult, Persistence, RestoreResult } from "../../src/session/session.ts";
 import { mountProfiles, type ProfileHandoff, type ProfileScreens } from "../../src/ui/profiles.ts";
 import { mountSignIn, type SignInScreens } from "../../src/ui/signIn.ts";
+import { CredentialVault } from "../../src/session/credentialVault.ts";
+import { keyManagerStore } from "../../src/session/secretStore.ts";
 import { FakeKeyManager, MemoryPublicStorage } from "../native/support/keyManager.ts";
 
 export interface Handoff {
@@ -25,10 +27,12 @@ export interface SignInHarness {
     readonly handoffs: Handoff[];
     discoveryRequests: number;
     saveHold: ReturnType<FakeKeyManager["holdSaves"]> | undefined;
+    /** Rewrites the saved account as a pre-accounts record, so the next restore migrates it. */
+    makeAccountLegacy(baseUrl: string): Promise<void>;
     /** Whether the app's own handler would see the last key as unhandled. */
     lastKeyPrevented: boolean | undefined;
     /** A fresh mount on the same storage, as after the app restarts. */
-    mount(signedOut?: LogoutResult): void;
+    mount(signedOut?: LogoutResult, chooseServer?: boolean): void;
     /** Signs the server sign-in is connected to out from outside the sign-in screens, before any handoff. */
     signOutElsewhere(): Promise<LogoutResult>;
     destroy(): void;
@@ -44,6 +48,12 @@ export interface SignInHarness {
     probe(): Promise<string>;
     /** Profile flow: the browse stand-in's Switch profile control. */
     switchProfile(): void;
+    /** Profile flow: set before sign-in, the app routes an expired sign-in itself and leaves these screens standing. */
+    routesExpiry: boolean;
+    /** Profile flow: how many expired sign-ins were routed. */
+    expiries: number;
+    /** Profile flow: an authenticated read, so a revoked session expires. */
+    expire(): Promise<void>;
 }
 
 declare global {
@@ -65,6 +75,7 @@ const root = document.getElementById("root");
 if (root === null) {
     throw new Error("missing #root");
 }
+const ACCOUNTS_KEY = "silo.native.accounts.v1";
 const keyManager = location.hash === "#session-only" ? undefined : new FakeKeyManager();
 const storage = new MemoryPublicStorage();
 const profileFlow = location.search === "?flow=profiles";
@@ -83,6 +94,20 @@ const harness: SignInHarness = {
     handoffs: [],
     discoveryRequests: 0,
     saveHold: undefined,
+    async makeAccountLegacy(baseUrl) {
+        if (keyManager === undefined) {
+            throw new Error("legacy accounts need a key store");
+        }
+        const directory: unknown = JSON.parse(storage.getItem(ACCOUNTS_KEY) ?? "null");
+        const id = (directory as { accounts: { id: string }[] }).accounts[0]?.id;
+        const store = keyManagerStore(keyManager);
+        const saved = await new CredentialVault(store, storage, baseUrl, id).load();
+        if (saved.status !== "found") {
+            throw new Error("no saved account to rewrite");
+        }
+        await new CredentialVault(store, storage, baseUrl).save(saved.credential);
+        storage.removeItem(ACCOUNTS_KEY);
+    },
     lastKeyPrevented: undefined,
     profiles: [],
     signedOut: [],
@@ -91,6 +116,14 @@ const harness: SignInHarness = {
         profileScreens?.destroy();
     },
     profileEnded: (index) => handed[index]?.signal.aborted ?? false,
+    routesExpiry: false,
+    expiries: 0,
+    async expire() {
+        if (last === undefined) {
+            throw new Error("nobody signed in");
+        }
+        await last.session.call({ method: "GET", path: "/catalog/probe", retry: "safe", decode: (body) => JSON.stringify(body), profileScoped: false }).catch(() => undefined);
+    },
     async probe() {
         const server = last;
         const active = handed[handed.length - 1];
@@ -117,11 +150,12 @@ const harness: SignInHarness = {
         }
         profileScreens?.switchProfile();
     },
-    mount(signedOut) {
+    mount(signedOut, chooseServer) {
         screens?.destroy();
         profileScreens?.destroy();
         profileScreens = undefined;
         screens = mountSignIn(root, {
+            ...(chooseServer ? { chooseServer: true } : {}),
             core: {
                 fetch: (url, init) => {
                     if (new URL(url).pathname.endsWith("/system/info")) {
@@ -196,6 +230,7 @@ const continueSignedIn = (server: ConnectedServer): void => {
         server,
         onSelected: browse,
         onSignedOut: backToSignIn,
+        ...(harness.routesExpiry ? { launch: server.profileLaunch, onSessionExpired: () => { harness.expiries++; } } : {}),
         onChangeServer: () => {
             profileScreens?.destroy();
             profileScreens = undefined;

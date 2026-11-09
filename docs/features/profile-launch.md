@@ -16,8 +16,11 @@ The Apple reference is `Silo-Server/silo-apple` revision `1a7cceeaf3b2bfc4f889c0
 `Shared/ProfileLaunchState.swift` defaults fresh TVs to `askEveryLaunch` with a remember offer.
 Its resolution requires a known remembered profile, matching account epoch and stored proof for a protected profile.
 `Screens/Profiles/ProfileLaunchPreferences.swift` persists the device choice through local defaults.
-Tizen implements the two requested choices and uses its existing protected KeyManager store for opted-in proofs.
-Apple TV user mapping and timed launch choices are outside this change.
+Tizen also follows Apple `bbd1e470f0e1d3a99f486d0d7246d11ed1c97d55` for Automatic, Every Time, After 1 Hour and After 12 Hours.
+Timed choices expire only after an actual hidden/pagehide interval, on either a warm return or a cold restoration.
+An expired warm return stops content and clears the active profile before reopening selection.
+Opted-in proofs continue to use the existing protected KeyManager store.
+Apple TV user mapping requires an OS-user concept that this web app does not have.
 
 Raw PINs remain transient, including when Remember is selected.
 Public storage contains the launch choice and a pointer, never the proof.

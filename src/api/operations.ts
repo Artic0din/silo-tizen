@@ -16,6 +16,7 @@ import {
     decodeProfileVerification,
     decodeRefreshedTokens,
     decodeServerIdentity,
+    decodeSetupStatus,
     decodeSystemInfo,
     decodeTokenPair,
 } from "../contracts/v2/wire.ts";
@@ -58,6 +59,7 @@ import { settingsOperations } from "./settingsOperations.ts";
 import { trickplayOperations } from "./trickplayOperations.ts";
 import { subtitleOperations } from "./subtitleOperations.ts";
 import { markerOperations } from "./markerOperations.ts";
+import { bandwidthProbeOperations } from "./bandwidthProbeOperations.ts";
 
 type Spec<T> = RequestSpec<T>;
 
@@ -93,6 +95,7 @@ export type CatalogPageRequest = {
     | { readonly libraryId?: never; readonly q: string; readonly type: "video_with_episodes" });
 
 export const operations = {
+    ...bandwidthProbeOperations,
     ...recommendationOperations,
     ...shuffleOperations,
     ...subtitleOperations,
@@ -112,6 +115,13 @@ export const operations = {
     }),
     serverBranding: (): Spec<ReturnType<typeof decodeServerBranding>> => ({
         method: "GET", path: "/theme/branding", retry: "safe", decode: decodeServerBranding,
+    }),
+    /** getSetupStatus: public, read. `needs_setup` is true until the first administrator exists. */
+    setupStatus: (): Spec<ReturnType<typeof decodeSetupStatus>> => ({
+        method: "GET",
+        path: "/system/setup",
+        retry: "safe",
+        decode: decodeSetupStatus,
     }),
     /** getServerIdentity: public, read. */
     serverIdentity: (): Spec<string> => ({

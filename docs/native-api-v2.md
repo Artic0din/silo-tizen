@@ -121,9 +121,8 @@ It is set to `false` for these calls:
 
 - PIN verification (`src/session/profiles.ts`)
 - personal-list and watched mutations (`src/ui/detailsState.ts`)
-- rating writes (`src/ui/ratingState.ts`)
 - shuffle creation (`src/ui/browse.ts`)
-- request create, cancel and follow (`src/ui/browse.ts`)
+- request create, cancel, remove and follow (`src/ui/browse.ts`)
 - series subtitle preference saves (`src/player/controller.ts`)
 
 Settings and AI-subtitle calls resend only when the method is GET (`src/ui/settingsState.ts`, `src/player/subtitleAI.ts`).
@@ -150,10 +149,18 @@ It reports `origin_mismatch` when `request_origin` differs from the entered orig
 It reports `unreachable` for network errors and timeouts, and `server_error` for any other failure.
 The `serverId` it returns is self-asserted and never authorizes anything on its own.
 
+`connect` (`src/session/core.ts`) then calls `GET /system/setup` on that server, still with no credentials.
+A failure is reported the same way as discovery, and no session is opened.
+`needs_setup: true` (true until the first administrator account exists) returns `needs_setup`.
+Sign-in shows the recovery screen and does not start a device code.
+`wizard_completed` is required by the contract and is not used to choose the screen.
+Account creation stays off the TV.
+
 | Operation | Method and path | Auth | Retry | Defined in |
 | --- | --- | --- | --- | --- |
 | getSystemInfo | `GET /system/info` | Public | safe | `src/api/operations.ts` |
 | getServerIdentity | `GET /system/identity` | Public | safe | `src/api/operations.ts` |
+| getSetupStatus | `GET /system/setup` | Public | safe | `src/api/operations.ts`, called from `src/session/core.ts` |
 | server branding | `GET /theme/branding` | Public | safe | `src/api/operations.ts`, called from `src/ui/signIn.ts` |
 | getImageCapabilities | `GET /images/capabilities` | Bearer, Profile | safe | `src/api/operations.ts` |
 
@@ -265,6 +272,9 @@ Defined in `src/api/operations.ts` unless noted.
 | catalog filters | `GET /catalog/filters?...` (`src/api/discoveryOperations.ts`) | safe |
 | search capabilities | `GET /catalog/search/capabilities` (`src/api/discoveryOperations.ts`) | safe |
 | Search people | `GET /catalog/people?q&media_scope&limit=20` (`src/api/detailOperations.ts`), gated by allowed/available `people_media_scope` | safe |
+| searchCatalogBoxSets | `GET /catalog/box-sets?q&limit=5` (`src/api/boxSetOperations.ts`), All and Movies only, gated by `box_sets: true` | safe |
+| getCatalogBoxSet | `GET /catalog/box-sets/{id}?library_id&image_size=medium` (`src/api/boxSetOperations.ts`) | safe |
+| getCatalogItemBoxSet | `GET /catalog/items/{id}/box-set?image_size=medium` (`src/api/boxSetOperations.ts`), movie pages only, gated by `box_sets: true`. `box_set` absent means no row. Library browse does not group box sets | safe |
 | queryCatalogItems | `POST /catalog/query?image_size=small` (`src/api/discoveryOperations.ts`) | safe |
 | queryCatalogLetters | `POST /catalog/letters` (`src/api/discoveryOperations.ts`) | safe |
 
@@ -298,21 +308,6 @@ All are Bearer plus Profile.
 Gating: `decodePersonalCapability` is true only when `state === "available"`, `allowed` and `membership_supported` are all true (`src/contracts/v2/details.ts`).
 Mutations are sent once, with refresh replay off, and repeat only when the person presses again (comment in `detailOperations.ts`).
 The list screens decode the same capability with a second decoder in `src/ui/personalLists.ts`, which requires a `revision` string.
-
-### Ratings
-
-Defined in `src/ui/ratingState.ts` as `ratingOperations`.
-All are Bearer plus Profile.
-
-| Operation | Method and path | Retry |
-| --- | --- | --- |
-| read | `GET /ratings/{id}` | safe |
-| set | `PUT /ratings/{id}` with body `{ "rating": 1..5 }` | never |
-| clear | `DELETE /ratings/{id}` | never |
-
-A 404 on read means unrated.
-Writes send once with refresh replay off, then read back to confirm; an explicit Retry reads first (`docs/features/ratings.md`).
-A star value outside 1 to 5 throws `RangeError` before any request.
 
 ### Recommendations
 
@@ -384,12 +379,14 @@ Bearer plus Profile.
 | get one | `GET /requests/{id}` | safe |
 | create | `POST /requests` with `media_type`, `tmdb_id`, `title` | never |
 | cancel | `POST /requests/{id}/cancel` (empty object body) | never |
+| remove | `DELETE /requests/{id}` (204, no body) | never |
 | follow | `PUT /requests/follows/{type}/{tmdbId}` | never |
 | unfollow | `DELETE /requests/follows/{type}/{tmdbId}` | never |
 
 Gating: the Requests section is shown only when `status` decodes as `requests_enabled`, `allowed` and `state === "available"` (`decodeRequestsCapability`).
 A failed probe keeps the last confirmed capability (`src/ui/browse.ts`).
 `follow_supported` is also decoded.
+`remove_failed_supported` is optional. Absent means false. A non-boolean is rejected. Remove Request is offered only when requests are available and the flag is true.
 
 ### Shuffle
 
@@ -471,7 +468,7 @@ Sheets load as plain images (`src/player/seekThumbnailView.ts`), and no credenti
 
 ### Subtitles and AI subtitles
 
-Defined in `src/api/subtitleOperations.ts` and `src/api/subtitleAIOperations.ts`.
+Defined in `src/api/subtitleOperations.ts`, `src/api/subtitleAIOperations.ts`, `src/api/subtitleSearchOperations.ts` and `src/api/subtitleDisplayOperations.ts`.
 All are Bearer plus Profile.
 
 | Operation | Method and path | Retry |
@@ -484,6 +481,13 @@ All are Bearer plus Profile.
 | AI languages | `GET /settings/contract` | safe |
 | create AI job | `POST /subtitles/ai/translate` | never |
 | AI job | `GET /subtitles/ai/jobs/{id}` | safe |
+| subtitle provider status | `GET /subtitles/providers/status` | never |
+| subtitle search | `POST /subtitles/search` | never |
+| subtitle download | `POST /subtitles/download` | never |
+| subtitle delay | `PUT /settings/values/player.subtitle_sync_ms?scope=` | never |
+| subtitle appearance write | `PUT /settings/values/playback.subtitle_appearance?scope=` | never |
+| clear device appearance | `DELETE /settings/values/playback.subtitle_appearance?scope=profile_device` | never |
+| clear device subtitle delay | `DELETE /settings/values/player.subtitle_sync_ms?scope=profile_device` | never |
 
 Subtitle file text is fetched by `NativeHttp.subtitleText`, which is not an API operation.
 It checks that the URL passes `isPermittedUrl` and has no embedded credentials.
@@ -497,6 +501,10 @@ AI subtitles (`src/player/subtitleAI.ts`):
 - Create is sent once.
 - A failure with a Problem id that is non-transient, or a 429, is treated as certain; any other failure leaves the job "uncertain" and blocks another start.
 - Jobs are polled with `GET /subtitles/ai/jobs/{id}` until `completed`, `failed` or `cancelled`.
+
+Subtitle search (`src/player/subtitleSearch.ts`) stays offered until provider status says the viewer is not allowed, the state is not `available`, or providers are not enabled. A failed probe is not retried and does not change that. Search and download are each sent once. A stored subtitle is selected through the existing track owner. An uncertain download is not sent again while the menu stays open.
+
+Subtitle delay and appearance (`src/player/subtitleDisplay.ts`) are shown only when the settings contract advertises `player.subtitle_sync_ms` and `playback.subtitle_appearance`, and only while the selected subtitle is not burn-in or text AVPlay is drawing itself. A scope is a name, or `{ "scope", "introduced_in" }` from that revision; delay's profile scope starts at revision 19. Delay is clamped to ±10000 ms and written at profile scope, or `profile_device` when "Only on this TV" is on or the manifest revision is below 19. The offset moves cues this app draws. AVPlay has no subtitle-offset call, so text it draws itself is not shifted; a TV has to confirm whether that platform can move its own TEXT track.
 
 ### Settings
 

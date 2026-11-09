@@ -407,7 +407,8 @@ calendarTest("Calendar complete remote journey retains every event and restores 
     const episodeScroll = await position(); assert.ok((episodeScroll.top ?? 0) > 0);
     if (process.env.CALENDAR_CAPTURE) { await tv.page.clock.runFor(260); await tv.page.screenshot({ path: `${process.env.CALENDAR_CAPTURE}/after-calendar.png` }); }
     await tv.page.keyboard.press("Enter");
-    await tv.eventually(async () => await tv.focused() === "season:2", "Calendar focuses the relevant series season");
+    await tv.eventually(async () => await tv.focused() === "next-episode", "episode context focuses Apple's primary action");
+    await tv.page.locator('[data-focus="season:2"]').focus();
     await tv.page.keyboard.press("Enter");
     await tv.page.locator('.details-episodes [data-focus="episode:s1e22"]').waitFor();
     await tv.remote(40);
@@ -546,6 +547,7 @@ calendarTest("Calendar return revalidates mutations and preserves nearby identit
     await tv.page.getByText("Loading personal actions.", { exact: true }).waitFor({ state: "hidden" });
     await tv.page.getByText("Loading related titles.", { exact: true }).waitFor({ state: "hidden" });
     await activate(tv, "watched");
+    await activate(tv, "more");
     await tv.eventually(async () => catalog.watched, "watched mutation");
     await tv.remote(10009); await tv.remote(10009); await ready(tv, 3);
     assert.match(await tv.page.locator('.calendar-event[data-content-id="movie:m0001"]').getAttribute("aria-label") ?? "", /Watched/);
@@ -617,7 +619,7 @@ calendarTest("Calendar failed revalidation retains only the current window with 
     assert.equal(await tv.page.locator(".calendar-event").count(), 0, "no previous-window cache leaks into an empty week");
 });
 
-calendarTest("Calendar Settings hidden-library return reuses current route and coherent multi-library access", async (tv, catalog) => {
+calendarTest("Calendar library recovery survives Settings Back onto Home and a later Calendar visit", async (tv, catalog) => {
     const settings = new FakeSettings(tv.fake);
     settings.profile().set(HIDDEN_KEY, [15]);
     const routes = tv.fake.catalog; assert.ok(routes);
@@ -630,15 +632,17 @@ calendarTest("Calendar Settings hidden-library return reuses current route and c
     await activate(tv, "calendar"); await ready(tv, 3); await activate(tv, "filter:everything"); await ready(tv, 32);
     assert.equal(await tv.page.locator('.calendar-event[data-content-id="movie:archived"]').count(), 0);
     await activate(tv, "profiles"); await activate(tv, "settings");
-    await tv.page.locator('[data-focus="hidden"]').click();
-    await tv.page.locator('[data-focus="library:12"]').click();
-    await tv.eventually(async () => JSON.stringify(settings.profile().get(HIDDEN_KEY)) === "[15,12]", "hidden library write");
+    await tv.page.locator('[data-focus="server"]').click();
+    await tv.page.locator('[data-focus="restore-libraries"]').click();
+    await tv.eventually(async () => JSON.stringify(settings.profile().get(HIDDEN_KEY)) === "[]", "library visibility restored");
     await tv.page.getByText("Saving…", { exact: true }).waitFor({ state: "hidden" });
-    await tv.remote(10009); await tv.remote(10009); await tv.remote(10009); await ready(tv, 2);
+    for (let step = 0; step < 3 && await tv.page.locator(".settings").count() > 0; step++) await tv.remote(10009);
+    assert.equal(await tv.page.locator('.browse').getAttribute("data-view"), "home");
+    assert.equal(await tv.focused(), "home", "Settings Back selects Home");
+    await activate(tv, "calendar"); await ready(tv, 33);
     assert.equal(await tv.page.locator('[data-focus="filter:everything"]').getAttribute("aria-pressed"), "true");
-    assert.ok((await tv.page.locator(".calendar-event").evaluateAll(nodes => nodes.map(node => node.getAttribute("data-content-id")))).every(id => id?.startsWith("episode:") || id?.startsWith("season:")));
-    assert.equal(await tv.focused(), "calendar", "selected tab retains focus while revalidating after Settings");
-    assert.equal(await tv.page.locator('.browse-nav [data-focus="movies"]').count(), 0, "hidden-library refresh also updates existing Skyline scopes");
+    assert.equal(await tv.page.locator('.calendar-event[data-content-id="movie:archived"]').count(), 1, "restored library content is included");
+    assert.equal(await tv.page.locator('.browse-nav [data-focus="movies"]').count(), 1, "visibility recovery also updates existing Skyline scopes");
 });
 
 calendarTest("Calendar premiere, episode context fallback, badges and distinct events retain server identity", async (tv, catalog) => {
@@ -664,7 +668,8 @@ calendarTest("Calendar premiere, episode context fallback, badges and distinct e
     });
     await activate(tv, "filter:trending"); await ready(tv, 3);
     await tv.page.locator('.calendar-event[data-content-id="episode:s1e22"]').first().focus(); await tv.page.keyboard.press("Enter");
-    await tv.eventually(async () => await tv.focused() === "season:2", "missing season number resolved through existing item detail");
+    await tv.eventually(async () => await tv.focused() === "next-episode", "resolved episode context focuses Apple's primary action");
+    await tv.page.locator('[data-focus="season:2"]').focus();
     await tv.page.keyboard.press("Enter");
     await tv.page.locator('.details-episodes [data-focus="episode:s1e22"]').waitFor();
     await tv.remote(40);
@@ -682,7 +687,8 @@ calendarTest("Calendar-origin series refresh preserves a subsequently selected s
     await tv.page.locator('[data-view="item:episode:s1e11"]').waitFor();
     await tv.page.locator('[data-focus="more"]').click();
     await tv.page.locator('[data-focus="watched"]').click();
-    await tv.eventually(async () => catalog.mutations.length === 1 && await tv.page.getByRole("button", { name: "Mark watched", exact: true }).count() === 1, "episode mutation confirmed");
+    await activate(tv, "more");
+    await tv.eventually(async () => catalog.mutations.length === 1 && await tv.page.getByRole("button", { name: "Mark as Watched", exact: true }).count() === 1, "episode mutation confirmed");
     const refresh = tv.fake.hold("/catalog/items/series%3As1", true);
     await tv.remote(10009); await tv.remote(10009);
     await tv.page.locator('[data-view="item:series:s1"]').waitFor();
@@ -694,7 +700,30 @@ calendarTest("Calendar-origin series refresh preserves a subsequently selected s
     await tv.page.getByText("Refreshing episodes…", { exact: true }).waitFor({ state: "hidden" });
     assert.equal(await tv.page.locator('[data-focus="season:1"]').getAttribute("aria-pressed"), "true", "refresh retains the user's selected season");
     assert.equal(await tv.page.locator('.details-episodes [data-focus="episode:s1e11"]').count(), 1);
-    assert.equal(await tv.focused(), "episode:s1e11");
+    assert.equal(await tv.focused(), "next-episode");
+});
+
+calendarTest("cached Calendar series recovery preserves the user's season and focus", async tv => {
+    await activate(tv, "calendar"); await ready(tv, 3);
+    await tv.page.locator('.calendar-event[data-content-id="season:s1:2"]').click();
+    await tv.page.locator('.details-episodes [data-focus="episode:s1e21"]').waitFor();
+    await tv.remote(10009);
+    await tv.page.route("**/api/v2/**", route => route.abort("connectionrefused"));
+    await tv.page.locator('.calendar-event[data-content-id="season:s1:2"]').click();
+    await tv.page.locator('[data-focus="season:1"]').waitFor();
+    // Arrow keys record that the viewer left Play. A click focuses the season without that record,
+    // so the later recovery paint claims next-episode.
+    await tv.remote(40);
+    await tv.eventually(async () => (await tv.focused())?.startsWith("season:") === true, "season row");
+    for (let step = 0; step < 4 && await tv.focused() !== "season:1"; step++) await tv.remote(37);
+    await tv.remote(13);
+    await tv.jump(35000);
+    assert.equal(await tv.page.locator('[data-focus="season:1"]').getAttribute("aria-pressed"), "true");
+    assert.equal(await tv.focused(), "season:1");
+    await tv.page.unroute("**/api/v2/**");
+    await tv.jump(35000);
+    await tv.page.locator('.details-episodes [data-focus="episode:s1e11"]').waitFor();
+    assert.equal(await tv.focused(), "season:1");
 });
 
 calendarTest("Calendar loading status leaves the origin shelf geometry unchanged on return", async (tv) => {
@@ -749,7 +778,8 @@ calendarTest("S-C2 Calendar re-entry refreshes watched changes made through Home
     await homeDetails(tv);
     await activate(tv, "more");
     await activate(tv, "watched");
-    await tv.eventually(async () => catalog.watched && await tv.page.getByRole("button", { name: "Mark unwatched", exact: true }).count() === 1, "confirmed watched state");
+    await activate(tv, "more");
+    await tv.eventually(async () => catalog.watched && await tv.page.getByRole("button", { name: "Mark as Unwatched", exact: true }).count() === 1, "confirmed watched state");
     await tv.remote(10009);
     await tv.remote(10009);
     await activate(tv, "calendar"); await ready(tv, 3);
@@ -763,9 +793,10 @@ for (const [action, id, expected] of [["favorites", "movie:m0001", 2], ["watchli
         await activate(tv, "calendar"); await ready(tv, 3);
         await homeDetails(tv, id);
         if (action === "favorites") await activate(tv, "more");
-        await tv.page.getByRole("button", { name: action === "favorites" ? "Remove favorite" : "Remove from watchlist", exact: true }).waitFor();
+        await tv.page.getByRole("button", { name: action === "favorites" ? "Remove from Favorites" : "Remove from watchlist", exact: true }).waitFor();
         await activate(tv, action);
-        await tv.eventually(async () => !(action === "favorites" ? catalog.favoriteIds : catalog.watchlistIds).has(id) && await tv.page.getByRole("button", { name: action === "favorites" ? "Add favorite" : "Add to watchlist", exact: true }).count() === 1, "confirmed membership removal");
+        if (action === "favorites") await activate(tv, "more");
+        await tv.eventually(async () => !(action === "favorites" ? catalog.favoriteIds : catalog.watchlistIds).has(id) && await tv.page.getByRole("button", { name: action === "favorites" ? "Add to Favorites" : "Add to watchlist", exact: true }).count() === 1, "confirmed membership removal");
         await tv.remote(10009);
         if (action === "favorites") await tv.remote(10009);
         await activate(tv, "calendar"); await ready(tv);
@@ -837,4 +868,40 @@ calendarTest("S-C1 Calendar owns one day timer and cancels it on root exit and t
     assert.equal(await count(), 0);
     await tv.jump(await tv.page.evaluate(() => new Date(2026, 0, 3).getTime() - Date.now()));
     assert.equal(await tv.page.locator(".browse").count(), 0);
+});
+
+/** Chromium 108 maps en-GB `hour12: true` to hour cycle h11, so noon is "0:00 pm". This Chromium already resolves en-GB to h12. */
+async function emulateChromium108EnglishHour(page: Tv["page"]): Promise<void> {
+    await page.addInitScript(() => {
+        const Native = Intl.DateTimeFormat;
+        function DateTimeFormat(locales: Intl.LocalesArgument, options?: Intl.DateTimeFormatOptions) {
+            const requested = options === undefined ? undefined : { ...options };
+            const localesMissing = locales === undefined || (Array.isArray(locales) && locales.length === 0);
+            if (localesMissing && requested?.hour12 === true && requested.hourCycle === undefined && new Native().resolvedOptions().locale.toLowerCase().startsWith("en-gb")) {
+                delete requested.hour12;
+                requested.hourCycle = "h11";
+            }
+            return new Native(locales, requested);
+        }
+        DateTimeFormat.prototype = Native.prototype;
+        DateTimeFormat.supportedLocalesOf = Native.supportedLocalesOf.bind(Native);
+        Intl.DateTimeFormat = DateTimeFormat as unknown as typeof Intl.DateTimeFormat;
+    });
+}
+
+test("Calendar noon and the first minute stay on a 12-hour clock under en-GB", async () => {
+    const tv = await openTv(browser, { app: "browse", locale: "en-GB", prepare: emulateChromium108EnglishHour });
+    try {
+        const catalog = await start(tv);
+        catalog.events.push(
+            { content_id: "episode:noon", type: "episode", title: "Harbor Lights", series_id: "series:s1", season_number: 2, episode_number: 3, episode_title: "Noon", air_date: "2026-01-02", local_air_date: "2026-01-02", air_at: "2026-01-02T01:00:00Z", watched: false, badges: [] },
+            { content_id: "episode:after-midnight", type: "episode", title: "Harbor Lights", series_id: "series:s1", season_number: 2, episode_number: 4, episode_title: "After midnight", air_date: "2026-01-02", local_air_date: "2026-01-02", air_time: "00:05", watched: false, badges: [] },
+        );
+        await activate(tv, "calendar");
+        await ready(tv);
+        const clock = (value: string): string => value.replace(/\s+/g, " ").trim();
+        assert.equal(clock(await tv.page.locator('[data-content-id="episode:noon"] .calendar-time').innerText()), "12:00 pm");
+        assert.equal(clock(await tv.page.locator('[data-content-id="episode:after-midnight"] .calendar-time').innerText()), "12:05 am");
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
 });

@@ -8,13 +8,13 @@ import type { CatalogPage, Episode, HomeSection, ItemDetail, Season, UserLibrary
 import type { Person } from "../contracts/v2/details.ts";
 import type { PersonMetadataRefresh } from "./personMetadataRefresh.ts";
 import type { DetailsState } from "./detailsState.ts";
-import { SessionError } from "../session/session.ts";
+import { SessionError, SessionRefreshError } from "../session/session.ts";
 import type { FocusTarget, View } from "./browseFocus.ts";
-import { itemView, seasonView, type Synopsis } from "./browseDetails.ts";
-import type { EpisodeSelection, PlayRequest, SeriesContext } from "./browseModel.ts";
+import { itemView, seasonView } from "./browseDetails.ts";
+import { browseCardDestination, type EpisodeSelection, type PlayRequest, type SeriesContext } from "./browseModel.ts";
 import type { CalendarState } from "./calendarState.ts";
 import { calendarView, type CalendarHandlers } from "./calendarView.ts";
-import { actionButton, homeView, lines, pagedGrid, type SearchResults, searchView, statusView, type ViewContext, zoneNode } from "./browseViews.ts";
+import { actionButton, FAILURE_ICON, homeView, lines, pagedGrid, type SearchResults, searchState, searchView, statusView, type ViewContext, zoneNode } from "./browseViews.ts";
 import { el } from "./screen.ts";
 import { discoveryState, type BrowseChange, type DiscoveryState, type LibraryMode, type LibrarySource } from "./libraryDiscovery.ts";
 import { discoveryView, resultsView } from "./libraryDiscoveryViews.ts";
@@ -23,10 +23,15 @@ import type { MediaScope } from "../contracts/v2/discovery.ts";
 import { personFilmographyView } from "./personFilmography.ts";
 import type { RecommendationLocator, RecommendationRow } from "../contracts/v2/recommendations.ts";
 import { globalSearchView, type SearchSupplement } from "./globalSearch.ts";
+import { boxSetView } from "./boxSetView.ts";
+import type { BoxSetRowState } from "./boxSetRow.ts";
+import { boxSetNextMovie, type CatalogBoxSetDetail } from "../contracts/v2/boxSets.ts";
 import { recommendationsView } from "./recommendationsView.ts";
 
 /** Cards per catalog page: four grid rows. Only the shown page is kept. */
 export const PAGE_SIZE = 24;
+/** Apple's SearchViewModel.pageSize. A 25-result query is one page, with no pager. */
+export const SEARCH_PAGE_SIZE = 60;
 
 export interface Pages {
     page: CatalogPage | undefined;
@@ -47,8 +52,9 @@ export type RouteData =
     | { readonly kind: "library"; readonly library: UserLibrary; pages: Pages; discovery?: DiscoveryState }
     | { readonly kind: "libraryResults"; readonly library: UserLibrary; readonly title: string; readonly source: LibrarySource; pages: Pages; descending: boolean }
     /** `resultsFor`: the query the shown page answers, which typing can move ahead of. */
-    | { readonly kind: "search"; query: string; pages: Pages | undefined; resultsFor: string; searchType?: TextSearchScope; filter?: "movie" | "series" | undefined; peopleSupported?: boolean; supplement?: SearchSupplement }
-    | { readonly kind: "item"; readonly id: string; readonly title: string; readonly seriesContext?: SeriesContext; data: { detail: ItemDetail; seasons: Season[]; details?: DetailsState } | undefined }
+    | { readonly kind: "search"; query: string; pages: Pages | undefined; resultsFor: string; searchType?: TextSearchScope; filter?: "movie" | "series" | undefined; peopleSupported?: boolean; boxSetsSupported?: boolean; supplement?: SearchSupplement }
+    | { readonly kind: "boxSet"; readonly id: string; readonly libraryId: string; readonly title: string; data: CatalogBoxSetDetail | undefined }
+    | { readonly kind: "item"; readonly id: string; readonly title: string; readonly seriesContext?: SeriesContext; error?: ErrorState; data: { detail: ItemDetail; seasons: Season[]; details?: DetailsState; boxSet?: BoxSetRowState } | undefined }
     | { readonly kind: "person"; readonly id: string; readonly title: string; data: { person: Person } | undefined; metadataLoading?: boolean; metadataRefresh?: PersonMetadataRefresh; metadataFailure?: string | undefined; availabilityLoading?: boolean; availableFilters?: MediaScope[]; filter: MediaScope; pages: Pages; pendingIndex: number | undefined }
     | { readonly kind: "season"; readonly seriesId: string; readonly seasonNumber: number; readonly title: string; readonly id?: string; readonly episodeId?: string; data: { episodes: Episode[]; detail: ItemDetail | undefined; details?: DetailsState } | undefined };
 
@@ -87,6 +93,8 @@ export function hasData(current: Route): boolean {
             return current.pages.page !== undefined;
         case "search":
             return current.pages?.page !== undefined;
+        case "boxSet":
+            return current.data !== undefined;
         default:
             return current.data !== undefined;
     }
@@ -105,7 +113,6 @@ export interface RouteHandlers {
     readonly personalFilter: (route: Extract<Route, { kind: "personal" }>, filter: PersonalFilter) => void;
     readonly morePersonal: (route: Extract<Route, { kind: "personal" }>) => void;
     readonly signIn: (() => void) | undefined;
-    readonly synopsis: Synopsis;
     readonly context: ViewContext;
     readonly focusDefault: () => void;
     /** A read is in flight. */
@@ -119,6 +126,7 @@ export interface RouteHandlers {
     readonly pop: () => void;
     readonly play: (request: PlayRequest) => void;
     readonly chooseProfile: () => void;
+    readonly manageServers?: (() => void) | undefined;
     readonly retry: (route: Route) => void;
     readonly turn: (route: Route, pages: Pages, step: -1 | 1) => void;
     readonly mode: (route: Extract<Route, { kind: "library" }>, mode: LibraryMode) => void;
@@ -145,6 +153,14 @@ export function routeView(current: Route, handlers: RouteHandlers): View {
         return globalSearchView(searchView(handlers.searchHead, handlers.input, searchResults(current, handlers), pop), current, handlers);
     }
     if (current.failure !== undefined && !hasData(current)) {
+        if (current.kind === "home" || current.kind === "item" && current.error?.headline === "Something went wrong") {
+            const retry = actionButton("retry", "Try Again", () => handlers.retry(current));
+            const controls = [retry, ...(current.kind === "home" && handlers.manageServers ? [actionButton("manage-servers", "Manage Servers", handlers.manageServers)] : [])];
+            const page = searchState("Something went wrong", current.failure, "details-failure", FAILURE_ICON);
+            page.setAttribute("role", "alert");
+            page.appendChild(zoneNode("browse-actions", controls));
+            return { name: `${current.kind}:failed`, content: [page], zones: [{ id: "status", layout: "column", items: controls }], focus: { zone: "status", key: "retry" }, back };
+        }
         return statusView(`${current.kind}:failed`, "Something went wrong", [current.failure], [actionButton("retry", "Try again", () => handlers.retry(current)), escape], back, "error");
     }
     switch (current.kind) {
@@ -185,13 +201,22 @@ export function routeView(current: Route, handlers: RouteHandlers): View {
                 const episodeId = current.seriesContext?.episodeId;
                 const view = itemView(current.data.details?.detail ?? current.data.detail, current.data.seasons, {
                     ...context, open: destination => context.open(destination.kind === "season" && episodeId !== undefined ? { ...destination, episodeId } : destination),
-                }, handlers.play, pop, handlers.synopsis, current.data.details);
+                }, handlers.play, pop, current.data.details, current.data.boxSet);
                 return withNote(view, current.failure);
+            }
+            break;
+        case "boxSet":
+            if (current.data !== undefined) {
+                const detail = current.data;
+                return boxSetView(detail, context, () => {
+                    const next = boxSetNextMovie(detail);
+                    if (next !== undefined) handlers.push(newRoute({ kind: "resume", id: next.id, title: next.title }));
+                }, pop);
             }
             break;
         case "season":
             if (current.data !== undefined) {
-                return withNote(seasonView(`season:${current.seriesId}:${current.seasonNumber}`, current.title, current.data.episodes, context, pop, handlers.play, handlers.synopsis, current.data.details?.detail ?? current.data.detail, current.data.details), current.failure);
+                return withNote(seasonView(`season:${current.seriesId}:${current.seasonNumber}`, current.title, current.data.episodes, context, pop, handlers.play, current.data.details?.detail ?? current.data.detail, current.data.details), current.failure);
             }
     }
     // Other routes keep the slow note. Home returned above: an empty page labelled "Loading home".
@@ -219,7 +244,7 @@ function grid(current: Route, pages: Pages, page: CatalogPage, handlers: RouteHa
         {
             page,
             index: pages.index,
-            pageSize: current.kind === "libraryResults" && current.source.kind === "collection" ? 60 : PAGE_SIZE,
+            pageSize: current.kind === "search" ? SEARCH_PAGE_SIZE : current.kind === "libraryResults" && current.source.kind === "collection" ? 60 : PAGE_SIZE,
             loading: handlers.busy,
             previous: () => handlers.turn(current, pages, -1),
             next: () => handlers.turn(current, pages, 1),
@@ -232,9 +257,12 @@ function grid(current: Route, pages: Pages, page: CatalogPage, handlers: RouteHa
     );
 }
 
-/** Search posters are 220pt (`SearchView` `cardWidth`) and carry overlay data, as `TVCatalogGrid` does. */
+/**
+ * Search posters are 220pt (`SearchView` `cardWidth`) and carry overlay data, as `TVCatalogGrid` does.
+ * Select opens the card's detail route. It does not use the shared episode play shortcut.
+ */
 function searchCards(context: ViewContext): ViewContext {
-    return { ...context, overlays: context.cardOverlays?.(), posterWidth: 220 * (context.posterScale?.() ?? 1) };
+    return { ...context, overlays: context.cardOverlays?.(), posterWidth: 220 * (context.posterScale?.() ?? 1), cardDestination: browseCardDestination };
 }
 
 function searchResults(current: Extract<Route, { kind: "search" }>, handlers: RouteHandlers): SearchResults {
@@ -295,7 +323,7 @@ export function errorState(error: unknown): ErrorState {
 
 /** Apple RequestMutationFailure.isUncertain: only an answer from the server, or a refusal before sending, rules out a write having landed. */
 export function writeMayHaveApplied(error: unknown): boolean {
-    if (error instanceof SessionError) return false;
+    if (error instanceof SessionError || error instanceof SessionRefreshError) return false;
     return !(error instanceof ApiError) || (error.failure.kind !== "problem" && error.failure.kind !== "http");
 }
 
@@ -330,6 +358,7 @@ export function failureText(error: unknown, current: Route): string | undefined 
     }
     if (error.status === 404) {
         if (current.kind === "calendar") return "Could not load Calendar. Try again.";
+        if (current.kind === "boxSet") return "This box set isn't available. Box sets may be turned off for this library, or too few of its movies are here.";
         return current.kind === "library"
             ? "This library is no longer available."
             : current.kind === "season"

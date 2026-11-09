@@ -14,9 +14,11 @@ import type { PrimaryMenu } from "../contracts/v2/navigation.ts";
 import { navigationIcon } from "./navigationIcon.ts";
 import { remoteKey } from "./keys.ts";
 import { heroBackdrop, type Tints } from "./heroBackdrop.ts";
+import { hidesCardOverview, hidesMarqueeBackdrop, marqueeUsesSeriesArt, type EpisodeSpoilerSettings } from "./episodeSpoilers.ts";
 import { DescriptionTranslations, MARQUEE_TRANSLATION_DWELL_MS, marqueeTranslationRequest } from "./descriptionTranslation.ts";
 import type { LibraryMode } from "./libraryDiscovery.ts";
 import { PERSONAL_TITLES, type PersonalSource } from "./personalLists.ts";
+import { signOutConfirmationCopy } from "./signOutConfirmation.ts";
 
 type VideoTab = "movies" | "series" | "music";
 
@@ -112,6 +114,7 @@ export class Skyline {
     private cancelDwell = (): void => undefined;
     private cancelPreview = (): void => undefined;
     private previewId: string | undefined;
+    private previewPending = false;
     private readonly tints = new Map<string, Tints>();
     private selected = "home";
     private sharedScene = false;
@@ -128,6 +131,8 @@ export class Skyline {
     private readonly baseUrl: string;
     /** Whether the profile's title-art setting lets a logo replace the marquee title. */
     titleArt: () => boolean = () => false;
+    /** Profile spoiler switches. Off until browse installs the owner. */
+    spoilers: () => EpisodeSpoilerSettings = () => ({ hidesImages: false, hidesOverviews: false });
     filled: (card: Card) => Card = card => card;
     /** What Home's detail reads added for a title: the aired and cast line, and Continue Watching's saved-file chips. */
     details: (card: Card, continuing: boolean) => { readonly line: string | undefined; readonly badges: readonly string[] | undefined } = () => ({ line: undefined, badges: undefined });
@@ -350,8 +355,12 @@ export class Skyline {
 
     preview(card: Card, row: string, continuing = false, featured = false): void {
         this.cancelPreview();
+        const identity = `${row}:${card.id}`;
+        this.previewPending = this.previewId !== identity || this.shown?.card !== card || this.shown.continuing !== continuing || this.shown.featured !== featured;
+        // Focus owns the dwell immediately; capability/repaint callbacks must not rearm the outgoing card.
+        if (this.previewPending) this.cancelTranslation();
         const apply = (): void => {
-            const identity = `${row}:${card.id}`;
+            this.previewPending = false;
             if (this.previewId === identity && this.shown?.card === card && this.shown.continuing === continuing && this.shown.featured === featured) {
                 // hide() cancels the dwell and keeps this card. Coming back has to arm it again.
                 if (!this.translationArmed) this.armTranslation();
@@ -371,7 +380,7 @@ export class Skyline {
         this.cancelTranslation();
         const shown = this.shown;
         const translations = this.translations;
-        if (!this.marqueeOnScreen() || shown === undefined || translations === undefined) return;
+        if (this.previewPending || !this.marqueeOnScreen() || shown === undefined || translations === undefined) return;
         const pending = translations.cards.presentation(shown.card).pendingLanguage;
         if (marqueeTranslationRequest(shown.featured, translations.onView(), shown.card.id, pending) === undefined) return;
         const card = shown.card;
@@ -396,7 +405,8 @@ export class Skyline {
         if (shown === undefined || layer === null || this.translations === undefined) return;
         const presentation = this.translations.cards.presentation(shown.card);
         let synopsis = layer.querySelector<HTMLElement>(".skyline-synopsis");
-        if (presentation.overview !== undefined && presentation.overview !== "") {
+        if (hidesCardOverview(shown.card, this.spoilers())) synopsis?.remove();
+        else if (presentation.overview !== undefined && presentation.overview !== "") {
             if (synopsis === null) {
                 synopsis = el("p", "skyline-synopsis", presentation.overview);
                 layer.querySelector(".skyline-detail-line")?.before(synopsis);
@@ -425,14 +435,15 @@ export class Skyline {
         const title = el("h1", "skyline-title", marqueeTitle(card));
         layer.append(el("span", "skyline-row-name silo-sr-only", row), title);
         layer.appendChild(el("div", "skyline-meta-line"));
-        if (card.overview) layer.appendChild(el("p", "skyline-synopsis", card.overview));
+        const settings = this.spoilers();
+        if (card.overview && !hidesCardOverview(card, settings)) layer.appendChild(el("p", "skyline-synopsis", card.overview));
         // Aired date and cast, and saved-file chips, come from Home's detail reads; the line keeps its space until then.
         const detailLine = el("div", "skyline-detail-line");
         detailLine.appendChild(el("span", "skyline-detail-text"));
         layer.append(detailLine, el("div", "skyline-badges"));
         this.fillDetails(layer, card, continuing);
-        const seriesArt = card.type === "episode" && card.seriesBackdropUrl !== undefined;
-        const background = artworkUrl(seriesArt ? card.seriesBackdropUrl : card.backdropUrl, this.baseUrl);
+        const seriesArt = marqueeUsesSeriesArt(card, settings);
+        const background = hidesMarqueeBackdrop(card, settings) ? undefined : artworkUrl(seriesArt ? card.seriesBackdropUrl : card.backdropUrl, this.baseUrl);
         if (background !== undefined && this.sharedScene) {
             layer.prepend(heroBackdrop(background, seriesArt ? undefined : card.backdropThumbhash, this.tints));
         } else if (background !== undefined) {
@@ -616,6 +627,10 @@ export class Skyline {
         const key = remoteKey(event);
         const anchor = this.items.find(item => item.element === document.activeElement);
         if (key === "down" && anchor?.element.hasAttribute("aria-haspopup")) {
+            // Down enters the avatar menu unless Back has closed it. A press before the
+            // dwell finishes still opens the menu. After Back, the page's first card is
+            // the candidate, so that Down is left for the content focus host.
+            if (anchor.key === "profiles" && !this.profileOpen && this.dismissedAnchor === "profiles") return;
             event.preventDefault();
             this.cancelDwell();
             if (anchor.key === "profiles") this.openProfile();
@@ -752,11 +767,8 @@ export class Skyline {
         this.panel = [actionButton("cancel-signout", "Cancel", () => this.back()), actionButton("confirm-signout", "Sign Out", () => { if (!this.visible || !this.confirmation) return; this.close(); signOut(); })];
         this.panel[1]?.element.classList.add("skyline-destructive");
         const header = el("div", "skyline-confirm-header");
-        const server = this.profiles.serverName?.() ?? "the server";
-        const message = this.profiles.lastAccount
-            ? `This account's profiles and settings leave this TV, and ${server} will be removed from it.`
-            : "This account's profiles and settings leave this TV. The server stays saved, so you can sign in again.";
-        header.append(el("h2", "skyline-confirm-title", `Sign out of ${this.profiles.accountName ?? "this account"} on ${server}?`), el("p", "skyline-confirm-message", message));
+        const copy = signOutConfirmationCopy(this.profiles.accountName, this.profiles.serverName?.(), this.profiles.lastAccount === true);
+        header.append(el("h2", "skyline-confirm-title", copy.title), el("p", "skyline-confirm-message", copy.message));
         const actions = el("div", "skyline-confirm-actions");
         actions.append(...this.panel.map(item => item.element));
         replaceNodes(this.selector, [header, actions]);

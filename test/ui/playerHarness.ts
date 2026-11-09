@@ -28,6 +28,9 @@ root.appendChild(sibling);
 const commands: string[] = [];
 let listener: ((view: PlaybackView) => void) | undefined;
 const controls: PlayerControls = {
+    setVideo: (kind, value) => commands.push(`setVideo ${kind} ${value}`),
+    toggleAutoNext: () => commands.push("toggleAutoNext"),
+    retryChapters: () => commands.push("retryChapters"),
     subscribe(next) {
         listener = next;
         next({ phase: "loading", title: "The Movie" });
@@ -53,14 +56,17 @@ const controls: PlayerControls = {
     retryTrackInfo: () => commands.push("retryTrackInfo"),
     retrySettings: () => commands.push("retrySettings"),
     retryCompletion: () => commands.push("retryCompletion"),
-    playNext: () => commands.push("playNext"),
+    playNext: request => commands.push(request === undefined ? "playNext" : `playNext ${request.contentId} ${request.fileId}`),
+    showUpNext: () => commands.push("showUpNext"),
     cancelAutoplay: () => commands.push("cancelAutoplay"),
+    keepWatching: () => commands.push("keepWatching"),
     saveSeriesSubtitle: () => commands.push("saveSeriesSubtitle"),
     startSubtitleAI: (kind, language) => commands.push(`startSubtitleAI ${kind} ${language ?? ""}`),
     selectAIResult: id => commands.push(`selectAIResult ${id}`),
+    subtitleTool: action => commands.push(`subtitleTool ${JSON.stringify(action)}`),
     seekThumbnail: async () => undefined,
 };
-const screen: PlayerScreen = mountPlayerScreen(root, controls);
+const screen: PlayerScreen = mountPlayerScreen(root, controls, undefined, "https://media.test");
 
 window.player = {
     commands,

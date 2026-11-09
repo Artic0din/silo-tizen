@@ -5,10 +5,22 @@ import type { WatchDetail } from "../contracts/v2/catalog.ts";
 import { resumeSeconds } from "../ui/browseModel.ts";
 import type { PlayRequest } from "./controller.ts";
 
+/** Home rows Apple treats as On Deck (`PlayerViewModel.resolveOnDeckItems`). */
+const ON_DECK_SECTIONS = new Set(["continue_watching", "in_progress", "next_up"]);
+
 type Read = <T>(spec: RequestSpec<T>) => Promise<T>;
 
 function invalid(): never {
     throw new ApiError({ kind: "invalid_response", path: "next_episode.identity" });
+}
+
+function presentationWatch(watch: { readonly played: boolean; readonly isInProgress?: boolean; readonly positionSeconds?: number | undefined } | undefined): PlayRequest["watch"] {
+    if (watch === undefined) return undefined;
+    return {
+        played: watch.played,
+        ...(watch.isInProgress === undefined ? {} : { isInProgress: watch.isInProgress }),
+        ...(watch.positionSeconds === undefined ? {} : { positionSeconds: watch.positionSeconds }),
+    };
 }
 
 function episode(detail: WatchDetail): { series: string; season: number; number: number } {
@@ -18,7 +30,7 @@ function episode(detail: WatchDetail): { series: string; season: number; number:
 }
 
 /** Fresh authorized data only. A failed read is never mistaken for an exhausted season. */
-export async function nextEpisode(read: Read, contentId: string, effectiveFileId: string): Promise<PlayRequest | undefined> {
+export async function nextEpisode(read: Read, contentId: string, effectiveFileId: string, seriesTitle?: string): Promise<PlayRequest | undefined> {
     const current = await read(operations.watchDetail(contentId));
     if (current.id !== contentId) invalid();
     const context = episode(current);
@@ -46,8 +58,76 @@ export async function nextEpisode(read: Read, contentId: string, effectiveFileId
             const version = allowed.find(version => version.fileId === detail.watch?.lastFileId) ?? allowed[0];
             if (version === undefined) continue;
             const resume = detail.watch?.played === false ? resumeSeconds(detail.watch.positionSeconds, version.durationSeconds || undefined) : undefined;
-            return { contentId: detail.id, fileId: version.fileId, title: detail.title, startSeconds: resume ?? 0, episode: true };
+            const watch = presentationWatch(detail.watch);
+            return { contentId: detail.id, fileId: version.fileId, title: detail.title, startSeconds: resume ?? 0, episode: true, ...(seriesTitle === undefined ? {} : { seriesTitle }), seasonNumber: detail.seasonNumber, episodeNumber: detail.episodeNumber, ...(watch === undefined ? {} : { watch }) };
         }
     }
     return undefined;
+}
+
+/**
+ * The first On Deck title when the series has no next episode. It is another
+ * title, so it plays only from Play next. A failed read offers nothing.
+ */
+export async function onDeckPlay(read: Read, contentId: string): Promise<PlayRequest | undefined> {
+    return (await onDeckPlays(read, contentId))[0];
+}
+
+/** Existing callers treat a failed read as no offer. The episodes panel does not. */
+export async function onDeckPlays(read: Read, contentId: string, publish?: (items: readonly PlayRequest[]) => void): Promise<PlayRequest[]> {
+    try {
+        return await readOnDeck(read, contentId, publish);
+    } catch {
+        return [];
+    }
+}
+
+/** Throws when the current title or the On Deck rows cannot be read. An empty row resolves to []. */
+export async function readOnDeck(read: Read, contentId: string, publish?: (items: readonly PlayRequest[]) => void): Promise<PlayRequest[]> {
+    let seriesId: string | undefined;
+    const current = await read(operations.watchDetail(contentId));
+    if (current.id !== contentId) return [];
+    seriesId = current.seriesId;
+    const sections = await read(operations.listHomeSections());
+    const result: PlayRequest[] = [];
+    const seen = new Set<string>();
+    for (const section of sections) {
+        if (!ON_DECK_SECTIONS.has(section.sectionType)) continue;
+        for (const card of section.items) {
+            if (card.id === contentId || card.type !== "movie" && card.type !== "episode") continue;
+            if (seriesId !== undefined && card.seriesId === seriesId) continue;
+            if (seen.has(card.id)) continue;
+            seen.add(card.id);
+            if (seen.size > 12) return result;
+            try {
+                const detail = await read(operations.watchDetail(card.id));
+                if (detail.id !== card.id || detail.type !== "movie" && detail.type !== "episode") continue;
+                const file = detail.versions.find((version) => version.fileId === detail.watch?.lastFileId) ?? detail.versions[0];
+                if (file === undefined) continue;
+                const start = resumeSeconds(detail.watch?.positionSeconds, file.durationSeconds > 0 ? file.durationSeconds : undefined);
+                const watch = presentationWatch(detail.watch);
+                const seriesTitle = card.seriesTitle?.trim();
+                result.push({
+                    contentId: detail.id,
+                    fileId: file.fileId,
+                    title: detail.title,
+                    overview: card.overview,
+                    backdropUrl: card.backdropUrl,
+                    ...(card.backdropIsEpisodeStill === undefined ? {} : { backdropIsEpisodeStill: card.backdropIsEpisodeStill }),
+                    startSeconds: start ?? 0,
+                    ...(detail.type === "episode" ? {
+                        episode: true as const,
+                        ...(seriesTitle === undefined || seriesTitle === "" ? {} : { seriesTitle }),
+                        ...(detail.seasonNumber === undefined ? {} : { seasonNumber: detail.seasonNumber }),
+                        ...(detail.episodeNumber === undefined ? {} : { episodeNumber: detail.episodeNumber }),
+                    } : {}),
+                    ...(watch === undefined ? {} : { watch }),
+                });
+                publish?.(result.slice());
+            } catch {
+                continue;
+            }
+        }
+    }
+    return result;
 }

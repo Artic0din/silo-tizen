@@ -3,7 +3,7 @@ import { after, before, test } from "node:test";
 import type { Browser } from "playwright";
 import { FakeDetails } from "../native/support/fakeDetails.ts";
 import { FakePlayback } from "../native/support/fakePlayback.ts";
-import { launchBrowser, openTv, type Tv } from "./support/tv.ts";
+import { launchBrowser, openTv, pauseTvClock, readLive, type Tv } from "./support/tv.ts";
 import { object } from "../../src/contracts/v2/wire.ts";
 
 class AudioPreferenceDetails extends FakeDetails {
@@ -199,8 +199,7 @@ for (const destination of ["series", "season"]) preplay(`${destination} Resume r
     playback.items.set("episode:s1e11", ["42"]);
     await series(tv);
     if (destination === "season") {
-        await tv.page.locator('[data-focus="more"]').click();
-        await tv.page.locator('[data-focus="season-info"]').click();
+        await tv.page.locator('[data-focus="series:s1-S1"]').click();
     }
     await tv.page.getByRole("button", { name: "Resume S1:E1", exact: true }).waitFor();
     const path = "/watch/episode%3As1e11?file_id=42";
@@ -229,8 +228,7 @@ for (const destination of ["series", "season"]) preplay(`${destination} keeps an
     playback.items.set("episode:s1e11", ["42"]);
     await series(tv);
     if (destination === "season") {
-        await tv.page.locator('[data-focus="more"]').click();
-        await tv.page.locator('[data-focus="season-info"]').click();
+        await tv.page.locator('[data-focus="series:s1-S1"]').click();
     }
     await tv.page.locator('[data-focus="version"]').click();
     await tv.page.locator('[data-focus="version:42"]').click();
@@ -298,7 +296,7 @@ preplay("direct episode activation refreshes cached-zero progress and returns to
     await prepare(tv);
     assert.equal(starts(tv).length, 1);
     assert.equal(starts(tv)[0]?.body?.file_id, "42");
-    assert.equal(tv.fake.requests.filter(request => request.path === watch).length, 2);
+    assert.equal(tv.fake.requests.filter(request => request.path === watch).length, 3);
     assert.equal(starts(tv)[0]?.body?.start_position, 420);
     assert.equal(starts(tv)[0]?.body?.audio_track_id, undefined);
     assert.equal(starts(tv)[0]?.body?.subtitle_track_id, undefined);
@@ -335,7 +333,7 @@ preplay("series primary action resumes its actual numbered episode directly", as
     await prepare(tv);
     assert.equal(starts(tv).length, 1);
     assert.equal(starts(tv)[0]?.body?.file_id, "42");
-    assert.equal(tv.fake.requests.filter(request => request.path === "/watch/episode%3As1e11?file_id=42").length, 2);
+    assert.equal(tv.fake.requests.filter(request => request.path === "/watch/episode%3As1e11?file_id=42").length, 3);
     assert.equal(starts(tv)[0]?.body?.start_position, 630);
 });
 
@@ -353,7 +351,7 @@ for (const activation of ["rail", "primary", "start-over"] as const) preplay(`di
     tv.fake.script(path, ...(activation === "start-over" ? [preference] : [reply, preference]));
     await tv.page.locator(activation === "rail" ? '.details-episodes [data-focus="episode:s1e12"]' : activation === "primary" ? '[data-focus="next-episode"]' : '[data-focus="start-over-episode"]').click();
     await prepare(tv);
-    assert.equal(tv.fake.requests.filter(request => request.path === path).length, activation === "start-over" ? 1 : 2, "Auto reads effective preferences in addition to resume preparation");
+    assert.equal(tv.fake.requests.filter(request => request.path === path).length, activation === "start-over" ? 2 : 3, "Auto reads effective preferences and chapters in addition to resume preparation");
     const replan = tv.fake.requests.find(request => request.path.endsWith("/replan"));
     assert.deepEqual(replan?.body?.selected_tracks, { audio: { id: "file:42:audio:2", index: 2 }, subtitle: { id: "file:42:subtitle:3" } });
 });
@@ -399,6 +397,35 @@ preplay("direct episode malformed watch offers Retry for the same target without
     assert.equal(starts(tv)[0]?.body?.file_id, "42");
 });
 
+preplay("series Resume and Start Over keep the series line when the episode item omits it", async (tv, catalog, playback) => {
+    const path = "/catalog/items/episode%3As1e11?image_size=large";
+    catalog.fileIds.set("episode:s1e11", "42");
+    catalog.progress.set("episode:s1e11", 630);
+    playback.items.set("episode:s1e11", ["42"]);
+    const reply = catalog.route("GET", path, "p-owner");
+    assert.ok(reply?.status === 200 && reply.body !== undefined && typeof reply.body === "object");
+    const source = object(reply.body, "episode");
+    const body: Record<string, unknown> = {};
+    for (const key of Object.keys(source)) {
+        if (key !== "series_title" && key !== "season_number" && key !== "episode_number") body[key] = source[key];
+    }
+    tv.fake.script(path, { status: 200, body });
+    await series(tv);
+    assert.equal(await tv.page.locator('[data-focus="next-episode"]').textContent(), "Resume S1:E1");
+    await tv.page.locator('[data-focus="next-episode"]').click();
+    await prepare(tv);
+    assert.equal(await tv.page.locator(".player-series").textContent(), "Harbor Lights");
+    assert.equal(await tv.page.locator(".player-title").first().textContent(), "Harbor Lights chapter 1.1");
+    assert.equal(await tv.page.locator(".player-episode").textContent(), "S1 · E1");
+    await tv.remote(10009);
+    await tv.page.locator('[data-view="item:series:s1"]').waitFor();
+    await tv.page.locator('[data-focus="start-over-episode"]').click();
+    await prepare(tv);
+    assert.equal(await tv.page.locator(".player-series").textContent(), "Harbor Lights");
+    assert.equal(await tv.page.locator(".player-episode").textContent(), "S1 · E1");
+    assert.equal(starts(tv).at(-1)?.body?.start_position, 0);
+});
+
 preplay("series Start Over skips fresh resume and retains automatic selectors", async (tv, catalog, playback) => {
     catalog.fileIds.set("episode:s1e11", "42");
     catalog.progress.set("episode:s1e11", 630);
@@ -409,7 +436,7 @@ preplay("series Start Over skips fresh resume and retains automatic selectors", 
     await prepare(tv);
     assert.equal(starts(tv).length, 1);
     assert.equal(starts(tv)[0]?.body?.start_position, 0);
-    assert.equal(tv.fake.requests.filter(request => request.path.startsWith("/watch/")).length, before + 1, "Start Over reads subtitle preferences but does not look up resume");
+    assert.equal(tv.fake.requests.filter(request => request.path.startsWith("/watch/")).length, before + 2, "Start Over reads subtitle preferences and chapters but does not look up resume");
 });
 
 for (const failure of ["identity", "files"] as const) {
@@ -439,7 +466,7 @@ preplay("direct activation accepts an opaque episode identity and its server-sel
     await prepare(tv);
     assert.equal(starts(tv).length, 1);
     assert.equal(starts(tv)[0]?.body?.file_id, "43");
-    assert.equal(tv.fake.requests.filter(request => request.path === "/watch/broadcast_7a?file_id=43").length, 2);
+    assert.equal(tv.fake.requests.filter(request => request.path === "/watch/broadcast_7a?file_id=43").length, 3);
     assert.equal(starts(tv)[0]?.body?.audio_track_id, undefined);
 });
 
@@ -503,7 +530,8 @@ preplay("Auto keeps initial selectors omitted and resolves subtitles before adop
     await prepare(tv);
     const body = starts(tv)[0]?.body;
     for (const field of ["audio_track_id", "audio_track_index", "subtitle_track_id", "subtitle_track_index", "allow_alternate_versions"]) assert.equal(Object.prototype.hasOwnProperty.call(body, field), false, field);
-    await tv.page.getByRole("button", { name: "Audio and subtitles", exact: true }).click();
+    // Old accessible name was "Audio and subtitles". Apple's options control is "Info and options".
+    await tv.page.getByRole("button", { name: "Info and options", exact: true }).click();
     assert.equal(await tv.page.locator('[data-focus="file:42:audio:2"]').getAttribute("aria-pressed"), "true");
 });
 
@@ -640,6 +668,7 @@ preplay("malformed watch offers a reachable retry without fabricating playback",
 });
 
 preplay("bounded unavailable watch uses cached progress once and ignores a late success", async (tv) => {
+    await pauseTvClock(tv);
     const held = tv.fake.hold(WATCH, true);
     await tv.page.locator('[data-focus="resume"]').click();
     await tv.eventually(async () => tv.fake.requests.some(r => r.path === WATCH), "watch read");
@@ -657,6 +686,7 @@ preplay("bounded unavailable watch uses cached progress once and ignores a late 
 
 preplay("preplay explicit audio reaches the one production start", async (tv) => {
     const audio = tv.page.locator('[data-focus="audio"]');
+    await audio.waitFor();
     assert.equal(await audio.count(), 1, "Details exposes the audio trigger");
     await audio.click();
     await tv.page.getByRole("radio", { name: /Japanese/ }).click();
@@ -675,23 +705,25 @@ for (const reduced of [false, true]) {
         await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().click();
         await tv.page.locator('[data-focus="audio"]').click();
         assert.equal(await tv.focused(), "audio:auto");
-        const visible = () => tv.page.evaluate(() => {
-            const panel = document.querySelector<HTMLElement>(".details-audio-picker");
+        const visible = (scrolled: boolean, what: string) => readLive(tv, () => {
+            const panel = document.querySelector(".details-audio-picker");
             const option = document.activeElement;
-            if (panel === null || !(option instanceof HTMLElement)) throw new Error("audio focus missing");
-            const p = panel.getBoundingClientRect();
-            const o = option.getBoundingClientRect();
-            return { visible: o.top >= p.top && o.bottom <= p.bottom, scrollTop: panel.scrollTop };
-        });
+            if (!(panel instanceof HTMLElement) || !(option instanceof HTMLElement) || !panel.isConnected || !option.isConnected) return null;
+            const bounds = panel.getBoundingClientRect();
+            const optionBounds = option.getBoundingClientRect();
+            return { visible: optionBounds.top >= bounds.top && optionBounds.bottom <= bounds.bottom, scrollTop: panel.scrollTop };
+        }, null, value => value.visible && (!scrolled || value.scrollTop > 0), what);
         for (let index = 0; index < 16; index++) await tv.remote(40);
         await tv.jump(250);
         assert.equal(await tv.focused(), "audio:15");
-        assert.equal((await visible()).visible, true, "the focused final track is inside the picker viewport");
-        assert.ok((await visible()).scrollTop > 0);
+        const finalTrack = await visible(true, "the focused final track is inside the picker viewport");
+        assert.equal(finalTrack.visible, true, "the focused final track is inside the picker viewport");
+        assert.ok(finalTrack.scrollTop > 0);
         for (let index = 0; index < 16; index++) await tv.remote(38);
         await tv.jump(250);
         assert.equal(await tv.focused(), "audio:auto");
-        assert.equal((await visible()).visible, true, "Auto is visible again after moving upward");
+        const autoTrack = await visible(false, "Auto is visible again after moving upward");
+        assert.equal(autoTrack.visible, true, "Auto is visible again after moving upward");
         await tv.remote(10009);
         assert.equal(await tv.focused(), "audio");
         assert.equal(starts(tv).length, 0);

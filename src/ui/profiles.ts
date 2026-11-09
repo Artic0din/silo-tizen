@@ -4,6 +4,7 @@
 
 import { type Clock, systemClock } from "../api/clock.ts";
 import { ApiError } from "../api/errors.ts";
+import { operations } from "../api/operations.ts";
 import type { ProfileSummary } from "../contracts/v2/wire.ts";
 import type { ConnectedServer } from "../session/core.ts";
 import type { ProfileLaunch } from "../session/profileLaunch.ts";
@@ -13,9 +14,10 @@ import { actions, button, type Control, el, type Note, type Screen, ScreenHost }
 import { navigationIcon } from "./navigationIcon.ts";
 import { logoutCollectedAccount } from "./signIn.ts";
 import { PASSWORD_CHANGE_REQUIRED_MESSAGE } from "./signInText.ts";
-import { MarqueeBackdrop } from "./marqueeBackdrop.ts";
+import { MarqueeBackdrop, marqueeScene } from "./marqueeBackdrop.ts";
 import { profilePickerScreen } from "./profilePicker.ts";
 import { createProfileFlow, type ProfileCreateFlow } from "./profileCreate.ts";
+import { signOutConfirmationCopy, signOutRemovesServer } from "./signOutConfirmation.ts";
 
 export interface ProfileHandoff {
     readonly profile: ProfileSummary;
@@ -29,15 +31,27 @@ export interface ProfileHandoff {
 }
 
 export interface ProfileOptions {
+    /** Switch Profile, or choosing the account already open. The picker stays up. */
     readonly pickerRequested?: boolean;
+    /**
+     * Choosing another account waits for a profile instead of restoring a remembered one.
+     * A single profile without a PIN still opens (ChangeAccountModel.open path, 54cf0f34).
+     */
+    readonly skipRemembered?: boolean;
+    /** The account's sign-in ended. The app routes it; these screens do not draw their own page. */
+    readonly onSessionExpired?: () => void;
     readonly onChangeServer: () => void;
     readonly server: ConnectedServer;
     readonly clock?: Clock;
     readonly launch?: ProfileLaunch;
     /** A profile acts. The profile screens are gone; the caller owns the root until `signal` aborts. */
     readonly onSelected: (active: ProfileHandoff) => void;
+    /** Fresh profile metadata after a local cold-start paint; do not remount content. */
+    readonly onProfileUpdated?: (profile: ProfileSummary) => void;
     /** The account is signed out on this TV. The profile screens are gone; show sign-in, with the notice when given. */
     readonly onSignedOut: (notice: LogoutResult | undefined) => void;
+    /** Branding name of the signed-in server, read when Sign out asks. */
+    readonly serverName?: () => string | undefined;
 }
 
 export interface ProfileScreens {
@@ -51,7 +65,7 @@ const TITLE = "Who's watching?";
 const PROOF_ENDED = "The PIN for this profile changed, or its unlock ended. Enter the PIN again.";
 
 export function mountProfiles(root: HTMLElement, options: ProfileOptions): ProfileScreens {
-    const { server, onSelected, onSignedOut } = options;
+    const { server, onSelected, onProfileUpdated, onSignedOut } = options;
     const clock = options.clock ?? systemClock;
     const session = server.session;
     let host: ScreenHost | undefined;
@@ -64,13 +78,19 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
     let leaving = false;
     let destroyed = false;
     let restoring = false;
+    let cancelReconcile: (() => void) | undefined;
+    /** Profile list result or failure kept while the sign-out confirmation is open. */
+    let heldProfileLoad: (() => void) | undefined;
+    let confirmingSignOut = false;
 
     const show = (screen: Screen, focus?: string): void => {
         if (host === undefined) {
             root.classList.add("signin");
             root.classList.add("profiles-flow");
             backdrop = new MarqueeBackdrop(clock);
-            backdrop.setStage(2);
+            marqueeScene.showServer();
+            marqueeScene.focus = "profiles";
+            backdrop.setStage(marqueeScene.stage);
             host = new ScreenHost(root, undefined, backdrop.element);
         }
         root.classList.toggle("profile-picker", screen.name === "profiles");
@@ -95,17 +115,20 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
         creation = undefined;
         oldCreation?.destroy();
         restoring = false;
+        confirmingSignOut = false;
+        heldProfileLoad = undefined;
         pending?.abort();
         pending = undefined;
         return ++view;
     };
 
-    const message = (name: string, title: string, lines: readonly string[], controls: readonly Control[], back?: () => void, tone: Note["tone"] = "info"): void => {
+    const message = (name: string, title: string, lines: readonly string[], controls: readonly Control[], back?: () => void, tone: Note["tone"] = "info", focus?: string): void => {
         const body = lines.map((line) => el("p", tone === "error" ? "signin-text signin-error" : "signin-text", line));
         if (tone === "error") {
             body[0]?.setAttribute("role", "alert");
         }
-        show({ name, content: [el("h1", "signin-title", title), ...body, actions(controls)], controls, focus: controls[0]?.key ?? "", back });
+        const key = focus ?? controls[0]?.key ?? "";
+        show({ name, content: [el("h1", "signin-title", title), ...body, actions(controls)], controls, focus: key, back }, key);
     };
 
     /** Back from the profiles returns to the profile still acting, if any. */
@@ -146,43 +169,92 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
         });
     };
 
-    const signOutButton = (): Control => button("signout", "Sign out", signOut);
+    /** Apple's tvOS sign-out confirmation. Cancel stays focused; Back cancels and returns to Sign out. A profile list that arrives while this is open waits, replays on Cancel or Back, and is dropped on Sign Out. */
+    const askSignOut = (restore: () => void): void => {
+        if (leaving || destroyed) return;
+        confirmingSignOut = true;
+        const dismiss = (): void => {
+            confirmingSignOut = false;
+            const replay = heldProfileLoad;
+            heldProfileLoad = undefined;
+            if (replay !== undefined) replay();
+            else restore();
+        };
+        const removesServer = signOutRemovesServer(() => server.accounts.directory.list(), server.server.http.base.baseUrl);
+        const copy = signOutConfirmationCopy(session.account?.username, options.serverName?.(), removesServer);
+        const cancel = button("cancel-signout", "Cancel", dismiss);
+        const accept = button("confirm-signout", "Sign Out", () => {
+            confirmingSignOut = false;
+            heldProfileLoad = undefined;
+            signOut();
+        });
+        show({
+            name: "profiles:signout",
+            content: [el("h1", "signin-title", copy.title), el("p", "signin-text", copy.message), actions([cancel, accept])],
+            controls: [cancel, accept],
+            focus: "cancel-signout",
+            back: dismiss,
+        });
+    };
 
-    const load = (then: (list: ProfileSummary[]) => void, focus?: string): void => {
+    /** A launch result that lands while Sign out is being confirmed waits behind the dialog. */
+    const hold = (token: number, apply: () => void): void => {
+        if (token !== view) return;
+        if (confirmingSignOut) {
+            pending = undefined;
+            heldProfileLoad = apply;
+            return;
+        }
+        apply();
+    };
+
+    const signOutButton = (restore: () => void): Control => button("signout", "Sign out", () => askSignOut(restore));
+
+    // `retry` re-runs whatever started this load, so a failed launch load retries through launch.
+    const load = (then: (list: ProfileSummary[]) => void, retry: () => void, restoreRememberedOffline = false): void => {
         const token = begin();
         const controller = new AbortController();
         pending = controller;
-        message("profiles-loading", TITLE, ["Loading profiles."], [signOutButton()], resume());
+        const showLoading = (): void => message("profiles-loading", TITLE, ["Loading profiles."], [signOutButton(showLoading)], resume(), "info", "signout");
+        showLoading();
+        const deliver = (apply: () => void): void => hold(token, apply);
         server.profiles.list(controller.signal).then(
-            (list) => {
-                if (token === view) {
-                    pending = undefined;
-                    const id = server.accounts.localAccountId;
-                    if (id) {
-                        try { server.accounts.directory.update(id, { profileCount: list.length }); }
-                        catch { /* The count is a display cache; the profile response remains usable. */ }
-                    }
-                    then(list);
+            (list) => deliver(() => {
+                if (token !== view) return;
+                pending = undefined;
+                const id = server.accounts.localAccountId;
+                if (id) {
+                    try { server.accounts.directory.update(id, { profileCount: list.length }); }
+                    catch { /* The count is a display cache; the profile response remains usable. */ }
                 }
-            },
-            (error: unknown) => {
-                if (token === view) {
-                    pending = undefined;
-                    listFailed(error, focus);
-                }
-            },
+                then(list);
+            }),
+            (error: unknown) => deliver(() => {
+                if (token !== view) return;
+                pending = undefined;
+                // Launch may reopen a remembered profile offline. Switch Profile asked for the list.
+                if (error instanceof ApiError && ["network", "timeout"].includes(error.failure.kind) && restoreRememberedOffline && options.launch?.remembered) {
+                    const restore = new AbortController();
+                    pending = restore;
+                    void options.launch.restoreOffline(restore.signal).then(profile => hold(token, () => {
+                        pending = undefined;
+                        if (profile) handOff(profile);
+                        else listFailed(error, retry);
+                    }), failure => hold(token, () => { pending = undefined; listFailed(failure, retry); }));
+                } else listFailed(error, retry);
+            }),
         );
     };
 
-    const showList = (focus?: string): void => load((list) => picker(list, focus), focus);
+    const showList = (focus?: string): void => load((list) => picker(list, focus), () => showList(focus));
 
-    const picker = (list: readonly ProfileSummary[], focus?: string): void => {
-        begin();
+    const showPicker = (list: readonly ProfileSummary[], focus?: string): void => {
         const preferred = focus ?? current?.id ?? options.launch?.rememberedProfileId ?? list[0]?.id;
+        const focusKey = preferred === "signout" || preferred === "add-profile" || preferred === undefined ? (preferred ?? "add-profile") : `profile:${preferred}`;
         show(profilePickerScreen({ profiles: list, baseUrl: server.server.http.base.baseUrl,
             accountName: session.account?.username, rememberedId: options.launch?.rememberedProfileId,
-            focus: preferred === undefined || preferred === "add-profile" ? "add-profile" : `profile:${preferred}`,
-            choose, changeServer: options.onChangeServer, signOut, back: resume(), add: () => {
+            focus: focusKey,
+            choose, changeServer: options.onChangeServer, signOut: () => askSignOut(() => showPicker(list, "signout")), back: resume(), add: () => {
                 const token = begin();
                 const flow = createProfileFlow({ server, profiles: list,
                     show: (screen, focus) => { if (!destroyed && token === view) show(screen, focus); }, finished: (id, uncertain) => {
@@ -197,7 +269,12 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
         }));
     };
 
-    const listFailed = (error: unknown, focus?: string): void => {
+    const picker = (list: readonly ProfileSummary[], focus?: string): void => {
+        begin();
+        showPicker(list, focus);
+    };
+
+    const listFailed = (error: unknown, retryLoad: () => void): void => {
         if (error instanceof ApiError && error.problemId === "password_change_required") {
             // Apple TV does not hand this off (`handsOffToPasswordChange` is false). The empty
             // picker shows the refusal, and focus starts on Change account.
@@ -218,8 +295,11 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
         const detail = offline
             ? "Could not reach the server. Check the TV's internet connection, then try again."
             : "The server had a problem. Try again in a moment.";
-        const retry = button("retry", "Try again", () => showList(focus));
-        message("profiles-error", "Profiles didn't load", [detail], [retry, signOutButton()], resume(), "error");
+        const showError = (focused = "retry"): void => {
+            const retry = button("retry", "Try again", retryLoad);
+            message("profiles-error", "Profiles didn't load", [detail], [retry, signOutButton(() => showError("signout"))], resume(), "error", focused);
+        };
+        showError();
     };
 
     const choose = (profile: ProfileSummary): void => {
@@ -246,7 +326,7 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
             const controller = new AbortController();
             pending = controller;
             message("remember-saving", "Saving launch choice", [], [button("back", "Back", () => showList(profile.id))], () => showList(profile.id));
-            launch.setRemember(remember, controller.signal).then(() => { if (token === view) handOff(profile); }, () => { if (token === view) offer(true); });
+            launch.setRemember(remember, controller.signal, profile).then(() => { if (token === view) handOff(profile); }, () => { if (token === view) offer(true); });
         };
         if (launch.needsOffer) offer();
         else save(true);
@@ -309,27 +389,30 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
      */
     const passwordResetRequired = (): void => {
         begin();
-        const retry = button("retry", "Try Again", () => showList());
-        const change = button("change-account", "Change account", options.onChangeServer);
-        const out = signOutButton();
-        change.element.prepend(navigationIcon("switch-server"));
-        out.element.prepend(navigationIcon("signout"));
-        const retryRow = actions([retry]);
-        const footer = el("div", "profile-footer");
-        footer.append(change.element, out.element);
-        const detail = el("p", "signin-text signin-error", PASSWORD_CHANGE_REQUIRED_MESSAGE);
-        detail.setAttribute("role", "alert");
-        show({
-            name: "profiles-error",
-            content: [el("h1", "signin-title", "Not allowed"), detail, retryRow, footer],
-            controls: [
-                { ...retry, row: 0 },
-                { ...change, row: 1, landing: true },
-                { ...out, row: 1 },
-            ],
-            focus: "change-account",
-            back: undefined,
-        }, "change-account");
+        const showReset = (focused = "change-account"): void => {
+            const retry = button("retry", "Try Again", () => showList());
+            const change = button("change-account", "Change account", options.onChangeServer);
+            const out = signOutButton(() => showReset("signout"));
+            change.element.prepend(navigationIcon("switch-server"));
+            out.element.prepend(navigationIcon("signout"));
+            const retryRow = actions([retry]);
+            const footer = el("div", "profile-footer");
+            footer.append(change.element, out.element);
+            const detail = el("p", "signin-text signin-error", PASSWORD_CHANGE_REQUIRED_MESSAGE);
+            detail.setAttribute("role", "alert");
+            show({
+                name: "profiles-error",
+                content: [el("h1", "signin-title", "Not allowed"), detail, retryRow, footer],
+                controls: [
+                    { ...retry, row: 0 },
+                    { ...change, row: 1, landing: true },
+                    { ...out, row: 1 },
+                ],
+                focus: focused,
+                back: undefined,
+            }, focused);
+        };
+        showReset();
     };
 
     /** The server refused the profile's PIN proof: ask for the PIN again if the profile still has one. */
@@ -343,7 +426,7 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
             } else {
                 picker(list, fresh?.id);
             }
-        });
+        }, () => showList());
     };
 
     const onChange = (change: AuthorityChange): void => {
@@ -352,7 +435,14 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
         }
         switch (change.reason) {
             case "session_expired":
-                expired();
+                if (options.onSessionExpired === undefined) {
+                    expired();
+                    return;
+                }
+                // Answers still in flight must not repaint or hand off while the app routes the expiry.
+                begin();
+                current = undefined;
+                options.onSessionExpired();
                 return;
             case "signed_out":
                 if (!leaving) {
@@ -370,6 +460,10 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
             case "profile_cleared":
                 // These screens make these changes themselves.
                 return;
+            default: {
+                const exhaustive: never = change.reason;
+                return exhaustive;
+            }
         }
     };
     const unsubscribe = session.onAuthorityChange(onChange);
@@ -379,37 +473,88 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
             return;
         }
         destroyed = true;
+        cancelReconcile?.();
         begin();
         unsubscribe();
         release();
     };
 
-    const launch = (): void => load(list => {
-        if (options.pickerRequested) { picker(list); return; }
+    // ProfileSelectionView.openOnlyProfileIfNeeded / skipPickerIfSingleProfile (54cf0f34:207-218).
+    // Switch Profile sets pickerRequested, so its picker stays. A PIN still has to be entered.
+    const onlyUnprotected = (list: readonly ProfileSummary[]): ProfileSummary | undefined =>
+        options.pickerRequested || list.length !== 1 || list[0] === undefined || list[0].hasPin ? undefined : list[0];
+    const launchOnline = (): void => load(list => {
+        const only = onlyUnprotected(list);
+        if (only !== undefined) { choose(only); return; }
+        if (options.pickerRequested || options.skipRemembered) { picker(list); return; }
         const token = view;
         const controller = new AbortController();
         pending = controller;
         restoring = true;
-        options.launch?.restore(list, controller.signal).then(profile => {
-            if (token !== view) return;
+        options.launch?.restore(list, controller.signal).then(profile => hold(token, () => {
             restoring = false;
             pending = undefined;
             if (profile === undefined) picker(list);
             else handOff(profile);
-        }, error => {
-            if (token !== view) return;
+        }), error => hold(token, () => {
             restoring = false;
             pending = undefined;
             if (error instanceof SessionError && error.reason !== "unavailable") { expired(); return; }
-            message("profile-launch-error", "Remembered profile didn't open", ["Could not verify the remembered profile. Try again or choose who's watching."], [button("retry", "Retry", launch), button("back", "Choose profile", () => picker(list)), signOutButton()], () => picker(list), "error");
-        });
-    });
+            const showLaunchError = (focused = "retry"): void => message("profile-launch-error", "Remembered profile didn't open", ["Could not verify the remembered profile. Try again or choose who's watching."], [button("retry", "Retry", launchOnline), button("back", "Choose profile", () => picker(list)), signOutButton(() => showLaunchError("signout"))], () => picker(list), "error", focused);
+            showLaunchError();
+        }));
+    }, launchOnline, !options.pickerRequested && !options.skipRemembered);
+    const launch = (): void => {
+        if (options.skipRemembered || !server.localRestore || options.pickerRequested || !options.launch?.remembered || options.launch.requiresSelection()) {
+            launchOnline();
+            return;
+        }
+        const token = begin();
+        const controller = new AbortController();
+        pending = controller;
+        void options.launch.restoreOffline(controller.signal).then(profile => {
+            if (token !== view) return;
+            if (!profile) { launchOnline(); return; }
+            // Offline paint is intentional (#266): temporary unreachability keeps the remembered
+            // route; identity/account/profile/PIN rejection clears it once reconcile can ask.
+            handOff(profile);
+            const generation = session.authorityGeneration;
+            const signal = session.authoritySignal;
+            const stillOwns = (): boolean => !destroyed && generation === session.authorityGeneration && !signal.aborted;
+            const revoke = (): void => {
+                if (stillOwns()) session.setProfile(undefined, "profile_proof_revoked");
+            };
+            const reconcile = (): void => { void session.http.verifyConnection(signal).then(() => server.profiles.list(signal)).then(async list => {
+                if (!stillOwns()) return;
+                const fresh = list.find(row => row.id === profile.id);
+                if (!fresh || (fresh.hasPin && session.activeProfile?.token === undefined)) {
+                    revoke();
+                    return;
+                }
+                await session.call({ ...operations.listUserLibraries(), profileScoped: true, signal });
+                if (!stillOwns()) return;
+                current = fresh;
+                onProfileUpdated?.(fresh);
+            }).catch((error: unknown) => {
+                if (!stillOwns()) return;
+                if ((error instanceof ApiError && error.transient) || (error instanceof SessionError && error.reason === "unavailable")) {
+                    cancelReconcile = clock.schedule(reconcile, 15000);
+                    return;
+                }
+                if (error instanceof ApiError && error.aborted) return;
+                revoke();
+            }); };
+            signal.addEventListener("abort", () => cancelReconcile?.(), { once: true });
+            reconcile();
+        }, () => { if (token === view) launchOnline(); });
+    };
     if (options.launch === undefined) showList();
     else launch();
     return {
         signOut,
         switchProfile() {
-            if (!destroyed && host === undefined) {
+            if (!destroyed && (host === undefined || session.activeProfile === undefined)) {
+                if (session.activeProfile === undefined) current = undefined;
                 showList(current?.id);
             }
         },

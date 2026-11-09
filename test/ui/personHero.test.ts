@@ -24,7 +24,7 @@ async function signIn(tv: Tv, catalog = new FakeDetails()): Promise<FakeDetails>
     await tv.page.evaluate(() => window.browseHarness.mount());
     await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').focus();
     await tv.page.keyboard.press("Enter");
-    await tv.page.locator('[data-focus="person:7"]').first().waitFor();
+    await tv.page.locator('.details-people [data-focus^="credit:7:"]').first().waitFor();
     return catalog;
 }
 
@@ -34,7 +34,7 @@ async function person(tv: Tv, body: Record<string, unknown>): Promise<void> {
         contentType: "application/json",
         body: JSON.stringify({ id: "7", name: "River Vale", bio: "A synthetic performer whose work spans film and television.", birth_date: "1980-04-12", birthplace: "Melbourne", photo_url: "/art/river.svg", ...body }),
     }));
-    await tv.page.locator('[data-focus="person:7"]').first().focus();
+    await tv.page.locator('.details-people [data-focus^="credit:7:"]').first().focus();
     await tv.page.keyboard.press("Enter");
     await tv.page.locator('.browse[data-view="person:7"] .person-portrait').waitFor();
     await tv.eventually(async () => await tv.page.getByText("Loading metadata", { exact: true }).count() === 0, "person metadata ready");
@@ -105,7 +105,7 @@ test("invalid and missing dates stay visible without inventing an age", async ()
             status: 200, contentType: "application/json",
             body: JSON.stringify({ id: "7", name: "River Vale", birth_date: "2000-02-29", photo_url: "/art/river.svg" }),
         }));
-        await tv.page.locator('[data-focus="person:7"]').first().focus();
+        await tv.page.locator('.details-people [data-focus^="credit:7:"]').first().focus();
         await tv.page.keyboard.press("Enter");
         await tv.page.getByText("Born Feb 29, 2000", { exact: true }).waitFor();
         await tv.page.getByText("22 years old", { exact: true }).waitFor();
@@ -117,9 +117,9 @@ test("a portrait without a photo shows initials and does not request an image", 
     const tv = await openTv(browser, { app: "browse" });
     try {
         // Defer the preceding lazy image so the boundary cannot depend on viewport prefetch.
-        await tv.page.addStyleTag({ content: '[data-view^="item:"] [data-focus="person:7"] img { display: none; }' });
+        await tv.page.addStyleTag({ content: '[data-view^="item:"] .details-people [data-focus^="credit:7:"] img { display: none; }' });
         await signIn(tv);
-        await tv.page.locator('[data-focus="person:7"] img').first().evaluate(image => {
+        await tv.page.locator('.details-people [data-focus^="credit:7:"] img').first().evaluate(image => {
             const photo = image as HTMLImageElement;
             photo.loading = "eager";
             return photo.decode();
@@ -374,6 +374,89 @@ test("Down into the filmography grid uses Apple's bottom scroll inset", async ()
         assert.equal(Math.round(placed.clearance), 132, `was 92; scroll ${placed.scroll}, title ${placed.titleTop}, outline ${placed.outlineTop}`);
         assert.ok(placed.titleTop >= 0 && placed.titleBottom > placed.titleTop, "the filmography title stays fully below the top edge");
         assert.ok(placed.nameBottom <= 0, `person title bottom ${placed.nameBottom} still shows a descender at the top edge`);
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
+
+test("the person name and facts sit on Apple's line box", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        await signIn(tv);
+        await person(tv, {});
+        await tv.page.locator(".details-person-hero").waitFor();
+        // Query and measure in one synchronous step: a repaint rebuilds the hero and detaches a node resolved earlier.
+        const placed = await tv.page.evaluate(() => {
+            const hero = document.querySelector(".details-person-hero");
+            if (hero === null) return null;
+            const portrait = hero.querySelector(".person-portrait")?.getBoundingClientRect();
+            const name = hero.querySelector(".browse-title");
+            const facts = hero.querySelector(".person-facts")?.getBoundingClientRect();
+            const nameBox = name?.getBoundingClientRect();
+            if (portrait === undefined || nameBox === undefined || facts === undefined || !(name instanceof Element)) return null;
+            return {
+                nameTop: nameBox.top - portrait.top,
+                nameHeight: nameBox.height,
+                factsTop: facts.top - portrait.top,
+                lineHeight: getComputedStyle(name).lineHeight,
+                marginTop: getComputedStyle(name).marginTop,
+            };
+        });
+        // PersonDetailView.swift:466 pads the column 10pt. The name at line 451 is
+        // .system(size: 72, weight: .bold). That face's line height is 84.796875
+        // (ascender 69.609375, descender -15.1875, leading 0) and SwiftUI lays the
+        // text out 85pt tall. The facts row is the VStack spacing of 22 at line 449
+        // below that box: 10 + 85 + 22 = 117.
+        assert.deepEqual(placed, { nameTop: 10, nameHeight: 85, factsTop: 117, lineHeight: "85px", marginTop: "0px" });
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
+
+test("person biography uses Apple's body size, line and clamp", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        await signIn(tv);
+        const paragraph = "This biography sentence is long enough to wrap across the overview column more than once on the person page.";
+        await person(tv, { bio: Array.from({ length: 6 }, () => paragraph).join("\n\n") });
+        await tv.page.locator('.browse[data-view^="person:"] .browse-overview').waitFor();
+        // Query and measure in one synchronous step: a repaint can detach a node resolved earlier (zero height).
+        const bio = await tv.page.evaluate(() => {
+            const node = document.querySelector('.browse[data-view^="person:"] .browse-overview');
+            if (node === null) return null;
+            const computed = getComputedStyle(node);
+            return { fontSize: computed.fontSize, lineHeight: computed.lineHeight, height: node.getBoundingClientRect().height, clipped: node.scrollHeight > node.clientHeight };
+        });
+        // PersonDetailView.swift:459 .siloBody (Typography.swift:28, 26pt regular), lineLimit(7) at :461, no lineSpacing.
+        // Apple TV at 2ef3a171 draws those lines 31px apart (measured, 8 Nov 2026), so seven lines are 217px tall.
+        assert.deepEqual(bio, { fontSize: "26px", lineHeight: "31px", height: 217, clipped: true });
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
+
+test("person biography keeps the blank line between paragraphs", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        await signIn(tv);
+        const first = "First paragraph of the biography.";
+        const second = "Second paragraph starts after the blank line.";
+        await person(tv, { bio: `${first}\n\n${second}` });
+        await tv.page.locator(".details-person-hero .browse-overview").waitFor();
+        // Availability and filmography loads repaint the hero, so a node resolved earlier can be detached
+        // (all-zero rects, "paragraph gap 0"). Query and measure in one synchronous step instead.
+        const gap = await tv.page.evaluate(parts => {
+            const node = document.querySelector(".details-person-hero .browse-overview");
+            const text = node?.firstChild;
+            if (text === null || text === undefined) return -1;
+            const value = text.textContent ?? "";
+            const range = document.createRange();
+            range.setStart(text, 0);
+            range.setEnd(text, parts.first.length);
+            const opening = range.getBoundingClientRect();
+            const start = value.indexOf(parts.second);
+            range.setStart(text, start);
+            range.setEnd(text, start + parts.second.length);
+            return range.getBoundingClientRect().top - opening.bottom;
+        }, { first, second });
+        assert.ok(gap > 20, `paragraph gap ${gap}`);
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }
 });

@@ -146,7 +146,7 @@ Read [TV focus](docs/tv-focus.md) before changing navigation, menus, grids, dial
 - Restore focus by section id + item id, not by list position.
 - Handle D-pad moves within and between zones in app code. Samsung remotes deliver arrow keys, Enter and Back as plain `keydown` events ([Remote Control](https://developer.samsung.com/smarttv/develop/guides/user-interaction/remote-control.html)) and have no Tab key ([Text-to-Speech / focus](https://developer.samsung.com/smarttv/develop/guides/fundamentals/text-to-speech.html)); relying on the browser's spatial navigation can move focus twice in grids.
 - Move focus programmatically only when the focused item disappears.
-- Never fetch data on focus moves.
+- Never fetch data on focus moves, except the named dwell exceptions in [TV focus](docs/tv-focus.md) (season-pill, episode-detail, outer-edge, featured-card, marquee-rest).
 
 ## Coding Style & Naming Conventions
 

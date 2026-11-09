@@ -20,6 +20,8 @@ const ICONS = {
     key: ["M8 6.7a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9z", "M12.5 11.2h8M17.5 11.2v3.3M20.5 11.2v2.5"],
     qrcode: ["M3.5 3.5h6v6h-6zM14.5 3.5h6v6h-6zM3.5 14.5h6v6h-6z", "M14.5 14.5h2.5v2.5h-2.5zM18 18h2.5v2.5H18zM14.5 18.5h1M19.5 14.5h1"],
     retry: ["M19.5 12a7.5 7.5 0 1 1-2.2-5.3", "M19.5 3.5v4.5H15"],
+    clock: ["M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z", "M12 7.5V12l3.2 2"],
+    rack: ["M5 3.5h14v17H5z", "M8 7.5h8", "M8 12h8", "M8 16.5h8"],
     alert: ["M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z", "M12 7.5v6M12 16.3v.2"],
     warning: ["M12 3.5L2.5 20h19z", "M12 9.5v5M12 17.3v.2"],
     declined: ["M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z", "M8.5 8.5l7 7M15.5 8.5l-7 7"],
@@ -99,7 +101,11 @@ export function chip(text: string, glyph: IconName | undefined, role?: "status" 
 
 /** The session core's notices, as the Apple TV app's sign-in notice chip. */
 export function noteChips(notes: readonly Note[]): HTMLElement[] {
-    return notes.map((note) => chip(note.text, "alert", note.tone === "error" ? "alert" : "status"));
+    return notes.map((note) => {
+        const node = chip(note.text, "alert", note.tone === "error" ? "alert" : "status");
+        if (note.id !== undefined) node.dataset.note = note.id;
+        return node;
+    });
 }
 
 /** MarqueeTVCard: 640 wide glass. */
@@ -135,6 +141,28 @@ export function serverCard(name: string, address: string, secure: boolean, markU
     badge.appendChild(icon(secure ? "lock" : "lockOpen"));
     badge.appendChild(el("span", "", secure ? "Secure" : "HTTP"));
     for (const child of [mark, names, badge]) {
+        node.appendChild(child);
+    }
+    return node;
+}
+
+/**
+ * TVServerNeedsSetupView's card: host as the name, the full address, a warning badge,
+ * and the rack mark (`showsInitial: false`).
+ */
+export function setupNeededCard(name: string, address: string, badge: string): HTMLElement {
+    const node = el("div", "marquee-server-card");
+    node.setAttribute("aria-label", `${name}, ${address}, ${badge}`);
+    const mark = el("div", "marquee-server-mark marquee-server-mark-rack");
+    mark.setAttribute("aria-hidden", "true");
+    mark.appendChild(icon("rack"));
+    const names = el("div", "marquee-server-names");
+    names.appendChild(el("div", "marquee-server-name", name));
+    names.appendChild(el("div", "marquee-server-address", address));
+    const badgeNode = el("div", "marquee-badge marquee-badge-warning");
+    badgeNode.appendChild(icon("clock"));
+    badgeNode.appendChild(el("span", "", badge));
+    for (const child of [mark, names, badgeNode]) {
         node.appendChild(child);
     }
     return node;

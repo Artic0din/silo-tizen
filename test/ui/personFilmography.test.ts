@@ -46,7 +46,7 @@ async function start(tv: Tv, catalog: FakeDetails, statusOverlays = false, prepa
     await tv.page.evaluate(() => window.browseHarness.mount());
     await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').focus();
     await tv.page.keyboard.press("Enter");
-    await tv.page.locator('[data-focus="person:7"]').first().focus();
+    await tv.page.locator('.details-people [data-focus^="credit:7:"]').first().focus();
     await tv.page.keyboard.press("Enter");
     await tv.eventually(async () => await tv.page.locator('.browse[data-view="person:7"] .browse-grid .browse-card').count() === 60, "inline person page");
 }
@@ -82,6 +82,8 @@ function journey(name: string, body: (tv: Tv, catalog: FakeDetails) => Promise<v
     test(name, async () => {
         const tv = await openTv(browser, { app: "browse" });
         try {
+            // Smooth scrolling would still be animating when a test scrolls natively, pushing tail cards through the viewport twice.
+            await tv.page.emulateMedia({ reducedMotion: "reduce" });
             const catalog = population();
             await start(tv, catalog);
             await body(tv, catalog);
@@ -104,7 +106,7 @@ journey("incomplete Person dispatches once and polls independently of filter and
         assert.equal(route.request().method(), "POST");
         return route.fulfill({ status: 202, json: { status: "queued", person_id: "7" } });
     });
-    await tv.page.locator('[data-focus="person:7"]').first().click();
+    await tv.page.locator('.details-people [data-focus^="credit:7:"]').first().click();
     await tv.eventually(async () => dispatches === 1, "refresh dispatch");
     await tv.page.getByText("Loading metadata", { exact: true }).waitFor();
     await tv.page.locator('[data-focus="filter:series"]').click();
@@ -126,7 +128,7 @@ journey("metadata polling that expands the hero preserves the settled card revea
         id: "7", name: complete ? "River Vale with a longer credited name ".repeat(4) : "River Vale", photo_url: "/art/river.svg", birth_date: "1980-04-12", ...(complete ? { bio: biography } : {}),
     } }));
     await tv.page.route("**/api/v2/catalog/people/7/refresh", route => route.fulfill({ status: 202, json: { status: "queued", person_id: "7" } }));
-    await tv.page.locator('[data-focus="person:7"]').first().click();
+    await tv.page.locator('.details-people [data-focus^="credit:7:"]').first().click();
     await grid(tv).first().waitFor();
     await tv.page.locator('[data-focus="filter:video"]').focus();
     await tv.page.keyboard.press("ArrowDown");
@@ -281,7 +283,7 @@ journey("reopening Person starts on All while Details Back preserves its visit",
     assert.equal(await tv.page.locator('[data-focus="filter:series"]').getAttribute("aria-pressed"), "true");
     await tv.page.locator('[data-focus="filter:series"]').focus();
     await tv.remote(BACK);
-    await tv.page.locator('[data-focus="person:7"]').first().click();
+    await tv.page.locator('.details-people [data-focus^="credit:7:"]').first().click();
     await tv.eventually(async () => await grid(tv).count() === 60, "reopened All");
     assert.equal(await tv.focused(), "filter:video");
     assert.equal(await tv.page.locator('[data-focus="filter:video"]').getAttribute("aria-pressed"), "true");
@@ -292,20 +294,20 @@ journey("failed availability probes keep filters visible and late metadata canno
     const read = catalog.route.bind(catalog);
     catalog.route = (method, path, profile, body) => body?.limit === 1 ? problem(403, "permission_denied", "Synthetic probe failure") : read(method, path, profile, body);
     const held = tv.fake.hold("/catalog/people/7", true);
-    await tv.page.locator('[data-focus="person:7"]').first().click();
+    await tv.page.locator('.details-people [data-focus^="credit:7:"]').first().click();
     await tv.eventually(async () => await grid(tv).count() === 60, "credits before metadata");
     assert.equal(await tv.page.locator('[data-focus^="filter:"]').count(), 3);
     await tv.remote(BACK);
     held.release();
     await tv.jump(300);
-    assert.equal(await tv.focused(), "person:7");
+    assert.match(await tv.focused() ?? "", /^credit:7:/);
     assert.equal(await tv.page.locator(".details-person-hero").count(), 0);
 });
 
 journey("availability comes from server probes, not the loaded first page", async (tv, catalog) => {
     catalog.personCredits.set("7", ["movie:m0001"]);
     await tv.remote(BACK);
-    await tv.page.locator('[data-focus="person:7"]').first().click();
+    await tv.page.locator('.details-people [data-focus^="credit:7:"]').first().click();
     await tv.eventually(async () => await grid(tv).count() === 1, "movie-only person");
     await tv.eventually(async () => await tv.page.locator('[data-focus="filter:series"]').count() === 0, "empty Series hidden");
     assert.equal(await tv.page.locator('[data-focus="filter:movie"]').count(), 1);
@@ -323,7 +325,7 @@ journey("selecting Series while availability probes are still out keeps that chi
         return transport(url, init);
     };
     await tv.remote(BACK);
-    await tv.page.locator('[data-focus="person:7"]').first().click();
+    await tv.page.locator('.details-people [data-focus^="credit:7:"]').first().click();
     await tv.eventually(async () => await grid(tv).count() === 1, "movie credit before probes");
     assert.equal(await tv.page.locator('[data-focus^="filter:"]').count(), 3, "all chips stay while probes are out");
     const probeAnswers = Promise.all([0, 1].map(() => tv.page.waitForResponse((response) => {
@@ -346,7 +348,7 @@ journey("selecting Series while availability probes are still out keeps that chi
 journey("credits and hero shell remain usable while metadata is pending", async tv => {
     await tv.remote(BACK);
     const held = tv.fake.hold("/catalog/people/7", true);
-    await tv.page.locator('[data-focus="person:7"]').first().click();
+    await tv.page.locator('.details-people [data-focus^="credit:7:"]').first().click();
     await tv.eventually(async () => await grid(tv).count() === 60, "independent credits");
     assert.equal(await tv.page.locator(".details-person-hero").count(), 1);
     await tv.page.getByText("Loading metadata", { exact: true }).waitFor();
@@ -421,7 +423,7 @@ journey("person full journey reaches third page, server filters whole population
     assert.equal(await tv.focused(), id);
     await tv.remote(BACK);
     assert.equal(metadataReads(tv), 1);
-    await tv.eventually(async () => await tv.focused() === "person:7", "origin credit restoration");
+    await tv.eventually(async () => (await tv.focused())?.startsWith("credit:7:") === true, "origin credit restoration");
     for (const request of queries(tv)) {
         assert.equal(request.method, "POST");
         assert.equal(request.body?.sort, "year");
@@ -430,7 +432,8 @@ journey("person full journey reaches third page, server filters whole population
         assert.equal(request.body?.person_id, "7");
         assert.equal(request.headers["x-profile-id"], "p-owner");
     }
-    assert.equal(tv.fake.requests.filter(request => /search\/capabilities/.test(request.path)).length, 0);
+    // This journey used to make no capability request. Opening the movie asks once whether box sets exist.
+    assert.equal(tv.fake.requests.filter(request => /search\/capabilities/.test(request.path)).length, 1);
 });
 
 journey("failed append retains cards without an error panel and waits for near-end reentry", async (tv, catalog) => {
@@ -509,7 +512,7 @@ journey("interrupted Next cannot advance after visible-card Details, one resume 
     assert.equal(await grid(tv).count(), 60);
     assert.equal(await tv.page.evaluate(() => window.browseHarness.plays.length), 1);
     await tv.remote(BACK);
-    await tv.eventually(async () => await tv.focused() === "person:7", "origin after playback");
+    await tv.eventually(async () => (await tv.focused())?.startsWith("credit:7:") === true, "origin after playback");
     assert.equal(metadataReads(tv), 1, "valid metadata survives playback refresh");
 });
 
@@ -552,14 +555,14 @@ journey("filter race fences old answer; failed and empty filters keep controls r
     await tv.page.keyboard.press("ArrowRight");
     assert.equal(await tv.focused(), "filter:series");
     await tv.remote(BACK);
-    assert.equal(await tv.focused(), "person:7");
+    assert.match(await tv.focused() ?? "", /^credit:7:/);
 });
 
 for (const action of ["unchanged filter focus", "moved focus", "Back and menu", "profile", "logout"]) journey(`initial slow filmography answer respects ${action}`, async tv => {
     const before = queries(tv).length;
     const held = tv.fake.hold("/catalog/query", true);
     await tv.remote(BACK);
-    await tv.page.locator('[data-focus="person:7"]').first().click();
+    await tv.page.locator('.details-people [data-focus^="credit:7:"]').first().click();
     await tv.eventually(async () => queries(tv).length === before + 1, "new visit initial read");
     await tv.jump(5000);
     await tv.page.locator('[aria-label="Loading titles"]').waitFor();
@@ -634,7 +637,7 @@ for (const outcome of ["pending", "lost"]) journey(`Details reconciles ${outcome
     await tv.page.getByRole("button", { name: "Add to watchlist", exact: true }).click();
     await tv.eventually(async () => catalog.mutations.length === 1, "membership write");
     if (outcome === "lost") await tv.page.getByRole("button", { name: "Retry watchlist", exact: true }).waitFor();
-    await tv.page.locator('[data-focus="person:7"]').first().click();
+    await tv.page.locator('.details-people [data-focus^="credit:7:"]').first().click();
     await grid(tv).first().waitFor();
     await all(tv);
     await next(tv, 2);
@@ -649,7 +652,7 @@ journey("person metadata errors recover, artwork falls back, and facts render as
     await tv.remote(BACK);
     let response: Record<string, unknown> = { id: "7", name: "<b>River Vale</b>", bio: 7 };
     await tv.page.route("**/api/v2/catalog/people/7", route => route.fulfill({ status: 200, json: response }));
-    await tv.page.locator('[data-focus="person:7"]').first().click();
+    await tv.page.locator('.details-people [data-focus^="credit:7:"]').first().click();
     await tv.page.getByText("The server sent an answer this TV could not read.", { exact: true }).waitFor();
     assert.equal(await tv.page.locator('[data-focus="back"]').count(), 1);
     response = { id: "7", name: "<b>River Vale</b>", bio: "<img src=x onerror=alert(1)>", birthplace: "<script>synthetic</script>", future_metadata: { value: 7 } };
@@ -665,11 +668,11 @@ journey("person metadata errors recover, artwork falls back, and facts render as
 for (const status of [404, 500]) journey(`person metadata ${status} keeps explicit retry and Back`, async tv => {
     await tv.remote(BACK);
     await tv.page.route("**/api/v2/catalog/people/7", route => route.fulfill({ status, json: problem(status, status === 404 ? "not_found" : "internal_error", "Synthetic person failure").body }));
-    await tv.page.locator('[data-focus="person:7"]').first().click();
+    await tv.page.locator('.details-people [data-focus^="credit:7:"]').first().click();
     await tv.page.locator('[data-focus="retry"]').waitFor();
     if (status === 404) await tv.page.getByText("This person is no longer available.", { exact: true }).waitFor();
     await tv.remote(BACK);
-    assert.equal(await tv.focused(), "person:7");
+    assert.match(await tv.focused() ?? "", /^credit:7:/);
 });
 
 journey("filmography filter controls occupy their own space above the grid", async tv => {
@@ -709,7 +712,7 @@ journey("Person count labels preserve exact, approximate, singular and empty tot
 journey("failed initial works read retains metadata and filter recovery", async (tv, catalog) => {
     await tv.remote(BACK);
     catalog.personReplies.push(problem(500, "internal_error", "Synthetic first page failure"));
-    await tv.page.locator('[data-focus="person:7"]').first().click();
+    await tv.page.locator('.details-people [data-focus^="credit:7:"]').first().click();
     await tv.page.locator('[data-focus="retry"]').waitFor();
     assert.equal(await tv.page.locator(".details-person-hero").count(), 1);
     assert.equal(await tv.page.locator('[data-focus^="filter:"]').count(), 3);

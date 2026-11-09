@@ -272,7 +272,8 @@ for (const change of ["audio", "quality"] as const) test(`a hidden ${change} rep
     assert.equal(view.phase === "playing" && view.positionSeconds, 123, "fresh listener receives time updates");
     r.avplay.listener?.onstreamcompleted();
     await r.h.clock.advance(0);
-    assert.deepEqual(r.exits, ["end:completed"]);
+    assert.deepEqual(r.exits, []);
+    assert.equal(r.views.at(-1)?.phase, "completion");
 });
 
 test("retired restore cannot mark a preparing user replacement started", async () => {
@@ -1093,12 +1094,30 @@ test("a refused subtitle stays a refusal, and natural end still completes", asyn
     assert.equal(r.avplay.state, "PLAYING");
     r.avplay.listener?.onstreamcompleted();
     await r.h.clock.advance(0);
-    assert.deepEqual(r.exits, ["end:completed"]);
+    assert.deepEqual(r.exits, []);
+    assert.equal(r.views.at(-1)?.phase, "completion");
     assert.equal(stops(r.h), 1);
     r.avplay.listener?.onerror("PLAYER_ERROR_CONNECTION_FAILED");
     await r.h.clock.advance(60000);
     assert.equal(starts(r.h), 1);
     assert.equal(replans(r.h).length, 1);
     assert.notEqual(r.server.session(id).receipt, undefined);
+    r.controller.destroy();
+});
+
+test("a playing scrub's queued resume survives connection loss during the local seek", async () => {
+    const r = await rig();
+    await play(r);
+    r.controller.setPaused(true);
+    assert.equal(r.avplay.state, "PAUSED");
+    r.controller.seekToSeconds(40);
+    r.controller.setPaused(false);
+    r.avplay.listener?.onerror("PLAYER_ERROR_CONNECTION_FAILED");
+    r.avplay.finishSeek();
+    await r.h.clock.advance(1000);
+    await resumePlan(r);
+    assert.equal(r.avplay.state, "PLAYING");
+    const view = last(r.views);
+    assert.equal(view.phase, "playing");
     r.controller.destroy();
 });

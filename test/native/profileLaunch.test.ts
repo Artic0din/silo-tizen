@@ -3,6 +3,46 @@ import { test } from "node:test";
 import { connected, signIn } from "./support/harness.ts";
 import { FakeDetails } from "./support/fakeDetails.ts";
 
+test("timed profile selection expires only after an actual away interval", async () => {
+    const h = await connected();
+    await signIn(h);
+    const profile = (await h.core.profiles.list()).find(item => !item.hasPin);
+    assert.ok(profile);
+    h.core.profiles.select(profile);
+    for (const [behavior, seconds] of [["afterOneHour", 3600], ["afterTwelveHours", 43200]] as const) {
+        await h.core.profileLaunch.setBehavior(behavior);
+        assert.equal(h.core.profileLaunch.behavior, behavior);
+        assert.equal(h.core.profileLaunch.requiresSelection(1e9), false);
+        h.core.profileLaunch.recordAway(1000);
+        assert.equal(h.core.profileLaunch.requiresSelection(1000 + seconds * 1000 - 1), false);
+        assert.equal(h.core.profileLaunch.requiresSelection(1000 + seconds * 1000), true);
+        h.core.profileLaunch.recordAway(2000);
+        assert.equal(h.core.profileLaunch.requiresSelection(1000 + seconds * 1000), true, "pagehide preserves the first hidden timestamp");
+        h.core.profileLaunch.requireSelection();
+        h.core.profileLaunch.recordAway(1000 + seconds * 1000);
+        assert.equal(h.core.profileLaunch.requiresSelection(1001 + seconds * 1000), true, "returning to the picker does not erase an expired choice");
+        await h.core.profileLaunch.setRemember(true);
+        h.core.profileLaunch.recordActive();
+        assert.equal(h.core.profileLaunch.requiresSelection(1e9), false);
+    }
+});
+
+test("a timed launch choice commits with its behavior in one storage record", async () => {
+    const h = await connected();
+    await signIn(h);
+    const owner = (await h.core.profiles.list())[0]; assert.ok(owner);
+    h.core.profiles.select(owner);
+    const save = h.storage.setItem.bind(h.storage);
+    let writes = 0;
+    h.storage.setItem = (key, value) => {
+        if (++writes > 1) throw new Error("Storage quota exhausted");
+        save(key, value);
+    };
+    await assert.doesNotReject(h.core.profileLaunch.setBehavior("afterOneHour"));
+    assert.equal(h.core.profileLaunch.behavior, "afterOneHour");
+    assert.equal(h.core.profileLaunch.remembered, true);
+});
+
 test("fresh TV asks; remembering stores a protected proof and restores without replaying PIN", async () => {
     const h = await connected();
     await signIn(h);
@@ -70,6 +110,9 @@ test("unavailable public storage permits an explicit session-only choice and nev
     h.storage.failSet = true;
     await assert.rejects(h.core.profileLaunch.setRemember(false));
     h.core.profileLaunch.continueWithoutSaving();
+    assert.doesNotThrow(() => h.core.profileLaunch.recordActive());
+    assert.doesNotThrow(() => h.core.profileLaunch.recordAway(1000));
+    assert.equal(h.core.profileLaunch.requiresSelection(1001), true);
     assert.equal(h.core.profileLaunch.needsOffer, false);
     assert.equal(h.core.profileLaunch.remembered, false);
     assert.equal(h.core.session.activeProfile?.id, owner.id);
@@ -88,4 +131,32 @@ test("restoring a server-revoked remembered proof fails closed without a PIN rep
     assert.equal(next.core.session.activeProfile, undefined);
     assert.equal(next.core.profileLaunch.remembered, false);
     assert.equal(h.fake.requests.filter(request => request.path.endsWith("/verify-pin")).length, requests);
+});
+
+test("signing in again drops a remembered profile for this run when storage refuses the clear", async () => {
+    const h = await connected(); await signIn(h);
+    const owner = (await h.core.profiles.list())[0]; assert.ok(owner);
+    h.core.profiles.select(owner);
+    await h.core.profileLaunch.setRemember(true);
+    assert.equal(h.core.profileLaunch.remembered, true);
+    h.storage.failSet = true;
+    await signIn(h);
+    assert.equal(h.core.profileLaunch.remembered, false);
+    assert.equal(await h.core.profileLaunch.restore(await h.core.profiles.list(), new AbortController().signal), undefined);
+    assert.equal(h.core.session.activeProfile, undefined);
+    h.storage.failSet = false;
+    await signIn(h);
+    assert.equal(h.core.profileLaunch.remembered, false, "the next clear that storage accepts is saved");
+    assert.equal(h.storage.getItem([...h.storage.items.keys()].find(key => key.startsWith("silo.native.profileLaunch:")) ?? ""), '{"remember":false}');
+});
+
+test("a remembered profile the server no longer lists stays dropped for this run when storage refuses the clear", async () => {
+    const h = await connected(); await signIn(h);
+    const owner = (await h.core.profiles.list())[0]; assert.ok(owner);
+    h.core.profiles.select(owner);
+    await h.core.profileLaunch.setRemember(true);
+    h.storage.failSet = true;
+    assert.equal(await h.core.profileLaunch.restore([], new AbortController().signal), undefined);
+    assert.equal(h.core.profileLaunch.remembered, false);
+    assert.equal(await h.core.profileLaunch.restore([owner], new AbortController().signal), undefined);
 });

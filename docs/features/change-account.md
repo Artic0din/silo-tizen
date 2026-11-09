@@ -23,10 +23,19 @@ Apple TV has no three-choice Add sheet: account and server actions are direct, a
 The Change Account view uses the reference's 88-point headline, 520 by 88 rail rows and 760 by 128 account cards at the 1920-wide design viewport.
 Inter substitutes for Apple's system font.
 Pane rows, the 520px rail, plain Add server, gradient account tiles, and marquee scrim were rechecked against `bef81e8652a89c23a1c3cf07e312e9444baa6c4c`.
+Focus outlines, the shared backdrop stage, and the selected server fill were rechecked at `e28300c61f044a9322f588203c8819d6f06e6197`: focused rows and Cancel use the platter with no hairline. Change Account does not set `MarqueeScene.stage`, so the light stays warm after Who's watching and blue after sign-in, under `MarqueeScrim.leading`. An unfocused selected server is `siloChromeSelectedFill`, white at 0.14.
+Who's watching row stillness (`abf4ac45aa0ded295dd1443b91457cdf42dffbf2`) already holds: moving focus does not move the other row.
 Offline recovery says "Back to profiles" while a saved account can open profiles, otherwise "Change account".
 Tizen has no downloads, so download deletion copy is omitted.
 Desktop Chromium tests establish app behavior only.
 Same-state Apple TV and signed Samsung WGT captures remain required before merge.
+
+Saved-server follow-up reference: silo-apple `2c03722c3eecee64c74272258190f13e3258d959`.
+`TVChangeAccountView.swift:1` guards this screen with `#if os(tvOS)`.
+Its Select action enters the account pane (`:275-279`), remembering the last card (`:92-94`); Back returns to the rail (`:281-285`).
+The Samsung manual entry adds Back to saved servers and holds Back while connecting, matching the probe guard in `Screens/Auth/TVServerSetupView.swift:286-295`.
+Discovery and nearby-phone setup remain outside this delivery.
+Removal keeps its confirmation focused with a loading label until storage answers; failures offer Back without removing the failed saved entry.
 
 ## Native capture journeys
 
@@ -39,3 +48,11 @@ Same-state Apple TV and signed Samsung WGT captures remain required before merge
 7. Open Settings > Server > Accounts; capture account rows, Add an account and Remove Server.
 8. Open Sign Out, capture Cancel focused, cancel it, then repeat and confirm; verify other accounts remain.
 9. Restart with the server offline after migration and verify no account entry has disappeared.
+10. With two saved servers, open Change Account, press Back to the rail, move Down to the other server and press Select; verify focus enters that server's account pane without a request on rail focus.
+11. Move Down to Add an account, Left to the rail and Select; verify the last account-pane card regains focus.
+12. Choose Add server, press Back on manual entry, and verify saved servers and credentials remain; repeat with an unreachable address and Back from its error.
+13. In Settings > Server > Accounts, choose Remove Server, cancel, then confirm on a test server; record the pending label and focus, storage failure and retry, and verify the other server still opens.
+14. Start Add an account, return to Change Account while its answer is delayed, open the saved account and release the delayed answer; verify the profile picker stays open.
+
+Before capture, record the Apple installed build separately from the source revision and the Samsung candidate SHA, signed WGT hash, installed asset identity and actual capture dimensions.
+Use the same saved servers, accounts, selected card, focus and scroll state on both platforms; mask all private server and account fields before sharing.

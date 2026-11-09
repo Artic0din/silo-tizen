@@ -42,7 +42,7 @@ test("vendored contract fixtures decode with the production decoders", () => {
     assert.equal(approved.status, "approved");
     if (approved.status === "approved") {
         assert.deepEqual(approved.tokens, { accessToken: "acc", refreshToken: "ref", expiresInSeconds: 3600 });
-        assert.deepEqual(approved.account, { id: "1", username: "laura", passwordChangeRequired: false });
+        assert.deepEqual(approved.account, { id: "1", username: "laura", role: "user", passwordChangeRequired: false });
         assert.equal(approved.temporary, false);
     }
     assert.equal(decodeDeviceLoginCancel(fixture("cancel_device_login_ok")), "canceled");

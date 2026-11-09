@@ -87,6 +87,13 @@ export class FakeSilo {
     profiles: Record<string, unknown> = household();
     pinAttempts = 0;
     passwordChangeRequired = false;
+    /**
+     * Device-login account role. `undefined` keeps the fixture.
+     * `null` omits the field, as a credential saved before role was stored.
+     */
+    accountRole: string | null | undefined = undefined;
+    /** The next approved device login or password sign-in uses this person, once. */
+    nextUser: { id: string; username: string } | undefined;
     lockedUntil = 0;
     private nextId = 1;
     private readonly clock: ManualClock;
@@ -214,6 +221,9 @@ export class FakeSilo {
                 return { status: 200, body: { ...fixture("get_system_info_ok"), request_origin: this.origin } };
             case "GET /system/identity":
                 return { status: 200, body: { server_id: this.serverId } };
+            case "GET /system/setup":
+                // get_setup_status_ok: an administrator exists, so sign-in can continue.
+                return { status: 200, body: { needs_setup: false, wizard_completed: false } };
             case "GET /auth/device/capability":
                 return { status: 200, body: fixture("get_device_login_capability_ok") };
             case "POST /auth/device/start":
@@ -298,7 +308,10 @@ export class FakeSilo {
             const ok = fixture("poll_device_login_ok");
             const tokens = toRecord(ok.tokens);
             const user = toRecord(tokens.user);
-            return { status: 200, body: { ...ok, tokens: { ...tokens, ...this.mintSession(), user: { ...user, password_change_required: this.passwordChangeRequired } } } };
+            const account: Record<string, unknown> = { ...user, password_change_required: this.passwordChangeRequired };
+            if (this.accountRole === null) delete account.role;
+            else if (this.accountRole !== undefined) account.role = this.accountRole;
+            return { status: 200, body: { ...ok, tokens: { ...tokens, ...this.mintSession(), user: this.accountUser(account) } } };
         }
         return { status: 200, body: { ...base, status: request.status } };
     }
@@ -325,7 +338,14 @@ export class FakeSilo {
             return problemReply(401, "login_invalid_credentials");
         }
         const ok = fixture("login_ok");
-        return { status: 200, body: { ...ok, ...this.mintSession(), user: { ...toRecord(ok.user), password_change_required: this.passwordChangeRequired } } };
+        return { status: 200, body: { ...ok, ...this.mintSession(), user: this.accountUser({ ...toRecord(ok.user), password_change_required: this.passwordChangeRequired }) } };
+    }
+
+    private accountUser(user: Record<string, unknown>): Record<string, unknown> {
+        const next = this.nextUser;
+        if (next === undefined) return user;
+        this.nextUser = undefined;
+        return { ...user, id: next.id, username: next.username };
     }
 
     private mintSession(sessionId = this.nextId++): { access_token: string; refresh_token: string; expires_in: number } {

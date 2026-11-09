@@ -15,7 +15,7 @@ A tester build installs only on TVs listed in its signing certificate; see [Rele
 ## Screenshots
 
 <p>
-  <img src="docs/evidence/screenshots/readme/for-you.png" width="800" alt="For You in the signed build, on the Samsung TV simulator" />
+  <img src="docs/evidence/screenshots/readme/for-you.png" width="800" alt="For You on the Samsung TV simulator, built from main on 9 November 2026" />
 </p>
 
 ## Layout

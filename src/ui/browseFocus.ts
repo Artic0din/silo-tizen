@@ -23,6 +23,7 @@ interface VisitSnapshot {
 }
 
 function visitKey(view: View): string {
+    if (view.visitKey !== undefined) return view.visitKey;
     return /^library:[^:]+$/.test(view.name) ? view.transition?.key ?? view.name : view.name;
 }
 
@@ -31,9 +32,12 @@ export interface FocusItem {
     readonly key: string;
     readonly element: HTMLElement;
     readonly quickAction?: () => void;
+    readonly play?: () => void;
 }
 
 export interface Zone {
+    /** Restore the last enabled item on entry, otherwise this fallback, before geometry. */
+    readonly restoreEntry?: string;
     /** An explicit entry target; clearing it returns the zone to remembered-item restoration. */
     readonly entry?: string | undefined;
     readonly onLeft?: () => void;
@@ -56,6 +60,8 @@ export interface FocusTarget {
 }
 
 export interface View {
+    /** A route presentation can retain its own position even for the same title. */
+    readonly visitKey?: string;
     readonly prepare?: () => void;
     /** False while a library view has no committed data to remember. */
     readonly ready?: boolean;
@@ -88,6 +94,8 @@ export class FocusHost {
     private incoming: HTMLElement[] = [];
     private transitionTimer: number | undefined;
     private press: { item: FocusItem; started: number; timer: number | undefined; cancelled: boolean } | undefined;
+    /** One Play claim per Details visit. tvOS retries it; a failed claim used to leave body focused until the next key. */
+    private playClaim: { visit: string; attempts: number; waits: number; finished: boolean; timer: number | undefined; moved: boolean; awaitingPrimary: boolean } | undefined;
     private readonly detach = new MutationObserver(() => {
         if (this.press !== undefined && !this.press.item.element.isConnected) this.cancelPress();
     });
@@ -210,6 +218,7 @@ export class FocusHost {
             this.scroll.reveal(previous.item.element, this.container);
         }
         else this.focusFirst(offscreenShelf ? [view.focus] : [focus, nearby === undefined ? kept : { zone: previous?.zone.id ?? "", key: nearby.key }, restoring ? this.memoryTarget() : undefined, view.focus]);
+        this.settlePrimaryFocus(view);
         const focused = this.focused();
         const sameIdentity = unchanged !== undefined && focused?.zone === unchanged.zone && focused.key === unchanged.key;
         if ((sameIdentity || returnSnap) && visit !== undefined && !retainedPerson) {
@@ -217,12 +226,15 @@ export class FocusHost {
             this.scroll.stop();
             this.applyVisit(visit);
             const element = this.locate(document.activeElement)?.item.element;
-            if ((this.container.dataset.view === "search" || this.container.dataset.view?.startsWith("person:") || this.container.classList.contains("section-catalog") || this.container.classList.contains("library-browse") || this.container.classList.contains("requests-hub") || this.container.classList.contains("details-series-scene") || this.container.classList.contains("accounts-screen")) && element !== undefined) {
-                const viewport = element.closest<HTMLElement>(".browse-panel-list, .skyline-content, .accounts-rail, .accounts-pane, .accounts-settings") ?? this.container;
+            if ((this.container.dataset.view === "search" || this.container.dataset.view?.startsWith("person:") || this.container.classList.contains("section-catalog") || this.container.classList.contains("library-browse") || this.container.classList.contains("requests-hub") || this.container.classList.contains("details-series-scene") || this.container.classList.contains("accounts-screen") || element?.closest(".settings-modal-options") != null) && element !== undefined) {
+                const viewport = element.closest<HTMLElement>(".browse-panel-list, .settings-modal-options, .settings-pane, .skyline-content, .accounts-rail, .accounts-pane, .accounts-settings") ?? this.container;
                 const card = element.getBoundingClientRect(), bounds = viewport.getBoundingClientRect();
                 if (card.top < bounds.top + 12 || card.bottom > bounds.bottom - 32 || !this.insideRow(element)) this.scroll.reveal(element, this.container);
             }
         }
+        // Details anchors must win over a repaint's saved intermediate animation position.
+        const element = this.locate(document.activeElement)?.item.element;
+        if (view.name.startsWith("item:") && element !== undefined) this.scroll.restoreDetailsAnchor(element, this.container, true);
         if (animate) {
             this.incoming = Array.from(this.container.querySelectorAll<HTMLElement>(".skyline-content > :not(.skyline-pills), .skyline-marquee"));
             for (const node of this.incoming) node.classList.add(drift && !node.classList.contains("skyline-marquee") ? "skyline-content-drift" : "skyline-content-enter");
@@ -245,6 +257,12 @@ export class FocusHost {
         if (element !== undefined) this.scroll.reveal(element, this.container);
     }
 
+    scrollToTop(): void {
+        // Commit the fallback viewport before optional repaints remember its position.
+        this.scroll.stop();
+        this.viewport().scrollTop = 0;
+    }
+
     private viewport(): HTMLElement {
         return this.container.querySelector<HTMLElement>(".skyline-content") ?? this.container;
     }
@@ -256,8 +274,9 @@ export class FocusHost {
             this.lastZone = focused.zone.id;
             if (this.tracksContent(focused.zone.id)) this.contentZone = focused.zone.id;
         }
-        const panels = new Map(this.visits.get(key)?.panels);
-        this.container.querySelectorAll<HTMLElement>(".browse-panel-list[data-scroll-key]").forEach(panel => panels.set(panel.dataset.scrollKey ?? "", panel.scrollTop));
+        // Settings recreates a category at the top; only the mounted pane survives a modal.
+        const panels = this.container.classList.contains("settings") ? new Map<string, number>() : new Map(this.visits.get(key)?.panels);
+        this.container.querySelectorAll<HTMLElement>(".browse-panel-list[data-scroll-key], .settings-modal-options[data-scroll-key], .settings-pane[data-scroll-key]").forEach(panel => panels.set(panel.dataset.scrollKey ?? "", panel.scrollTop));
         this.visits.set(key, { memory: new Map(this.memory), lastZone: this.lastZone, contentZone: this.contentZone, top: this.viewport().scrollTop, rows: new Map(Array.from(this.container.querySelectorAll<HTMLElement>(".browse-row")).map((row, index) => [this.rowKey(row, index), row.scrollLeft])), panels });
     }
 
@@ -268,10 +287,10 @@ export class FocusHost {
             row.scrollLeft = visit?.rows.get(this.rowKey(row, index)) ?? 0;
             const entry = row.dataset.scrollEntry === undefined ? undefined : Array.from(row.children).find((node): node is HTMLElement => node instanceof HTMLElement && node.dataset.focus === row.dataset.scrollEntry);
             if (entry !== undefined) {
-                row.scrollLeft = entry.offsetLeft - row.offsetLeft - parseFloat(getComputedStyle(row).paddingLeft);
+                row.scrollLeft = row.classList.contains("details-episodes") ? SkylineScroll.episodeOffset(row, entry) : row.classList.contains("details-season-chips") ? SkylineScroll.seasonOffset(row, entry) : entry.offsetLeft - row.offsetLeft - parseFloat(getComputedStyle(row).paddingLeft);
             }
         });
-        this.container.querySelectorAll<HTMLElement>(".browse-panel-list[data-scroll-key]").forEach(panel => { panel.scrollTop = visit?.panels.get(panel.dataset.scrollKey ?? "") ?? 0; });
+        this.container.querySelectorAll<HTMLElement>(".browse-panel-list[data-scroll-key], .settings-modal-options[data-scroll-key], .settings-pane[data-scroll-key]").forEach(panel => { panel.scrollTop = visit?.panels.get(panel.dataset.scrollKey ?? "") ?? 0; });
     }
 
     private intersects(element: HTMLElement): boolean {
@@ -299,6 +318,7 @@ export class FocusHost {
         this.cancelPress();
         this.detach.disconnect();
         this.clearTransition();
+        this.cancelPlayClaim();
         this.scroll.stop();
         if (this.listening) {
             document.removeEventListener("keydown", this.onKey);
@@ -306,6 +326,7 @@ export class FocusHost {
             document.removeEventListener("keyup", this.onRelease, true);
             document.removeEventListener("focusout", this.cancelPress);
             this.container.removeEventListener("focusin", this.rememberContent);
+            this.container.removeEventListener("click", this.endPlayClaim, true);
             document.removeEventListener("visibilitychange", this.cancelPress);
             window.removeEventListener("blur", this.cancelPress);
             this.press = undefined;
@@ -330,6 +351,7 @@ export class FocusHost {
             document.addEventListener("keyup", this.onRelease, true);
             document.addEventListener("focusout", this.cancelPress);
             this.container.addEventListener("focusin", this.rememberContent);
+            this.container.addEventListener("click", this.endPlayClaim, true);
             document.addEventListener("visibilitychange", this.cancelPress);
             window.addEventListener("blur", this.cancelPress);
             this.listening = true;
@@ -363,6 +385,11 @@ export class FocusHost {
         }
         return undefined;
     }
+
+    /** Select by Enter or pointer is the viewer's choice, like a directional move (`userNavigated` in TVSeriesDetailView). */
+    private readonly endPlayClaim = (): void => {
+        if (this.playClaim !== undefined) this.playClaim.moved = true;
+    };
 
     private readonly rememberContent = (event: FocusEvent): void => {
         if (event.target !== this.navigationItem?.element) this.navigationX = undefined;
@@ -400,6 +427,11 @@ export class FocusHost {
         for (let next = zoneIndex + step; next >= 0 && next < zones.length; next += step) {
             const zone = zones[next];
             if (zone !== undefined && zone.items.length > 0) {
+                const restored = this.restoredEntry(zone);
+                if (restored !== undefined) {
+                    this.focusItem(zone, restored);
+                    return true;
+                }
                 // Apple raises the first row's default-focus priority while the
                 // top menu is focused (TVSkylineSectionFeed), so Down from the
                 // bar ignores the card remembered in that row. Calendar shelves
@@ -437,12 +469,132 @@ export class FocusHost {
                     const rect = from.element.getBoundingClientRect();
                     this.navigationX = rect.left + rect.width / 2;
                 }
-                const nearest = spatial ? nearestItem(edgeItems, from.element, this.navigationX) : undefined;
+                const searchLanding = searchVerticalLanding(zones[zoneIndex], zone, from.element, edgeItems, this.navigationX);
+                if (searchLanding === "stay") return true;
+                const nearest = searchLanding ?? (spatial ? nearestItem(edgeItems, from.element, this.navigationX) : undefined);
                 this.focusItem(zone, zone.items.find(item => item.key === zone.entry) ?? nearest ?? zone.items.find((item) => item.key === remembered) ?? zone.items[0]);
                 return true;
             }
         }
         return false;
+    }
+
+    private restoredEntry(zone: Zone): FocusItem | undefined {
+        if (zone.restoreEntry === undefined) return undefined;
+        return zone.items.find(item => item.key === this.memory.get(zone.id) && !item.element.matches(':disabled, [aria-disabled="true"]'))
+            ?? zone.items.find(item => item.key === zone.restoreEntry);
+    }
+
+    /** Play, Resume, or the series primary. Anything else is not the page's opening claim. */
+    private primaryTarget(view: View): { zone: Zone; item: FocusItem } | undefined {
+        const focus = view.focus;
+        if (focus === undefined || (focus.key !== "resume" && focus.key !== "play" && focus.key !== "next-episode")) return undefined;
+        const zone = view.zones.find(candidate => candidate.id === focus.zone && candidate.items.length > 0);
+        const item = zone?.items.find(candidate => candidate.key === focus.key);
+        return zone === undefined || item === undefined ? undefined : { zone, item };
+    }
+
+    private primaryReady(element: HTMLElement): boolean {
+        return element.isConnected && element.offsetWidth > 0 && element.offsetHeight > 0 && !element.matches(":disabled, [aria-disabled='true']");
+    }
+
+    private clearPlayClaimTimer(): void {
+        if (this.playClaim?.timer !== undefined) window.clearTimeout(this.playClaim.timer);
+        if (this.playClaim !== undefined) this.playClaim.timer = undefined;
+    }
+
+    private cancelPlayClaim(): void {
+        this.clearPlayClaimTimer();
+        this.playClaim = undefined;
+    }
+
+    /**
+     * One Play claim per Details visit (`TVDetailActionRow.resetInitialPlayFocus`,
+     * silo-apple eb82bb86). While `playTitle` is nil the claim stays unused
+     * (lines 504, 567-568, 571) and Watchlist is the live stand-in (lines 597-602).
+     * The first attempt then assigns Play without reading that focus (lines 635–643).
+     * A later attempt bails only when another action is focused and the page does
+     * not track navigation (lines 622–641). Series tracks a directional move or a
+     * Select (season tab, Play, Watchlist) instead (`TVSeriesDetailView.swift`
+     * lines 311–326, 504–517, 528–529 and 615) and cancels the claim (lines 555-559).
+     * A claim that does not stick leaves focus on body until the next key. Stop once
+     * the viewer has moved or selected, or a dialog has taken focus.
+     */
+    private settlePrimaryFocus(view: View, fromTimer = false): void {
+        if (!view.name.startsWith("item:")) {
+            this.cancelPlayClaim();
+            return;
+        }
+        const visit = visitKey(view);
+        if (this.playClaim === undefined || this.playClaim.visit !== visit) {
+            this.cancelPlayClaim();
+            this.playClaim = { visit, attempts: 0, waits: 0, finished: false, timer: undefined, moved: false, awaitingPrimary: false };
+        }
+        const claim = this.playClaim;
+        if (claim.finished) return;
+        if (claim.moved || this.focusInOverlay()) {
+            claim.finished = true;
+            this.clearPlayClaimTimer();
+            return;
+        }
+        const primary = this.primaryTarget(view);
+        const active = this.locate(document.activeElement);
+        // The claim stays unused until Play exists. Its first assignment still
+        // takes the live stand-in. A control the viewer has moved to is
+        // claim.moved, handled above. This check is only for a claim that
+        // started while Play was already the opening target.
+        if (primary === undefined) {
+            claim.awaitingPrimary = true;
+            this.clearPlayClaimTimer();
+            return;
+        }
+        if (!claim.awaitingPrimary && active !== undefined && active.item.key !== primary.item.key) {
+            claim.finished = true;
+            this.clearPlayClaimTimer();
+            return;
+        }
+        const ready = this.primaryReady(primary.item.element);
+        if (!ready) {
+            if (fromTimer) claim.waits += 1;
+            if (claim.waits < 3) this.armPlayClaim(visit);
+            return;
+        }
+        claim.awaitingPrimary = false;
+        if (document.activeElement !== primary.item.element) this.focusItem(primary.zone, primary.item);
+        const held = document.activeElement === primary.item.element;
+        if (fromTimer && held) {
+            claim.finished = true;
+            this.clearPlayClaimTimer();
+            return;
+        }
+        if (fromTimer && !held) {
+            claim.attempts += 1;
+            if (claim.attempts >= 3) {
+                claim.finished = true;
+                this.clearPlayClaimTimer();
+                return;
+            }
+        }
+        this.armPlayClaim(visit);
+    }
+
+    /** Card actions and other menus focus controls that are not in the page's zones. */
+    private focusInOverlay(): boolean {
+        const active = document.activeElement;
+        if (!(active instanceof HTMLElement) || this.locate(active) !== undefined) return false;
+        return active.closest("[role='dialog'], [role='alertdialog'], .card-actions-scrim") !== null;
+    }
+
+    private armPlayClaim(visit: string): void {
+        const claim = this.playClaim;
+        if (claim === undefined || claim.visit !== visit || claim.finished || claim.timer !== undefined) return;
+        claim.timer = window.setTimeout(() => {
+            if (this.playClaim?.visit !== visit) return;
+            this.playClaim.timer = undefined;
+            const current = this.view;
+            if (current === undefined || visitKey(current) !== visit) return;
+            this.settlePrimaryFocus(current, true);
+        }, 50);
     }
 
     private focusItem(zone: Zone | undefined, item: FocusItem | undefined): void {
@@ -455,15 +607,28 @@ export class FocusHost {
         // first card is a default-focus landing (CalendarView prefers the first
         // item on every shelf), so the next Down must measure that card rather
         // than the day button the axis still holds.
+        // Search People is the same kind of landing. TVDetailCastRail uses
+        // tvDefaultFocus on the first person, so a filter pill's column must not
+        // survive into the next row. A short title row keeps the column that
+        // entered it: the next Down still measures that column, not the card
+        // the row snapped to.
+        const previousItem = this.navigationItem;
+        const previousZone = this.lastZone;
+        const axis = this.navigationX;
         const calendarChrome = this.view?.name === "calendar" && (zone.id === "filters" || zone.id === "days" || zone.id === "status" || zone.id === "empty" || this.lastZone === "filters" || this.lastZone === "days" || this.lastZone === "status" || this.lastZone === "empty");
-        if (zone.id === "nav" || this.lastZone === "nav" || calendarChrome) this.navigationX = undefined;
+        if (zone.id === "nav" || this.lastZone === "nav" || calendarChrome || zone.id === "search-people") this.navigationX = undefined;
+        if (this.view?.name === "search" && zone.id === "grid") {
+            const ragged = previousZone === "grid" && previousItem !== undefined && axis !== undefined && !framesMeet(previousItem.element, item.element);
+            if (!ragged) this.navigationX = undefined;
+        }
         this.memory.set(zone.id, item.key);
         this.lastZone = zone.id;
         // Opening the cascade must not replace the content return target.
         if (this.tracksContent(zone.id)) this.contentZone = zone.id;
         this.navigationItem = item;
+        const previous = document.activeElement;
         item.element.focus({ preventScroll: true });
-        this.scroll.reveal(item.element, this.container);
+        this.scroll.reveal(item.element, this.container, previous);
     }
 
     /** Chrome zones are not a page's content return target. */
@@ -531,6 +696,7 @@ export class FocusHost {
         if (view === undefined || key === undefined) {
             return;
         }
+        if ((key === "up" || key === "down" || key === "left" || key === "right") && this.playClaim !== undefined && !this.playClaim.finished) this.playClaim.moved = true;
         if (key === "back") {
             if (view.back !== undefined) {
                 if (view.back() !== false) event.preventDefault();
@@ -542,6 +708,11 @@ export class FocusHost {
             // Focus was lost (a pointer click, or the focused node was replaced): bring it back.
             event.preventDefault();
             this.focusFirst([this.memoryTarget(), view.focus]);
+            return;
+        }
+        if ((key === "play" || key === "play_pause") && found.item.play !== undefined) {
+            event.preventDefault();
+            if (!event.repeat) found.item.play();
             return;
         }
         if (key !== "up" && key !== "down" && key !== "left" && key !== "right") {
@@ -565,14 +736,9 @@ export class FocusHost {
         if (target !== undefined) {
             this.focusItem(zone, zone.items[target]);
         } else {
-            if (zone.id === "seasons" && key === "up") {
-                const actions = view.zones.find(candidate => candidate.id === "actions");
-                this.focusItem(actions, actions?.items.find(item => item.key === "more"));
-                return;
-            }
             const destination = zone[key];
             const next = view.zones.find(candidate => candidate.id === destination && candidate.items.length > 0);
-            if (next !== undefined) this.focusItem(next, next.items.find(item => item.key === next.entry) ?? next.items.find(item => item.key === this.memory.get(next.id)) ?? next.items[0]);
+            if (next !== undefined) this.focusItem(next, this.restoredEntry(next) ?? next.items.find(item => item.key === next.entry) ?? next.items.find(item => item.key === this.memory.get(next.id)) ?? next.items[0]);
             else if (key === "up" || key === "down") this.enterZone(zoneIndex, key === "up" ? -1 : 1, found.item);
         }
     };
@@ -584,6 +750,77 @@ function landscapeArt(element: HTMLElement): boolean {
     const box = art instanceof HTMLElement ? art : element;
     // Focus transforms can round a square's viewport width above its height.
     return box.offsetWidth > box.offsetHeight;
+}
+
+/**
+ * People into the title grid take the first column whose left edge is at or past the
+ * focused centre. A filter pill into that grid takes the card whose frame meets the pill.
+ * Each title row is a full-width focus section, so a move into the row still lands when
+ * no card meets. Requests move only onto a card that lines up. People takes a request
+ * only when the first person meets it; otherwise the move stays.
+ * A short title row keeps the column that entered it, so the next move uses that column.
+ * Box sets keep the ordinary nearest-centre move.
+ */
+function searchVerticalLanding(source: Zone | undefined, destination: Zone, from: HTMLElement, edgeItems: readonly FocusItem[], axisX?: number): FocusItem | "stay" | undefined {
+    if (source === undefined) return undefined;
+    if (source.id === "search-people" && destination.id === "grid") {
+        // A person past the last column still enters that column. The measured rows have a column at or past the centre.
+        return columnAtOrPastCenter(edgeItems, from) ?? nearestItem(edgeItems, from);
+    }
+    if (source.id === "search-filters" && destination.id === "grid") {
+        return overlappingNearest(edgeItems, from.getBoundingClientRect()) ?? nearestItem(edgeItems, from);
+    }
+    const intoRequests = destination.id === "search-requests" && (source.id === "search-people" || source.id === "grid");
+    const outOfRequests = source.id === "search-requests" && (destination.id === "grid" || destination.id === "search-people");
+    if (!intoRequests && !outOfRequests) return undefined;
+    const origin = source.id === "grid" ? columnRect(from, axisX) : from.getBoundingClientRect();
+    if (destination.id === "search-people") {
+        const first = edgeItems[0];
+        return first !== undefined && framesMeetRect(origin, first.element.getBoundingClientRect()) ? first : "stay";
+    }
+    const meet = overlappingNearest(edgeItems, origin);
+    if (meet !== undefined) return meet;
+    // TVCatalogGrid gives every row a full-width focus section, so the row catches the move.
+    if (destination.id === "grid") return nearestItem(edgeItems, from, axisX) ?? "stay";
+    return "stay";
+}
+
+function columnRect(element: HTMLElement, axisX: number | undefined): DOMRect {
+    const rect = element.getBoundingClientRect();
+    if (axisX === undefined) return rect;
+    const dx = axisX - (rect.left + rect.width / 2);
+    if (Math.abs(dx) < 0.5) return rect;
+    return new DOMRect(rect.x + dx, rect.y, rect.width, rect.height);
+}
+
+function framesMeet(origin: HTMLElement, target: HTMLElement): boolean {
+    return framesMeetRect(origin.getBoundingClientRect(), target.getBoundingClientRect());
+}
+
+function framesMeetRect(origin: DOMRect, target: DOMRect): boolean {
+    return origin.left < target.right && target.left < origin.right;
+}
+
+function columnAtOrPastCenter(items: readonly FocusItem[], from: HTMLElement): FocusItem | undefined {
+    const box = from.getBoundingClientRect();
+    const center = box.left + box.width / 2;
+    return items.find(item => item.element.getBoundingClientRect().left >= center - 0.5);
+}
+
+function overlappingNearest(items: readonly FocusItem[], origin: DOMRect): FocusItem | undefined {
+    const center = origin.left + origin.width / 2;
+    let best: FocusItem | undefined;
+    let bestDistance = Number.POSITIVE_INFINITY;
+    for (const item of items) {
+        const target = item.element.getBoundingClientRect();
+        if (origin.left >= target.right || target.left >= origin.right) continue;
+        const distance = Math.abs(target.left + target.width / 2 - center);
+        if (distance < bestDistance) {
+            bestDistance = distance;
+            best = item;
+        }
+    }
+    return best;
 }
 
 function nearestItem(items: readonly FocusItem[], from: HTMLElement, navigationX?: number): FocusItem | undefined {

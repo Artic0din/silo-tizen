@@ -78,12 +78,53 @@ export class NativeHttp {
     private readonly device: DeviceHeaders;
     private readonly fetch: FetchLike;
     private readonly clock: Clock;
+    private readonly connectionCheck: (() => Promise<void>) | undefined;
 
-    constructor(base: ServerBase, device: DeviceHeaders, fetch: FetchLike, clock: Clock) {
+    constructor(base: ServerBase, device: DeviceHeaders, fetch: FetchLike, clock: Clock,
+        connectionCheck?: () => Promise<void>) {
         this.base = base;
         this.device = device;
         this.fetch = fetch;
         this.clock = clock;
+        this.connectionCheck = connectionCheck;
+    }
+
+    /**
+     * GET a URL on this server and return the body unread.
+     * Redirects are refused: a browser cannot follow one and drop Authorization
+     * the way URLSession does (BandwidthProbeDownload.swift:403-411).
+     */
+    async fetchResource(url: string, spec: { readonly bearer: string; readonly profile?: ProfileHeaders; readonly signal?: AbortSignal }): Promise<Response> {
+        let address: URL;
+        try {
+            address = new URL(url);
+        } catch {
+            throw new ApiError({ kind: "network" });
+        }
+        if (!isPermittedUrl(address, this.base.baseUrl) || address.username !== "" || address.password !== "" || address.origin !== this.base.origin) {
+            throw new ApiError({ kind: "network" });
+        }
+        const headers = this.headers({
+            method: "GET",
+            path: `${address.pathname}${address.search}`,
+            retry: "never",
+            decode: () => undefined,
+            bearer: spec.bearer,
+            ...(spec.profile === undefined ? {} : { profile: spec.profile }),
+        });
+        try {
+            return await this.fetch(address.href, {
+                method: "GET",
+                headers,
+                ...(spec.signal === undefined ? {} : { signal: spec.signal }),
+                redirect: "error",
+                credentials: "omit",
+                cache: "no-store",
+            });
+        } catch {
+            if (spec.signal?.aborted === true) throw abortedError();
+            throw new ApiError({ kind: "network" });
+        }
     }
 
     async send<T>(spec: RequestSpec<T>): Promise<T> {
@@ -98,6 +139,17 @@ export class NativeHttp {
                 await sleep(this.clock, delayMs, spec.signal ?? neverAborts(), abortedError);
             }
         }
+    }
+
+    async verifyConnection(signal?: AbortSignal): Promise<void> {
+        if (signal?.aborted) throw abortedError();
+        if (this.connectionCheck === undefined) return;
+        const checking = this.connectionCheck();
+        await new Promise<void>((resolve, reject) => {
+            const cancel = (): void => reject(abortedError());
+            signal?.addEventListener("abort", cancel, { once: true });
+            checking.then(resolve, reject).finally(() => signal?.removeEventListener("abort", cancel));
+        });
     }
 
     private mayRetry(spec: RequestSpec<unknown>, error: ApiError, attempt: number): boolean {
@@ -132,6 +184,13 @@ export class NativeHttp {
         }, spec.timeoutMs ?? DEFAULT_TIMEOUT_MS);
 
         try {
+            if (this.connectionCheck !== undefined) {
+                try { await this.verifyConnection(controller.signal); }
+                catch (error) {
+                    if (timedOut) throw new ApiError({ kind: "timeout" });
+                    throw error;
+                }
+            }
             let response: Response;
             try {
                 response = await this.fetch(this.base.apiRoot + spec.path, {

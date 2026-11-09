@@ -40,7 +40,7 @@ export type RefreshOutcome =
     | { readonly status: "refreshed" }
     | { readonly status: "session_ended" }
     /** Server or network unavailable; tokens kept, try again after the delay. */
-    | { readonly status: "unavailable"; readonly retryAfterSeconds: number | undefined }
+    | { readonly status: "unavailable"; readonly retryAfterSeconds: number | undefined; readonly transportFailure?: "network" | "timeout" }
     | { readonly status: "aborted" }
     | { readonly status: "signed_out" };
 
@@ -67,6 +67,9 @@ export type AuthorizedSpec<T> = Omit<RequestSpec<T>, "bearer" | "profile"> & {
     /** Resend once after a 401 and a successful refresh. False for non-retryable checks (PIN). */
     readonly replayAfterRefresh?: boolean;
 };
+
+/** Refresh failed before dispatch (or after an explicit 401 refusal). */
+export class SessionRefreshError extends ApiError {}
 
 export class SessionError extends Error {
     readonly reason: "signed_out" | "session_ended" | "unavailable";
@@ -119,9 +122,9 @@ export class NativeSession {
         return this.credential !== undefined;
     }
 
-    get account(): { readonly id: string; readonly username: string } | undefined {
+    get account(): { readonly id: string; readonly username: string; readonly role?: string } | undefined {
         const credential = this.credential;
-        return credential === undefined ? undefined : { id: credential.accountId, username: credential.username };
+        return credential === undefined ? undefined : { id: credential.accountId, username: credential.username, ...(credential.role === undefined ? {} : { role: credential.role }) };
     }
 
     get persistence(): Persistence {
@@ -181,6 +184,7 @@ export class NativeSession {
             serverId: this.server.serverId,
             accountId: account.id,
             username: account.username,
+            ...(account.role === undefined ? {} : { role: account.role }),
             accessToken: tokens.accessToken,
             refreshToken: tokens.refreshToken,
             accessExpiresAt: this.clock.now() + tokens.expiresInSeconds * 1000,
@@ -264,9 +268,49 @@ export class NativeSession {
                 throw abortedError();
             }
         };
+        await this.http.verifyConnection(signal);
         const credential = await this.freshCredential(ensureCurrent);
         ensureCurrent();
         return credential.accessToken;
+    }
+
+    /**
+     * GET a same-origin URL with the account and the active profile, the way a
+     * profile-scoped read does. A 401 refreshes once and sends the GET again.
+     * The body is left unread for the bandwidth probe.
+     */
+    async authorizedFetch(url: string, signal?: AbortSignal): Promise<Response> {
+        const generation = this.generation;
+        const ensureCurrent = (): void => {
+            if (this.generation !== generation || signal?.aborted === true) throw abortedError();
+        };
+        const profile = this.profile;
+        if (profile === undefined) throw new SessionError("signed_out");
+        let replayed = false;
+        for (;;) {
+            const credential = await this.freshCredential(ensureCurrent);
+            ensureCurrent();
+            const linked = linkSignals(this.authorityController.signal, signal);
+            try {
+                const response = await this.http.fetchResource(url, {
+                    bearer: credential.accessToken,
+                    profile: { id: profile.id, token: profile.token },
+                    signal: linked.signal,
+                });
+                if (response.status === 401 && !replayed) {
+                    await response.body?.cancel().catch(() => undefined);
+                    const outcome = await this.refreshAfterRejection(credential);
+                    throwUnlessRefreshed(outcome);
+                    ensureCurrent();
+                    replayed = true;
+                    continue;
+                }
+                ensureCurrent();
+                return response;
+            } finally {
+                linked.dispose();
+            }
+        }
     }
 
     private async freshCredential(ensureCurrent: () => void): Promise<StoredCredential> {
@@ -315,6 +359,11 @@ export class NativeSession {
         }
         const revoking = revokeIssuedTokens(this.http, credential);
         return { storage: await clearing, server: await revoking };
+    }
+
+    /** Discard a replaced deployment's authority without sending it a revocation. */
+    async deploymentChanged(): Promise<void> {
+        await this.endAccount("session_expired");
     }
 
     /** Releases an obsolete owner without clearing the replacement login's vault. */
@@ -377,7 +426,7 @@ export class NativeSession {
                 await this.endAccount("session_expired");
                 return { status: "session_ended" };
             }
-            return { status: "unavailable", retryAfterSeconds: error.retryAfterSeconds };
+            return { status: "unavailable", retryAfterSeconds: error.retryAfterSeconds, ...(error.failure.kind === "network" || error.failure.kind === "timeout" ? { transportFailure: error.failure.kind } : {}) };
         }
     }
 
@@ -426,6 +475,7 @@ function throwUnlessRefreshed(outcome: RefreshOutcome): void {
         case "refreshed":
             return;
         case "unavailable":
+            if (outcome.transportFailure !== undefined) throw new SessionRefreshError({ kind: outcome.transportFailure });
             throw new SessionError("unavailable", outcome.retryAfterSeconds);
         case "session_ended":
             throw new SessionError("session_ended");

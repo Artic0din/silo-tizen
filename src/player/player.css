@@ -1,5 +1,34 @@
 /* Native player, 1920x1080, Chromium 108. */
 
+.player-error.player-next-up {
+    padding: 112px 180px 260px 980px;
+    overflow-y: auto;
+    background: transparent;
+}
+.player-next-up .player-title { font-size: 42px; }
+.player-next-eyebrow { font-size: 18px; text-transform: uppercase; opacity: .52; }
+.player-next-synopsis { font-size: 22px; line-height: 1.4; }
+.player-next-up .player-button { margin: 18px 20px 0 0; }
+.player-next-deck {
+    margin: 34px 0 0 -800px;
+    display: flex;
+    gap: 40px;
+    overflow-x: auto;
+    padding: 20px;
+}
+.player-next-deck > h2 { position: absolute; margin-top: -24px; }
+.player-next-card { flex: 0 0 360px; display: flex; flex-direction: column; }
+.player-next-card img { width: 360px; aspect-ratio: 16 / 9; object-fit: cover; }
+.player-next-card .episode-spoiler-blur { display: block; width: 360px; aspect-ratio: 16 / 9; overflow: hidden; }
+.player-next-card .episode-spoiler-blur > .player-next-still {
+    filter: blur(24px);
+    width: calc(100% + 48px);
+    height: calc(100% + 48px);
+    max-width: none;
+    margin: -24px;
+}
+.player-next-deck[hidden] { display: none; }
+
 .player-captions {
     position: absolute;
     left: 8%;
@@ -38,10 +67,19 @@
     width: 1920px;
     height: 1080px;
     overflow: hidden;
+    /* AVPlay draws on a plane behind the page. An opaque player hides the picture. */
     background: transparent;
     color: var(--silo-text);
     font-family: var(--silo-font);
 }
+
+.player-backdrop {
+    position: absolute;
+    inset: 0;
+    background: #000000;
+}
+
+.player-backdrop[hidden] { display: none; }
 
 .player-video {
     /* AVPlay draws video separately; this object's browser placeholder must not cover it. */
@@ -60,14 +98,28 @@
     bottom: 0;
     left: 0;
     box-sizing: border-box;
-    padding: 120px 88px 64px;
-    background: linear-gradient(transparent, rgba(0, 0, 0, 0.94));
+    padding: 0 80px 48px;
+    background: linear-gradient(to top, rgba(0, 0, 0, 0.55), rgba(0, 0, 0, 0) 240px);
     outline: none;
     transition: opacity var(--silo-fast) ease-out;
 }
 
+.player-overlay {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    gap: 12px;
+    /* Same-state Apple measurement at 1920x1080 takes precedence over source insets. */
+    padding: 0 160px 107px;
+}
+
 .player-overlay-hidden {
     opacity: 0;
+}
+
+/* The panel and the opening load take the transport off the picture. */
+.player-overlay-clear {
+    background: none;
 }
 
 .player-skip {
@@ -78,39 +130,108 @@
 
 .player-error {
     top: 0;
-    padding-top: 320px;
-    background: var(--silo-background);
+    padding: 320px 88px 64px;
+    background: none;
 }
 
-.player-title {
+.player-error .player-title {
     margin: 0 0 24px;
     font-size: 48px;
     font-weight: 700;
-    line-height: 1.1;
+    text-shadow: none;
 }
 
-.player-status {
-    min-height: 36px;
-    margin: 0 0 16px;
-    font-size: 26px;
-    color: var(--silo-text);
+.player-title {
+    margin: 0;
+    font-size: 36px;
+    font-weight: 600;
+    line-height: 1.1;
+    text-shadow: 0 1px 4px rgba(0, 0, 0, 0.55);
 }
+
+/* The slot keeps the scrubber at y 792. The footer itself is lifted to the measured lines:
+   series 711, title 737, and the episode tag centered beside the title at 747. */
+.player-footer-slot { height: 65.59375px; }
+.player-footer {
+    position: absolute;
+    top: -15.40625px;
+    right: 160px;
+    left: 160px;
+}
+.player-overlay .player-title { line-height: 44px; }
+.player-series { margin: 0 0 2px; font-size: 20px; font-weight: 500; line-height: 24px; color: rgba(255, 255, 255, 0.65); }
+.player-title-row { display: flex; align-items: center; gap: 10px; }
+.player-episode { font-size: 20px; line-height: 24px; color: rgba(255, 255, 255, 0.6); }
+
+/* PlayerBufferingCapsule / the status column: top-trailing, off the title stack. */
+.player-status {
+    position: absolute;
+    top: 64px;
+    right: 80px;
+    z-index: 3;
+    margin: 0;
+    font-size: 20px;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.82);
+    pointer-events: none;
+}
+
+.player-spinner {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+}
+
+.player-spinner[hidden] { display: none; }
+
+.player-spinner-mark {
+    width: 80px;
+    height: 80px;
+    color: #ffffff;
+    filter: drop-shadow(0 0 12px rgba(0, 0, 0, 0.5));
+    animation: player-spin 1s linear infinite;
+}
+
+.player-spinner-mark svg { display: block; width: 80px; height: 80px; }
+
+@keyframes player-spin { to { transform: rotate(360deg); } }
 
 .player-bar {
-    height: 6px;
-    margin: 0 0 20px;
-    border-radius: 6px;
-    background: var(--silo-boundary);
+    position: relative;
+    height: 56px;
+    margin: 0 0 12px;
+    background: transparent;
 }
 
 .player-thumbnail {
     position: absolute;
-    left: 88px;
-    bottom: calc(100% - 96px);
-    overflow: hidden;
-    border-radius: 12px;
+    box-sizing: border-box;
+    width: 340px;
+    padding: 10px;
+    border-radius: 20px;
     pointer-events: none;
-    background: var(--silo-elevated);
+    background: rgba(26, 26, 26, 0.88);
+    box-shadow: 0 7px 18px rgba(0, 0, 0, 0.5);
+}
+
+.player-thumbnail-frame {
+    position: relative;
+    width: 320px;
+    height: 180px;
+    overflow: hidden;
+    border-radius: 14px;
+}
+
+.player-menu-note:focus {
+    padding: 11px 14px;
+    border-radius: 8px;
+    background: #ffffff;
+    color: #000000;
+    outline: none;
 }
 
 .player-thumbnail img {
@@ -118,36 +239,87 @@
     max-width: none;
 }
 
+.player-thumbnail-time {
+    margin: 8px 0 0;
+    font-size: 24px;
+    font-weight: 600;
+    line-height: 28.265625px;
+    text-align: center;
+    color: #ffffff;
+    font-variant-numeric: tabular-nums;
+}
+
+.player-bar-track {
+    position: absolute;
+    right: 0;
+    left: 0;
+    top: 50%;
+    height: 7px;
+    margin-top: -3.5px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.24);
+}
+
+.player-bar:focus .player-bar-track {
+    background: rgba(255, 255, 255, 0.35);
+}
+
+.player-bar.player-bar-preview .player-bar-track {
+    height: 12px;
+    margin-top: -6px;
+    background: rgba(255, 255, 255, 0.48);
+}
+
 .player-bar-fill {
-    height: 6px;
-    border-radius: 6px;
-    background: var(--silo-text);
+    height: 100%;
+    border-radius: 999px;
+    background: #ffffff;
 }
 
 .player-bar:focus {
-    outline: 2px solid var(--silo-text);
-    outline-offset: 8px;
+    outline: none;
 }
 
-.player-bar-preview .player-bar-fill {
-    position: relative;
-}
-
-.player-bar-preview .player-bar-fill::after {
-    content: "";
+.player-puck {
+    display: none;
     position: absolute;
-    right: -9px;
-    top: -6px;
-    width: 18px;
-    height: 18px;
+    top: 50%;
+    width: 30px;
+    height: 30px;
+    margin-top: -15px;
+    margin-left: -15px;
     border-radius: 50%;
-    background: var(--silo-text);
+    background: #ffffff;
+    box-shadow: 0 3px 8px rgba(0, 0, 0, 0.48);
+}
+
+.player-bar:focus .player-puck,
+.player-bar-preview .player-puck {
+    display: block;
+}
+
+.player-bar-preview .player-puck {
+    width: 42px;
+    height: 42px;
+    margin-top: -21px;
+    margin-left: -21px;
+    box-shadow: 0 0 0 8px rgba(255, 255, 255, 0.55), 0 3px 8px rgba(0, 0, 0, 0.48);
 }
 
 .player-transport {
     display: flex;
     align-items: center;
-    margin-top: 32px;
+    gap: 14px;
+    margin: 0;
+}
+
+.player-transport-group {
+    display: flex;
+    gap: 10px;
+}
+
+.player-transport-secondary {
+    margin-left: auto;
 }
 
 .player-transport[hidden] {
@@ -155,13 +327,74 @@
 }
 
 .player-transport .player-button {
-    margin-right: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 66px;
+    height: 66px;
+    min-width: 66px;
+    margin: 0;
+    padding: 0;
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.35);
+    color: #ffffff;
 }
 
-.player-time {
+.player-glyph {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+}
+
+.player-glyph svg {
+    width: 25px;
+    height: 25px;
+    display: block;
+}
+
+.player-transport .player-button-primary .player-glyph svg {
+    width: 30px;
+    height: 30px;
+}
+
+.player-rate {
+    position: absolute;
+    top: -34px;
+    right: 0;
     margin: 0;
-    font-size: 23px;
-    color: var(--silo-secondary);
+    padding: 7px 12px;
+    border-radius: 999px;
+    background: #ffffff;
+    color: #000000;
+    font-size: 18px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.35);
+}
+
+.player-transport .player-button:focus {
+    border-color: transparent;
+    background: #ffffff;
+    color: #000000;
+}
+
+.player-time[hidden] { display: none; }
+
+.player-time {
+    display: flex;
+    justify-content: space-between;
+    margin: 0 0 13px;
+    font-size: 28px;
+    font-weight: 600;
+    /* Inter's used line box at 28px semibold. The fallback face is 33px, so an
+       unlocked line would drop the scrubber by 1px until the face swaps, and a
+       thumbnail placed in that window would keep the lower bottom. */
+    line-height: 34px;
+    color: #ffffff;
+    font-variant-numeric: tabular-nums;
 }
 
 .player-error-text {
@@ -170,6 +403,89 @@
     font-size: 30px;
     line-height: 1.35;
     color: var(--silo-error);
+}
+
+/* tvOS PlayerView.errorView is pinned to the top. siloBody is 26 regular white.
+   siloError is #B00020. Buttons reuse SiloPrimaryButtonStyle as ported on
+   .requests-failure .browse-button, with the player's min-width of 140. */
+.player-error.player-error-wall {
+    padding: 0;
+    text-align: center;
+}
+
+.player-error-wall > .player-title {
+    display: none;
+}
+
+.player-error-wall .player-error-mark {
+    display: block;
+    width: 40px;
+    height: 40px;
+    margin: 0 auto 16px;
+    color: #b00020;
+}
+
+.player-error-wall .player-error-mark svg {
+    display: block;
+    width: 40px;
+    height: 40px;
+}
+
+.player-error-triangle {
+    fill: currentColor;
+}
+
+.player-error-bang {
+    fill: none;
+    stroke: #000;
+    stroke-width: 4;
+    stroke-linecap: round;
+}
+
+.player-error-wall .player-error-text {
+    margin: 0 auto 16px;
+    padding: 0 16px;
+    font-size: 26px;
+    font-weight: 400;
+    color: #ffffff;
+    text-align: center;
+}
+
+.player-error-wall .player-error-actions {
+    display: flex;
+    flex-direction: row;
+    justify-content: center;
+    gap: 16px;
+}
+
+.player-error-wall .player-error-actions .player-button {
+    box-sizing: border-box;
+    min-width: 140px;
+    height: 62px;
+    margin: 0;
+    padding: 0 18px;
+    border: 0;
+    border-radius: 31px;
+    background: rgba(237, 237, 237, 0.72);
+    color: #000;
+    font-size: 28px;
+    line-height: 34px;
+    font-weight: 600;
+}
+
+.player-error-wall .player-error-actions .player-button:focus {
+    border-color: transparent;
+    background: #ededed;
+    color: #000;
+    outline: none;
+    transform: scale(1.055);
+    box-shadow: inset 0 0 0 2px #fff, 0 0 0 2px #fff, 0 0 12px 8px rgba(255, 255, 255, 0.36), 0 8px 48px rgba(237, 237, 237, 0.48);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .player-error-wall .player-error-actions .player-button:focus {
+        transform: none;
+    }
 }
 
 .player-button {
@@ -194,48 +510,129 @@
 
 .player-tracks-button {
     margin-left: auto;
-    margin-right: 0;
 }
 
-/* Audio and subtitles: two lists side by side on the right, over the video. */
-.player-menu {
+/* Apple TVPlayerInfoHUD: tab pills above a 1100x380 glass panel. */
+.player-hud {
     position: absolute;
-    top: 56px;
-    right: 88px;
-    bottom: 56px;
+    /* Measured panel y=155; source top padding does not include the runtime safe area. */
+    top: 93px;
+    right: 0;
+    left: 0;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+}
+
+.player-hud[hidden] {
+    display: none;
+}
+
+.player-tabs {
+    display: flex;
+    gap: 12px;
+}
+
+.player-tab {
+    padding: 10px 24px;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.45);
+    color: #ffffff;
+    font: inherit;
+    font-size: 22px;
+    font-weight: 600;
+}
+
+.player-tab[aria-selected="true"] {
+    border-color: transparent;
+    background: #ffffff;
+    color: #000000;
+}
+
+.player-menu {
+    position: relative;
     width: 1100px;
+    height: 380px;
     box-sizing: border-box;
-    padding: 40px;
-    border: 1px solid var(--silo-hairline);
-    border-radius: 18px;
-    background: rgba(21, 23, 28, 0.97);
-    animation: silo-page-enter var(--silo-page) ease-out;
+    display: flex;
+    flex-direction: column;
+    padding: 22px 28px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 28px;
+    background: rgba(26, 26, 26, 0.88);
+    box-shadow: 0 10px 20px rgba(0, 0, 0, 0.5);
+}
+
+.player-menu-panes {
+    position: relative;
+    flex: 1;
+    min-height: 0;
 }
 
 .player-menu-list {
-    display: inline-block;
-    width: calc(50% - 20px);
-    height: calc(100% - 160px);
+    position: absolute;
+    inset: 0;
     box-sizing: border-box;
-    padding: 4px;
-    margin-right: 20px;
-    vertical-align: top;
+    overflow: hidden;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.player-menu-list.player-menu-pane-active {
+    position: relative;
+    height: 100%;
     overflow-y: auto;
+    opacity: 1;
+    pointer-events: auto;
     scroll-behavior: smooth;
 }
 
-.player-menu-with-quality {
-    width: 1500px;
+.player-info {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 48px;
+    outline: none;
 }
 
-.player-menu-with-quality .player-menu-list {
-    width: calc(33.333% - 20px);
+.player-info-title {
+    margin: 0;
+    font-size: 34px;
+    font-weight: 600;
+    line-height: 1.15;
+}
+
+.player-info-meta {
+    margin: 8px 0 0;
+    font-size: 20px;
+    color: rgba(255, 255, 255, 0.65);
+    font-variant-numeric: tabular-nums;
+}
+
+.player-info-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    margin: 0;
+    padding: 4px 0;
+    font-size: 22px;
+    font-weight: 500;
+}
+
+.player-info-value {
+    font-weight: 400;
+    color: rgba(255, 255, 255, 0.7);
+    font-variant-numeric: tabular-nums;
 }
 
 .player-menu-heading {
-    margin: 0 0 24px;
-    font-size: 30px;
-    font-weight: 700;
+    margin: 0 0 14px;
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 1.6px;
+    color: rgba(255, 255, 255, 0.5);
 }
 
 .player-menu-note {
@@ -245,26 +642,45 @@
 }
 
 .player-choice {
-    display: block;
-    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 14px;
     width: 100%;
-    margin: 0 0 16px;
-    padding: 16px 48px 16px 24px;
-    border: 2px solid transparent;
-    border-radius: 12px;
+    margin: 0 0 2px;
+    padding: 11px 14px;
+    border: 0;
+    border-radius: 8px;
     background: transparent;
-    color: var(--silo-text);
+    color: #ffffff;
     font: inherit;
-    font-size: 26px;
+    font-size: 22px;
+    font-weight: 500;
     text-align: left;
     transition: background-color var(--silo-fast) ease-out, color var(--silo-fast) ease-out;
 }
 
+.player-choice-copy {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+}
+
+.player-choice-detail {
+    font-size: 17px;
+    font-weight: 400;
+    color: rgba(255, 255, 255, 0.55);
+}
+
 .player-choice:focus {
-    border-color: #ffffff;
     background: #ffffff;
     color: #000000;
     outline: none;
+}
+
+.player-choice:focus .player-choice-detail {
+    color: rgba(0, 0, 0, 0.62);
 }
 
 .player-choice-label {
@@ -272,32 +688,29 @@
 }
 
 .player-choice-current {
-    background: var(--silo-selected);
+    background: rgba(255, 255, 255, 0.14);
 }
 
 .player-choice-current::after {
     content: "\2713";
-    position: absolute;
-    right: 16px;
-    top: 16px;
+    font-size: 20px;
+    font-weight: 600;
 }
 
 .player-menu-status {
-    position: absolute;
-    right: 40px;
-    bottom: 40px;
-    left: 40px;
-    max-height: 136px;
+    flex: none;
+    max-height: 72px;
     overflow-y: auto;
-    min-height: 44px;
-    margin: 0;
-    font-size: 26px;
+    min-height: 28px;
+    margin: 8px 0 0;
+    font-size: 17px;
     line-height: 1.35;
-    color: var(--silo-text);
+    color: rgba(255, 255, 255, 0.7);
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .player-menu-list {
+    .player-menu-list.player-menu-pane-active {
         scroll-behavior: auto;
     }
+    .player-spinner-mark { animation: none; }
 }

@@ -19,6 +19,7 @@ interface FeedNode {
     watched: number;
     more: () => void;
     readonly scale: number;
+    readonly hidesImages: boolean;
     readonly overlays: ReturnType<NonNullable<ViewContext["cardOverlays"]>>;
 }
 
@@ -37,10 +38,11 @@ export function feedGrid(owner: object, page: CatalogPage, context: ViewContext,
     let feed = feeds.get(owner);
     const scale = context.posterScale?.() ?? 1;
     const overlays = context.cardOverlays?.();
+    const hidesImages = context.spoilers?.().hidesImages ?? false;
     const extends_ = feed !== undefined && feed.cards.length <= page.items.length && feed.cards.every((card, index) => page.items[index] === card);
-    if (feed === undefined || !extends_ || feed.scale !== scale || feed.overlays !== overlays) {
+    if (feed === undefined || !extends_ || feed.scale !== scale || feed.overlays !== overlays || feed.hidesImages !== hidesImages) {
         feed?.observer?.disconnect();
-        feed = { node: el("div", "browse-grid catalog-grid"), cards: [], items: [], observer: undefined, watched: 0, more, scale, overlays };
+        feed = { node: el("div", "browse-grid catalog-grid"), cards: [], items: [], observer: undefined, watched: 0, more, scale, overlays, hidesImages };
         feeds.set(owner, feed);
     }
     feed.node.style.setProperty("--grid-columns", String(columns));

@@ -68,15 +68,23 @@ export function calendarEventKeys(events: readonly CalendarEvent[]): string[] {
         return `event:${identity}:${occurrence}`;
     });
 }
+/**
+ * Apple `DateFormatters.localShortTime` uses the viewer's shortened time.
+ * The TV comparison showed a 12-hour clock ("12:00 pm"). `hour12: true` is not
+ * enough: Chromium 108 resolves en-GB to hour cycle h11, so noon is "0:00 pm"
+ * and 00:05 is "0:05 am". `hourCycle: "h12"` keeps 12 on that engine.
+ */
+const VIEWER_CLOCK = { hour: "numeric", minute: "2-digit", hourCycle: "h12" } as const;
+
 export function eventTime(event: CalendarEvent, timezone: string): string | undefined {
     if (event.airAt !== undefined) {
-        try { return new Intl.DateTimeFormat(undefined, { timeZone: timezone, hour: "numeric", minute: "2-digit", hour12: true }).format(new Date(event.airAt)); }
+        try { return new Intl.DateTimeFormat(undefined, { ...VIEWER_CLOCK, timeZone: timezone }).format(new Date(event.airAt)); }
         catch { throw new CalendarTimezoneError("Could not format this TV’s timezone. Try again."); }
     }
     if (event.airTime === undefined) return undefined;
     const [hour, minute] = event.airTime.split(":").map(Number);
     const local = new Date(2000, 0, 1, hour, minute);
-    return new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit", hour12: true }).format(local);
+    return new Intl.DateTimeFormat(undefined, VIEWER_CLOCK).format(local);
 }
 export function calendarDateLabel(date: string, weekday: "short" | "long"): string {
     try { return new Intl.DateTimeFormat(undefined, { weekday, month: "short", day: "numeric" }).format(dayDate(date)); }

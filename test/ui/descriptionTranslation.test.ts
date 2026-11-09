@@ -5,7 +5,7 @@ import { FakeCalendar } from "../native/support/fakeCalendar.ts";
 import { FakeDetails } from "../native/support/fakeDetails.ts";
 import { FakeHome } from "../native/support/fakeHome.ts";
 import type { CatalogRoutes, FakeSilo, Reply } from "../native/support/fakeSilo.ts";
-import { launchBrowser, openTv, type Tv } from "./support/tv.ts";
+import { launchBrowser, openTv, pauseTvClock, type Tv } from "./support/tv.ts";
 
 let browser: Browser;
 before(async () => { browser = await launchBrowser(); });
@@ -61,6 +61,12 @@ async function signIn(tv: Tv): Promise<void> {
     await tv.page.evaluate(() => window.browseHarness.connect());
     await tv.eventually(async () => tv.fake.devices.size > 0, "device code");
     tv.fake.approve([...tv.fake.devices.keys()][0] ?? "");
+    // The start answer arms the approval poll. Jumping before that answer lands
+    // moves a paused clock past the poll, and the wall-clock wait cannot bring it back.
+    await tv.eventually(() => tv.page.evaluate(() => {
+        const loginPhase = window.browseHarness.loginPhase;
+        return loginPhase === "waiting" || loginPhase === "signed_in";
+    }), "login code");
     await tv.jump(5000);
     await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.loginPhase === "signed_in"), "login");
     await tv.page.evaluate(() => window.browseHarness.selectProfile("p-owner"));
@@ -91,6 +97,13 @@ test("Details offers Translate Description and shows the translating and transla
         await tv.jump(1000);
         await tv.page.getByText("Translated by AI", { exact: true }).waitFor();
         assert.match(await tv.page.locator(".details-editorial .browse-overview").textContent() ?? "", /Translated overview/);
+        await tv.remote(10009);
+        await tv.page.route("**/api/v2/**", route => route.abort("connectionrefused"));
+        await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().click();
+        await tv.jump(35000);
+        assert.match(await tv.page.locator(".details-editorial .browse-overview").textContent() ?? "", /Translated overview/);
+        assert.equal(await tv.page.getByText("Translated by AI", { exact: true }).count(), 1);
+        assert.equal(translation.posts().length, 1, "an offline revisit retains the completed readback without another write");
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }
 });
@@ -119,40 +132,86 @@ test("automatic Details translation starts with the page and a failed run offers
     } finally { await tv.page.context().close(); }
 });
 
-test("series episode focus does not request a description translation", async () => {
+test("fresh metadata starts automatic translation on a cached Details owner", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    const catalog = new FakeDetails(); tv.fake.catalog = catalog;
+    const pending: string[] = [];
+    const translation = install(tv.fake, catalog, "auto", pending);
+    try {
+        await signIn(tv);
+        await tv.page.evaluate(() => window.browseHarness.mount());
+        const card = tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first();
+        await card.click();
+        await tv.page.locator('[data-view="item:movie:m0001"]').waitFor();
+        await tv.remote(10009);
+        pending.push("movie:m0001");
+        const held = tv.fake.hold("/catalog/items/movie%3Am0001", true);
+        await card.click();
+        await tv.page.locator('[data-view="item:movie:m0001"]').waitFor();
+        await tv.jump(0);
+        assert.equal(translation.posts().length, 0);
+        held.release();
+        await tv.eventually(() => Promise.resolve(translation.posts().length === 1), "fresh cached-owner translation target");
+    } finally { await tv.page.context().close(); }
+});
+
+for (const mode of ["button", "auto"] as const) test(`series episode focus does not request a description translation in ${mode} mode`, async () => {
     const tv = await openTv(browser, { app: "browse" });
     const catalog = new FakeDetails();
     tv.fake.catalog = catalog;
-    const translation = install(tv.fake, catalog, "button", ["episode:s1e11", "episode:s1e12"]);
+    const translation = install(tv.fake, catalog, mode, ["episode:s1e11", "episode:s1e12", "episode:s1e21", "episode:s1e22"]);
     try {
         await signIn(tv);
         await tv.page.evaluate(() => window.browseHarness.mount());
         await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
-        await tv.page.locator('[data-focus="episode:s1e12"]').waitFor();
+        await tv.page.locator('[data-focus="episode:s1e22"]').waitFor();
+        if (mode === "auto") await tv.eventually(() => Promise.resolve(translation.posts().length === 1), "initial selected season translation");
         const before = translation.posts().length;
         await tv.page.locator('[data-focus="episode:s1e11"]').focus();
         await tv.page.locator('[data-focus="episode:s1e12"]').focus();
+        await tv.page.locator('[data-focus="episode:s1e21"]').focus();
+        await tv.page.locator('[data-focus="episode:s1e22"]').focus();
         await tv.jump(3000);
         assert.equal(translation.posts().length, before);
+        if (mode === "auto") {
+            await tv.page.locator('[data-focus="season:1"]').click();
+            await tv.eventually(() => Promise.resolve(translation.posts().length === before + 1), "returning explicitly can resume the interrupted season translation");
+            await tv.page.locator('[data-focus="season:2"]').click();
+            await tv.eventually(() => Promise.resolve(translation.posts().length === before + 2), "explicit season activation still translates automatically");
+        }
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }
 });
 
-test("the featured marquee waits 1500ms and other cards never start a translation", async () => {
+for (const leave of [false, true]) test(leave ? "leaving a featured card at 1499ms cancels its dwell immediately" : "the featured marquee waits 1500ms and other cards never start a translation", async () => {
     const tv = await openTv(browser, { app: "browse" });
     const catalog = new FakeHome();
     tv.fake.catalog = catalog;
     const translation = install(tv.fake, catalog, "auto", ["movie:m0004"]);
     try {
-        await signIn(tv);
+        await pauseTvClock(tv);
         const held = tv.fake.hold("/capabilities/metadata-ai");
+        await signIn(tv);
         await tv.page.evaluate(() => window.browseHarness.mount());
         await tv.page.locator('[data-view="home"] .skyline-marquee h1').waitFor();
+        const capability = tv.page.waitForResponse(response => response.url().includes('/capabilities/metadata-ai'));
         held.release();
+        await (await capability).finished();
         await tv.jump(0);
         assert.equal(translation.posts().length, 0);
         await tv.jump(1499);
         assert.equal(translation.posts().length, 0, "the dwell has not elapsed");
+        if (leave) {
+            await tv.remote(40);
+            assert.notEqual(await tv.focused(), "movie:m0004");
+            await tv.jump(1);
+            assert.equal(translation.posts().length, 0, "leaving cancels before the delayed preview applies");
+            await tv.jump(149);
+            await tv.jump(2000);
+            assert.equal(translation.posts().length, 0, "ordinary cards never translate");
+            assert.deepEqual(tv.console, []);
+            return;
+        }
         await tv.jump(1);
         await tv.eventually(() => Promise.resolve(translation.posts().length === 1), "featured dwell");
         assert.equal(translation.posts()[0]?.path.split("?")[0], "/catalog/items/movie%3Am0004/translate-description");
@@ -171,15 +230,20 @@ test("leaving a featured card before the dwell starts nothing", async () => {
     tv.fake.catalog = catalog;
     const translation = install(tv.fake, catalog, "auto", ["movie:m0004"]);
     try {
+        await pauseTvClock(tv);
+        const held = tv.fake.hold("/capabilities/metadata-ai");
         await signIn(tv);
         await tv.page.evaluate(() => window.browseHarness.mount());
         await tv.page.locator('[data-view="home"] .skyline-marquee h1').waitFor();
-        await tv.eventually(() => Promise.resolve(tv.fake.requests.some((request) => request.path.startsWith("/capabilities/metadata-ai"))), "metadata AI capability");
-        await tv.page.keyboard.press("ArrowDown");
+        const capability = tv.page.waitForResponse(response => response.url().includes("/capabilities/metadata-ai"));
+        held.release();
+        await (await capability).finished();
+        await tv.jump(0);
+        await tv.remote(40);
         assert.notEqual(await tv.focused(), "movie:m0004");
         // The marquee keeps the previous card for its 150 ms rest. That rest has to land,
         // and cancel the featured dwell, before a longer jump can be mistaken for the card holding.
-        await tv.jump(200);
+        await tv.jump(150);
         assert.notEqual(await tv.page.locator(".skyline-marquee-layer:not(.skyline-outgoing) h1").innerText(), "Movie 0004");
         assert.equal(translation.posts().length, 0);
         await tv.jump(2000);
@@ -194,6 +258,7 @@ test("a replaced marquee keeps the new card's translation on the incoming layer"
     tv.fake.catalog = catalog;
     install(tv.fake, catalog, "auto", ["movie:m0004"]);
     try {
+        await pauseTvClock(tv);
         await signIn(tv);
         await tv.page.evaluate(() => window.browseHarness.mount());
         await tv.page.locator('[data-view="home"] .skyline-marquee h1').waitFor();
@@ -228,6 +293,7 @@ test("returning from Settings rearms a featured dwell that hide cancelled", asyn
     tv.fake.catalog = catalog;
     const translation = install(tv.fake, catalog, "auto", ["movie:m0004"]);
     try {
+        await pauseTvClock(tv);
         await signIn(tv);
         await tv.page.evaluate(() => window.browseHarness.mount());
         await tv.page.locator('[data-view="home"] .skyline-marquee h1').waitFor();

@@ -1432,22 +1432,28 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         }
     };
 
+    /** PersonDetailView.onAppear: returning resumes only the metadata refresh; the loaded filmography is not read again. */
+    const resumePersonRefresh = (current: Extract<Route, { kind: "person" }>): AbortSignal => {
+        if (personRead?.route !== current) {
+            personRead?.controller.abort();
+            personRead = { route: current, controller: new AbortController() };
+        }
+        const signal = personRead.controller.signal;
+        current.metadataRefresh ??= new PersonMetadataRefresh(clock, () => current.data?.person,
+            refreshSignal => read(detailOperations.refreshPerson(current.id), refreshSignal),
+            readSignal => read(detailOperations.person(current.id), readSignal),
+            person => {
+                if (person !== undefined) current.data = { person };
+                if (top() === current) render(host.focused());
+            });
+        current.metadataRefresh.start(signal);
+        return signal;
+    };
+
     const loadPage = (current: Route, pages: Pages, index: number, quiet = false): void => {
         if (current.kind === "person") {
             current.pendingIndex = index;
-            if (personRead?.route !== current) {
-                personRead?.controller.abort();
-                personRead = { route: current, controller: new AbortController() };
-            }
-            const metadataSignal = personRead.controller.signal;
-            current.metadataRefresh ??= new PersonMetadataRefresh(clock, () => current.data?.person,
-                signal => read(detailOperations.refreshPerson(current.id), signal),
-                signal => read(detailOperations.person(current.id), signal),
-                person => {
-                    if (person !== undefined) current.data = { person };
-                    if (top() === current) render(host.focused());
-                });
-            current.metadataRefresh.start(metadataSignal);
+            const metadataSignal = resumePersonRefresh(current);
             const loadMetadata = current.data === undefined && current.metadataLoading !== true;
             const loadAvailability = current.availableFilters === undefined && current.availabilityLoading !== true;
             if (loadMetadata) current.metadataLoading = true;
@@ -1677,10 +1683,12 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         const current = top();
         if (current !== undefined) {
             container.classList.toggle("search-restored", current.kind === "search");
-            if (current.kind === "personal" || current.kind === "person" || current.kind === "calendar" || current.kind === "requests") {
-                if (current.kind === "personal" || current.kind === "person") current.pendingIndex = undefined;
+            if (current.kind === "personal" || current.kind === "calendar" || current.kind === "requests") {
+                if (current.kind === "personal") current.pendingIndex = undefined;
                 current.stale = true;
             }
+            // Apple keeps the loaded filmography (loadInitial runs only while empty); a visit that never got its first page reads it now.
+            if (current.kind === "person" && current.pages.page === undefined) current.stale = true;
             const fromProfileMenu = (active?.kind === "requests" && active.requests.source.kind === "hub") || active?.kind === "personal";
             if (current.kind === "item" && current.data?.details?.series !== undefined && (active?.kind === "season" || active?.kind === "item" && active.data?.detail.type === "episode")) {
                 const details = current.data.details, series = details.series;
@@ -1690,6 +1698,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 host.forgetVisit(`item:${current.id}`);
             }
             showRoute(current, fromProfileMenu ? tabFocus(current) : current.focus);
+            if (current.kind === "person") resumePersonRefresh(current);
         }
     };
 

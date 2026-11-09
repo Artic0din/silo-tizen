@@ -121,21 +121,51 @@ journey("incomplete Person dispatches once and polls independently of filter and
 });
 
 journey("metadata polling that expands the hero preserves the settled card reveal", async tv => {
+    // Reduced motion scrolls at once, so only normal motion exercises the unchanged-target guard in SkylineScroll.move.
+    await tv.page.emulateMedia({ reducedMotion: "no-preference" });
     await tv.remote(BACK);
     let complete = false;
+    let renamed = false;
+    let polls = 0;
+    let gate: Promise<void> = Promise.resolve();
     const biography = "A longer biography that expands the person header. ".repeat(35);
-    await tv.page.route("**/api/v2/catalog/people/7", route => route.fulfill({ json: {
-        id: "7", name: complete ? "River Vale with a longer credited name ".repeat(4) : "River Vale", photo_url: "/art/river.svg", birth_date: "1980-04-12", ...(complete ? { bio: biography } : {}),
-    } }));
+    await tv.page.route("**/api/v2/catalog/people/7", async route => {
+        const name = complete ? "River Vale with a longer credited name ".repeat(4) : renamed ? "River Vold" : "River Vale";
+        polls++;
+        await gate;
+        await route.fulfill({ json: { id: "7", name, photo_url: "/art/river.svg", birth_date: "1980-04-12", ...(complete ? { bio: biography } : {}) } });
+    });
     await tv.page.route("**/api/v2/catalog/people/7/refresh", route => route.fulfill({ status: 202, json: { status: "queued", person_id: "7" } }));
     await tv.page.locator('.details-people [data-focus^="credit:7:"]').first().click();
     await grid(tv).first().waitFor();
     await tv.page.locator('[data-focus="filter:video"]').focus();
+
+    // A poll answer that changes only the name repaints the grid mid-scroll with the same reveal target; the scroll must not restart.
+    renamed = true;
+    let release = (): void => undefined;
+    gate = new Promise<void>(resolve => { release = resolve; });
+    const pollReads = polls;
+    await tv.jump(3000);
+    await tv.eventually(async () => polls === pollReads + 1, "held metadata poll");
+    await tv.page.clock.pauseAt((await tv.page.evaluate(() => Date.now())) + 1000);
     await tv.page.keyboard.press("ArrowDown");
-    await tv.jump(250);
+    await tv.page.clock.runFor(96);
+    const partial = await tv.page.locator(".browse").evaluate(node => node.scrollTop);
+    release();
+    await tv.page.getByText("River Vold", { exact: true }).first().waitFor();
+    await tv.page.clock.runFor(112);
+    const arrived = await tv.page.locator(".browse").evaluate(node => node.scrollTop);
+    await tv.page.clock.runFor(1000);
+    const settled = await tv.page.locator(".browse").evaluate(node => node.scrollTop);
+    assert.ok(partial > 0 && partial < settled, `the scroll is still moving when the poll repaints: ${partial} of ${settled}`);
+    assert.equal(arrived, settled, "a repaint with the same reveal target leaves the running scroll on its original schedule");
+    await tv.page.clock.resume();
+
     const id = await tv.focused();
     const before = await tv.page.evaluate(() => ({ bottom: document.activeElement?.getBoundingClientRect().bottom ?? 0, hero: document.querySelector(".details-person-hero")?.getBoundingClientRect().height ?? 0 }));
     complete = true;
+    release = () => undefined;
+    gate = Promise.resolve();
     await tv.jump(3000);
     await tv.page.getByText(biography, { exact: true }).waitFor();
     await tv.jump(250);
@@ -191,6 +221,13 @@ journey("near-end append keeps mounted focus and allows only one page in flight"
     const id = await tv.focused();
     await tv.page.keyboard.press("ArrowRight");
     await tv.page.keyboard.press("ArrowLeft");
+    // Scrolling the tail out of view and back makes the armed observer report the trigger cards a second time while the first read is out.
+    const frames = (): Promise<unknown> => tv.page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    await tv.page.locator(".browse").evaluate(node => { node.scrollTop = 0; });
+    await frames();
+    assert.equal(await grid(tv).last().evaluate(node => node.getBoundingClientRect().top > window.innerHeight), true, "the tail left the viewport");
+    await grid(tv).last().scrollIntoViewIfNeeded();
+    await frames();
     await tv.jump(300);
     assert.equal(queries(tv).length, 2, "visible trigger cards cannot overlap requests");
     held.release();
@@ -505,7 +542,7 @@ journey("interrupted Next cannot advance after visible-card Details, one resume 
     await tv.page.locator('[data-focus="resume"]').waitFor();
     await tv.remote(BACK);
     assert.equal(await grid(tv).count(), 60);
-    assert.equal(lastQuery(tv)?.body?.cursor, undefined, "Back refreshes committed page, never abandoned target");
+    assert.equal(lastQuery(tv)?.body?.cursor, undefined, "Back keeps the committed page; the abandoned target never lands");
     held.release();
     await tv.jump(300);
     assert.equal(await tv.focused(), "movie:m0001");
@@ -516,20 +553,56 @@ journey("interrupted Next cannot advance after visible-card Details, one resume 
     assert.equal(metadataReads(tv), 1, "valid metadata survives playback refresh");
 });
 
-journey("refresh uses nearby card fallback on a committed later page", async (tv, catalog) => {
+// PersonDetailView loads once (loadInitial is guarded by person == nil, items.isEmpty); its onAppear only resumes the metadata refresh.
+journey("Details Back keeps every loaded page and the focused card without re-reading", async tv => {
     await all(tv);
     await next(tv, 2);
     const ids = await grid(tv).evaluateAll(nodes => nodes.map(node => node.getAttribute("data-focus")));
-    const removed = ids[5];
-    assert.ok(removed);
-    await tv.page.locator(`.browse-grid [data-focus="${removed}"]`).click();
+    const opened = ids[5];
+    assert.ok(opened);
+    await tv.page.locator(`.browse-grid [data-focus="${opened}"]`).click();
     await tv.page.locator(".details-hero").waitFor();
-    catalog.removed.add(removed);
     const count = queries(tv).length;
     await tv.remote(BACK);
-    await tv.eventually(async () => queries(tv).length === count + 2 && !await tv.page.locator(`.browse-grid [data-focus="${removed}"]`).count(), "refreshed membership");
-    assert.equal(await tv.focused(), ids[6]);
+    await tv.page.locator(".details-person-hero").waitFor();
+    await tv.jump(300);
+    assert.equal(await tv.focused(), opened);
     assert.equal(await grid(tv).count(), 120);
+    assert.equal(queries(tv).length, count, "Back reads no filmography page");
+    assert.equal(metadataReads(tv), 1);
+    // The near-end trigger still loads the next page after returning.
+    await next(tv, 3);
+    assert.equal(queries(tv).length, count + 1);
+});
+
+journey("Details Back resumes the unfinished metadata refresh without re-reading the filmography", async tv => {
+    await tv.remote(BACK);
+    let complete = false;
+    let dispatches = 0;
+    let reads = 0;
+    await tv.page.route("**/api/v2/catalog/people/7", route => {
+        reads++;
+        return route.fulfill({ json: { id: "7", name: "River Vale", bio: "Updated biography", birth_date: "1980-04-12", ...(complete ? { photo_url: "/art/river.svg" } : {}) } });
+    });
+    await tv.page.route("**/api/v2/catalog/people/7/refresh", route => {
+        dispatches++;
+        return route.fulfill({ status: 202, json: { status: "queued", person_id: "7" } });
+    });
+    await tv.page.locator('.details-people [data-focus^="credit:7:"]').first().click();
+    await tv.eventually(async () => dispatches === 1, "refresh dispatch");
+    await grid(tv).first().click();
+    await tv.page.locator(".details-hero").waitFor();
+    const away = reads;
+    await tv.jump(9000);
+    assert.equal(reads, away, "polling stops while Details is open");
+    const count = queries(tv).length;
+    await tv.remote(BACK);
+    await tv.page.getByText("Loading metadata", { exact: true }).waitFor();
+    complete = true;
+    await tv.jump(3000);
+    await tv.eventually(async () => reads === away + 1 && await tv.page.getByText("Loading metadata", { exact: true }).count() === 0, "resumed poll completes");
+    assert.equal(dispatches, 1, "the refresh is dispatched once per visit");
+    assert.equal(queries(tv).length, count, "Back reads no filmography page");
 });
 
 journey("filter race fences old answer; failed and empty filters keep controls reachable", async (tv, catalog) => {

@@ -22,7 +22,14 @@
 .account-initial { width: 80px; height: 80px; display: grid; place-items: center; border-radius: 20px; background: linear-gradient(to bottom right, #eaa65c, #a8521d, #5e290d); color: #fff6ea; flex-shrink: 0; }
 .account-name { font-size: 34px; font-weight: 700; flex: 1; overflow: hidden; }
 .account-count { display: block; font-size: 23px; font-weight: 400; opacity: .65; }
-.account-badge { font-size: 18px; font-weight: 600; letter-spacing: .8px; border: 1px solid #ffffff24; border-radius: 18px; padding: 7px 16px; color: #ededed; background: #000d; white-space: nowrap; }
+/* TVChangeAccountBadge: 36 tall capsule, 18 semibold with 0.8 kerning. CURRENT is black at 45% under the white 14% hairline;
+   SIGN IN AGAIN is siloStatusWarning #F4C869 at 8% fill and 35% line, with the open-lock glyph. A focused card turns both fills to black at 85%. */
+.account-badge { display: inline-flex; align-items: center; gap: 6px; box-sizing: border-box; height: 36px; padding: 0 16px; font-size: 18px; font-weight: 600; letter-spacing: .8px; border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 18px; color: #ededed; background: rgba(0, 0, 0, 0.45); white-space: nowrap; }
+.account-badge svg { width: 17px; height: 17px; flex: none; }
+.account-badge-warning { color: #f4c869; background: rgba(244, 200, 105, 0.08); border-color: rgba(244, 200, 105, 0.35); }
+.accounts-pane > button:focus .account-badge { background: rgba(0, 0, 0, 0.85); }
+/* TVAccountCardLabel dimsMark: the initial tile of an account that must sign in again is at 55%. */
+.account-initial-dim { opacity: .55; }
 .accounts-dialog { margin: 160px auto; width: 1000px; padding: 48px; background: #15171c; border-radius: 30px; }
 .accounts-dialog button { margin: 12px; min-width: 240px; }
 /* TVSettingsPaneRowStyle on the dialog's Cancel: clear border, #EDEDED platter, scale 1.012, black shadow. */

@@ -106,10 +106,12 @@ export class DetailsState {
     private readonly watchedChanged: (detail: ItemDetail, signal: AbortSignal) => Promise<void>;
     private readonly pendingElsewhere: () => boolean;
     private readonly quality: () => string | undefined;
+    private readonly capReady: (signal: AbortSignal) => Promise<void>;
 
-    constructor(detail: ItemDetail, session: NativeSession, changed: (returnKey?: string) => void, watchedChanged: (detail: ItemDetail, signal: AbortSignal) => Promise<void>, pendingElsewhere: () => boolean = () => false, translations?: DescriptionTranslations, quality: () => string | undefined = () => undefined) {
+    constructor(detail: ItemDetail, session: NativeSession, changed: (returnKey?: string) => void, watchedChanged: (detail: ItemDetail, signal: AbortSignal) => Promise<void>, pendingElsewhere: () => boolean = () => false, translations?: DescriptionTranslations, quality: () => string | undefined = () => undefined, capReady: (signal: AbortSignal) => Promise<void> = async () => undefined) {
         this.detail = detail;
         this.quality = quality;
+        this.capReady = capReady;
         this.session = session;
         this.trailers = new TrailerFetch(
             signal => session.call({ ...detailOperations.refreshTrailers(detail.id), profileScoped: true, replayAfterRefresh: false, signal }),
@@ -493,6 +495,8 @@ export class DetailsState {
         void (async () => {
             try {
                 const shuffle = await this.session.call({ ...operations.createShuffle(this.detail.id, "series"), profileScoped: true, replayAfterRefresh: false, signal: controller.signal });
+                if (!this.current(controller)) return;
+                await this.capReady(controller.signal);
                 if (!this.current(controller)) return;
                 const request = await shufflePick(spec => this.read(spec, controller), shuffle, this.preferredQuality);
                 if (!this.current(controller)) return;

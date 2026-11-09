@@ -361,6 +361,14 @@ test("a started pick with no cap uses the last-played file, else the highest res
     assert.equal(started(files("720p", "2160p"), undefined, "4k"), "b");
 });
 
+test("a 4K cap on a start stays a rank-4 cap, so the best fitting file beats the last-played one", () => {
+    for (const quality of ["2160p", "4k", "4K", "uhd", " UHD "]) {
+        assert.equal(started(files("720p", "2160p"), "a", quality), "b", `quality ${JSON.stringify(quality)}`);
+    }
+    assert.equal(started(files(undefined, "720p"), "a", "2160p"), "b", "an unranked file never fits a cap");
+    assert.equal(started(files(undefined, "SD"), "b", "2160p"), "b", "with nothing ranked the last-played file stands");
+});
+
 test("a started pick ranks files with no resolution below capped ones and keeps the first listed on a tie", () => {
     assert.equal(started(files(undefined, "720p"), undefined, "1080p"), "b");
     assert.equal(started(files("1080p", "1080p"), undefined, "1080p"), "a");

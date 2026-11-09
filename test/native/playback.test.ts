@@ -2303,6 +2303,40 @@ test("the next episode waits for a pending Resolution cap read and starts the fi
     r.controller.destroy();
 });
 
+const CAP_1080P: PlaybackDeps["resolutionCap"] = { quality: "1080p", ready: async () => undefined };
+
+test("the Up Next prompt during playback offers the next episode file that fits the Resolution cap", async () => {
+    const r = await episodeRig(undefined, CAP_1080P);
+    r.catalog.episodeFiles.set("episode:s1e13", [{ file_id: "43", resolution: "2160p" }, { file_id: "44", resolution: "1080p" }]);
+    r.catalog.watchOverrides.set("episode:s1e13", { versions: [{ file_id: "43", resolution: "2160p", duration_seconds: 5400 }, { file_id: "44", resolution: "1080p", duration_seconds: 5400 }] });
+    await playMovie(r, EPISODE);
+    r.controller.showUpNext();
+    await r.h.clock.advance(0);
+    const view = last(r.views);
+    assert.ok(view.phase === "playing");
+    assert.equal(view.upNext?.next?.contentId, "episode:s1e13");
+    assert.equal(view.upNext?.next?.fileId, "44", "the 1080p file fits the cap; the last-played 2160p file does not");
+    r.controller.destroy();
+});
+
+test("the On Deck cards during playback start the file that fits the Resolution cap", async () => {
+    const r = await episodeRig(undefined, CAP_1080P);
+    const household = [...r.catalog.households.values()][0]!;
+    household.sections = [{ id: "deck", sectionType: "continue_watching", title: "On Deck", items: ["movie:m0002"] }];
+    r.catalog.fileIds.set("movie:m0001", "42");
+    r.catalog.fileIds.set("movie:m0002", "uhd");
+    r.server.items.set("movie:m0001", ["42"]);
+    r.catalog.watchOverrides.set("movie:m0002", { versions: [{ file_id: "uhd", resolution: "2160p", duration_seconds: 5400 }, { file_id: "hd", resolution: "1080p", duration_seconds: 5400 }] });
+    await playMovie(r, { ...MOVIE, contentId: "movie:m0001" });
+    r.controller.showUpNext();
+    await r.h.clock.advance(0);
+    const view = last(r.views);
+    assert.ok(view.phase === "playing");
+    assert.equal(view.upNext?.deck[0]?.contentId, "movie:m0002");
+    assert.equal(view.upNext?.deck[0]?.fileId, "hd", "the 1080p file fits the cap; the last-played 2160p file does not");
+    r.controller.destroy();
+});
+
 test("an expired pending progress answer at EOF offers Back without an impossible Retry", async () => {
     const r = await episodeRig();
     const id = await playMovie(r, EPISODE);

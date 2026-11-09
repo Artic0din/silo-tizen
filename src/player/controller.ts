@@ -2234,6 +2234,7 @@ export class PlaybackController implements PlayerControls {
                 this.play(request);
                 return;
             }
+            const capRead = this.pickQuality(abort.signal);
             if (attempt.autoNextSupported) {
                 await attempt.autoNextSave;
                 if (!current()) return;
@@ -2245,7 +2246,7 @@ export class PlaybackController implements PlayerControls {
                 if (!current()) return;
             }
             show("resolving");
-            const quality = await this.pickQuality(abort.signal);
+            const quality = await capRead;
             if (!current()) return;
             if (attempt.request.shuffleId !== undefined) {
                 const next = await nextShuffle(spec => {
@@ -3118,7 +3119,7 @@ export class PlaybackController implements PlayerControls {
     private async discover(attempt: Attempt, part: "all" | "episode" | "deck" = "all"): Promise<void> {
         const read = <T>(spec: RequestSpec<T>): Promise<T> => this.deps.session.call({ ...spec, profileScoped: true, signal: attempt.signal });
         const live = (): boolean => this.active() === attempt && !attempt.signal.aborted;
-        const quality = await this.pickQuality(attempt.signal);
+        const capRead = this.pickQuality(attempt.signal);
         if (part !== "deck") {
             try {
                 if (attempt.autoNextSupported) {
@@ -3131,7 +3132,7 @@ export class PlaybackController implements PlayerControls {
                 if (attempt.request.episode === true) {
                     const fileId = attempt.plan?.effectiveMediaFileId;
                     if (fileId === undefined) throw new ApiError({ kind: "invalid_response", path: "playback_plan.effective_media_file_id" });
-                    const next = await nextEpisode(read, attempt.request.contentId, fileId, attempt.request.seriesTitle, quality);
+                    const next = await nextEpisode(read, attempt.request.contentId, fileId, attempt.request.seriesTitle, await capRead);
                     if (!live()) return;
                     attempt.offer.episode = next;
                     attempt.offer.episodeSettled = true;
@@ -3155,6 +3156,7 @@ export class PlaybackController implements PlayerControls {
         }
         if (part === "episode" || !live()) return;
         try {
+            const quality = await capRead;
             const deck = await readOnDeck(read, attempt.request.contentId, items => {
                 if (!live()) return;
                 attempt.offer.deck = items.slice();

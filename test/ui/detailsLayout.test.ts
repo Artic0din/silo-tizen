@@ -717,6 +717,30 @@ detailTest('Shuffle Series leads More, reports failure, and reuses shuffle playb
     assert.equal(await tv.page.evaluate(() => window.browseHarness.plays[0]?.shuffleId), 'series-shuffle');
 });
 
+detailTest('Shuffle Series waits for a Resolution cap reread and starts the file that fits the new cap', async (tv, { settings }) => {
+    assert.ok(settings);
+    await tv.page.route('**/api/v2/shuffles/capabilities', route => route.fulfill({ json: { allowed: true, state: 'available', scope_kinds: ['series'] } }));
+    await tv.page.route('**/api/v2/shuffles', route => route.fulfill({ status: 201, json: { id: 'series-shuffle', current: { content_id: 'episode:s1e11' }, next: { content_id: 'episode:s1e12' } } }));
+    await tv.page.route('**/api/v2/watch/episode%3As1e11**', route => route.fulfill({ json: { content_id: 'episode:s1e11', type: 'episode', title: 'Pilot', series_id: 'series:s1', season_number: 1, episode_number: 1, user_data: { played: false, last_file_id: 'uhd' }, versions: [{ file_id: 'uhd', duration_seconds: 3000, resolution: '2160p' }, { file_id: 'mid', duration_seconds: 3000, resolution: '1080p' }, { file_id: 'low', duration_seconds: 3000, resolution: '720p' }] } }));
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.locator('[data-focus="settings"]').click();
+    await tv.page.getByRole('switch', { name: 'Show Title Art', exact: true }).waitFor();
+    settings.profile().set(QUALITY_KEY, '720p');
+    const held = tv.fake.hold('/settings/values/effective?keys=playback.preferred_quality', true);
+    await tv.remote(10009);
+    await tv.page.locator('[data-view="home"]').waitFor();
+    await tv.eventually(async () => qualityReads(tv) === 2, 'cap reread after Settings');
+    await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
+    await tv.page.locator('[data-focus="watchlist"]').waitFor();
+    await tv.page.locator('[data-focus="more"]').click();
+    await tv.page.getByRole('button', { name: 'Shuffle Series', exact: true }).click();
+    await tv.jump(1000);
+    assert.equal(await tv.page.evaluate(() => window.browseHarness.plays.length), 0, 'the pick waits for the cap reread that is still out');
+    held.release();
+    await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.plays.length === 1), 'shuffle playback dispatched');
+    assert.equal(await tv.page.evaluate(() => window.browseHarness.plays[0]?.fileId), 'low', 'the new 720p cap, not the last-played or the stale 1080p');
+}, undefined, settings => settings.profile().set(QUALITY_KEY, '1080p'));
+
 for (const id of ['movie:m0001', 'series:s1']) detailTest(`${id} Start Over shares Apple's circle and symbol`, async tv => {
     if (id.startsWith('series')) {
         const catalog = tv.fake.catalog; assert.ok(catalog instanceof FakeDetails);

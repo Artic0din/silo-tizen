@@ -11,7 +11,7 @@ import { FakeDetails } from "../native/support/fakeDetails.ts";
 import { FakeRequests } from "../native/support/fakeRequests.ts";
 import type { Reply } from "../native/support/fakeSilo.ts";
 import { FakeSettings } from "../native/support/fakeSettings.ts";
-import { CARD_OVERLAYS_KEY, CARD_PRESENTATION_KEY } from "../../src/contracts/v2/settings.ts";
+import { CARD_OVERLAYS_KEY, CARD_PRESENTATION_KEY, QUALITY_KEY } from "../../src/contracts/v2/settings.ts";
 import { fixture, problem } from "../native/support/fakeSilo.ts";
 import { detailReads, homeDetailsRead, launchBrowser, openTv, pauseTvClock, readLive, type Tv } from "./support/tv.ts";
 
@@ -2742,6 +2742,22 @@ browseTest("Browse Shuffle hands its server session to the normal playback owner
     await tv.eventually(async () => await tv.page.evaluate(() => window.browseHarness.plays.length) === 1, "shuffle handoff");
     assert.deepEqual(await tv.page.evaluate(() => window.browseHarness.plays[0]), { contentId: "movie:m0001", fileId: "f-movie:m0001", title: "Movie 0001", startSeconds: 0, shuffleId: "sh1" });
 });
+
+let heldQuality: { release(): void };
+browseTest("Browse Shuffle waits for the Resolution cap and starts the file that fits it, not the last-played one", async tv => {
+    await tv.page.route("**/api/v2/shuffles/capabilities", route => route.fulfill({ json: { allowed: true, state: "available", scope_kinds: ["library"] } }));
+    await tv.page.route("**/api/v2/shuffles", route => route.fulfill({ status: 201, json: { id: "sh1", current: { content_id: "movie:m0001" }, next: { content_id: "movie:m0002" } } }));
+    await tv.page.route("**/api/v2/watch/**", route => route.fulfill({ json: { content_id: "movie:m0001", type: "movie", title: "Movie 0001", user_data: { played: false, last_file_id: "uhd" }, versions: [{ file_id: "uhd", duration_seconds: 6000, resolution: "2160p" }, { file_id: "hd", duration_seconds: 6000, resolution: "1080p" }] } }));
+    await tv.page.locator('[data-focus="movies"]').click();
+    await showing(tv, "library:12");
+    await selectLibraryMode(tv, "Browse");
+    await tv.page.locator('.browse-controls [data-focus="shuffle"]').click();
+    await tv.jump(1000);
+    assert.equal(await tv.page.evaluate(() => window.browseHarness.plays.length), 0, "the pick waits for the cap read that is still out");
+    heldQuality.release();
+    await tv.eventually(async () => await tv.page.evaluate(() => window.browseHarness.plays.length) === 1, "shuffle handoff");
+    assert.equal(await tv.page.evaluate(() => window.browseHarness.plays[0]?.fileId), "hd");
+}, { beforeConnect: tv => { new FakeSettings(tv.fake).profile().set(QUALITY_KEY, "1080p"); heldQuality = tv.fake.hold("/settings/values/effective?keys=playback.preferred_quality", true); } });
 
 for (const departure of ["mode", "settings", "route"] as const) browseTest(`a pending Shuffle is discarded after leaving and returning through ${departure}`, async tv => {
     await tv.page.route("**/api/v2/shuffles/capabilities", route => route.fulfill({ json: { allowed: true, state: "available", scope_kinds: ["library"] } }));

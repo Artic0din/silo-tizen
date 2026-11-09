@@ -937,7 +937,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 if (top() === current && enter && episode !== undefined) { render({ zone: "seasons", key: `season:${details.series.seasonNumber}` }); return; }
             }
             detailsChanged(current, audioClosed);
-        }, (value, signal) => refreshWatched(current, value, signal), personalPending, translations, () => resolutionCap.quality);
+        }, (value, signal) => refreshWatched(current, value, signal), personalPending, translations, () => resolutionCap.quality, signal => resolutionCap.ready(signal));
         resolutionCap.ensure();
         return details;
     };
@@ -1461,7 +1461,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     stopDetails();
                     current.data = data;
                     if (data.detail !== undefined) {
-                        const details = new DetailsState(data.detail, session, (audioClosed) => detailsChanged(current, audioClosed), (detail, signal) => refreshWatched(current, detail, signal), personalPending, translations, () => resolutionCap.quality);
+                        const details = new DetailsState(data.detail, session, (audioClosed) => detailsChanged(current, audioClosed), (detail, signal) => refreshWatched(current, detail, signal), personalPending, translations, () => resolutionCap.quality, signal => resolutionCap.ready(signal));
                         resolutionCap.ensure();
                         details.restore(previous);
                         current.data.details = details;

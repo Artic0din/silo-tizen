@@ -809,6 +809,7 @@ test("Skip Recap and Skip Credits stay up for the whole marker window and go whe
             await page.clock.runFor(60000);
             await show(page, inMarker(marker, inside + 1));
             assert.equal(await pill(page), label);
+            assert.equal(await page.locator(".player-skip-track").isVisible(), false, "only Skip Intro and Watch Intro draw the creeping fill");
             await show(page, playing({ ...TRACKS }));
             await show(page, { ...playing(TRACKS), positionSeconds: outside });
             assert.equal(await pill(page), null);

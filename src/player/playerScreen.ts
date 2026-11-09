@@ -650,7 +650,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         skipCaption.textContent = skipKind === "undo" ? "Intro skipped" : "";
         skip.setAttribute("aria-label", skipKind === "undo" ? `Intro skipped. ${label}` : label);
         skipGlyph.hidden = skipKind === "intro" || skipKind === "undo";
-        skipTrack.hidden = false;
+        skipTrack.hidden = skipKind === "recap" || skipKind === "credits";
         skipCaption.hidden = skip.hidden || skipKind !== "undo";
         if (skipKind !== "undo") undoFillDrawn = false;
         else if (!undoFillDrawn) {

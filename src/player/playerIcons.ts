@@ -29,6 +29,21 @@ export function skipToEndIcon(): string {
     return svg(`<g fill="currentColor"><path d="M3.5 5.6v12.8L14 12z"/><rect x="15.6" y="5.6" width="3.4" height="12.8" rx="1"/></g>`);
 }
 
+/** `arrow.down.circle.fill`: the undo pill's and the lowered notice's symbol. */
+export function arrowDownCircleIcon(): string {
+    return svg(`<circle cx="12" cy="12" r="10" fill="currentColor"/><path fill="none" stroke="#000" stroke-opacity="0.85" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M12 7v9m-4-4 4 4 4-4"/>`);
+}
+
+/** `info.circle.fill`: the information tone's symbol. */
+export function infoCircleIcon(): string {
+    return svg(`<circle cx="12" cy="12" r="10" fill="currentColor"/><path fill="none" stroke="#000" stroke-opacity="0.85" stroke-width="2" stroke-linecap="round" d="M12 11v6m0-9.4v.1"/>`);
+}
+
+/** `exclamationmark.triangle.fill`: the warning tone's symbol. */
+export function warningTriangleIcon(): string {
+    return svg(`<path fill="currentColor" d="M10.3 3.6a2 2 0 0 1 3.4 0l8.2 14.3a2 2 0 0 1-1.7 3H3.8a2 2 0 0 1-1.7-3z"/><path fill="none" stroke="#000" stroke-opacity="0.85" stroke-width="2" stroke-linecap="round" d="M12 9.5v4.5m0 3v.1"/>`);
+}
+
 /** `rectangle.stack.fill`: the tvOS Show Up Next episodes icon. */
 export function episodesIcon(): string {
     return svg(`<g fill="currentColor"><path opacity="0.55" d="M7 3.2h11.2A1.6 1.6 0 0 1 19.8 4.8V6H6.2V4.8A1.6 1.6 0 0 1 7 3.2z"/><path opacity="0.8" d="M5 6.2h13.2A1.6 1.6 0 0 1 19.8 7.8V9H4.2V7.8A1.6 1.6 0 0 1 5 6.2z"/><rect x="3" y="9" width="18" height="11" rx="1.8"/></g>`);

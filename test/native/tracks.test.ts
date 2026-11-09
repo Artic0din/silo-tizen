@@ -2095,3 +2095,25 @@ test("an AI result whose stored track is unplayable is marked unavailable", asyn
     assert.equal(replans(r.h).length, before, "Select does not reach the server");
     r.controller.destroy();
 });
+
+test("a pending AI result the refreshed plan flags unplayable is reported as saved but not turned on", async () => {
+    const r = await rig();
+    r.h.fake.script("/subtitles/ai/status", { status: 200, body: { state: "available", allowed: true, enabled: true, transcribe_enabled: true } });
+    r.h.fake.script("/subtitles/ai/quota", ...Array.from({ length: 3 }, () => ({ status: 200, body: { limited: true, remaining: 2, period: "month" } })));
+    r.h.fake.script("/settings/contract", { status: 200, body: { option_sets: { playback_subtitle_languages: { options: [{ value: "fr" }] } } } });
+    r.h.fake.script("/subtitles/ai/translate", { status: 202, body: { job: { id: "opaque-job", media_file_id: "42", kind: "transcribe", source_index: 0, target_language: "", status: "completed", result_subtitle_id: "opaque-result" } } });
+    await playMovie(r);
+    r.controller.startSubtitleAI("transcribe");
+    await r.h.clock.advance(0);
+    assert.equal(tracks(r).ai?.results[0]?.id, "opaque-result");
+    const file = r.server.file("42");
+    const embedded = file.inventory[1];
+    assert.ok(embedded !== undefined);
+    r.server.files.set("42", { ...file, inventory: [...file.inventory, { ...embedded, track_id: "file:42:subtitle:5", combined_index: 5, sync_key: "stored-opaque-result", unplayable: true }] });
+    r.controller.selectAIResult("opaque-result");
+    for (let step = 0; step < 8; step++) await r.h.clock.advance(0);
+    const shown = tracks(r);
+    assert.equal(shown.selectedSubtitleId, undefined, "the unplayable row is not turned on");
+    assert.match(shown.ai?.message ?? "", /saved but couldn't be turned on/i);
+    r.controller.destroy();
+});

@@ -23,7 +23,7 @@ export interface SubtitleSearchView {
 }
 
 const SEARCHING = "Searching providers… This can take up to half a minute.";
-const STORED = "The subtitle was saved but couldn't be turned on now. It will be available the next time you play this video.";
+export const STORED = "The subtitle was saved but couldn't be turned on now. It will be available the next time you play this video.";
 const UNCONFIRMED = "Silo couldn't confirm the download. If it was saved, it will be available the next time you play this video.";
 const UNAVAILABLE = "Not set up on this server";
 

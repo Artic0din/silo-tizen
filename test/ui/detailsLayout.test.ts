@@ -2599,7 +2599,7 @@ async function routeVersions(tv: Tv, catalog: FakeDetails, versions: (template: 
     await tv.page.route('**/api/v2/catalog/items/movie%3Am0001?**', route => route.fulfill({ json: { ...body, versions: versions(body.versions[0] ?? {}), user_data: { played: false } } }));
 }
 
-const qualityReads = (tv: Tv): number => tv.fake.requests.filter(request => request.path.includes('keys=playback.preferred_quality')).length;
+const qualityReads = (tv: Tv): number => tv.fake.requests.filter(request => request.path === '/settings/values/effective?keys=playback.preferred_quality').length;
 const openMovie = (tv: Tv) => tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().click();
 const versionSummary = (tv: Tv) => tv.page.locator('[data-track-summary="version"] span').textContent();
 
@@ -2621,7 +2621,7 @@ detailTest('A Resolution change in Settings ranks the next Details', async (tv, 
     await tv.remote(10009);
     await tv.page.locator('[data-focus="profiles"]').click();
     await tv.page.locator('[data-focus="settings"]').click();
-    await tv.page.locator('.browse').first().waitFor({ state: 'hidden' });
+    await tv.page.getByRole('switch', { name: 'Show Title Art', exact: true }).waitFor();
     settings.profile().set(QUALITY_KEY, '720p');
     await tv.remote(10009);
     await tv.page.locator('[data-view="home"]').waitFor();

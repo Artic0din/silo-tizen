@@ -909,6 +909,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         const seriesId = detail.type === "series" ? detail.id : detail.seriesId;
         for (const entry of new Set([...roots.values(), ...stack])) {
             if (entry === current) continue;
+            if (entry.kind === "person") (entry.watchedCards ??= new Set()).add(seriesId ?? detail.id);
             if (entry.kind === "home" || entry.kind === "for_you" || entry.kind === "recommendationSection" || isSectionRoute(entry) || entry.kind === "calendar" || (entry.kind === "library" && entry.discovery?.mode === "Browse")) entry.stale = true;
             if (entry.kind === "season" && entry.seriesId === seriesId && (detail.type !== "season" || entry.seasonNumber === detail.seasonNumber)) entry.stale = true;
             if (entry.kind === "item") {
@@ -1450,14 +1451,50 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         return signal;
     };
 
+    const availabilityPending = (current: Extract<Route, { kind: "person" }>): boolean => current.availableFilters === undefined && current.availabilityLoading !== true;
+
+    /** PersonDetailView.refreshAvailableFilters: one single-item probe per type. A failed probe keeps its chip. */
+    const probeAvailability = (current: Extract<Route, { kind: "person" }>, signal: AbortSignal): Promise<void> => {
+        current.availabilityLoading = true;
+        const probedGeneration = personFilterGeneration;
+        return Promise.resolve().then(() => Promise.all((["movie", "series"] as const).map(async type => {
+            try {
+                const page = await read(operations.queryCatalogItems({ ...personQuery(current.id, type), limit: 1 }), signal);
+                return page.items.length > 0 || (page.total ?? 0) > 0;
+            } catch { return undefined; }
+        }))).then(([movies, series]) => {
+            // A filter chosen while these probes were out keeps its chip (PersonDetailView.swift refreshAvailableFilters).
+            if (!signal.aborted && probedGeneration === personFilterGeneration) {
+                current.availableFilters = ["video", ...(movies === false ? [] : ["movie" as const]), ...(series === false ? [] : ["series" as const])];
+                current.availabilityLoading = false;
+                if (top() === current) render();
+            }
+        });
+    };
+
+    /** Back from Details: patch the cards whose watched state changed there, one title read each, without reading the pages again. */
+    const reconcilePersonWatched = (current: Extract<Route, { kind: "person" }>, signal: AbortSignal): void => {
+        for (const id of [...current.watchedCards ?? []]) {
+            if (current.pages.page?.items.some(item => item.id === id) !== true) { current.watchedCards?.delete(id); continue; }
+            cache.discard(operations.getCatalogItem(id));
+            // A failed read keeps the id, so the next return tries again.
+            void read(operations.getCatalogItem(id), signal).then(detail => {
+                const page = current.pages.page;
+                if (signal.aborted || page === undefined) return;
+                current.watchedCards?.delete(id);
+                current.pages.page = { ...page, items: page.items.map(item => item.id === id ? { ...item, played: detail.played } : item) };
+                if (top() === current) render(host.focused());
+            }, () => undefined);
+        }
+    };
+
     const loadPage = (current: Route, pages: Pages, index: number, quiet = false): void => {
         if (current.kind === "person") {
             current.pendingIndex = index;
             const metadataSignal = resumePersonRefresh(current);
             const loadMetadata = current.data === undefined && current.metadataLoading !== true;
-            const loadAvailability = current.availableFilters === undefined && current.availabilityLoading !== true;
+            const loadAvailability = availabilityPending(current);
             if (loadMetadata) current.metadataLoading = true;
-            if (loadAvailability) current.availabilityLoading = true;
             const commit = (page: CatalogPage, cursors: (string | undefined)[], committedIndex: number): void => {
                 const focus = host.focused();
                 const oldIndex = pages.page?.items.findIndex(item => item.id === focus?.key) ?? -1;
@@ -1476,20 +1513,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 }, (error: unknown) => {
                     if (!metadataSignal.aborted) current.metadataFailure = failureText(error, current) ?? "Could not load metadata. Try again.";
                 }).finally(() => { if (!metadataSignal.aborted) { current.metadataLoading = false; repaint(); } }) : Promise.resolve();
-                const probedGeneration = personFilterGeneration;
-                const availability = loadAvailability ? Promise.resolve().then(() => Promise.all((["movie", "series"] as const).map(async type => {
-                    try {
-                        const page = await read(operations.queryCatalogItems({ ...personQuery(current.id, type), limit: 1 }), metadataSignal);
-                        return page.items.length > 0 || (page.total ?? 0) > 0;
-                    } catch { return undefined; }
-                }))).then(([movies, series]) => {
-                    // A filter chosen while these probes were out keeps its chip (PersonDetailView.swift refreshAvailableFilters).
-                    if (!metadataSignal.aborted && probedGeneration === personFilterGeneration) {
-                        current.availableFilters = ["video", ...(movies === false ? [] : ["movie" as const]), ...(series === false ? [] : ["series" as const])];
-                        current.availabilityLoading = false;
-                        repaint();
-                    }
-                }) : Promise.resolve();
+                const availability = loadAvailability ? probeAvailability(current, metadataSignal) : Promise.resolve();
                 const credits = (async (): Promise<void> => {
                     const append = index > pages.index;
                     let items = append ? [...(pages.page?.items ?? [])] : [];
@@ -1698,7 +1722,14 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 host.forgetVisit(`item:${current.id}`);
             }
             showRoute(current, fromProfileMenu ? tabFocus(current) : current.focus);
-            if (current.kind === "person") resumePersonRefresh(current);
+            if (current.kind === "person") {
+                const signal = resumePersonRefresh(current);
+                // A visit without its first page reads everything through load(); otherwise only what Details aborted or changed.
+                if (current.pages.page !== undefined) {
+                    if (availabilityPending(current)) void probeAvailability(current, signal);
+                    reconcilePersonWatched(current, signal);
+                }
+            }
         }
     };
 

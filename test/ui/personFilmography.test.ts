@@ -587,6 +587,61 @@ journey("Details Back keeps every loaded page and the focused card without re-re
     assert.equal(queries(tv).length, count + 1);
 });
 
+journey("Details Back restarts the availability probes that opening Details aborted", async (tv, catalog) => {
+    catalog.personCredits.set("7", ["movie:m0001"]);
+    const probes = (): number => tv.fake.requests.filter(request => request.path.startsWith("/catalog/query") && request.body?.source === "person" && request.body?.limit === 1).length;
+    const transport = tv.fake.fetch.bind(tv.fake);
+    let holding = true;
+    let releaseProbes = (): void => undefined;
+    const held = new Promise<void>(resolve => { releaseProbes = resolve; });
+    (tv.fake as { fetch: typeof tv.fake.fetch }).fetch = async (url, init) => {
+        const body = typeof init.body === "string" ? JSON.parse(init.body) as { source?: string; limit?: number } : undefined;
+        if (holding && body?.source === "person" && body.limit === 1) await held;
+        return transport(url, init);
+    };
+    await tv.remote(BACK);
+    await tv.page.locator('.details-people [data-focus^="credit:7:"]').first().click();
+    await tv.eventually(async () => await grid(tv).count() === 1, "movie credit before probes");
+    assert.equal(await tv.page.locator('[data-focus^="filter:"]').count(), 3, "all chips while probes are out");
+    await grid(tv).first().click();
+    await tv.page.locator(".details-hero").waitFor();
+    holding = false;
+    releaseProbes();
+    await tv.jump(300);
+    const sent = probes();
+    await tv.remote(BACK);
+    await tv.page.locator(".details-person-hero").waitFor();
+    await tv.eventually(async () => await tv.page.locator('[data-focus="filter:series"]').count() === 0, "Series hidden after the probes restart");
+    assert.equal(probes(), sent + 2, "one probe per type, sent again on Back");
+    assert.equal(await tv.page.locator('[data-focus="filter:movie"]').count(), 1);
+});
+
+journey("Details marking a title watched updates its filmography card without re-reading the pages", async (tv, catalog) => {
+    await all(tv);
+    const marked = (id: string): boolean => tv.fake.requests.some(request => request.method === "POST" && request.path === `/watched/${encodeURIComponent(id)}`);
+    const route = catalog.route.bind(catalog);
+    catalog.route = (...args) => {
+        const reply = route(...args);
+        const body = reply?.body as { items?: Record<string, unknown>[] } | undefined;
+        if (args[3]?.source === "person" && body?.items !== undefined) body.items = body.items.map(item => ({ ...item, user_state: { played: marked(String(item.content_id)) } }));
+        return reply;
+    };
+    const id = await grid(tv).first().getAttribute("data-focus");
+    assert.ok(id);
+    await tv.page.locator(`.browse-grid [data-focus="${id}"]`).click();
+    await tv.page.locator(".details-hero").waitFor();
+    await tv.page.locator('[data-focus="more"]').click();
+    await tv.page.getByRole("dialog", { name: "More", exact: true }).locator('[data-focus="watched"]').click();
+    await tv.eventually(async () => marked(id), "watched write");
+    const count = queries(tv).length;
+    for (let attempt = 0; attempt < 3 && await tv.page.locator(".details-person-hero").count() === 0; attempt++) await tv.remote(BACK);
+    await tv.page.locator(".details-person-hero").waitFor();
+    await tv.eventually(async () => await tv.page.locator(`.browse-grid [data-focus="${id}"] .browse-watched`).count() === 1, "watched tick on the card");
+    assert.equal(queries(tv).length, count, "Back reads no filmography page");
+    assert.equal(await grid(tv).count(), 60);
+    assert.equal(await tv.page.locator(".browse-grid .browse-watched").count(), 1, "only the changed card");
+});
+
 journey("Details Back resumes the unfinished metadata refresh without re-reading the filmography", async tv => {
     await tv.remote(BACK);
     let complete = false;

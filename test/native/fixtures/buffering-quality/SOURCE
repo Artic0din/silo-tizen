@@ -1,0 +1,22 @@
+Source: Silo-Server/silo-server docs/design/schemas/buffering-quality/v1/vectors.json
+Server commit: fdbb887110b3394805aa3236b3caa5147cb022ed (latest commit to touch the file)
+Licence: AGPL-3.0 (silo-server), the same licence as this repository.
+SHA-256: d7377eff095212770fd702f81d6376ba747955bdeeb2fed714f79d9663a629b2
+
+The buffering-quality conformance vectors, copied byte for byte.
+The spec is docs/design/2026-10-17-buffering-quality.md in silo-server.
+The file is identical at that commit, at silo-server main, and in the copy
+silo-apple vendors (iosApp/Tests/Fixtures/BufferingQuality/vectors.json,
+vendored from server commit aadc7fdf85878ff7d682d738120aa3abd45787b4).
+
+bufferingQuality.test.ts replays every `cases` entry against a manual clock.
+`connection_budget_cases` and `probe_cases` belong to the connection speed
+test and are not replayed here.
+
+Never edit this copy. A case that contradicts the spec is a spec bug: fix it
+in silo-server, then re-vendor with
+
+  git -C <silo-server> show <commit>:docs/design/schemas/buffering-quality/v1/vectors.json \
+    > test/native/fixtures/buffering-quality/vectors.json
+
+and update the commit and hash above.

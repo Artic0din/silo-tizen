@@ -14,7 +14,7 @@ import { type SettingsKey, HIDDEN_KEY, TITLE_ART_KEY } from "../../src/contracts
 const CARD_OVERLAYS_KEY = "ui.card_overlays" as SettingsKey;
 const CARD_OVERLAYS_ENABLED_KEY = "ui.card_overlays_enabled" as SettingsKey;
 const CARD_PRESENTATION_KEY = "ui.card_presentation" as SettingsKey;
-import { detailReads, homeDetailsRead, launchBrowser, openTv, pauseTvClock, type Tv } from "./support/tv.ts";
+import { detailReads, homeDetailsRead, jumpUntil, launchBrowser, openTv, pauseTvClock, type Tv } from "./support/tv.ts";
 
 let browser: Browser;
 before(async () => { browser = await launchBrowser(); });
@@ -41,15 +41,14 @@ journey("Home retains cached rows after remount offline and refreshes on recover
     assert.ok(before.length > 0);
     await tv.page.route("**/api/v2/**", route => { rejected++; return route.abort("connectionrefused"); });
     await tv.page.evaluate(() => { window.browseHarness.destroy(); window.browseHarness.mount(); });
-    await tv.jump(35000);
     await tv.eventually(async () => (await homeTitles(tv)).length > 0, "cached Home rows");
     assert.deepEqual(await homeTitles(tv), before);
+    // Each failed read retries on a page-clock timer that exists only once the first attempt has failed, and the offline refresh timer only once Home has drawn offline.
+    await jumpUntil(tv, 1000, () => tv.page.evaluate(() => window.browseHarness.cacheOffline()), "cached transport failure");
     assert.ok(rejected > 0, "fresh mount attempted reads while unreachable");
-    await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.cacheOffline()), "cached transport failure");
     assert.doesNotMatch(await tv.page.locator(".browse").innerText(), /Can't reach server|showing cached content/);
     await tv.page.unroute("**/api/v2/**");
-    await tv.jump(15000);
-    await tv.eventually(() => tv.page.evaluate(() => !window.browseHarness.cacheOffline()), "recovered Home");
+    await jumpUntil(tv, 15000, () => tv.page.evaluate(() => !window.browseHarness.cacheOffline()), "recovered Home");
 });
 
 test("missing Details artwork renders its tint without an empty image", async () => {
@@ -83,8 +82,7 @@ journey("Details reopens cached metadata while unreachable", async tv => {
     await tv.page.route("**/api/v2/**", route => route.abort("connectionrefused"));
     await tv.page.locator(card).click();
     await tv.page.locator('[data-view="item:movie:m0004"] h1').waitFor();
-    await tv.jump(35000);
-    await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.cacheOffline("movie:m0004")), "cached transport failure");
+    await jumpUntil(tv, 1000, () => tv.page.evaluate(() => window.browseHarness.cacheOffline("movie:m0004")), "cached transport failure");
     assert.doesNotMatch(await tv.page.locator(".browse").innerText(), /Can't reach server|showing cached content/);
     assert.equal(await tv.page.locator(".details-editorial h1").textContent(), "Movie 0004");
     assert.doesNotMatch(await tv.page.locator(".browse").innerText(), /Could not load|Retry personal|Retry title|Retry related/);
@@ -94,8 +92,7 @@ journey("Details reopens cached metadata while unreachable", async tv => {
 journey("Home resumes cached recovery after a hidden retry deadline", async tv => {
     await tv.page.route("**/api/v2/**", route => route.abort("connectionrefused"));
     await tv.page.evaluate(() => { window.browseHarness.destroy(); window.browseHarness.mount(); });
-    await tv.jump(35000);
-    await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.cacheOffline()), "cached transport failure");
+    await jumpUntil(tv, 1000, () => tv.page.evaluate(() => window.browseHarness.cacheOffline()), "cached transport failure");
     await tv.page.evaluate(() => {
         Object.defineProperty(document, "hidden", { configurable: true, value: true });
         Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
@@ -922,14 +919,33 @@ for (const [name, configure, expected] of [
     }, catalog => enrichHome(catalog, badgeFields), configure);
 }
 
-journey("Home poster badges scale from Apple's 185pt poster and Continue Watching draws no playback bar", async tv => {
+journey("Home poster badges scale from Apple's 185pt poster and Continue Watching draws Apple's ProgressBar", async tv => {
     await tv.eventually(async () => await tv.page.locator(`${POSTER} .card-overlay`).count() > 0, "badges");
     const sizes = await tv.page.locator(`${POSTER} .card-overlay`).first().evaluate(node => { const style = getComputedStyle(node); return [style.fontSize, style.paddingTop, style.paddingLeft]; });
     assert.deepEqual(sizes, ["9.51px", "2.85px", "7.61px"], "classic preset at 176 / 185");
     const wide = tv.page.locator('[data-section="resume/opaque"] [data-focus="episode:s1e12"]');
     await tv.eventually(async () => JSON.stringify(await corners(tv, '[data-section="resume/opaque"] [data-focus="episode:s1e12"]')) === JSON.stringify({ "top-left": ["4K", "DV", "EAC3"] }), "saved-file badges");
     assert.deepEqual(await corners(tv, '[data-section="resume/opaque"] [data-focus="movie:m0001"]'), { "top-left": ["4K", "Dolby Vision", "TrueHD Atmos"] }, "an unknown last file keeps the summary");
-    assert.equal(await wide.locator(".skyline-progress").count(), 0, "Continue Watching does not draw a playback bar");
+    // ProgressBar.swift: 3pt, radius 2, white 20% track, siloOnSurface fill, flush with the card's bottom edge.
+    // EpisodeThumbCard clips it to the 12pt card corner. s1e12 is at 480 of 1320 seconds.
+    const bar = await wide.locator(".skyline-progress").evaluate(node => {
+        const art = node.parentElement?.getBoundingClientRect();
+        const track = node.getBoundingClientRect();
+        const fill = node.firstElementChild;
+        if (art === undefined || !(fill instanceof HTMLElement)) throw new Error("Missing progress bar");
+        const style = getComputedStyle(node);
+        const fillStyle = getComputedStyle(fill);
+        return {
+            height: track.height, radius: style.borderTopLeftRadius, background: style.backgroundColor,
+            leftGap: track.left - art.left, rightGap: art.right - track.right, bottomGap: art.bottom - track.bottom,
+            fill: fillStyle.backgroundColor, fillRadius: fillStyle.borderTopLeftRadius, share: fill.getBoundingClientRect().width / track.width,
+            cardRadius: getComputedStyle(node.parentElement as HTMLElement).borderTopLeftRadius, clip: getComputedStyle(node.parentElement as HTMLElement).overflow,
+        };
+    });
+    assert.deepEqual({ ...bar, share: Math.round(bar.share * 10000) / 10000 }, {
+        height: 3, radius: "2px", background: "rgba(255, 255, 255, 0.2)", leftGap: 0, rightGap: 0, bottomGap: 0,
+        fill: "rgb(237, 237, 237)", fillRadius: "2px", share: Math.round(480 / 1320 * 10000) / 10000, cardRadius: "12px", clip: "hidden",
+    });
 }, catalog => { enrichHome(catalog, badgeFields); enrichDetails(catalog, detailFields); }, () => undefined);
 
 const badgePx = (value: number, artWidth: number): number => Math.round(value * artWidth / 185 * 100) / 100;

@@ -4,7 +4,7 @@
 
 import type { Card, CardOverlay, CatalogPage, HomeSection, UserLibrary } from "../contracts/v2/catalog.ts";
 import type { FocusItem, View, Zone } from "./browseFocus.ts";
-import { artworkUrl, type Destination, type EpisodeSelection, browseCardDestination, destinationOf } from "./browseModel.ts";
+import { artworkUrl, type Destination, type EpisodeSelection, type SeriesLine, browseCardDestination, destinationOf } from "./browseModel.ts";
 import { type CardOverlayPrefs, overlayLayer } from "./cardOverlays.ts";
 import { homeCaption } from "./cardPresentation.ts";
 import { blurEpisodeStill, hidesCardImage, type EpisodeSpoilerSettings } from "./episodeSpoilers.ts";
@@ -37,7 +37,7 @@ export interface ViewContext {
     readonly overlays?: CardOverlayPrefs | undefined;
     /** Continue Watching badges for the file the viewer last played, once Home's detail reads know it. */
     readonly savedFileOverlay?: (card: Card) => CardOverlay | undefined;
-    readonly resume?: (id: string, title: string) => void;
+    readonly resume?: (id: string, title: string, line?: SeriesLine) => void;
     readonly playEpisode?: (id: string, title: string, startOver?: boolean, selection?: EpisodeSelection) => void;
     readonly quickActions?: (card: Pick<Card, "id" | "title" | "type">, play?: () => void) => void;
     readonly cardDestination?: (card: Card) => Destination | undefined;
@@ -126,6 +126,19 @@ export function thumbnailProgress(fraction: number): HTMLElement {
     return progress;
 }
 
+function episodeLine(card: Card): SeriesLine | undefined {
+    if (card.type !== "episode") return undefined;
+    const seriesTitle = card.seriesTitle;
+    const seasonNumber = card.seasonNumber;
+    const episodeNumber = card.episodeNumber;
+    if (seriesTitle === undefined && seasonNumber === undefined && episodeNumber === undefined) return undefined;
+    return {
+        ...(seriesTitle === undefined ? {} : { seriesTitle }),
+        ...(seasonNumber === undefined ? {} : { seasonNumber }),
+        ...(episodeNumber === undefined ? {} : { episodeNumber }),
+    };
+}
+
 /** Undefined for media this client does not browse. */
 export function cardItem(card: Card, context: ViewContext): FocusItem | undefined {
     const destination = context.cardDestination?.(card) ?? (card.type === "season" ? destinationOf(card) : browseCardDestination(card));
@@ -142,9 +155,8 @@ export function cardItem(card: Card, context: ViewContext): FocusItem | undefine
     element.appendChild(art);
     if (thumbnail) {
         element.classList.add("skyline-continue");
-        // TVMediaCard draws ProgressBar for a box set's watched fraction only.
-        // Continue Watching is a playback position, so it stays off that bar.
-        if (!continuing && card.positionSeconds !== undefined && card.durationSeconds !== undefined && card.durationSeconds > 0 && card.positionSeconds > 0) {
+        // EpisodeThumbCard draws ProgressBar on every thumbnail row, Continue Watching included.
+        if (card.positionSeconds !== undefined && card.durationSeconds !== undefined && card.durationSeconds > 0 && card.positionSeconds > 0) {
             element.firstElementChild?.appendChild(thumbnailProgress(card.positionSeconds / card.durationSeconds));
         }
     }
@@ -166,7 +178,8 @@ export function cardItem(card: Card, context: ViewContext): FocusItem | undefine
     }
     element.addEventListener("click", () => context.open(destination));
     element.addEventListener("focus", () => context.preview?.(card, "Browse"));
-    const play = card.type === "movie" || card.type === "episode" ? () => context.resume?.(card.id, card.title) : undefined;
+    const line = episodeLine(card);
+    const play = card.type === "movie" || card.type === "episode" ? () => context.resume?.(card.id, card.title, line) : undefined;
     return mediaItem({ key: card.id, element, ...(play === undefined ? {} : { play }) }, card, context, continuing ? play : undefined);
 }
 

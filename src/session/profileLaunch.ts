@@ -1,6 +1,6 @@
 import type { NativeSession } from "./session.ts";
 import type { SecretStore } from "./secretStore.ts";
-import type { PublicStorage, RandomBytes } from "./deviceIdentity.ts";
+import { randomHex, type PublicStorage, type RandomBytes } from "./deviceIdentity.ts";
 import type { ProfileSummary } from "../contracts/v2/wire.ts";
 import { operations } from "../api/operations.ts";
 import { ApiError } from "../api/errors.ts";
@@ -11,6 +11,8 @@ interface LaunchChoice {
     readonly selectionRequired?: boolean;
     readonly profileId?: string;
     readonly proofAlias?: string;
+    /** The sign-in epoch the choice was made under; a choice without the current one never restores. */
+    readonly epoch?: string;
     readonly profile?: Pick<ProfileSummary, "name" | "isPrimary" | "isChild">;
 }
 export type LaunchBehavior = "automatic" | "askEveryLaunch" | "afterOneHour" | "afterTwelveHours";
@@ -33,6 +35,7 @@ export class ProfileLaunch {
         this.random = random;
         this.scope = JSON.stringify([session.http.base.baseUrl, serverId, session.http.deviceId]);
         this.lastKey = this.key();
+        this.sweep();
         session.onAuthorityChange(change => {
             if (["signed_out", "session_expired", "signed_in", "profile_proof_revoked"].includes(change.reason)) {
                 const key = this.lastKey ?? this.key();
@@ -44,13 +47,21 @@ export class ProfileLaunch {
         });
     }
 
+    /** A choice an earlier sign-in left behind, or a cleared one whose proof is still stored, is cleared and retried. */
+    private sweep(): void {
+        const key = this.key();
+        const leftover = key === undefined ? undefined : this.stored(key);
+        if (key === undefined || leftover === undefined) return;
+        if (leftover.remember ? this.choice(key)?.remember !== true : leftover.proofAlias !== undefined) this.invalidate(key);
+    }
+
     private key(): string | undefined {
         const account = this.session.account;
         return account === undefined ? undefined : `silo.native.profileLaunch:${this.scope}:${account.id}`;
     }
 
-    private choice(key = this.key()): LaunchChoice | undefined {
-        if (key === undefined) return undefined;
+    /** What the device holds for this account, whichever sign-in it was made under. */
+    private stored(key: string): LaunchChoice | undefined {
         const unsaved = this.unsaved.get(key);
         if (unsaved !== undefined) return unsaved;
         try {
@@ -58,14 +69,23 @@ export class ProfileLaunch {
             if (raw == null) return undefined;
             const value: unknown = JSON.parse(raw);
             if (typeof value !== "object" || value === null || !("remember" in value) || typeof value.remember !== "boolean") return undefined;
-            if (!value.remember) return { remember: false };
-            if (!("profileId" in value) || typeof value.profileId !== "string") return undefined;
             const proofAlias = "proofAlias" in value && typeof value.proofAlias === "string" ? value.proofAlias : undefined;
+            if (!value.remember) return { remember: false, ...(proofAlias === undefined ? {} : { proofAlias }) };
+            if (!("profileId" in value) || typeof value.profileId !== "string") return undefined;
+            const epoch = "epoch" in value && typeof value.epoch === "string" && value.epoch !== "" ? value.epoch : undefined;
             const profile = "profile" in value ? value.profile : undefined;
             const summary = typeof profile === "object" && profile !== null && "name" in profile && typeof profile.name === "string" && "isPrimary" in profile && typeof profile.isPrimary === "boolean" && "isChild" in profile && typeof profile.isChild === "boolean" ? { name: profile.name, isPrimary: profile.isPrimary, isChild: profile.isChild } : undefined;
             const behavior = "behavior" in value && (value.behavior === "automatic" || value.behavior === "askEveryLaunch" || value.behavior === "afterOneHour" || value.behavior === "afterTwelveHours") ? value.behavior : undefined;
-            return { remember: true, profileId: value.profileId, ...(behavior === undefined ? {} : { behavior }), ...("selectionRequired" in value && value.selectionRequired === true ? { selectionRequired: true } : {}), ...(proofAlias === undefined ? {} : { proofAlias }), ...(summary === undefined ? {} : { profile: summary }) };
+            return { remember: true, profileId: value.profileId, ...(epoch === undefined ? {} : { epoch }), ...(behavior === undefined ? {} : { behavior }), ...("selectionRequired" in value && value.selectionRequired === true ? { selectionRequired: true } : {}), ...(proofAlias === undefined ? {} : { proofAlias }), ...(summary === undefined ? {} : { profile: summary }) };
         } catch { return undefined; }
+    }
+
+    /** Apple ignores a remembered profile whose account epoch differs, or is missing, at launch. */
+    private choice(key = this.key()): LaunchChoice | undefined {
+        if (key === undefined) return undefined;
+        const choice = this.stored(key);
+        if (choice?.remember === true && (choice.epoch === undefined || choice.epoch !== this.session.signInEpoch)) return { remember: false };
+        return choice;
     }
 
     get needsOffer(): boolean { return this.choice() === undefined; }
@@ -123,27 +143,37 @@ export class ProfileLaunch {
     }
 
     private invalidate(key: string): void {
-        const old = this.choice(key);
+        const alias = this.stored(key)?.proofAlias;
+        const cleared: LaunchChoice = { remember: false, ...(alias === undefined ? {} : { proofAlias: alias }) };
+        try { this.persist(key, cleared); } catch { this.unsaved.set(key, cleared); }
+        if (alias !== undefined) void this.dropProof(key, alias);
+    }
+
+    /** The cleared choice keeps the alias until the key store confirms the removal, so the next start retries it. */
+    private async dropProof(key: string, alias: string): Promise<void> {
+        if ((await this.secrets.remove(alias)) === "failed") return;
+        const current = this.stored(key);
+        if (current?.remember !== false || current.proofAlias !== alias) return;
         try { this.persist(key, { remember: false }); } catch { this.unsaved.set(key, { remember: false }); }
-        if (old?.proofAlias !== undefined) void this.secrets.remove(old.proofAlias);
     }
 
     async setRemember(remember: boolean, signal?: AbortSignal, profileOrBehavior?: ProfileSummary | LaunchBehavior): Promise<void> {
         const key = this.key();
         const active = this.session.activeProfile;
-        if (key === undefined || active === undefined) throw new Error("Choose a profile first");
+        const epoch = this.session.signInEpoch;
+        if (key === undefined || active === undefined || epoch === undefined) throw new Error("Choose a profile first");
         const generation = this.session.authorityGeneration;
         const old = this.choice(key);
+        const oldAlias = this.stored(key)?.proofAlias;
+        let newAlias: string | undefined;
         if (!remember) {
-            this.persist(key, { remember: false });
+            this.persist(key, { remember: false, ...(oldAlias === undefined ? {} : { proofAlias: oldAlias }) });
         } else {
             let proofAlias: string | undefined;
             if (active.token !== undefined) {
                 if (!this.secrets.persistent) throw new Error("Protected device storage unavailable");
-                const bytes = new Uint8Array(16);
-                this.random(bytes);
-                proofAlias = `silo.profile.${Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("")}`;
-                const saved = await this.secrets.write(proofAlias, JSON.stringify({ key, profileId: active.id, proof: active.token }));
+                proofAlias = `silo.profile.${randomHex(this.random, 16)}`;
+                const saved = await this.secrets.write(proofAlias, JSON.stringify({ key, epoch, profileId: active.id, proof: active.token }));
                 if (!saved) throw new Error("Profile unlock was not saved");
             }
             try {
@@ -151,13 +181,14 @@ export class ProfileLaunch {
                 const behavior = profileOrBehavior === "automatic" || profileOrBehavior === "askEveryLaunch" || profileOrBehavior === "afterOneHour" || profileOrBehavior === "afterTwelveHours" ? profileOrBehavior : undefined;
                 const profile = behavior === undefined && typeof profileOrBehavior === "object" && profileOrBehavior !== null ? profileOrBehavior : undefined;
                 const summary = profile !== undefined ? (profile.id === active.id ? { name: profile.name, isPrimary: profile.isPrimary, isChild: profile.isChild } : undefined) : old?.profile;
-                this.persist(key, { remember: true, behavior: behavior ?? old?.behavior ?? "automatic", profileId: active.id, ...(proofAlias === undefined ? {} : { proofAlias }), ...(summary === undefined ? {} : { profile: summary }) });
+                this.persist(key, { remember: true, behavior: behavior ?? old?.behavior ?? "automatic", profileId: active.id, epoch, ...(proofAlias === undefined ? {} : { proofAlias }), ...(summary === undefined ? {} : { profile: summary }) });
             } catch (error) {
                 if (proofAlias !== undefined) await this.secrets.remove(proofAlias);
                 throw error;
             }
+            newAlias = proofAlias;
         }
-        if (old?.proofAlias !== undefined) await this.secrets.remove(old.proofAlias);
+        if (oldAlias !== undefined && oldAlias !== newAlias) await this.dropProof(key, oldAlias);
         this.recordActive();
     }
 
@@ -183,7 +214,7 @@ export class ProfileLaunch {
             if (stored.status !== "found") { this.invalidate(key); return undefined; }
             try {
                 const row: unknown = JSON.parse(stored.value);
-                if (typeof row !== "object" || row === null || !("key" in row) || row.key !== key || !("profileId" in row) || row.profileId !== profile.id || !("proof" in row) || typeof row.proof !== "string" || row.proof.length === 0) throw new Error("Invalid unlock");
+                if (typeof row !== "object" || row === null || !("key" in row) || row.key !== key || !("profileId" in row) || row.profileId !== profile.id || !("epoch" in row) || row.epoch !== choice.epoch || !("proof" in row) || typeof row.proof !== "string" || row.proof.length === 0) throw new Error("Invalid unlock");
                 proof = row.proof;
             } catch { this.invalidate(key); return undefined; }
         }

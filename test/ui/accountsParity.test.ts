@@ -7,64 +7,15 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import type { Browser } from "playwright";
-import { FakeCatalog } from "../native/support/fakeCatalog.ts";
-import { homeDetailsRead, launchBrowser, openTv, type Tv } from "./support/tv.ts";
+import { ACTIVE, keys, openChangeAccount, openSettingsAccounts, seedAccounts, withSignedInTv } from "./support/accounts.ts";
+import { launchBrowser, type Tv } from "./support/tv.ts";
 
 let browser: Browser;
 before(async () => { browser = await launchBrowser(); });
 after(async () => { await browser.close(); });
 
-interface SeedRow { id: string; baseUrl: string; username: string; profileCount: number; needsSignIn: boolean; lastUsedAt?: number }
-
-/** Stands for the signed-in account's server, which is only known once the app has signed in. */
-const ACTIVE = "@active";
-
-async function withSignedInTv(body: (tv: Tv) => Promise<void>): Promise<void> {
-    const tv = await openTv(browser, { app: "application" });
-    const catalog = new FakeCatalog();
-    catalog.fileIds.set("movie:m0001", "42");
-    tv.fake.catalog = catalog;
-    try {
-        await signIn(tv);
-        await body(tv);
-        assert.deepEqual(tv.console, []);
-    } finally {
-        await tv.page.context().close();
-    }
-}
-
-/** Rewrites the saved list: the signed-in account keeps its identity but gets `ownerLastUsedAt`; `extra` rows follow. */
-async function seedAccounts(tv: Tv, ownerLastUsedAt: number, extra: readonly SeedRow[]): Promise<{ owner: string; baseUrl: string }> {
-    return tv.page.evaluate(([stamp, rows]) => {
-        const storage = window.appHarness.storage;
-        const saved = JSON.parse(storage.getItem("silo.native.accounts.v1")!) as { accounts: Record<string, unknown>[] };
-        const owner = saved.accounts[0]!;
-        owner.lastUsedAt = stamp;
-        for (const row of rows) saved.accounts.push({ ...owner, ...row, baseUrl: row.baseUrl === "@active" ? owner.baseUrl : row.baseUrl, accountId: row.id, serverId: row.id.startsWith("x") ? "other-server" : owner.serverId });
-        storage.setItem("silo.native.accounts.v1", JSON.stringify(saved));
-        return { owner: owner.id as string, baseUrl: owner.baseUrl as string };
-    }, [ownerLastUsedAt, extra] as const);
-}
-
-async function openChangeAccount(tv: Tv): Promise<void> {
-    await tv.page.locator('[data-focus="profiles"]').click();
-    await tv.page.getByRole("menuitem", { name: "Change Account", exact: true }).click();
-    await tv.page.locator('[data-view="change-account"]').waitFor();
-}
-
-async function openSettingsAccounts(tv: Tv): Promise<void> {
-    await tv.page.locator('[data-focus="profiles"]').click();
-    await tv.page.getByRole("menuitem", { name: "Settings", exact: true }).click();
-    await tv.page.locator('[data-focus="server"]').click();
-    await tv.page.getByRole("button", { name: "Accounts", exact: true }).click();
-    await tv.page.locator('[data-view="accounts-settings"]').waitFor();
-}
-
-const keys = (tv: Tv, selector: string): Promise<string[]> =>
-    tv.page.locator(selector).evaluateAll(nodes => nodes.map(node => node.getAttribute("data-focus") ?? ""));
-
 test("Change Account lists the active server first, then servers and accounts by last use", async () => {
-    await withSignedInTv(async tv => {
+    await withSignedInTv(browser, async tv => {
         const { baseUrl, owner } = await seedAccounts(tv, 1, [
             { id: "xb-old", baseUrl: "https://b.example.test", username: "b-old", profileCount: 1, needsSignIn: false, lastUsedAt: 100 },
             { id: "xb-new", baseUrl: "https://b.example.test", username: "b-new", profileCount: 1, needsSignIn: false, lastUsedAt: 300 },
@@ -82,7 +33,7 @@ test("Change Account lists the active server first, then servers and accounts by
 });
 
 test("Settings › Accounts lists servers and accounts in the same order and hides a zero profile count", async () => {
-    await withSignedInTv(async tv => {
+    await withSignedInTv(browser, async tv => {
         const { baseUrl } = await seedAccounts(tv, 1, [
             { id: "xb", baseUrl: "https://b.example.test", username: "b", profileCount: 0, needsSignIn: false, lastUsedAt: 300 },
             { id: "xc", baseUrl: "https://c.example.test", username: "c", profileCount: 2, needsSignIn: false, lastUsedAt: 200 },
@@ -106,7 +57,7 @@ test("Settings › Accounts lists servers and accounts in the same order and hid
 });
 
 test("the SIGN IN AGAIN badge is the warning colour with an open lock, and its tile is dimmed", async () => {
-    await withSignedInTv(async tv => {
+    await withSignedInTv(browser, async tv => {
         const { owner } = await seedAccounts(tv, 9, [
             { id: "expired", baseUrl: ACTIVE, username: "expired", profileCount: 1, needsSignIn: true, lastUsedAt: 1 },
         ]);
@@ -151,7 +102,7 @@ test("the SIGN IN AGAIN badge is the warning colour with an open lock, and its t
 });
 
 test("choosing a saved account that is not open shows a spinner on its card until it opens, and Back cancels", async () => {
-    await withSignedInTv(async tv => {
+    await withSignedInTv(browser, async tv => {
         await seedAccounts(tv, 9, [
             { id: "cold", baseUrl: ACTIVE, username: "cold", profileCount: 1, needsSignIn: false, lastUsedAt: 1 },
         ]);
@@ -172,7 +123,7 @@ test("choosing a saved account that is not open shows a spinner on its card unti
 });
 
 test("a saved account that is not open yet opens from Change Account and ends at its picker", async () => {
-    await withSignedInTv(async tv => {
+    await withSignedInTv(browser, async tv => {
         tv.fake.nextUser = { id: "2", username: "alex" };
         await openChangeAccount(tv);
         await tv.page.locator('[data-focus="add-account"]').click();
@@ -205,7 +156,7 @@ test("a saved account that is not open yet opens from Change Account and ends at
 });
 
 test("an account that cannot open quietly hands over to sign-in, as before", async () => {
-    await withSignedInTv(async tv => {
+    await withSignedInTv(browser, async tv => {
         await seedAccounts(tv, 9, [
             { id: "cold", baseUrl: ACTIVE, username: "cold", profileCount: 1, needsSignIn: false, lastUsedAt: 1 },
         ]);
@@ -218,22 +169,3 @@ test("an account that cannot open quietly hands over to sign-in, as before", asy
         assert.equal(await tv.page.locator('[data-view="change-account"]').count(), 0);
     });
 });
-
-async function signIn(tv: Tv): Promise<void> {
-    await tv.page.fill("#signin-address", "silo.example.test");
-    await tv.page.getByRole("button", { name: "Connect", exact: true }).click();
-    await tv.page.locator('[data-screen="code"]').waitFor();
-    const code = [...tv.fake.devices.keys()].pop();
-    assert.ok(code !== undefined);
-    tv.fake.approve(code);
-    await tv.jump(5000);
-    await tv.page.locator('[data-screen="approved"], [data-screen="notice"], [data-screen="profiles"]').waitFor();
-    if (await tv.screen() === "approved") await tv.jump(1000);
-    await tv.page.locator('[data-screen="notice"], [data-screen="profiles"]').waitFor();
-    if (await tv.screen() === "notice") await tv.page.getByRole("button", { name: "Continue", exact: true }).click();
-    await tv.page.locator('[data-screen="profiles"]').waitFor();
-    await tv.page.locator('[data-focus="profile:p-owner"]').click();
-    await tv.page.locator('[data-focus="ask-every-launch"]').click();
-    await tv.page.locator('[data-view="home"] [data-focus="movie:m0001"]').first().waitFor();
-    await homeDetailsRead(tv);
-}

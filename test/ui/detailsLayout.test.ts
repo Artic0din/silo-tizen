@@ -850,7 +850,7 @@ detailTest('Failed season episode reconciliation keeps the existing playback own
     await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.plays.length === 1), 'retained owner still dispatches playback after reconciliation fails');
 });
 
-detailTest("episode boundary failure requires explicit Retry while loaded-season focus stays read-free", async tv => {
+detailTest("episode boundary failure retries at the edge and on explicit Retry while loaded-season focus stays read-free", async tv => {
     await pauseTvClock(tv);
     const catalog = tv.fake.catalog; assert.ok(catalog instanceof FakeDetails);
     const seasons = catalog.route("GET", "/catalog/series/series%3As1/seasons", "p-owner")?.body as { items: Record<string, unknown>[] };
@@ -881,19 +881,17 @@ detailTest("episode boundary failure requires explicit Retry while loaded-season
     const retry = tv.page.getByRole("button", { name: "Retry more episodes", exact: true });
     await retry.waitFor();
     assert.deepEqual(reads.slice(3), [4]);
-    for (let index = 0; index < 3; index++) {
-        await card(3, 12).focus(); await card(3, 13).focus(); await tv.jump(100);
-    }
-    assert.equal(reads.length, 4, "failed boundary revisits never retry");
+    await card(3, 12).focus(); await card(3, 13).focus(); await tv.jump(100);
+    await tv.eventually(async () => reads.length === 5, "reaching the failed boundary again retries it, as Apple TV does");
     await retry.focus(); await tv.page.keyboard.press("Enter"); await tv.jump(100);
-    await tv.eventually(async () => reads.length === 5, "failed explicit neighbour Retry");
+    await tv.eventually(async () => reads.length === 6, "failed explicit neighbour Retry");
     assert.equal(await tv.focused(), "retry-neighbors");
     failBoundary = false;
     // Drain any episode-detail dwell armed while Retry stayed focused, then activate explicitly.
     await tv.jump(120);
     await retry.click();
     await tv.eventually(async () => await card(4, 13).count() === 1, "successful neighbour Retry paints season 4");
-    assert.deepEqual(reads.slice(3), [4, 4, 4], "explicit Retry reads only the failed season");
+    assert.deepEqual(reads.slice(3), [4, 4, 4, 4], "boundary and explicit Retry read only the failed season");
     assert.equal(await retry.count(), 0);
     assert.notEqual(await tv.focused(), "retry-neighbors", "the removed Retry control cannot retain focus");
 });

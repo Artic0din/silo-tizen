@@ -346,8 +346,16 @@ test("a plain pause shows no preview card, and a paused timeline scrub keeps App
     const r = await open(0, undefined, true);
     try {
         // TVPlayerControls draws the card only while viewModel.isScrubbing, so Play/Pause alone shows none.
+        const footerTops = (): Promise<{ series: number; title: number }> => r.page.evaluate(() => ({
+            series: document.querySelector(".player-series")!.getBoundingClientRect().top,
+            title: document.querySelector(".player-overlay .player-title")!.getBoundingClientRect().top }));
+        const playingTops = await footerTops();
         await remote(r.page, 10252);
         await r.page.waitForFunction(() => window.trickplay.avplay.state === "PAUSED");
+        // The card shows only after its manifest and sheet requests finish, so let any started request settle.
+        await r.page.clock.runFor(1000);
+        assert.equal(r.previews.manifestReads, 0);
+        assert.equal(r.sheets.length, 0);
         assert.equal(await r.page.locator(".player-thumbnail:not([hidden])").count(), 0);
         await remote(r.page, 10252);
         await r.page.waitForFunction(() => window.trickplay.avplay.state === "PLAYING");
@@ -365,7 +373,8 @@ test("a plain pause shows no preview card, and a paused timeline scrub keeps App
             const footerNode = document.querySelector(".player-footer")!;
             const level = (node: Element): number => Number(getComputedStyle(node).zIndex) || 0;
             const footerPaintsOver = level(footerNode) > level(cardNode) || (level(footerNode) === level(cardNode) && (cardNode.compareDocumentPosition(footerNode) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0);
-            return { cardBottom: card.bottom, seriesTop: series.top, titleTop: title.top, footerPaintsOver };
+            const painted = (node: Element): boolean => getComputedStyle(node).opacity !== "0" && getComputedStyle(node).visibility === "visible";
+            return { painted: painted(cardNode) && painted(footerNode) && painted(document.querySelector(".player-series")!), cardBottom: card.bottom, seriesTop: series.top, titleTop: title.top, footerPaintsOver };
         });
         await capture(r.page, "06-paused-preview-footer");
         // titleFooter has no scrub condition and sits after TVScrubPreviewLayer in the ZStack. Its series line
@@ -373,6 +382,9 @@ test("a plain pause shows no preview card, and a paused timeline scrub keeps App
         assert.ok(Math.abs(layout.cardBottom - layout.seriesTop - 7.984375) < 0.01, `card bottom ${layout.cardBottom}, series top ${layout.seriesTop}`);
         assert.ok(layout.titleTop >= layout.cardBottom, `title top ${layout.titleTop}, card bottom ${layout.cardBottom}`);
         assert.equal(layout.footerPaintsOver, true);
+        assert.equal(layout.painted, true);
+        // The title block neither moves nor hides while the card shows.
+        assert.deepEqual(await footerTops(), playingTops);
         assert.deepEqual(r.errors, []);
     } finally { await r.close(); }
 });

@@ -237,6 +237,8 @@ test("Left through a loaded previous season after a fast chip walk sends no seas
         await tv.remote(40); await tv.jump(500);
         assert.equal(await tv.focused(), "episode:s1e25x1");
         await tv.remote(37); await tv.jump(1500);
+        // The season read answers over the routed network, after the fake clock has passed the dwell.
+        await tv.eventually(async () => await tv.focused() === "episode:s1e24x22", "Left reaches the aborted previous season");
         assert.equal(await tv.focused(), "episode:s1e24x22", "Left at the first loaded card reaches the aborted previous season");
         const reads = seasonReads().length;
         assert.equal(seasonReads().filter(number => number === "24").length, 2, "the walk aborted one read of season 24 and the edge asked once more");

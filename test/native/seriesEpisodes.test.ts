@@ -367,6 +367,20 @@ for (const trigger of ["edge", "explicit"] as const) test(`the boundary error hi
     assert.equal(h.state.boundaryFailed, false);
 });
 
+for (const order of ["stop then restore", "restore then stop"] as const) test(`a retry aborted by leaving Details keeps its failure (${order})`, async t => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const h = await episodeRailHarness(1);
+    const path = operations.listSeasonEpisodes("series:s1", 1).path;
+    h.fake.hold(path, true);
+    h.state.retryNeighbors(); await h.settle();
+    assert.equal(h.state.boundaryFailed, false);
+    const restored = new SeriesEpisodes(h.core.session, "series:s1", h.state.seasons, () => undefined, 2);
+    t.after(() => restored.stop());
+    if (order === "stop then restore") { h.state.stop(); restored.restore(h.state); } else { restored.restore(h.state); h.state.stop(); }
+    await h.settle();
+    assert.equal(restored.boundaryFailed, true, "the season never loaded, so the error and Retry come back");
+});
+
 test("a dwell back onto a season whose read was cancelled reads it again", async t => {
     t.mock.timers.enable({ apis: ["setTimeout"] });
     const h = await episodeRailHarness(); t.after(() => h.state.stop());

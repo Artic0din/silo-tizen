@@ -1,5 +1,5 @@
 import { startPlayback, type PlayerPlatform, type PlayerScreen } from "./player/playerScreen.ts";
-import type { ConnectedServer, SessionCoreDeps } from "./session/core.ts";
+import { connect, type ConnectedServer, type SessionCoreDeps } from "./session/core.ts";
 import type { LogoutResult } from "./session/session.ts";
 import { mountBrowse, type Browse, type PlayRequest } from "./ui/browse.ts";
 import { mountExitDialog, type ExitDialog } from "./ui/exitDialog.ts";
@@ -7,7 +7,7 @@ import { remoteKey } from "./ui/keys.ts";
 import { avatarReference } from "./ui/profilePicker.ts";
 import { mountProfiles, type ProfileHandoff, type ProfileScreens } from "./ui/profiles.ts";
 import { actions, button, el, ScreenHost } from "./ui/screen.ts";
-import { mountSignIn, type SignInScreens } from "./ui/signIn.ts";
+import { mountSignIn, rememberServer, type SignInScreens } from "./ui/signIn.ts";
 import { mountAccounts, type AccountsScreen } from "./ui/accounts.ts";
 import { cachedBranding } from "./ui/brandingCache.ts";
 import { AccountDirectory, AccountVault, type SavedAccount } from "./session/accounts.ts";
@@ -130,7 +130,33 @@ export function mountApp(root: HTMLElement, options: AppOptions): SiloApp {
     // A row can say "sign in again" while its session still works, when the key store refused to save it.
     const hasLiveSession = (row: SavedAccount): boolean => liveAccounts.get(liveKey(row.baseUrl, row.accountId))?.session.signedIn === true;
 
-    const openFromAccounts = (account: SavedAccount | undefined, address?: string): void => {
+    // ChangeAccountModel.choose: a saved account that is not open yet opens while Change Account stays up and
+    // spins on its card. One that cannot restore quietly (offline, expired, unreadable) goes to the sign-in screen.
+    const openFromAccounts = (account: SavedAccount | undefined, address?: string, inPlace?: boolean): Promise<void> | void => {
+        const open = account !== undefined && connected?.session.signedIn === true && connected.accounts.localAccountId === account.id;
+        if (account !== undefined && inPlace === true && !account.needsSignIn && !open && !hasLiveSession(account)) return restoreFromAccounts(account);
+        openWithSignIn(account, address);
+    };
+
+    const restoreFromAccounts = async (account: SavedAccount): Promise<void> => {
+        const screen = accounts;
+        const result = await connect(account.baseUrl, { ...activeCore, localAccountId: account.id }).catch(() => undefined);
+        if (accounts !== screen) return;
+        if (result?.status === "connected" && result.restore === "signed_in") {
+            rememberServer(activeCore, result.server.http.base.baseUrl);
+            stopContent();
+            // The same cleanup showSignIn does: a Browse session opened this screen with its profile still active.
+            if (connected?.session.activeProfile) connected.session.setProfile(undefined, "profile_cleared");
+            profiles?.destroy();
+            profiles = undefined;
+            showProfiles(result, { skipRemembered: true });
+            return;
+        }
+        openWithSignIn(account);
+    };
+
+    const openWithSignIn = (account: SavedAccount | undefined, address?: string): void => {
+        accounts?.destroy();
         accounts = undefined;
         if (account?.needsSignIn && !hasLiveSession(account)) {
             // ChangeAccountModel.choose: signing in again ends at the picker, as for any chosen account.

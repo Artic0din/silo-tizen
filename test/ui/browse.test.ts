@@ -1376,7 +1376,9 @@ browseTest("Search drops retained Requests after detail status refuses capabilit
     await tv.page.fill("#browse-search", "Heat"); await tv.remote(IME_DONE);
     await tv.page.locator('[data-focus="movie:949"]').waitFor();
     revokedInDetail.enabled = false;
-    await tv.page.locator('[data-focus="movie:949"]').click(); await showing(tv, "home");
+    await tv.page.locator('[data-focus="movie:949"]').click(); await showing(tv, "search");
+    assert.equal(await tv.page.locator('[data-focus="movie:949"]').count(), 0, "the refused detail closes back to Search without the Request card");
+    await tv.remote(BACK); await showing(tv, "home");
     await tv.page.locator('[data-focus="search"]').click();
     assert.equal(await tv.page.locator('[data-focus="movie:949"]').count(), 0);
 }, { catalog: revokedInDetail });

@@ -12,6 +12,8 @@ import { remoteKey } from "./keys.ts";
 import { SkylineScroll } from "./skylineScroll.ts";
 
 const SELECT_HOLD_MS = 650;
+/** Scrolling panels whose position survives a repaint of their screen, keyed by data-scroll-key. */
+const SCROLL_PANELS = ".browse-panel-list[data-scroll-key], .settings-modal-options[data-scroll-key], .settings-pane[data-scroll-key], .accounts-rail[data-scroll-key], .accounts-pane[data-scroll-key]";
 
 interface VisitSnapshot {
     memory: Map<string, string>;
@@ -276,7 +278,7 @@ export class FocusHost {
         }
         // Settings recreates a category at the top; only the mounted pane survives a modal.
         const panels = this.container.classList.contains("settings") ? new Map<string, number>() : new Map(this.visits.get(key)?.panels);
-        this.container.querySelectorAll<HTMLElement>(".browse-panel-list[data-scroll-key], .settings-modal-options[data-scroll-key], .settings-pane[data-scroll-key]").forEach(panel => panels.set(panel.dataset.scrollKey ?? "", panel.scrollTop));
+        this.container.querySelectorAll<HTMLElement>(SCROLL_PANELS).forEach(panel => panels.set(panel.dataset.scrollKey ?? "", panel.scrollTop));
         this.visits.set(key, { memory: new Map(this.memory), lastZone: this.lastZone, contentZone: this.contentZone, top: this.viewport().scrollTop, rows: new Map(Array.from(this.container.querySelectorAll<HTMLElement>(".browse-row")).map((row, index) => [this.rowKey(row, index), row.scrollLeft])), panels });
     }
 
@@ -290,7 +292,7 @@ export class FocusHost {
                 row.scrollLeft = row.classList.contains("details-episodes") ? SkylineScroll.episodeOffset(row, entry) : row.classList.contains("details-season-chips") ? SkylineScroll.seasonOffset(row, entry) : entry.offsetLeft - row.offsetLeft - parseFloat(getComputedStyle(row).paddingLeft);
             }
         });
-        this.container.querySelectorAll<HTMLElement>(".browse-panel-list[data-scroll-key], .settings-modal-options[data-scroll-key], .settings-pane[data-scroll-key]").forEach(panel => { panel.scrollTop = visit?.panels.get(panel.dataset.scrollKey ?? "") ?? 0; });
+        this.container.querySelectorAll<HTMLElement>(SCROLL_PANELS).forEach(panel => { panel.scrollTop = visit?.panels.get(panel.dataset.scrollKey ?? "") ?? 0; });
     }
 
     private intersects(element: HTMLElement): boolean {

@@ -4,7 +4,7 @@ import type { Browser } from "playwright";
 import { mkdir } from "node:fs/promises";
 import { FakeDetails } from "../native/support/fakeDetails.ts";
 import { problem, type Reply } from "../native/support/fakeSilo.ts";
-import { launchBrowser, openTv, type Tv } from "./support/tv.ts";
+import { jumpUntil, launchBrowser, openTv, type Tv } from "./support/tv.ts";
 import { personalQuery, readPersonalPage } from "../../src/ui/personalLists.ts";
 import { FakeSettings } from "../native/support/fakeSettings.ts";
 import { CARD_PRESENTATION_KEY } from "../../src/contracts/v2/settings.ts";
@@ -722,36 +722,38 @@ for (const destination of ["unchanged", "navigation", "profile menu"]) test(`ini
     } finally { await tv.page.context().close(); }
 });
 
-for (const source of ["watchlist", "favorites"]) test(`uncovering ${source} reconciles membership changed through another personal list`, async () => {
+// Watchlist and Favorites replace each other (Apple's showPersonalRoot), but History opened from the profile menu stacks over either.
+for (const source of ["watchlist", "favorites"]) test(`uncovering ${source} after History reconciles membership changed through History`, async () => {
     const { tv, catalog } = await setup();
     try {
         await openList(tv, source);
         await loadThrough(tv, 60);
         await tv.page.locator('.browse [data-focus="movie:m0050"]').focus();
-        await openList(tv, source === "watchlist" ? "favorites" : "watchlist");
+        await openList(tv, "history");
         await loadThrough(tv, 60);
         await tv.page.locator('.browse [data-focus="movie:m0050"]').click();
         if (source === "favorites") await tv.page.locator('[data-focus="more"]').click();
         await tv.page.getByRole("button", { name: source === "favorites" ? "Remove from Favorites" : "Remove from watchlist", exact: true }).click();
         if (source === "favorites") await tv.page.locator('[data-focus="more"]').click();
         await tv.page.getByRole("button", { name: source === "favorites" ? "Add to Favorites" : "Add to watchlist", exact: true }).waitFor();
-        const innerRefresh = holdList(tv, source === "watchlist" ? "favorites" : "watchlist");
+        const innerRefresh = holdList(tv, "history");
         if (source === "favorites") await tv.remote(10009);
         await tv.remote(10009);
-        await tv.page.locator('[data-view^="personal:"]').waitFor();
+        await tv.page.locator('[data-view="personal:history"]').waitFor();
         const cached = await tv.page.locator('.browse [data-focus="movie:m0050"]').elementHandle();
         assert.ok(cached);
         innerRefresh.release();
-        await tv.eventually(async () => await cached.evaluate(node => !node.isConnected), "inner list refresh rendered");
-        await tv.eventually(async () => await tv.focused() === "movie:m0050", "other list retains the title");
-        const queries = listReads(tv).length;
+        await tv.eventually(async () => await cached.evaluate(node => !node.isConnected), "History refresh rendered");
+        await tv.eventually(async () => await tv.focused() === "movie:m0050", "History retains the title");
+        // History may still be paging, so count only the uncovered list's own reads.
+        const sourceReads = (): number => listReads(tv).filter(request => request.path.startsWith(`/${source}?`)).length;
+        const queries = sourceReads();
         const held = holdList(tv, source);
-        await tv.remote(10009);
         await tv.remote(10009);
         await tv.page.locator(`[data-view="personal:${source}"]`).waitFor();
         held.release();
         await tv.eventually(async () => await tv.page.locator('.browse [data-focus="movie:m0050"]').count() === 0, "uncovered list reconciles confirmed removal");
-        assert.equal(listReads(tv).length, queries + 3);
+        assert.equal(sourceReads(), queries + 3);
         assert.equal(catalog.mutations.length, 1);
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }
@@ -908,7 +910,11 @@ test("a failed later page keeps the rows, and an invalid cursor restarts from th
             await revealEnd(tv);
             return listReads(tv).length > before;
         }, "later page attempted");
-        await tv.jump(1000);
+        // The safe read retries after a 1 s page-clock sleep that exists only once the first 503 has
+        // arrived; a single jump on a slow runner fires nothing and the retry never happens.
+        // The feed also re-arms only on the end leaving and re-entering view, which it ignores while
+        // the read is in flight, so both attempts must have been answered before the test scrolls.
+        await jumpUntil(tv, 1000, async () => listReads(tv).length >= before + 2 && tv.pendingReplies === 0, "failed read retried and answered");
         assert.equal(await tv.page.locator(".browse .browse-card").count(), 24);
         assert.equal(await tv.page.locator(".browse .browse-card").first().getAttribute("data-focus"), "movie:m0001");
         assert.equal(await tv.page.locator('[data-focus="retry"]').count(), 0);

@@ -20,6 +20,11 @@ All notable changes to this project are documented in this file.
 - Added description translation on Details and the featured marquee, matching Apple TV's Translate Description action, Translating… status and Translated by AI label.
 - Added Change Account with several saved accounts per server and account management.
 
+### Changed
+
+- Change Account and Settings › Accounts now list the open server first, then servers and accounts by last use, as Apple TV does. Settings no longer shows "0 profiles", a card spins while its account opens, and SIGN IN AGAIN uses the warning colour with an open lock and a dimmed tile.
+- Change Account fades the edge of the server and account columns that has rows hidden past it and shows a chevron under the column pointing that way, as Apple TV does.
+
 ### Removed
 
 - Removed the custom kbps field and Save action from the Maximum Bitrate picker. A stored cap outside the preset list still appears in that list.
@@ -28,6 +33,8 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Kept the top bar on Requests opened from the profile menu, so Up from the first row reaches it and Back returns to the tab underneath. Requests closes back to that tab when the server turns requests off. Watchlist, Favorites and Requests now replace each other, so Back from the bar returns to the tab, and a page opened above Requests stays open until you leave it.
+- Retried a season that failed to load beside the Series Details episode rail when focus reaches the rail edge, and re-read a season whose load was cancelled when its chip is focused again, as Apple TV does.
 - Said a finished AI subtitle was saved but not turned on when the refreshed plan marks it unplayable, as a downloaded one already does, instead of doing nothing after Select.
 - Made the Home offline-recovery, For You offline, Browse Recommended reselect and Player hold tests wait for the page's own retry timers, Details read and clock set-up instead of assuming a fast runner, which removes their intermittent hosted CI failures.
 - Restored the Continue Watching progress bar with Apple TV's look: a 3px bar flush with the card's bottom edge, a faint full-width track, and a light fill for the watched share. Box set search results use the same bar.

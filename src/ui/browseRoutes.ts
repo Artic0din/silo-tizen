@@ -43,7 +43,7 @@ export interface Pages {
 export type RouteData =
     | { readonly kind: "for_you"; data: RecommendationRow[] | undefined }
     | { readonly kind: "recommendationSection"; readonly locator: RecommendationLocator; readonly title: string; pages: Pages }
-    | { readonly kind: "requests"; readonly requests: RequestsState }
+    | { readonly kind: "requests"; readonly requests: RequestsState; readonly anchor?: string }
     | { readonly kind: "calendar"; readonly calendar: CalendarState }
     | { readonly kind: "personal"; readonly source: PersonalSource; readonly anchor?: string; filter: PersonalFilter; capability: PersonalListCapability | undefined; pages: Pages; pendingIndex: number | undefined; error?: ErrorState | undefined; elsewhere?: boolean }
     | { readonly kind: "home"; data: { libraries: UserLibrary[]; sections: HomeSection[] } | undefined }

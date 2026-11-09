@@ -3,7 +3,19 @@
 .accounts-wordmark { width: 150px; height: 64px; object-fit: contain; object-position: left; margin-bottom: 30px; }
 .accounts-title { font-size: 88px; font-weight: 900; line-height: 1.1; margin: 0 0 22px; }
 .accounts-columns { display: flex; gap: 40px; margin-top: 48px; height: 650px; }
-.accounts-rail, .accounts-pane { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; padding: 16px 12px; margin: -16px -12px; }
+/* TVOverflowColumn: the list, then a 24 tall chevron row 6 below it. The list keeps 16 above and 12 beside it for a focused row's growth and shadow. */
+.accounts-column { display: flex; flex-direction: column; gap: 6px; min-height: 0; }
+.accounts-column-rail { width: 520px; flex-shrink: 0; }
+.accounts-column-pane { width: 784px; }
+.accounts-rail, .accounts-pane { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; padding: 16px 12px; margin: -16px -12px 0; flex: 1 1 0; min-height: 0;
+    --fade-top: #000; --fade-bottom: #000;
+    -webkit-mask-image: linear-gradient(to bottom, var(--fade-top), #000 48px, #000 calc(100% - 48px), var(--fade-bottom));
+    mask-image: linear-gradient(to bottom, var(--fade-top), #000 48px, #000 calc(100% - 48px), var(--fade-bottom)); }
+.accounts-rail[data-overflow-above="true"], .accounts-pane[data-overflow-above="true"] { --fade-top: transparent; }
+.accounts-rail[data-overflow-below="true"], .accounts-pane[data-overflow-below="true"] { --fade-bottom: transparent; }
+.accounts-chevrons { display: flex; justify-content: center; align-items: center; gap: 10px; height: 24px; flex: none; color: rgba(237, 237, 237, 0.5); }
+.accounts-chevrons svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; opacity: 0; transition: opacity 120ms ease-out; }
+[data-overflow-above="true"] + .accounts-chevrons svg:first-child, [data-overflow-below="true"] + .accounts-chevrons svg:last-child { opacity: 1; }
 .accounts-rail { width: 520px; flex-shrink: 0; box-sizing: content-box; }
 .accounts-pane { width: 784px; gap: 16px; }
 .accounts-screen button { color: var(--silo-text); font: inherit; text-align: left; background: #ffffff12; border: 1px solid #ffffff24; border-radius: 16px; padding: 16px; min-height: 88px; flex-shrink: 0; }
@@ -22,7 +34,14 @@
 .account-initial { width: 80px; height: 80px; display: grid; place-items: center; border-radius: 20px; background: linear-gradient(to bottom right, #eaa65c, #a8521d, #5e290d); color: #fff6ea; flex-shrink: 0; }
 .account-name { font-size: 34px; font-weight: 700; flex: 1; overflow: hidden; }
 .account-count { display: block; font-size: 23px; font-weight: 400; opacity: .65; }
-.account-badge { font-size: 18px; font-weight: 600; letter-spacing: .8px; border: 1px solid #ffffff24; border-radius: 18px; padding: 7px 16px; color: #ededed; background: #000d; white-space: nowrap; }
+/* TVChangeAccountBadge: 36 tall capsule, 18 semibold with 0.8 kerning. CURRENT is black at 45% under the white 14% hairline;
+   SIGN IN AGAIN is siloStatusWarning #F4C869 at 8% fill and 35% line, with the open-lock glyph. A focused card turns both fills to black at 85%. */
+.account-badge { display: inline-flex; align-items: center; gap: 6px; box-sizing: border-box; height: 36px; padding: 0 16px; font-size: 18px; font-weight: 600; letter-spacing: .8px; border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 18px; color: #ededed; background: rgba(0, 0, 0, 0.45); white-space: nowrap; }
+.account-badge svg { width: 17px; height: 17px; flex: none; }
+.account-badge-warning { color: #f4c869; background: rgba(244, 200, 105, 0.08); border-color: rgba(244, 200, 105, 0.35); }
+.accounts-pane > button:focus .account-badge { background: rgba(0, 0, 0, 0.85); }
+/* TVAccountCardLabel dimsMark: the initial tile of an account that must sign in again is at 55%. */
+.account-initial-dim { opacity: .55; }
 .accounts-dialog { margin: 160px auto; width: 1000px; padding: 48px; background: #15171c; border-radius: 30px; }
 .accounts-dialog button { margin: 12px; min-width: 240px; }
 /* TVSettingsPaneRowStyle on the dialog's Cancel: clear border, #EDEDED platter, scale 1.012, black shadow. */

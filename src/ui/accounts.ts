@@ -1,4 +1,4 @@
-import { AccountDirectory, type SavedAccount } from "../session/accounts.ts";
+import { AccountDirectory, accountsByRecentUse, profileCountLabel, serversByRecentUse, type SavedAccount } from "../session/accounts.ts";
 import type { ConnectedServer, SessionCoreDeps } from "../session/core.ts";
 import { signOutSavedAccount } from "../session/core.ts";
 import { FocusHost, type FocusItem } from "./browseFocus.ts";
@@ -6,13 +6,14 @@ import { actionButton } from "./browseViews.ts";
 import { MarqueeBackdrop, marqueeScene } from "./marqueeBackdrop.ts";
 import { systemClock } from "../api/clock.ts";
 import { el } from "./screen.ts";
+import { spinner } from "./marquee.ts";
 import { cachedBranding } from "./brandingCache.ts";
 import { navigationIcon } from "./navigationIcon.ts";
 import { signOutConfirmationCopy, signOutRemovesServer } from "./signOutConfirmation.ts";
 
 export interface AccountsScreen { destroy(): void }
 export function mountAccounts(root: HTMLElement, core: SessionCoreDeps, current: ConnectedServer | undefined,
-    open: (account: SavedAccount | undefined, address?: string) => void, back: () => void, manage = false, onCurrentSignOut?: () => void): AccountsScreen {
+    open: (account: SavedAccount | undefined, address?: string, inPlace?: boolean) => Promise<void> | void, back: () => void, manage = false, onCurrentSignOut?: () => void): AccountsScreen {
     const container = el("section", "accounts-screen");
     const backdrop = new MarqueeBackdrop(core.clock ?? systemClock);
     // TVChangeAccountView does not write MarqueeScene. The stage stays wherever the previous
@@ -24,15 +25,37 @@ export function mountAccounts(root: HTMLElement, core: SessionCoreDeps, current:
     root.append(container);
     const host = new FocusHost(container);
     const directory = current?.accounts.directory ?? new AccountDirectory(core.publicStorage, core.randomBytes);
-    let selected = current?.server.http.base.baseUrl ?? directory.list()[0]?.baseUrl;
+    const activeAddress = current?.server.http.base.baseUrl;
+    let selected = activeAddress;
     let paneEntry: string | undefined;
     let destroyed = false;
     let removalPending = false;
-    const destroy = (): void => { destroyed = true; host.destroy(); backdrop.destroy(); container.remove(); };
-    const go = (account: SavedAccount | undefined, address?: string): void => { destroy(); open(account, address); };
-    const showError = (message: string): void => {
-        const retry = actionButton("retry", "Back", render);
-        host.show({ name: "accounts-error", content: [el("h1", "accounts-title", message), retry.element], zones: [{ id: "error", layout: "column", items: [retry] }], focus: { zone: "error", key: "retry" }, back: render });
+    /** ChangeAccountModel.openingAccountId: the account being opened while Change Account stays up. */
+    let opening: { readonly id: string } | undefined;
+    let overflow: readonly OverflowColumn[] = [];
+    const destroy = (): void => { if (destroyed) return; destroyed = true; for (const column of overflow) column.disconnect(); host.destroy(); backdrop.destroy(); container.remove(); };
+    const go = (account: SavedAccount | undefined, address?: string): void => { if (opening !== undefined) return; destroy(); void open(account, address); };
+    // The card spins until the app replaces this screen or the switch cannot open quietly. Like Apple, nothing cancels it.
+    const choose = (row: SavedAccount): void => {
+        if (opening !== undefined) return;
+        if (row.needsSignIn || row.id === current?.accounts.localAccountId) { go(row); return; }
+        const mine = { id: row.id };
+        opening = mine;
+        refresh();
+        const settle = (failed: boolean): void => {
+            if (destroyed || opening !== mine) return;
+            opening = undefined;
+            if (failed) showError("Could not open the account. Try again.", host.focused()?.zone);
+            else refresh();
+        };
+        void (async () => open(row, undefined, true))().then(() => settle(false), () => settle(true));
+    };
+    /** Redraws in place: focus stays in the column it was in. */
+    const refresh = (zone = host.focused()?.zone): void => { render(zone === "servers", zone === "accounts"); };
+    const showError = (message: string, returnZone?: string): void => {
+        const leave = (): void => returnZone === undefined ? render() : refresh(returnZone);
+        const retry = actionButton("retry", "Back", leave);
+        host.show({ name: "accounts-error", content: [el("h1", "accounts-title", message), retry.element], zones: [{ id: "error", layout: "column", items: [retry] }], focus: { zone: "error", key: "retry" }, back: leave });
     };
     const confirm = (targets: readonly SavedAccount[], removeServer: boolean): void => {
         const dismiss = (): void => { render(false, false, removeServer); };
@@ -105,7 +128,8 @@ export function mountAccounts(root: HTMLElement, core: SessionCoreDeps, current:
     };
     function render(railFocus = false, enterPane = false, focusFirst = false): void {
         if (removalPending) return;
-        const rows = directory.list();
+        const rows = accountsByRecentUse(directory.list());
+        const addresses = serversByRecentUse(rows, activeAddress);
         if (manage) {
             const panel = el("div", "accounts-settings");
             const header = el("header", "accounts-settings-header");
@@ -129,11 +153,11 @@ export function mountAccounts(root: HTMLElement, core: SessionCoreDeps, current:
                 }
                 return item;
             };
-            for (const address of [...new Set(rows.map(row => row.baseUrl))]) {
+            for (const address of addresses) {
                 const serverName = cachedBranding(core.publicStorage, address)?.serverName ?? new URL(address).host;
                 panel.append(el("h2", "accounts-section-header", serverName.toUpperCase()));
                 for (const row of rows.filter(row => row.baseUrl === address)) {
-                    const detail = row.needsSignIn ? "Sign in again" : `${row.profileCount} ${row.profileCount === 1 ? "profile" : "profiles"}`;
+                    const detail = row.needsSignIn ? "Sign in again" : profileCountLabel(row.profileCount);
                     const item = paneRow(row.id, row.username, () => row.needsSignIn ? expired(row) : confirm([row], false), detail);
                     controls.push(item); panel.append(item.element);
                 }
@@ -148,7 +172,6 @@ export function mountAccounts(root: HTMLElement, core: SessionCoreDeps, current:
             host.show({ name: "accounts-settings", content: [panel], zones: [{ id: "rows", layout: "column", items: controls }], focus: entry, back: () => { destroy(); back(); } }, focusFirst ? entry : undefined);
             return;
         }
-        const addresses = [...new Set(rows.map(row => row.baseUrl))];
         if (!addresses.includes(selected ?? "")) selected = addresses[0];
         const rail = el("div", "accounts-rail");
         const pane = el("div", "accounts-pane");
@@ -166,14 +189,16 @@ export function mountAccounts(root: HTMLElement, core: SessionCoreDeps, current:
         addServer.element.prepend(plus);
         serverItems.push(addServer);
         const accounts: FocusItem[] = rows.filter(row => row.baseUrl === selected).map(row => {
-            const item = actionButton(row.id, "", () => manage ? confirm([row], false) : go(row));
+            const item = actionButton(row.id, "", () => choose(row));
             item.element.classList.add("account-card");
-            item.element.append(el("span", "account-initial", row.username.slice(0, 1).toUpperCase()),
-                el("span", "account-name", row.username));
+            const tile = el("span", row.needsSignIn ? "account-initial account-initial-dim" : "account-initial", row.username.slice(0, 1).toUpperCase());
+            item.element.append(tile, el("span", "account-name", row.username));
             const name = item.element.lastElementChild!;
-            if (row.profileCount > 0) name.append(el("span", "account-count", `${row.profileCount} ${row.profileCount === 1 ? "profile" : "profiles"}`));
-            const badge = row.needsSignIn ? "SIGN IN AGAIN" : row.id === current?.accounts.localAccountId ? "CURRENT" : undefined;
-            if (badge) item.element.append(el("span", "account-badge", badge));
+            const count = profileCountLabel(row.profileCount);
+            if (count !== undefined) name.append(el("span", "account-count", count));
+            if (opening?.id === row.id) { item.element.append(spinner()); item.element.setAttribute("aria-busy", "true"); }
+            else if (row.needsSignIn) item.element.append(accountBadge("SIGN IN AGAIN", true));
+            else if (row.id === current?.accounts.localAccountId) item.element.append(accountBadge("CURRENT", false));
             return item;
         });
         const addAccount = actionButton("add-account", "", () => go(undefined, selected));
@@ -183,17 +208,25 @@ export function mountAccounts(root: HTMLElement, core: SessionCoreDeps, current:
         addAccount.element.append(el("span", "account-initial", "+"), name);
         if (selected) accounts.push(addAccount);
         for (const item of accounts) item.element.addEventListener("focus", () => { paneEntry = item.key; });
-        if (manage && selected) accounts.push(actionButton("remove-server", "Remove Server", () => confirm(rows.filter(row => row.baseUrl === selected), true)));
         rail.append(...serverItems.map(item => item.element)); pane.append(...accounts.map(item => item.element));
-        const columns = el("div", "accounts-columns"); columns.append(rail, pane);
+        // The screen rebuilds on every server move; the keys carry each column's scroll across it (browseFocus).
+        rail.dataset.scrollKey = "accounts-rail"; pane.dataset.scrollKey = `accounts-pane:${selected ?? ""}`;
+        const previousColumns = overflow;
+        const [previousRail, previousPane] = previousColumns;
+        overflow = [overflowColumn(rail, "accounts-column-rail", previousRail), overflowColumn(pane, "accounts-column-pane", previousPane)];
+        for (const column of previousColumns) column.disconnect();
+        const columns = el("div", "accounts-columns"); columns.append(...overflow.map(column => column.element));
         const mark = el("img", "accounts-wordmark"); mark.src = "img/silo-wordmark.png"; mark.alt = "Silo";
         host.show({ name: "change-account", content: [backdrop.element, scrim, mark, el("h1", "accounts-title", "Change account"), el("p", "signin-text", "Choose a server, then the account to use on it."), columns],
             zones: [{ id: "servers", layout: "column", right: "accounts", items: serverItems }, { id: "accounts", layout: "column", left: "servers", items: accounts }],
             focus: accounts.length === 0 ? { zone: "servers", key: "add-server" } : { zone: "accounts", key: accounts.find(row => row.key === current?.accounts.localAccountId)?.key ?? accounts[0]!.key },
             back: () => {
                 if (host.focused()?.zone === "accounts") { render(true); return; }
+                if (opening !== undefined) return;
                 destroy(); back();
             } }, railFocus ? { zone: "servers", key: selected ?? "add-server" } : enterPane ? { zone: "accounts", key: paneEntry ?? accounts.find(row => row.key === current?.accounts.localAccountId)?.key ?? accounts[0]!.key } : undefined);
+        // Before the first paint, so the restored scroll never shows the chevrons fading back in.
+        for (const column of overflow) column.sync();
     }
     function expired(row: SavedAccount): void {
         const controls = [actionButton("signin", "Sign in again", () => go(row)), actionButton("signout", "Sign Out", () => confirm([row], false)), actionButton("cancel", "Cancel", render)];
@@ -203,4 +236,65 @@ export function mountAccounts(root: HTMLElement, core: SessionCoreDeps, current:
     }
     host.listen(); render();
     return { destroy };
+}
+
+/** TVChangeAccountBadge: CURRENT, or SIGN IN AGAIN in the warning colour with the open lock. */
+function accountBadge(text: string, warning: boolean): HTMLElement {
+    const badge = el("span", warning ? "account-badge account-badge-warning" : "account-badge");
+    if (warning) {
+        const lock = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        lock.setAttribute("viewBox", "0 0 24 24");
+        lock.setAttribute("aria-hidden", "true");
+        const shackle = document.createElementNS(lock.namespaceURI, "path");
+        shackle.setAttribute("d", "M8 11V7a4 4 0 0 1 7.6-1.7");
+        shackle.setAttribute("fill", "none");
+        shackle.setAttribute("stroke", "currentColor");
+        shackle.setAttribute("stroke-width", "3");
+        shackle.setAttribute("stroke-linecap", "round");
+        const body = document.createElementNS(lock.namespaceURI, "path");
+        body.setAttribute("d", "M5 10.5h14a1.5 1.5 0 0 1 1.5 1.5v8a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 20v-8A1.5 1.5 0 0 1 5 10.5Z");
+        body.setAttribute("fill", "currentColor");
+        lock.append(shackle, body);
+        badge.append(lock);
+    }
+    badge.append(text);
+    return badge;
+}
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+interface OverflowColumn { readonly element: HTMLElement; readonly scroller: HTMLElement; sync(): void; disconnect(): void }
+
+/**
+ * TVOverflowColumn: a scrolling column with a chevron row under it. Edges with rows hidden beyond them fade,
+ * and the matching chevron shows. The data flags drive both in CSS; they clear within 1px of an end.
+ */
+function overflowColumn(scroller: HTMLElement, className: string, previous?: OverflowColumn): OverflowColumn {
+    const wrapper = el("div", `accounts-column ${className}`);
+    const chevrons = el("div", "accounts-chevrons");
+    chevrons.setAttribute("aria-hidden", "true");
+    for (const path of ["M6 15 12 9 18 15", "M6 9 12 15 18 9"]) {
+        const icon = document.createElementNS(SVG_NS, "svg");
+        icon.setAttribute("viewBox", "0 0 24 24");
+        const line = document.createElementNS(SVG_NS, "path");
+        line.setAttribute("d", path);
+        icon.append(line);
+        chevrons.append(icon);
+    }
+    // A rebuilt column starts from the flags it had, so its chevrons do not fade out and back in on every repaint.
+    if (previous !== undefined && previous.scroller.dataset.scrollKey === scroller.dataset.scrollKey) {
+        scroller.dataset.overflowAbove = previous.scroller.dataset.overflowAbove;
+        scroller.dataset.overflowBelow = previous.scroller.dataset.overflowBelow;
+    }
+    const sync = (): void => {
+        scroller.dataset.overflowAbove = String(scroller.scrollTop > 1);
+        scroller.dataset.overflowBelow = String(scroller.scrollTop + scroller.clientHeight < scroller.scrollHeight - 1);
+    };
+    scroller.addEventListener("scroll", sync);
+    const observer = new ResizeObserver(sync);
+    observer.observe(scroller);
+    // The scroller's own box stays fixed when a row grows (a web font loading), so watch the rows too.
+    for (const row of Array.from(scroller.children)) observer.observe(row);
+    wrapper.append(scroller, chevrons);
+    return { element: wrapper, scroller, sync, disconnect: () => observer.disconnect() };
 }

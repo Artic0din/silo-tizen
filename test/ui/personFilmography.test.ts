@@ -120,6 +120,18 @@ journey("incomplete Person dispatches once and polls independently of filter and
     assert.equal(reads, 2);
 });
 
+journey("a refused refresh dispatch is not resent after the sign-in refreshes", async tv => {
+    await tv.remote(BACK);
+    const dispatches = (): number => tv.fake.paths().filter(path => path === "POST /catalog/people/7/refresh").length;
+    const refreshes = tv.fake.paths().filter(path => path.includes("/auth/refresh")).length;
+    await tv.page.route("**/api/v2/catalog/people/7", route => route.fulfill({ json: { id: "7", name: "River Vale", birth_date: "1980-04-12", photo_url: "/art/river.svg" } }));
+    tv.fake.script("/catalog/people/7/refresh", problem(401, "token_refresh_required", "Refresh required"));
+    await tv.page.locator('.details-people [data-focus^="credit:7:"]').first().click();
+    await tv.eventually(async () => tv.fake.paths().filter(path => path.includes("/auth/refresh")).length === refreshes + 1, "session refresh after the 401");
+    await tv.jump(5000);
+    assert.equal(dispatches(), 1, "the queue request is sent once, like the other Silo writes");
+});
+
 journey("metadata polling that expands the hero preserves the settled card reveal", async tv => {
     // Reduced motion scrolls at once, so only normal motion exercises the unchanged-target guard in SkylineScroll.move.
     await tv.page.emulateMedia({ reducedMotion: "no-preference" });

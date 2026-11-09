@@ -1440,7 +1440,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         }
         const signal = personRead.controller.signal;
         current.metadataRefresh ??= new PersonMetadataRefresh(clock, () => current.data?.person,
-            refreshSignal => read(detailOperations.refreshPerson(current.id), refreshSignal),
+            refreshSignal => session.call({ ...detailOperations.refreshPerson(current.id), profileScoped: true, replayAfterRefresh: false, signal: refreshSignal }),
             readSignal => read(detailOperations.person(current.id), readSignal),
             person => {
                 if (person !== undefined) current.data = { person };

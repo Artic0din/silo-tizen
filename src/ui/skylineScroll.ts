@@ -124,6 +124,12 @@ export class SkylineScroll {
             this.move(viewport, 0, 0);
             return;
         }
+        // TVOverflowColumn: the first and last row rest at the ends, so its 16pt inset scrolls into view
+        // and the fade and chevron clear there.
+        if (viewport.matches(".accounts-rail, .accounts-pane")) {
+            if (element === viewport.firstElementChild) { this.move(viewport, 0, 0); return; }
+            if (element === viewport.lastElementChild) { this.move(viewport, 0, viewport.scrollHeight - viewport.clientHeight); return; }
+        }
         const row = element.closest<HTMLElement>(".browse-row");
         if (row !== null) {
             const bounds = row.getBoundingClientRect();

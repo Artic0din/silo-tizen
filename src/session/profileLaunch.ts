@@ -139,7 +139,9 @@ export class ProfileLaunch {
 
     continueWithoutSaving(): void {
         const key = this.key();
-        if (key !== undefined) this.unsaved.set(key, { remember: false });
+        if (key === undefined) return;
+        const old = this.stored(key);
+        this.unsaved.set(key, clearedChoice(old?.proofAlias, old?.retiredAliases ?? []));
     }
 
     private persist(key: string, choice: LaunchChoice): void {
@@ -179,9 +181,8 @@ export class ProfileLaunch {
         if (key === undefined || active === undefined || epoch === undefined) throw new Error("Choose a profile first");
         const generation = this.session.authorityGeneration;
         const old = this.choice(key);
-        const oldStored = this.stored(key);
-        const oldAlias = oldStored?.proofAlias;
-        const oldRetired = oldStored?.retiredAliases ?? [];
+        let oldAlias = this.stored(key)?.proofAlias;
+        let oldRetired = this.stored(key)?.retiredAliases ?? [];
         let newAlias: string | undefined;
         if (!remember) {
             this.persist(key, clearedChoice(oldAlias, oldRetired));
@@ -198,6 +199,9 @@ export class ProfileLaunch {
                 const behavior = profileOrBehavior === "automatic" || profileOrBehavior === "askEveryLaunch" || profileOrBehavior === "afterOneHour" || profileOrBehavior === "afterTwelveHours" ? profileOrBehavior : undefined;
                 const profile = behavior === undefined && typeof profileOrBehavior === "object" && profileOrBehavior !== null ? profileOrBehavior : undefined;
                 const summary = profile !== undefined ? (profile.id === active.id ? { name: profile.name, isPrimary: profile.isPrimary, isChild: profile.isChild } : undefined) : old?.profile;
+                // Reread after the awaited write so an overlapping replacement's proof is named too.
+                oldAlias = this.stored(key)?.proofAlias;
+                oldRetired = this.stored(key)?.retiredAliases ?? [];
                 const retiredAliases = [...oldRetired, ...(oldAlias === undefined || oldAlias === proofAlias ? [] : [oldAlias])];
                 this.persist(key, { remember: true, behavior: behavior ?? old?.behavior ?? "automatic", profileId: active.id, epoch, ...(proofAlias === undefined ? {} : { proofAlias }), ...(retiredAliases.length === 0 ? {} : { retiredAliases }), ...(summary === undefined ? {} : { profile: summary }) });
             } catch (error) {

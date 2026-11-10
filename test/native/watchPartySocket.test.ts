@@ -286,6 +286,26 @@ test("a host call that fails after the socket ended the party keeps the socket's
     assert.equal(m.hub.state.error, PARTY_REPLACED);
 });
 
+test("a lost start that a snapshot proves while the room is read back still counts as a start", async () => {
+    let reads = 0;
+    let answer: (value: RoomAccess) => void = () => undefined;
+    const staged = { selected_content_id: "movie:m0004", selection_revision: 1 };
+    const r = hubRig(staged, {
+        startPlayback: async () => { throw new ApiError({ kind: "network" }); },
+        room: () => reads++ === 0 ? Promise.resolve(roomAccess(staged)) : new Promise(resolve => { answer = resolve; }),
+    });
+    await r.hub.create("host_pick");
+    await settle();
+    r.sockets[0]?.open();
+    const starting = r.hub.start();
+    await settle();
+    r.sockets[0]?.frame({ type: "snapshot", room: wire({ ...staged, generation: 2, phase: "playing", playback_state: "playing", is_paused: false, selected_file_id: "42" }) });
+    answer(roomAccess(staged));
+    assert.equal(await starting, true, "the room the snapshot left shows the start happened");
+    assert.equal(r.hub.state.error, undefined);
+    r.hub.leave();
+});
+
 // --- Clock (WatchPartyClock) ---
 
 test("the clock offset comes from the fastest round trip and survives one slow pong", () => {

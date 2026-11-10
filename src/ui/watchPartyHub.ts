@@ -458,9 +458,9 @@ export class WatchPartyHub {
         const receipt = this.rooms.receipt;
         try {
             const answer = await this.api.room(roomId, this.roomToken, this.controller.signal);
-            // A room that arrived while this read ran is newer than the read.
-            if (this.stopped || this.state.room?.roomId !== roomId || !this.accept(answer, receipt)) return undefined;
-            return answer.room;
+            if (this.stopped || this.state.room?.roomId !== roomId) return undefined;
+            // A snapshot that arrived while this read ran is newer than the read, so it is the room to judge by.
+            return this.accept(answer, receipt) ? answer.room : this.state.room;
         } catch {
             // The error from the change is already showing; the room stays as it was.
             return undefined;

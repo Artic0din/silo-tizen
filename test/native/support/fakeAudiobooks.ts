@@ -57,7 +57,7 @@ export class FakeAudiobooks extends FakeCatalog {
                     { content_id: id, title: "The Tide Owes", year: 2024, series_index: 5, poster_url: `/art/${encodeURIComponent(id)}.svg` },
                 ] },
                 other_narrations: [{ content_id: "audiobook:fresh", title: "The Tide Owes", year: 2025, narrators: ["Steven Pacey"] }],
-                related: { also_by_author: [{ content_id: "audiobook:hail", title: "Mistborn", year: 2006, poster_url: "/art/audiobook%3Ahail.svg" }], similar: [] },
+                related: { also_by_author: [{ content_id: "audiobook:hail", title: "Mistborn", year: 2006, poster_url: "/art/audiobook%3Ahail.svg" }], similar: Array.from({ length: 12 }, (_, index) => ({ content_id: `audiobook:similar${index}`, title: `Similar ${index}`, year: 2000 + index, poster_url: `/art/audiobook%3Asimilar${index}.svg` })) },
             },
         };
     }

@@ -1573,6 +1573,8 @@
 .audiobook-section { display: flex; flex-direction: column; gap: 20px; }
 .audiobook-section-title { margin: 0; font-size: 38px; font-weight: 600; }
 .audiobook-about { margin: 0; max-width: 1280px; font-size: 25px; line-height: 1.4; color: rgba(255, 255, 255, .72); }
+.audiobook-about-stop { display: flex; flex-direction: column; gap: 20px; align-items: flex-start; padding: 0; border: 0; border-radius: 12px; font: inherit; text-align: left; color: inherit; background: transparent; outline: none; }
+.audiobook-about-stop:focus { box-shadow: 0 0 0 4px rgba(255, 255, 255, .7); }
 .audiobook-static-credits { margin: 0; font-size: 22px; color: rgba(255, 255, 255, .55); }
 .audiobook-rows { display: flex; flex-direction: column; gap: 10px; max-width: 1380px; }
 .audiobook-row { position: relative; display: flex; align-items: center; gap: 20px; box-sizing: border-box; padding: 22px 30px; border: 0; border-radius: 12px; overflow: hidden; font: inherit; text-align: left; color: #fff; background: rgba(255, 255, 255, .06); outline: none; transition: transform var(--silo-fast), background var(--silo-fast); }
@@ -1580,7 +1582,8 @@
 .audiobook-row-title { flex: 1 1 auto; min-width: 0; font-size: 27px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .audiobook-row-detail { flex: none; margin-left: auto; font-size: 22px; font-variant-numeric: tabular-nums; color: rgba(255, 255, 255, .55); }
 .audiobook-row:focus .audiobook-row-detail { color: rgba(0, 0, 0, .5); }
-.audiobook-rail { display: flex; gap: 32px; padding: 24px 0; }
+.audiobook-rail { display: flex; gap: 32px; padding: 24px 8px; }
+.audiobook-rail .browse-card { flex: none; }
 .audiobook-rail .browse-card, .audiobook-rail .browse-art { width: 220px; }
 .audiobook-chapter[data-current="true"] { background: rgba(255, 255, 255, .10); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .22); }
 .audiobook-chapter[data-current="true"]:focus { background: #fff; box-shadow: 0 8px 18px rgba(0, 0, 0, .4); }

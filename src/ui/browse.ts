@@ -488,7 +488,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     const canShuffle = (route: Extract<Route, { kind: "library" | "libraryResults" }>): boolean => {
         const original = home.kind === "home" ? home.data?.libraries.find(library => library.id === route.library.id) : undefined;
         const kind = route.kind === "libraryResults" && route.source.kind === "collection" ? route.source.groupKind === "user_collections" ? "user_collection" : "library_collection" : "library";
-        return shuffleCapability.usable && shuffleCapability.scopeKinds.includes(kind) && (original?.type !== "mixed" || route.library.type === "mixed");
+        // Shuffle starts video; audiobook shuffle waits for audiobook playback.
+        return route.library.type !== "audiobooks" && shuffleCapability.usable && shuffleCapability.scopeKinds.includes(kind) && (original?.type !== "mixed" || route.library.type === "mixed");
     };
     const isHubRoot = (route: Route | undefined): route is Extract<Route, { kind: "requests" }> => route?.kind === "requests" && route.requests.source.kind === "hub";
     // Apple's closeRequestsScreens closes only the Requests pages on top, then closesRequestsRoot closes the root hub once nothing covers it

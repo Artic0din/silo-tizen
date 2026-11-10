@@ -130,13 +130,44 @@ audiobookTest("below the fold the detail lists narrations and rails, and a selec
     await showing(tv, `audiobook:${TIDE}`);
     assert.equal(await tv.page.locator(".audiobook-about").innerText(), "The war for Roshar reaches its last turn, and the oaths that bound the Radiants are tested one more time.");
     assert.equal(await tv.page.locator(".audiobook-static-credits").innerText(), "Written by Brandon Sanderson · Narrated by Michael Kramer & Kate Reading · Tor Books · 2024");
-    assert.deepEqual(await tv.page.locator(".audiobook-section-title").allInnerTexts(), ["About", "Narrations", "The Stormlight Archive", "More by Author"]);
-    assert.equal(await tv.page.locator(".audiobook-rail .browse-card-square").count(), 4);
+    assert.deepEqual(await tv.page.locator(".audiobook-section-title").allInnerTexts(), ["About", "Narrations", "The Stormlight Archive", "More by Author", "Related"]);
+    assert.equal(await tv.page.locator(".audiobook-rail .browse-card-square").count(), 16);
     assert.equal(await tv.page.locator(".audiobook-rail .browse-card-subtitle").first().innerText(), "Book 1");
     await tv.page.locator('[data-focus="narration:audiobook:fresh"]').click();
     await showing(tv, "audiobook:audiobook:fresh");
     await tv.remote(BACK);
     await showing(tv, `audiobook:${TIDE}`);
+});
+
+audiobookTest("the remote reaches About, narrations and every rail card, and a long rail scrolls to the focused card", async tv => {
+    await tv.page.locator(`[data-section="shelf"] [data-focus="${TIDE}"]`).click();
+    await showing(tv, `audiobook:${TIDE}`);
+    const down = 40;
+    await tv.remote(down);
+    assert.equal(await tv.focused(), "about", "Down from the actions reaches the About text");
+    await tv.remote(down);
+    assert.equal(await tv.focused(), "narration:audiobook:fresh");
+    await tv.remote(down);
+    assert.match(await tv.focused() ?? "", /^audiobook:/, "Down enters the first rail");
+    await tv.remote(down); await tv.remote(down);
+    const related = tv.page.locator(".audiobook-section", { hasText: "Related" }).locator(".audiobook-rail");
+    for (let step = 0; step < 11; step++) await tv.remote(39);
+    assert.equal(await tv.focused(), "audiobook:similar11");
+    const inside = await tv.page.locator('[data-focus="audiobook:similar11"]').evaluate((card, row) => {
+        const box = card.getBoundingClientRect(), bounds = row.getBoundingClientRect();
+        return box.left >= bounds.left && box.right <= bounds.right;
+    }, await related.elementHandle());
+    assert.equal(inside, true, "the last card is revealed inside its row");
+});
+
+audiobookTest("the Audiobooks Browse page offers no video Shuffle even when the server advertises it", async tv => {
+    await tv.page.route("**/api/v2/shuffles/capabilities", route => route.fulfill({ json: { allowed: true, state: "available", scope_kinds: ["library"] } }));
+    await showAudiobooks(tv);
+    await tv.page.locator('[data-focus="audiobooks"]').click();
+    await showing(tv, "library:14");
+    await selectLibraryMode(tv, "Browse");
+    await tv.page.locator('.browse-grid .browse-card-square').first().waitFor();
+    assert.equal(await tv.page.locator('[data-focus="shuffle"]').count(), 0);
 });
 
 audiobookTest("Audiobooks stays off until Show Audiobooks is on, then opens the library with square covers", async tv => {

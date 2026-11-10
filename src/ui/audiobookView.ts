@@ -93,13 +93,14 @@ function sections(page: AudiobookPage, context: ViewContext): { content: HTMLEle
     const body = page.sections;
     const content: HTMLElement[] = [];
     const zones: Zone[] = [];
-    if (body.about !== undefined) {
-        const about = el("section", "audiobook-section");
-        about.append(sectionTitle("About"), el("p", "audiobook-about", body.about));
-        if (body.credits !== undefined) about.append(el("p", "audiobook-static-credits", body.credits));
-        content.push(about);
-    } else if (body.credits !== undefined) {
-        content.push(el("p", "audiobook-static-credits", body.credits));
+    if (body.about !== undefined || body.credits !== undefined) {
+        // One reading stop, so the remote can reach text that sits below the first screen.
+        const stop = actionButton("about", "", () => undefined);
+        stop.element.classList.add("audiobook-about-stop");
+        if (body.about !== undefined) stop.element.append(el("h2", "audiobook-section-title", "About"), el("p", "audiobook-about", body.about));
+        if (body.credits !== undefined) stop.element.append(el("p", "audiobook-static-credits", body.credits));
+        content.push(stop.element);
+        zones.push({ id: "about", layout: "column", spatial: true, items: [stop] });
     }
     if (body.narrations.length > 0) {
         const items = body.narrations.map(narration => {
@@ -112,7 +113,7 @@ function sections(page: AudiobookPage, context: ViewContext): { content: HTMLEle
         const block = el("section", "audiobook-section");
         block.append(sectionTitle("Narrations"), zoneNode("audiobook-rows", items));
         content.push(block);
-        zones.push({ id: "narrations", layout: "column", items });
+        zones.push({ id: "narrations", layout: "column", spatial: true, items });
     }
     body.rails.forEach((rail, index) => {
         const items = rail.items.flatMap(entry => {
@@ -128,7 +129,7 @@ function sections(page: AudiobookPage, context: ViewContext): { content: HTMLEle
             return [card];
         });
         const block = el("section", "audiobook-section");
-        block.append(sectionTitle(rail.title), zoneNode("audiobook-rail", items));
+        block.append(sectionTitle(rail.title), zoneNode("browse-row audiobook-rail", items));
         content.push(block);
         zones.push({ id: `rail:${index}`, layout: "row", spatial: true, items });
     });
@@ -184,7 +185,7 @@ function detailView(book: Audiobook, page: AudiobookPage, handlers: AudiobookHan
     return {
         name: `audiobook:${book.id}`,
         content: [root],
-        zones: [{ id: "actions", layout: "row", items: actions }, ...below.zones],
+        zones: [{ id: "actions", layout: "row", spatial: true, items: actions }, ...below.zones],
         focus: { zone: "actions", key: "play" },
         back: handlers.back,
     };

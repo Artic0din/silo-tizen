@@ -318,6 +318,20 @@ test("End party while a change is still running closes the room once that change
     assert.deepEqual(calls, [`close ${ROOM_ID}`]);
 });
 
+test("End party waits for a running change instead of racing it, and blocks new changes meanwhile", async () => {
+    let release: () => void = () => undefined;
+    const { hub, calls } = lobby({ setGuestControlPolicy: () => new Promise(resolve => { release = () => resolve(roomAccess({ guest_control_policy: "guest_play_pause" })); }) });
+    await hub.create("host_pick");
+    const change = hub.setPolicy("guest_play_pause");
+    const ending = hub.endParty();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.deepEqual(calls, [], "the room is not closed while a change can still land");
+    assert.equal(await hub.setMode("vote"), false, "no new change starts while the party is ending");
+    release();
+    await Promise.all([change, ending]);
+    assert.deepEqual(calls, [`close ${ROOM_ID}`]);
+});
+
 test("Try Again on an empty season list asks the server for the seasons again", async () => {
     const season = { id: "s1", seasonNumber: 1, title: "Season 1", episodeCount: 1, posterUrl: undefined, isSpecials: false };
     let reads = 0;
@@ -329,6 +343,20 @@ test("Try Again on an empty season list asks the server for the seasons again", 
     await hub.openEpisodes(series, undefined, true);
     assert.equal(reads, 2);
     assert.equal(hub.state.seasons?.length, 1);
+});
+
+test("Try Again on a failed season keeps the seasons it already has", async () => {
+    const season = { id: "s1", seasonNumber: 1, title: "Season 1", episodeCount: 1, posterUrl: undefined, isSpecials: false };
+    let seasonReads = 0;
+    let episodeReads = 0;
+    const { hub } = lobby({ seasons: async () => { seasonReads++; return [season]; }, episodes: async () => { if (++episodeReads === 1) throw problem(503, "Down."); return []; } });
+    await hub.create("host_pick");
+    const series = decodeCard({ content_id: "series:s1", type: "series", title: "Harbor Lights" }, "card");
+    await hub.openEpisodes(series);
+    assert.notEqual(hub.state.browseError, undefined);
+    await hub.openEpisodes(series, season, true);
+    assert.equal(seasonReads, 1, "only the episodes are read again");
+    assert.equal(episodeReads, 2);
 });
 
 test("an older season's episodes cannot land after a newer season was asked for", async () => {

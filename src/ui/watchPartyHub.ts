@@ -96,6 +96,8 @@ export class WatchPartyHub {
     private closing: Promise<boolean> | undefined;
     private refocus = false;
     private ending = false;
+    /** Settles when the running host change does, so End party can go after it. */
+    private mutation: Promise<void> | undefined;
 
     constructor(api: WatchPartyApi, notify: () => void, options: WatchPartyHubOptions = {}) {
         this.api = api;
@@ -222,13 +224,15 @@ export class WatchPartyHub {
     /** WatchPartySession.endParty: closes the room for everyone, then leaves it with Apple's "This party has ended.". */
     async endParty(): Promise<void> {
         const room = this.state.room;
-        // Not gated on a running change: the confirmation has closed, so a swallowed End would leave the host with no feedback. The change's answer is dropped once the room is gone.
         if (room?.selfCanManageRoom !== true || this.ending || this.stopped) return;
         this.ending = true;
-        this.state.busy = true;
-        this.state.error = undefined;
-        this.notify();
         try {
+            // The confirmation has already closed, so a refused End would leave no feedback: wait for a running change instead, so the two never overlap.
+            await this.mutation;
+            if (this.stopped || this.state.room?.roomId !== room.roomId) return;
+            this.state.busy = true;
+            this.state.error = undefined;
+            this.notify();
             await this.api.closeRoom(room.roomId, this.controller.signal).catch((error: unknown) => { if (!isConflict(error)) throw error; });
             if (this.stopped || this.state.room?.roomId !== room.roomId) return;
             this.state.busy = false;
@@ -264,11 +268,11 @@ export class WatchPartyHub {
         this.notify();
     }
 
-    /** The series' seasons with one season's episodes: the one asked for, else the first that is not specials. `refreshSeasons` reads the seasons again. */
-    async openEpisodes(series: Card, wanted?: Season, refreshSeasons = false): Promise<void> {
+    /** The series' seasons with one season's episodes: the one asked for, else the first that is not specials. A retry reads the seasons again only when there are none to show. */
+    async openEpisodes(series: Card, wanted?: Season, retry = false): Promise<void> {
         const epoch = ++this.browseEpoch;
         const sameSeries = this.state.page.kind === "episodes" && this.state.page.series.id === series.id;
-        Object.assign(this.state, { page: { kind: "episodes", series, season: wanted }, episodes: undefined, browseLoading: true, browseError: undefined, ...(sameSeries && !refreshSeasons ? {} : { seasons: undefined }) });
+        Object.assign(this.state, { page: { kind: "episodes", series, season: wanted }, episodes: undefined, browseLoading: true, browseError: undefined, ...(sameSeries && !(retry && (wanted === undefined || this.state.seasons?.length === 0)) ? {} : { seasons: undefined }) });
         this.notify();
         await this.browse(epoch, async signal => {
             const seasons = this.state.seasons ?? await this.api.seasons(series.id, signal);
@@ -353,9 +357,11 @@ export class WatchPartyHub {
      */
     private async mutate(operation: (signal: AbortSignal) => Promise<RoomAccess>, begin?: () => void, applied?: (room: Room) => boolean): Promise<boolean> {
         const room = this.state.room;
-        if (room?.selfCanManageRoom !== true || this.state.busy || this.stopped) return false;
+        if (room?.selfCanManageRoom !== true || this.state.busy || this.ending || this.stopped) return false;
         this.state.busy = true;
         this.state.error = undefined;
+        let settle: () => void = () => undefined;
+        this.mutation = new Promise<void>(resolve => { settle = resolve; });
         begin?.();
         this.notify();
         try {
@@ -373,6 +379,7 @@ export class WatchPartyHub {
             }
             return false;
         } finally {
+            settle();
             if (!this.stopped) { this.state.busy = false; this.notify(); }
         }
     }

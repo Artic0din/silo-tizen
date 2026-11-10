@@ -90,6 +90,9 @@ export class WatchPartyHub {
     private readonly describe: (error: unknown) => string;
     private readonly controller = new AbortController();
     private stopped = false;
+    /** A hosted room that Back or leaving the page has not yet ended on the server. */
+    private unclosed: Room | undefined;
+    private closing: Promise<boolean> | undefined;
 
     constructor(api: WatchPartyApi, notify: () => void, options: WatchPartyHubOptions = {}) {
         this.api = api;
@@ -129,7 +132,7 @@ export class WatchPartyHub {
         this.state.error = undefined;
         this.options.onLeave?.();
         this.notify();
-        if (room !== undefined) this.closeIfHost(room);
+        this.end(room);
     }
 
     stop(): void {
@@ -137,17 +140,36 @@ export class WatchPartyHub {
         this.controller.abort();
         const room = this.state.room;
         this.state.room = undefined;
-        if (room !== undefined) this.closeIfHost(room);
+        this.end(room);
     }
 
-    /** A signal of its own lets the close finish after the hub stops; a failure then has no screen to show on. 409 means the room already ended. */
-    private closeIfHost(room: Room): void {
-        if (!room.selfCanManageRoom) return;
-        this.api.closeRoom(room.roomId, new AbortController().signal).catch((error: unknown) => {
-            if (this.stopped || (error instanceof ApiError && error.failure.kind === "problem" && error.failure.problem.status === 409)) return;
-            this.state.error = `Could not end the party. ${this.describe(error)}`;
-            this.notify();
+    private end(room: Room | undefined): void {
+        if (room === undefined || !room.selfCanManageRoom) return;
+        this.unclosed = room;
+        void this.closeUnclosed();
+    }
+
+    /**
+     * Ends the hosted room that was left open. A create or join waits for it, as Apple refuses a new party while one is open,
+     * and retries it when it failed. A signal of its own lets the close finish after the hub stops, when a failure has no screen to show on.
+     */
+    private closeUnclosed(): Promise<boolean> {
+        const room = this.unclosed;
+        if (room === undefined) return Promise.resolve(true);
+        this.closing ??= this.api.closeRoom(room.roomId, new AbortController().signal).then(
+            () => true,
+            (error: unknown) => {
+                // 409 means the room already ended.
+                if (error instanceof ApiError && error.failure.kind === "problem" && error.failure.problem.status === 409) return true;
+                if (!this.stopped) { this.state.error = `Could not end the party. ${this.describe(error)}`; this.notify(); }
+                return false;
+            },
+        ).then(ended => {
+            if (ended) this.unclosed = undefined;
+            this.closing = undefined;
+            return ended;
         });
+        return this.closing;
     }
 
     private fail(message: string): void {
@@ -178,6 +200,7 @@ export class WatchPartyHub {
         this.state.error = undefined;
         this.notify();
         try {
+            if (!await this.closeUnclosed()) return;
             if (!await this.load()) return;
             if (!this.state.supported) { this.state.error = UNSUPPORTED_SERVER; return; }
             try {

@@ -262,6 +262,49 @@ test("a room that already ended is not an error, any other close failure is show
     }
 });
 
+test("a create waits for the close still in flight, so the server does not refuse it", async () => {
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const { api, calls } = fakeApi({ closeRoom: async roomId => { calls.names.push("close"); calls.closed.push(roomId); await gate; } });
+    const hub = new WatchPartyHub(api, () => undefined, { supported: true });
+    await hub.create("host_pick");
+    hub.leave();
+    const next = hub.create("host_pick");
+    await settle();
+    assert.equal(calls.create.length, 1, "no second create while the close is in flight");
+    release(); await next;
+    assert.deepEqual(calls.names.filter(name => name === "close" || name === "create"), ["create", "close", "create"]);
+    assert.equal(hub.state.room?.code, "K7M2QX");
+});
+
+test("a failed close is retried by the next create or join, which waits on it", async () => {
+    let failures = 1;
+    const { api, calls } = fakeApi({ closeRoom: async roomId => { calls.closed.push(roomId); if (failures-- > 0) throw problem(503, "Room store unavailable."); } });
+    const hub = new WatchPartyHub(api, () => undefined, { supported: true });
+    await hub.create("host_pick");
+    hub.leave();
+    await settle();
+    assert.equal(hub.state.error, "Could not end the party. Room store unavailable.");
+    await hub.join("K7M2QX");
+    assert.deepEqual(calls.closed, [ROOM_ID, ROOM_ID], "the retry closes the same room");
+    assert.deepEqual(calls.join, ["K7M2QX"]);
+    assert.equal(hub.state.error, undefined);
+    assert.ok(hub.state.room !== undefined);
+});
+
+test("while the retry of a close keeps failing, no new party starts", async () => {
+    const { api, calls } = fakeApi({ closeRoom: async () => { throw problem(503, "Room store unavailable."); } });
+    const hub = new WatchPartyHub(api, () => undefined, { supported: true });
+    await hub.create("host_pick");
+    hub.leave();
+    await settle();
+    await hub.create("host_pick");
+    assert.equal(calls.create.length, 1);
+    assert.equal(hub.state.error, "Could not end the party. Room store unavailable.");
+    assert.equal(hub.state.room, undefined);
+    assert.equal(hub.state.busy, false);
+});
+
 test("leaving the Watch Party page from the lobby as host also closes the room", async () => {
     const { api, calls } = fakeApi();
     const hub = new WatchPartyHub(api, () => undefined, { supported: true });

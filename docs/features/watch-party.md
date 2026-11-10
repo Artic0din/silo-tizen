@@ -53,6 +53,7 @@ Create and join show a lobby from the room the create or join answered with, as 
 Back as the host ends the room with `DELETE /watch-together/rooms/{id}`, so a started party is not left open (Apple refuses a new party while one is open).
 Leaving the Watch Party page from the lobby does the same.
 A room that already ended (409) is not an error; any other failure shows "Could not end the party." on the hub.
+The next Start a party or Join party waits for a close still in flight and retries one that failed, and starts nothing while the close keeps failing.
 A guest has no HTTP leave, so Back as a guest calls nothing.
 
 ## Not built

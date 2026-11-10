@@ -1,13 +1,13 @@
 // Apple's WatchPartyMediaPicker, WatchPartyEpisodePicker and WatchPartyMediaChoiceView on tvOS: the host
 // chooses a title from group picks and watchlists, a series opens its episodes, and a confirmation page
-// stages the choice. Not built: search, Home's discovery rows, recently added shelves, suggestions and
-// each member's viewing history.
+// stages the choice, or in a vote room puts it on the ballot. Not built: search, Home's discovery rows,
+// recently added shelves and each member's viewing history.
 
 import type { Card, Episode, Season } from "../contracts/v2/catalog.ts";
 import type { FocusItem, View, Zone } from "./browseFocus.ts";
 import { actionButton, artwork, cardItem, zoneNode } from "./browseViews.ts";
 import { el } from "./screen.ts";
-import { backdrop, banner, checkIcon, eyebrow, labelled } from "./watchPartyParts.ts";
+import { backdrop, banner, checkIcon, eyebrow, labelled, plusIcon } from "./watchPartyParts.ts";
 import { choiceFromCard, choiceFromEpisode, choiceFromNextUp, type MediaChoice } from "./watchPartyChoice.ts";
 import type { WatchPartyHub } from "./watchPartyHub.ts";
 import { runtimeText } from "./cardPresentation.ts";
@@ -21,7 +21,7 @@ function chrome(hub: WatchPartyHub): { node: HTMLElement; close: FocusItem } {
     const close = CLOSE(hub);
     close.element.classList.add("watch-party-button", "watch-party-secondary");
     const node = el("div", "watch-party-picker-chrome watch-party-ui");
-    node.append(el("span", "watch-party-picker-name", "Choose a title"), close.element);
+    node.append(el("span", "watch-party-picker-name", hub.state.pickerPurpose === "suggest" ? "Suggest a title" : "Choose a title"), close.element);
     return { node, close };
 }
 
@@ -54,7 +54,7 @@ export function pickerView({ hub, baseUrl }: PickerContext): View {
         content.push(block);
     }
     // A failed read shows its reason and Try Again whether or not an earlier read left shelves on the page.
-    const retry = shelvesError === undefined ? undefined : actionButton("picker-retry", "Try Again", () => { void hub.openPicker(); });
+    const retry = shelvesError === undefined ? undefined : actionButton("picker-retry", "Try Again", () => { void hub.openPicker(hub.state.pickerPurpose); });
     const notice = el("div", "watch-party-picker-empty watch-party-ui");
     if (shelves.length === 0) {
         if (shelvesLoading) {
@@ -78,15 +78,18 @@ export function pickerView({ hub, baseUrl }: PickerContext): View {
     return { name: `watchParty:picker:${firstShelf === undefined ? "empty" : "shelves"}`, content, zones, focus: { zone, key: first.key }, back: () => hub.back() };
 }
 
-/** WatchPartyMediaChoiceView: the title, and the one button that stages it. */
+/** WatchPartyMediaChoiceView: the title, and the one button that stages it or adds it to the ballot. */
 export function choiceView({ hub, baseUrl }: PickerContext, choice: MediaChoice): View {
     const room = hub.state.room;
+    const suggesting = hub.state.pickerPurpose === "suggest";
     const staged = room?.phase === "lobby" && hub.state.capabilities?.stagedSelection === true;
-    const confirm = labelled("confirm", staged ? "Choose for the party" : "Play for everyone", "primary", () => { void hub.stage(choice); }, checkIcon());
+    const confirm = suggesting
+        ? labelled("confirm", "Add suggestion", "primary", () => { void hub.suggest(choice); }, plusIcon())
+        : labelled("confirm", staged ? "Choose for the party" : "Play for everyone", "primary", () => { void hub.stage(choice); }, checkIcon());
     const poster = artwork("watch-party-choice-poster", choice.posterUrl, baseUrl, "");
     const text = el("div", "watch-party-choice-text");
     const facts = [choice.subtitle, ...choice.facts].filter((fact): fact is string => fact !== undefined && fact !== "");
-    text.append(eyebrow("Watch together"), el("h1", "watch-party-choice-title", choice.title), ...(facts.length === 0 ? [] : [el("p", "watch-party-choice-facts", facts.join(" · "))]));
+    text.append(eyebrow(suggesting ? "Suggest to the party" : "Watch together"), el("h1", "watch-party-choice-title", choice.title), ...(facts.length === 0 ? [] : [el("p", "watch-party-choice-facts", facts.join(" · "))]));
     const head = el("div", "watch-party-choice-head");
     head.append(poster, text);
     const page = el("div", "watch-party-choice watch-party-ui");
@@ -131,7 +134,7 @@ export function episodesView({ hub, baseUrl }: PickerContext, series: Card, seas
     const cards = (episodes ?? []).map(episode => episodeCard(series, episode, () => { hub.show({ kind: "choice", choice: choiceFromEpisode(series, episode), from: { kind: "episodes", series, season } }); }));
     const page = el("div", "watch-party-episodes watch-party-ui");
     const head = el("div", "watch-party-episodes-head");
-    head.append(eyebrow("Watch Party · Choose an episode"), back.element);
+    head.append(eyebrow(hub.state.pickerPurpose === "suggest" ? "Watch Party · Suggest an episode" : "Watch Party · Choose an episode"), back.element);
     page.append(head, el("h1", "watch-party-episodes-title", series.title));
     const zones: Zone[] = [{ id: "episodes-top", layout: "row", items: [back] }];
     if (tabs.length > 0) {

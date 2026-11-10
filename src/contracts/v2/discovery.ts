@@ -13,7 +13,8 @@ export type FilterRule = {
 export type FilterGroup = { readonly match: Match; readonly rules: readonly FilterRule[] };
 export type CatalogLettersRequest = {
     readonly library_id?: string;
-    readonly type: MediaScope;
+    /** Omitted for an audiobook library, which its id already scopes. */
+    readonly type?: MediaScope;
     readonly match?: Match;
     readonly groups?: readonly FilterGroup[];
     readonly order?: Order;

@@ -43,6 +43,8 @@ export interface Zone {
     /** An explicit entry target; clearing it returns the zone to remembered-item restoration. */
     readonly entry?: string | undefined;
     readonly onLeft?: () => void;
+    /** A reading stop taller than the page: Up/Down scroll it a step at a time until that edge is visible, then leave. */
+    readonly reading?: boolean;
     readonly id: string;
     readonly up?: string;
     readonly down?: string;
@@ -78,6 +80,11 @@ export interface View {
     /** Undefined: Back is not handled here and reaches the app's own handler (root exit). */
     readonly back: (() => boolean | void) | undefined;
 }
+
+/** Page scroll per Up/Down inside a reading stop: about a third of the 1080 px page, so no line is skipped. */
+const READING_STEP = 360;
+/** Gap kept between a reading stop's revealed edge and the page edge. */
+const READING_INSET = 32;
 
 export class FocusHost {
     private readonly container: HTMLElement;
@@ -131,6 +138,11 @@ export class FocusHost {
     /** The next show of this view starts fresh: no remembered focus or scroll. */
     forgetVisit(name: string): void {
         this.visits.delete(name);
+    }
+
+    /** Drops every snapshot of one route presentation: its `View.visitKey` prefixes each of its view names. */
+    forgetPresentation(visitKey: string): void {
+        for (const name of [...this.visits.keys()]) if (name.startsWith(`${visitKey}:`)) this.visits.delete(name);
     }
 
     /** Save before hiding library chrome can resize and clamp the viewport. */
@@ -631,6 +643,34 @@ export class FocusHost {
         const previous = document.activeElement;
         item.element.focus({ preventScroll: true });
         this.scroll.reveal(item.element, this.container, previous);
+        if (zone.reading === true) this.alignReading(item.element, previous);
+    }
+
+    /** Apple's focus engine shows the leading edge of a tall reading stop: the top coming from above, the bottom from below. */
+    private alignReading(element: HTMLElement, previous: Element | null): void {
+        const rect = element.getBoundingClientRect();
+        const bounds = this.container.getBoundingClientRect();
+        if (rect.height <= bounds.height - 2 * READING_INSET || previous === null) return;
+        const fromAbove = previous.getBoundingClientRect().top < rect.top;
+        const delta = fromAbove ? rect.top - (bounds.top + READING_INSET) : rect.bottom - (bounds.bottom - READING_INSET);
+        this.scroll.move(this.container, 0, this.clampScroll(this.container.scrollTop + delta));
+    }
+
+    /** Scrolls one step toward the hidden edge; false once that edge is visible, so the move leaves the zone. */
+    private readOn(element: HTMLElement, key: "up" | "down"): boolean {
+        const rect = element.getBoundingClientRect();
+        const bounds = this.container.getBoundingClientRect();
+        if (key === "down" ? rect.bottom <= bounds.bottom + 1 : rect.top >= bounds.top - 1) return false;
+        const remaining = key === "down" ? rect.bottom - (bounds.bottom - READING_INSET) : (bounds.top + READING_INSET) - rect.top;
+        const from = this.container.scrollTop;
+        const to = this.clampScroll(from + (key === "down" ? 1 : -1) * Math.min(READING_STEP, remaining));
+        if (Math.abs(to - from) < 1) return false;
+        this.scroll.move(this.container, 0, to);
+        return true;
+    }
+
+    private clampScroll(top: number): number {
+        return Math.max(0, Math.min(top, this.container.scrollHeight - this.container.clientHeight));
     }
 
     /** Chrome zones are not a page's content return target. */
@@ -734,6 +774,7 @@ export class FocusHost {
             this.navigationX ??= rect.left + rect.width / 2;
         }
         if (key === "left" && zone.onLeft !== undefined) { zone.onLeft(); return; }
+        if (zone.reading === true && (key === "up" || key === "down") && this.readOn(found.item.element, key)) return;
         const target = moveWithin(zone, zone.items.length, index, key);
         if (target !== undefined) {
             this.focusItem(zone, zone.items[target]);

@@ -63,6 +63,15 @@ The capability body follows `ApplePlaybackV3Capabilities.swift:439-483` and `Pla
 
 Off, an unsupported panel, a throwing probe, or a failed read of the HDR key the server offered sends the same SDR profile as before: `hdr: false` and no `hdr_details` on `client_capabilities`, `output`, `original_http`, or `hls`. HDR off does not leave an original or a remux claimed as HDR. The reason is in the caption section above. A title is never declared direct-playable in a range the panel did not report. If the server does not offer the HDR key, the Apple default stays on, so a panel that reports HDR still claims HDR10. Resolution stays 1080p. No DTS and no audio passthrough.
 
+## Show Audiobooks
+
+General ends with Apple's TOP MENU section: a Show Audiobooks switch and the footer `Adds an Audiobooks tab when an audiobook library is available.` (`TVGeneralSettingsView.swift`).
+`nav.show_audiobooks` is `client_local`, default off.
+The choice is stored on this TV for the current server, account and profile, and is never sent to the server, as Apple's `AppNavPreferences` does.
+TOP MENU is the last section in General, as in Apple's `TVGeneralSettingsView`.
+The Audiobooks tab, and the Audiobooks filter in Search, need the switch on and an audiobook library the profile has not hidden.
+Settings returns to Home, so turning the switch off while on the tab leaves nothing stranded.
+
 ## Rows left without a control
 
 A row that nothing on this TV acts on stays hidden.
@@ -72,9 +81,8 @@ A row that nothing on this TV acts on stays hidden.
 | Dolby Vision | Samsung exposes no Dolby Vision support check, and this client claims no Dolby Vision profile. A switch would not change playback. This is not a measurement that the panel lacks Dolby Vision. |
 | Paired Silo Profile | Open PR #292. This branch does not change it. |
 | Play Theme Music, Loop Theme Music | No theme-song reader or title-page player. Issue #293. |
-| Show Audiobooks | Open PR #230. No Audiobooks tab. |
 | Show Next Up | Playback offers Play next only after the episode ends. Nothing reads `playback.next_up_prompt_seconds`. Open PR #213 owns the pre-end reader. |
-| Audiobooks Skip Back, Skip Forward | Open PR #230. No audiobook player. |
+| Audiobooks Skip Back, Skip Forward | No audiobook player yet. The audiobook screens ship first (#55). |
 | Use Device Settings | tvOS reads Media Accessibility caption preferences (`SystemCaptionAppearance.swift`). Samsung captions are the app overlay. No TV caption-style API is available, so the switch would not change language, behavior, or appearance. |
 | Diagnostics | Open issue #218, parked. |
 

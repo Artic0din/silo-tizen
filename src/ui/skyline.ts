@@ -24,6 +24,7 @@ type VideoTab = "movies" | "series" | "music" | "audiobooks";
 
 interface ProfileMenu {
     readonly requests?: () => void;
+    readonly watchParty?: () => void;
     readonly settings?: () => void;
     readonly personal?: (source: PersonalSource, anchor?: "for_you" | "profiles") => void;
     readonly name: string;
@@ -78,8 +79,16 @@ export class Skyline {
     setRequestsEnabled(enabled: boolean): void {
         if (this.requestsEnabled === enabled) return;
         this.requestsEnabled = enabled;
-        if (this.profileOpen) this.openProfile();
+        if (this.profileOpen) this.rebuildProfile();
         else if (!enabled) this.selector.querySelector('[data-focus="requests"]')?.remove();
+    }
+
+    private watchPartyEnabled = false;
+    setWatchPartyEnabled(enabled: boolean): void {
+        if (this.watchPartyEnabled === enabled) return;
+        this.watchPartyEnabled = enabled;
+        if (this.profileOpen) this.rebuildProfile();
+        else if (!enabled) this.selector.querySelector('[data-focus="watch-party"]')?.remove();
     }
 
     private routeBack: (() => void) | undefined;
@@ -719,6 +728,13 @@ export class Skyline {
         return this.visible && this.marqueeShown && this.marquee.isConnected;
     }
 
+    /** A row appearing or going while the menu is open replaces every row, so focus returns to the row it was on. */
+    private rebuildProfile(): void {
+        const focusedKey = this.panel.find(item => item.element === document.activeElement)?.key;
+        this.openProfile();
+        if (focusedKey !== undefined) this.panel.find(item => item.key === focusedKey)?.element.focus({ preventScroll: true });
+    }
+
     private openProfile(enter = false): void {
         if (!this.visible) return;
         this.close();
@@ -733,6 +749,8 @@ export class Skyline {
         }
         const requests = this.profiles.requests;
         if (this.requestsEnabled && requests !== undefined) this.panel.push(this.menuItem("requests", "Requests", () => { this.close(); requests(); }));
+        const watchParty = this.profiles.watchParty;
+        if (this.watchPartyEnabled && watchParty !== undefined) this.panel.push(this.menuItem("watch-party", "Watch Party", () => { this.close(); watchParty(); }));
         const settings = this.profiles.settings;
         if (settings !== undefined) this.panel.push(this.menuItem("settings", "Settings", () => { this.close(); settings(); }));
         const switchServer = this.profiles.switchServer;

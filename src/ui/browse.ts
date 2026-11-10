@@ -65,6 +65,9 @@ import type { BrowseChange, DiscoveryState } from "./libraryDiscovery.ts";
 import { shufflePick } from "../player/nextShuffle.ts";
 import type { ShuffleCapability } from "../contracts/v2/shuffle.ts";
 import { avatarReference } from "./profilePicker.ts";
+import { ExperimentalFeatures } from "../session/experimentalFeatures.ts";
+import { WatchPartyHub, watchPartyApi } from "./watchPartyHub.ts";
+import { watchPartyScreen } from "./watchParty.ts";
 
 export type { PlayRequest } from "./browseModel.ts";
 
@@ -505,14 +508,31 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         showRoute(origin, closedHub ? undefined : origin.focus);
         if (closedHub && hasData(origin)) host.focusDefault();
     };
-    const isPersonalRoot = (route: Route): boolean => route.kind === "personal" && route.source !== "history" || isHubRoot(route);
+    const isPersonalRoot = (route: Route): boolean => route.kind === "personal" && route.source !== "history" || isHubRoot(route) || route.kind === "watchParty";
     // Apple's showPersonalRoot pops to the tab first, so Watchlist, Favorites and Requests replace each other and one Back pair returns to the tab.
     const clearPersonalRoot = (): void => {
         const index = stack.findIndex(isPersonalRoot);
         if (index < 1) return;
         stopSearchSupplement(); stopDetails(); loading?.abort(); loading = undefined; cancelSearch();
+        for (const removed of stack.slice(index)) stopWatchParty(removed);
         stack.length = index;
     };
+    // Apple WatchPartyEntry.isAvailable: the device switch is on and the server can host a synchronized party.
+    const experimental = new ExperimentalFeatures(options.publicStorage);
+    let watchPartyOffered = false;
+    const setWatchPartyOffered = (supported: boolean): void => {
+        watchPartyOffered = supported && experimental.isEnabled("watchParty");
+        if (!torn) shell.setWatchPartyEnabled(watchPartyOffered);
+    };
+    let watchPartyProbe: WatchPartyHub | undefined;
+    const probeWatchParty = (): void => {
+        watchPartyProbe?.stop();
+        watchPartyProbe = undefined;
+        if (!experimental.isEnabled("watchParty")) { setWatchPartyOffered(false); return; }
+        watchPartyProbe = new WatchPartyHub(watchPartyApi(session), () => undefined, { onSupport: setWatchPartyOffered });
+        void watchPartyProbe.check();
+    };
+    const stopWatchParty = (route: Route | undefined): void => { if (route?.kind === "watchParty") route.watchParty.hub.stop(); };
     const probeRequests = async (refreshSearch = true): Promise<void> => {
         const ordinal = ++probeOrdinal;
         try {
@@ -663,6 +683,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         homeDetails.stop();
         navigation.destroy();
         requestsController.abort();
+        watchPartyProbe?.stop();
+        for (const route of stack) stopWatchParty(route);
         document.removeEventListener("visibilitychange", requestsVisibility);
         cardActions.destroy();
         requestMenu.destroy();
@@ -1746,7 +1768,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         loading = undefined;
         cancelSearch();
         if (active?.kind === "item" && active.data?.details?.series?.seasonNumber !== undefined) seriesSeasons.set(active.id, active.data.details.series.seasonNumber);
-        stack.pop();
+        stopWatchParty(stack.pop());
         const current = top();
         if (current?.kind === "requests" && !requestsCapability.enabled) { closeRequests(); return; }
         if (current !== undefined) {
@@ -1757,7 +1779,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             }
             // Apple keeps the loaded filmography (loadInitial runs only while empty); a visit that never got its first page reads it now.
             if (current.kind === "person" && current.pages.page === undefined) current.stale = true;
-            const fromProfileMenu = (active?.kind === "requests" && active.requests.source.kind === "hub") || active?.kind === "personal";
+            const fromProfileMenu = (active?.kind === "requests" && active.requests.source.kind === "hub") || active?.kind === "personal" || active?.kind === "watchParty";
             if (current.kind === "item" && current.data?.details?.series !== undefined && (active?.kind === "season" || active?.kind === "item" && active.data?.detail.type === "episode")) {
                 const details = current.data.details, series = details.series;
                 details.focusedEpisodeId = undefined;
@@ -1798,7 +1820,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         showRoute(next, focus);
     };
 
-    const tabFocus = (current: Route): FocusTarget => ({ zone: "nav", key: current.kind === "library" ? (current.library.type === "music" ? "music" : current.library.type === "audiobooks" ? "audiobooks" : current.library.type === "series" ? "series" : "movies") : current.kind === "personal" ? current.anchor ?? "profiles" : current.kind === "requests" ? current.anchor ?? "home" : current.kind });
+    const tabFocus = (current: Route): FocusTarget => ({ zone: "nav", key: current.kind === "library" ? (current.library.type === "music" ? "music" : current.library.type === "audiobooks" ? "audiobooks" : current.library.type === "series" ? "series" : "movies") : current.kind === "personal" ? current.anchor ?? "profiles" : current.kind === "requests" || current.kind === "watchParty" ? current.anchor ?? "home" : current.kind });
 
     const showRoute = (current: Route, focus: FocusTarget | undefined): void => {
         if (current.kind === "home" && current.data === undefined) {
@@ -1957,6 +1979,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         container.classList.toggle("personal-lists", current.kind === "personal" && current.source !== "history");
         container.classList.toggle("personal-history", current.kind === "personal" && current.source === "history");
         container.classList.toggle("requests-scene", current.kind === "requests");
+        container.classList.toggle("watch-party-scene", current.kind === "watchParty");
         container.classList.toggle("search-scene", current.kind === "search");
         container.classList.toggle("details-series-scene", current.kind === "item" && current.data?.detail.type === "series");
         container.classList.toggle("requests-hub", current.kind === "requests" && current.requests.source.kind === "hub");
@@ -1978,7 +2001,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 searchPeople(route, searchTypeFor(route, route.searchType));
                 render(host.focused());
             } });
-        const rootRoute = current.kind === "home" || current.kind === "for_you" || current.kind === "library" || (current.kind === "personal" && current.source !== "history") || current.kind === "calendar" || isHubRoot(current);
+        // An open room is a full-screen page, as on tvOS; the entry stays under the bar.
+        const rootRoute = current.kind === "home" || current.kind === "for_you" || current.kind === "library" || (current.kind === "personal" && current.source !== "history") || current.kind === "calendar" || isHubRoot(current) || (current.kind === "watchParty" && current.watchParty.hub.state.room === undefined);
         cancelOfflineRefresh();
         if (offlineRefreshRoute !== current) offlineRefreshAt = undefined;
         offlineRefreshRoute = current;
@@ -1991,7 +2015,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             const selected = tabFocus(current).key;
             const preview = (current.kind === "home" && current.data !== undefined) || (current.kind === "for_you" && (current.data?.some(row => row.items.some(card => destinationOf(card) !== undefined)) ?? false)) || (current.kind === "library" && current.library.type !== "music" && (current.discovery?.mode ?? "Recommended") === "Recommended");
             const modal = browsing && (current.discovery?.panel !== undefined || shuffleFailure?.route === current);
-            const decorated = shell.decorate(view, selected, preview, modal ? () => { view.back?.(); } : current.kind === "personal" || isHubRoot(current) ? () => {
+            const decorated = shell.decorate(view, selected, preview, modal ? () => { view.back?.(); } : current.kind === "personal" || isHubRoot(current) || current.kind === "watchParty" ? () => {
                 if (host.focused()?.zone === "nav") pop();
                 else render(tabFocus(current));
             } : (current.kind === "library" && current.discovery?.genre !== undefined) ? pop : undefined, current.kind === "library" ? `library:${current.library.id}:${current.library.type}:${current.discovery?.mode ?? "Recommended"}` : undefined);
@@ -2226,6 +2250,18 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         const anchor = origin === undefined ? undefined : tabFocus(origin).key;
         push(newRoute({ kind: "requests", requests: requestsState(source), ...(anchor === undefined ? {} : { anchor }) }));
         if (origin !== undefined && anchor !== undefined) origin.focus = { zone: "nav", key: anchor };
+    };
+    // Like Requests, Watch Party from the profile menu is a root page under the bar: the tab it opened over stays selected.
+    const openWatchParty = (): void => {
+        if (!watchPartyOffered) return;
+        clearPersonalRoot();
+        const origin = top();
+        const anchor = origin === undefined ? undefined : tabFocus(origin).key;
+        const hub: WatchPartyHub = new WatchPartyHub(watchPartyApi(session), () => { if (!torn && top() === route) render(hub.takeRefocus() ? undefined : host.focused()); }, { supported: true, onSupport: setWatchPartyOffered, onLeave: () => host.forgetVisit("watchParty:hub"), onPlay: request => { handoff(request); } });
+        const route = newRoute({ kind: "watchParty", watchParty: watchPartyScreen(hub), ...(anchor === undefined ? {} : { anchor }) });
+        push(route);
+        if (origin !== undefined && anchor !== undefined) origin.focus = { zone: "nav", key: anchor };
+        void hub.check();
     };
     const requestsHandlers = (current: Extract<Route, { kind: "requests" }>): RequestsHandlers => ({
         // List cancel/remove and detail writes share one mutation lock so navigating between them cannot duplicate a POST.
@@ -2500,12 +2536,14 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         loading?.abort();
         loading = undefined;
         cancelSearch();
+        for (const covered of stack) stopWatchParty(covered);
         stack = route === home ? [home] : [home, route];
         stopSearchSupplement();
         showRoute(route, route.focus?.zone === "nav" ? undefined : route.focus);
         if (hasData(route) && (route.focus === undefined || route.focus.zone === "nav")) host.focusDefault();
     }, {
         requests: () => { host.forgetVisit("requests:hub"); openRequests({ kind: "hub" }); },
+        watchParty: () => { host.forgetVisit("watchParty:hub"); openWatchParty(); },
         name: profileName,
         serverName: () => cachedBranding(options.publicStorage, context.baseUrl)?.serverName,
         settings: () => {
@@ -2548,11 +2586,13 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 // TVSettingsView.exitSettingsToHome calls switchTab(.home). selectRoot
                 // then replaces whichever tab opened Settings, so the rail's Back
                 // lands on Home.
+                for (const covered of stack) stopWatchParty(covered);
                 stack = [home];
                 host.listen();
                 showRoute(home, { zone: "nav", key: "home" });
                 const spoilersAfterSettings = episodeSpoilers?.settings;
                 if (spoilersBeforeSettings?.hidesImages !== spoilersAfterSettings?.hidesImages || spoilersBeforeSettings?.hidesOverviews !== spoilersAfterSettings?.hidesOverviews) shell.repaint();
+                probeWatchParty();
             }, server.profileLaunch, {
                 showAudiobooks,
                 profileName,
@@ -2563,7 +2603,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 removesServer: () => signOutRemovesServer(() => server.accounts.directory.list(), context.baseUrl),
                 ...(options.onSignOut === undefined ? {} : { signOut: options.onSignOut }),
                 ...(options.onSwitchServer === undefined ? {} : { switchServer: options.onSwitchServer }),
-            }, options.onAccounts, episodeSpoilers);
+            }, options.onAccounts, episodeSpoilers, experimental);
         },
         personal: (source, anchor = "profiles") => {
             if (source !== "history") clearPersonalRoot();
@@ -2619,6 +2659,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     shell.update(pendingHomeLibraries ?? []);
     void navigation.reload();
     void probeRequests();
+    probeWatchParty();
     stack = [home];
     host.listen();
     const first = top();

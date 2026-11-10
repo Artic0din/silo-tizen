@@ -266,7 +266,7 @@ Audiobooks follows music in the bar and appears only with Show Audiobooks on and
 It opens the same Recommended, Collections and Browse cascade as the video tabs, with square covers, and Browse offers Apple's audiobook sorts (Title, Author, Narrator, Series, Date Added, Runtime) and sends no `type`.
 Home, For You and Search open an audiobook card on its own detail: cover, author and narrator, chapters, a state line and Resume, Play or Play Again.
 Play, Resume and Start Over are drawn but inert until the player can open an audiobook.
-Watch Party requires both local opt-in and synchronized-party support; Tizen has neither and omits that profile row.
+Watch Party requires both local opt-in (Settings › Server › Extra Features) and synchronized-party support, and sits after Requests in the profile menu only when both hold ([Watch Party](watch-party.md)).
 Search is 58 px wide with an 8 px gap before the roots and an invisible equal-width balance after them, keeping the roots centered at x960.
 Labels retain Apple's 29 px horizontal inset (including the CSS border), 26 px semibold type and 8 px gaps.
 Removing Requests lets the shared flex row recalculate every horizontal anchor from the remaining labels.

@@ -29,6 +29,7 @@ import { boxSetView } from "./boxSetView.ts";
 import type { BoxSetRowState } from "./boxSetRow.ts";
 import { boxSetNextMovie, type CatalogBoxSetDetail } from "../contracts/v2/boxSets.ts";
 import { recommendationsView } from "./recommendationsView.ts";
+import { watchPartyView, type WatchPartyScreen } from "./watchParty.ts";
 
 /** Cards per catalog page: four grid rows. Only the shown page is kept. */
 export const PAGE_SIZE = 24;
@@ -46,6 +47,7 @@ export type RouteData =
     | { readonly kind: "for_you"; data: RecommendationRow[] | undefined }
     | { readonly kind: "recommendationSection"; readonly locator: RecommendationLocator; readonly title: string; pages: Pages }
     | { readonly kind: "requests"; readonly requests: RequestsState; readonly anchor?: string }
+    | { readonly kind: "watchParty"; readonly watchParty: WatchPartyScreen; readonly anchor?: string }
     | { readonly kind: "calendar"; readonly calendar: CalendarState }
     | { readonly kind: "personal"; readonly source: PersonalSource; readonly anchor?: string; filter: PersonalFilter; capability: PersonalListCapability | undefined; pages: Pages; pendingIndex: number | undefined; error?: ErrorState | undefined; elsewhere?: boolean }
     | { readonly kind: "home"; data: { libraries: UserLibrary[]; sections: HomeSection[] } | undefined }
@@ -81,6 +83,8 @@ export function newPages(): Pages {
 export function hasData(current: Route): boolean {
     switch (current.kind) {
         case "requests": return current.requests.data !== undefined;
+        // The hub reads nothing to open: its support answer comes with the entry point.
+        case "watchParty": return true;
         case "calendar":
             return current.calendar.data !== undefined;
         case "resume":
@@ -145,6 +149,7 @@ export interface RouteHandlers {
 export function routeView(current: Route, handlers: RouteHandlers): View {
     if (current.kind === "for_you" || current.kind === "recommendationSection") return recommendationsView(current, handlers);
     if (current.kind === "requests") return requestsView(current.requests, handlers.requests(current), handlers.context.baseUrl);
+    if (current.kind === "watchParty") return watchPartyView(current.watchParty, handlers.pop, handlers.context.baseUrl);
     const { context, pop } = handlers;
     if (current.kind === "calendar") return calendarView(current.calendar, handlers.calendar(current));
     const back = current.kind === "home" ? undefined : pop;

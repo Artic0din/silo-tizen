@@ -1,3 +1,4 @@
+import type { WebSocketRoute } from "playwright";
 import { FakeRequests } from "./fakeRequests.ts";
 import { fixture, problem, type Reply } from "./fakeSilo.ts";
 
@@ -47,8 +48,41 @@ export class FakeWatchParty extends FakeRequests {
     guestReady = false;
     /** Puts the series that Continue Together offers with a next-up episode on the watchlist shelf too, without one. */
     duplicateSeries = false;
-    /** Fails the next room read once with a lost answer, then reads normally. */
-    readonly roomReads: string[] = [];
+    /** Every room read, by the room token it carried; the room socket reads the room before each ticket. */
+    readonly roomReads: (string | undefined)[] = [];
+    /** Answers the room read in place of the room, for a party that ended or a refused member. */
+    roomReadFailure: Reply | undefined;
+    readonly ticketTokens: (string | undefined)[] = [];
+    /** Sam is in the room; false for a host waiting for someone to join. */
+    guestJoined = true;
+    generation = 1;
+    /** Every room socket the page opened, newest last, and the frames each one sent. */
+    readonly sockets: { readonly route: WebSocketRoute; readonly protocols: readonly string[]; readonly sent: Record<string, unknown>[]; closed: boolean }[] = [];
+
+    /** The room socket's server side, for Playwright's routeWebSocket: it answers pings and records what the page sends. */
+    acceptSocket(route: WebSocketRoute, protocols: readonly string[]): void {
+        const socket = { route, protocols, sent: [] as Record<string, unknown>[], closed: false };
+        this.sockets.push(socket);
+        route.onMessage(message => {
+            const frame = JSON.parse(String(message)) as Record<string, unknown>;
+            socket.sent.push(frame);
+            if (frame.type === "ping") route.send(JSON.stringify({ type: "pong", client_sent_at: frame.client_sent_at, server_received_at: frame.client_sent_at, server_sent_at: frame.client_sent_at }));
+        });
+        route.onClose(() => { socket.closed = true; });
+    }
+
+    /** Sends a frame on the newest open room socket. */
+    push(frame: Record<string, unknown>): void {
+        const socket = this.sockets.at(-1);
+        if (socket === undefined || socket.closed) throw new Error("no open room socket");
+        socket.route.send(JSON.stringify(frame));
+    }
+
+    /** Broadcasts the room as it now stands, as the server does after any change. */
+    snapshot(): void {
+        this.generation++;
+        this.push({ type: "snapshot", room: this.room() });
+    }
 
     room(): Record<string, unknown> {
         const host = this.role === "host";
@@ -58,12 +92,12 @@ export class FakeWatchParty extends FakeRequests {
             ...(this.selectedContentId === undefined ? {} : { selected_content_id: this.selectedContentId }),
             ...(this.selectedFileId === undefined ? {} : { selected_file_id: this.selectedFileId }),
             guest_control_policy: this.guestControlPolicy, is_paused: this.phase !== "playing", anchor_position_seconds: 0, anchor_updated_at: "2026-11-10T01:02:03.123Z",
-            generation: 1, member_count: 2, host_connected: this.hostConnected, self_role: this.role, self_can_control_transport: host, self_can_manage_room: host,
+            generation: this.generation, member_count: this.guestJoined ? 2 : 1, host_connected: this.hostConnected, self_role: this.role, self_can_control_transport: host, self_can_manage_room: host,
             self_ignore_wait: false,
             ...(this.invitePath === undefined ? {} : { invite_path: this.invitePath }),
             members: [
                 { user_id: "1", profile_id: "p-owner", display_name: "Owner", is_host: true, is_self: host, connected: this.hostConnected },
-                { user_id: "2", profile_id: "p-guest", display_name: "Sam", is_host: false, is_self: !host, connected: true, lobby_ready: this.guestReady },
+                ...(this.guestJoined ? [{ user_id: "2", profile_id: "p-guest", display_name: "Sam", is_host: false, is_self: !host, connected: true, lobby_ready: this.guestReady }] : []),
             ],
         };
     }
@@ -112,6 +146,14 @@ export class FakeWatchParty extends FakeRequests {
             if (this.closeFailure !== undefined) return this.closeFailure;
             this.closedRooms.push(ROOM_ID);
             return { status: 204 };
+        }
+        if (method === "GET" && pathname === ROOM_PATH) {
+            this.roomReads.push(headers?.["x-room-token"]);
+            return this.roomReadFailure ?? this.access();
+        }
+        if (method === "POST" && pathname === `${ROOM_PATH}/ws-ticket`) {
+            this.ticketTokens.push(headers?.["x-room-token"]);
+            return { status: 200, body: { ticket: `ticket-${this.ticketTokens.length}`, expires_in: 30, max_connection_seconds: 300, protocol: "silo.room.v2" } };
         }
         if (method === "GET" && pathname === `${ROOM_PATH}/picker`) {
             this.pickerTokens.push(headers?.["x-room-token"]);

@@ -1,16 +1,18 @@
 // Apple's WatchPartySession for the Watch Party hub: the support probe, Start a party, Join party and
-// the room the create or join answered with, and the lobby over HTTP only. The host stages a title,
-// starts and stops playback, sets who chooses and who controls, and ends the party; each answer is the
-// room as it now stands. Apple never polls and keeps the room current over the socket, which is not
-// built, so a guest sees the room as it was when they joined.
+// the open room. The host stages a title, starts and stops playback, sets who chooses and who controls,
+// and ends the party; each answer is the room as it now stands. The room socket (watchPartySocket.ts)
+// keeps the room current for everyone between those answers, as Apple's, which never polls.
 
 import { ApiError } from "../api/errors.ts";
+import { type Clock, systemClock } from "../api/clock.ts";
 import { writeMayHaveApplied } from "./browseRoutes.ts";
 import type { Card, Episode, Season } from "../contracts/v2/catalog.ts";
 import type { CreatableSelectionMode, GuestControlPolicy, PickerEntry, Room, RoomAccess, RoomSelection, WatchTogetherCapabilities } from "../contracts/v2/watchTogether.ts";
 import type { PlayRequest } from "./browseModel.ts";
 import { type LobbyItem, type MediaChoice, lobbyItemFromDetail } from "./watchPartyChoice.ts";
 import { supportsSynchronizedParty, uuidV4, type WatchPartyApi, watchPartyFailureText } from "./watchPartyApi.ts";
+import { browserSocket, type ConnectionStatus, RoomConnection, type RoomEnd, type RoomSocketFactory, RoomState } from "./watchPartySocket.ts";
+import type { RoomServerMessage } from "../contracts/v2/watchTogether.ts";
 
 export { supportsSynchronizedParty, uuidV4, watchPartyApi, watchPartyFailureText, type WatchPartyApi } from "./watchPartyApi.ts";
 
@@ -37,8 +39,10 @@ export interface WatchPartyState {
     busy: boolean;
     /** Apple errorMessage, shown in the warning banner. */
     error: string | undefined;
-    /** The room the create or join answered with, as each change since has left it. */
+    /** The open room, as the newest answer or socket snapshot left it. */
     room: Room | undefined;
+    /** Apple's connection dot: the room socket while a room is open, idle otherwise. */
+    connection: ConnectionStatus | "idle";
     /** What the server said it can do; read with the support check. */
     capabilities: WatchTogetherCapabilities | undefined;
     page: LobbyPage;
@@ -66,10 +70,17 @@ export interface WatchPartyHubOptions {
     readonly onPlay?: (request: PlayRequest) => void;
     readonly describe?: (error: unknown) => string;
     readonly uuid?: () => string;
+    /** The room socket's WebSocket and timers; tests pass a fake socket and a manual clock. */
+    readonly socket?: RoomSocketFactory;
+    readonly clock?: Clock;
 }
 
 export const UNSUPPORTED_SERVER = "This server needs an update to support synchronized Watch Party playback safely on this profile.";
 export const PARTY_ENDED = "This party has ended.";
+export const PARTY_EXPIRED = "The party connection expired or is no longer available. Join again to continue.";
+export const PARTY_REPLACED = "This profile joined the party on another device. Rejoin here to take over playback.";
+
+const END_TEXT: Record<RoomEnd, string> = { ended: PARTY_ENDED, expired: PARTY_EXPIRED, replaced: PARTY_REPLACED };
 
 const LOBBY: LobbyPage = { kind: "lobby" };
 
@@ -91,15 +102,13 @@ export class WatchPartyHub {
     private epoch = 0;
     /** Counts season and episode reads; leaving the page ends them. The picker's read is not tied to its page, so backing out does not strand it. */
     private browseEpoch = 0;
-    /** A hosted room that Back or leaving the page has not yet ended on the server. */
-    private unclosed: Room | undefined;
-    private closing: Promise<boolean> | undefined;
     private refocus = false;
     private ending = false;
     /** A lost change was not read back because the party was ending; a failed close reads it then. */
     private unreconciled = false;
-    /** Counts the rooms taken, so a read that was asked before a newer room arrived can be told apart. */
-    private roomsTaken = 0;
+    /** Which room answer is current; one per open room. */
+    private rooms = new RoomState();
+    private connection: RoomConnection | undefined;
     /** Settles when the running host change does, so End party can go after it. */
     private mutation: Promise<void> | undefined;
 
@@ -109,7 +118,7 @@ export class WatchPartyHub {
         this.options = options;
         this.describe = options.describe ?? watchPartyFailureText;
         this.state = {
-            supported: options.supported ?? false, checking: false, busy: false, error: undefined, room: undefined, capabilities: undefined,
+            supported: options.supported ?? false, checking: false, busy: false, error: undefined, room: undefined, connection: "idle", capabilities: undefined,
             page: LOBBY, selected: undefined, selectedUnavailable: false, shelves: [], shelvesLoading: false, shelvesError: undefined,
             seasons: undefined, episodes: undefined, browseLoading: false, browseError: undefined,
         };
@@ -240,11 +249,10 @@ export class WatchPartyHub {
             await this.api.closeRoom(room.roomId, this.controller.signal).catch((error: unknown) => { if (!isConflict(error)) throw error; });
             if (this.stopped || this.state.room?.roomId !== room.roomId) return;
             this.state.busy = false;
-            this.reset();
-            this.state.error = PARTY_ENDED;
-            this.options.onLeave?.();
+            this.terminate("ended");
         } catch (error) {
-            if (!this.stopped) this.state.error = this.describe(error);
+            // The socket may have ended the party meanwhile; its reason stays.
+            if (!this.stopped && this.state.room?.roomId === room.roomId) this.state.error = this.describe(error);
             // The party goes on, so the change that was not read back may have landed. Read it in the background: the failure shows and End can be retried meanwhile.
             if (this.unreconciled && !this.stopped) void this.readRoom(room.roomId).then(() => { if (!this.stopped) this.notify(); });
         } finally {
@@ -294,22 +302,22 @@ export class WatchPartyHub {
         });
     }
 
-    /** Back from the lobby, or Leave party. A guest has no HTTP leave; the host ends the room, as Apple's endParty does. */
+    /**
+     * Back from the lobby, or Leave party: Apple's leaveRoom closes this viewer's socket and nothing else. A host who leaves is
+     * away, and the server holds the party for them; End party is what ends it for everyone.
+     */
     leave(): void {
-        const room = this.state.room;
         this.reset();
         this.state.error = undefined;
         this.options.onLeave?.();
         this.notify();
-        this.end(room);
     }
 
+    /** The page went away, or the account or profile changed: the socket closes and the room is left as Leave leaves it. */
     stop(): void {
         this.stopped = true;
         this.controller.abort();
-        const room = this.state.room;
         this.reset();
-        this.end(room);
     }
 
     private requireRoom(): Room {
@@ -325,24 +333,75 @@ export class WatchPartyHub {
         this.epoch++;
         this.browseEpoch++;
         this.roomToken = "";
+        this.connection?.close();
+        this.connection = undefined;
+        this.rooms = new RoomState();
         Object.assign(this.state, {
-            room: undefined, page: LOBBY, selected: undefined, selectedUnavailable: false, shelves: [], shelvesLoading: false, shelvesError: undefined,
+            room: undefined, connection: "idle", page: LOBBY, selected: undefined, selectedUnavailable: false, shelves: [], shelvesLoading: false, shelvesError: undefined,
             seasons: undefined, episodes: undefined, browseLoading: false, browseError: undefined,
         });
     }
 
-    /** Takes the room an answer carries. A new selection reloads the title; the pick the host just made shows until it lands. */
-    private accept(answer: RoomAccess): void {
-        const previous = this.state.room;
-        this.roomsTaken++;
+    /** Takes the token an answer carries, and its room when that is still current (WatchPartySession.accept). */
+    private accept(answer: RoomAccess, requestReceipt?: number): boolean {
         this.roomToken = answer.roomAccessToken;
-        this.state.room = answer.room;
-        const id = answer.room.selectedContentId;
-        if (id === previous?.selectedContentId && (id === undefined || this.state.selected !== undefined)) return;
+        return this.take(answer.room, requestReceipt);
+    }
+
+    /** A room from an answer or a snapshot. An older one is dropped; an ended one ends the party. A new selection reloads the title; the pick the host just made shows until it lands. */
+    private take(room: Room, requestReceipt?: number): boolean {
+        const previous = this.state.room;
+        if (!this.rooms.accept(room, requestReceipt)) return false;
+        if (room.phase === "ended") { this.terminate("ended"); return false; }
+        this.state.room = room;
+        const id = room.selectedContentId;
+        if (id === previous?.selectedContentId && (id === undefined || this.state.selected !== undefined)) return true;
         this.state.selectedUnavailable = false;
-        if (id === undefined) { this.state.selected = undefined; return; }
+        if (id === undefined) { this.state.selected = undefined; return true; }
         if (this.state.selected?.contentId !== id) this.state.selected = undefined;
-        void this.refreshSelected(answer.room.roomId, id);
+        void this.refreshSelected(room.roomId, id);
+        return true;
+    }
+
+    /** WatchPartySession.terminate: the room is over for this viewer, who returns to the entry with the reason. */
+    private terminate(reason: RoomEnd): void {
+        this.reset();
+        this.state.error = END_TEXT[reason];
+        this.options.onLeave?.();
+        this.notify();
+    }
+
+    /** Opens the room socket for the room just entered (WatchPartySession.startConnection). */
+    private connect(roomId: string): void {
+        this.connection = new RoomConnection(roomId, this.api, {
+            token: () => this.roomToken,
+            receipt: () => this.rooms.receipt,
+            access: (answer, receipt) => { if (this.accept(answer, receipt)) this.notify(); },
+            message: message => { this.receive(message); },
+            status: status => {
+                this.state.connection = status;
+                if (status === "connected") this.state.error = undefined;
+                this.notify();
+            },
+            end: reason => { this.terminate(reason); },
+        }, { socket: this.options.socket ?? browserSocket, clock: this.options.clock ?? systemClock });
+    }
+
+    /** WatchPartySession.receive for the lobby. Transport commands and the ballot belong to synchronized playback and voting. */
+    private receive(message: RoomServerMessage): void {
+        switch (message.type) {
+            case "snapshot": if (this.take(message.room)) this.notify(); return;
+            case "room_closed": this.terminate("ended"); return;
+            case "connection_replaced": this.terminate("replaced"); return;
+            case "error":
+                if (message.code === "connection_replaced") { this.terminate("replaced"); return; }
+                // A bad_request refuses a playback report or attach; the lobby sends neither.
+                if (message.code === "bad_request") return;
+                this.state.error = message.message;
+                this.notify();
+                return;
+            default: return;
+        }
     }
 
     private async refreshSelected(roomId: string, contentId: string): Promise<void> {
@@ -366,6 +425,7 @@ export class WatchPartyHub {
     private async mutate(operation: (signal: AbortSignal) => Promise<RoomAccess>, begin?: () => void, applied?: (room: Room) => boolean): Promise<boolean> {
         const room = this.state.room;
         if (room?.selfCanManageRoom !== true || this.state.busy || this.ending || this.stopped) return false;
+        const receipt = this.rooms.receipt;
         this.state.busy = true;
         this.state.error = undefined;
         let settle: () => void = () => undefined;
@@ -375,10 +435,11 @@ export class WatchPartyHub {
         try {
             const answer = await operation(this.controller.signal);
             if (this.stopped || this.state.room?.roomId !== room.roomId) return false;
-            this.accept(answer);
+            this.accept(answer, receipt);
             return true;
         } catch (error) {
-            if (!this.stopped) this.state.error = this.describe(error);
+            if (this.stopped || this.state.room?.roomId !== room.roomId) return false;
+            this.state.error = this.describe(error);
             // A non-retryable change whose answer never came may have landed: read the room so the lobby does not stay behind it,
             // and count the change as done when the room proves it, so it is not sent a second time.
             if (applied !== undefined && !this.stopped && this.ending && writeMayHaveApplied(error)) this.unreconciled = true;
@@ -394,12 +455,11 @@ export class WatchPartyHub {
     }
 
     private async readRoom(roomId: string): Promise<Room | undefined> {
-        const asked = this.roomsTaken;
+        const receipt = this.rooms.receipt;
         try {
             const answer = await this.api.room(roomId, this.roomToken, this.controller.signal);
             // A room that arrived while this read ran is newer than the read.
-            if (this.stopped || this.state.room?.roomId !== roomId || this.roomsTaken !== asked) return undefined;
-            this.accept(answer);
+            if (this.stopped || this.state.room?.roomId !== roomId || !this.accept(answer, receipt)) return undefined;
             return answer.room;
         } catch {
             // The error from the change is already showing; the room stays as it was.
@@ -434,35 +494,6 @@ export class WatchPartyHub {
         this.notify();
     }
 
-    private end(room: Room | undefined): void {
-        if (room === undefined || !room.selfCanManageRoom) return;
-        this.unclosed = room;
-        void this.closeUnclosed();
-    }
-
-    /**
-     * Ends the hosted room that was left open. A create or join waits for it, as Apple refuses a new party while one is open,
-     * and retries it when it failed. A signal of its own lets the close finish after the hub stops, when a failure has no screen to show on.
-     */
-    private closeUnclosed(): Promise<boolean> {
-        const room = this.unclosed;
-        if (room === undefined) return Promise.resolve(true);
-        this.closing ??= this.api.closeRoom(room.roomId, new AbortController().signal).then(
-            () => true,
-            (error: unknown) => {
-                // 409 means the room already ended.
-                if (isConflict(error)) return true;
-                if (!this.stopped) { this.state.error = `Could not end the party. ${this.describe(error)}`; this.notify(); }
-                return false;
-            },
-        ).then(ended => {
-            if (ended) this.unclosed = undefined;
-            this.closing = undefined;
-            return ended;
-        });
-        return this.closing;
-    }
-
     private fail(message: string): void {
         this.state.error = message;
         this.notify();
@@ -492,12 +523,14 @@ export class WatchPartyHub {
         this.state.error = undefined;
         this.notify();
         try {
-            if (!await this.closeUnclosed()) return;
             if (!await this.load()) return;
             if (!this.state.supported) { this.state.error = UNSUPPORTED_SERVER; return; }
             try {
                 const entered = await operation(this.controller.signal);
-                if (!this.stopped) { this.reset(); this.accept(entered); }
+                if (!this.stopped) {
+                    this.reset();
+                    if (this.accept(entered)) this.connect(entered.room.roomId);
+                }
             } catch (error) {
                 if (!this.stopped) this.state.error = this.describe(error);
             }

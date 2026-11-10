@@ -22,7 +22,13 @@ async function enterLobby(tv: Tv, fake: FakeWatchParty, how: "create" | "join" =
         await button(tv, "join").click();
     } else await button(tv, "create").click();
     await view(tv, "watchParty:lobby").waitFor();
-    assert.ok(fake);
+    await connected(tv, fake);
+}
+
+/** The room socket is open and the lobby says so: the dot leaves Connecting. */
+async function connected(tv: Tv, fake: FakeWatchParty, sockets = 1): Promise<void> {
+    await tv.eventually(async () => fake.sockets.length === sockets && !fake.sockets[sockets - 1]?.closed, "room socket open");
+    await tv.eventually(async () => !["Connecting", "Reconnecting"].includes(await tv.page.locator(".watch-party-connection").textContent() ?? ""), "lobby connected");
 }
 
 async function inLobby(role: "host" | "guest" = "host", configure: (fake: FakeWatchParty) => void = () => undefined): Promise<{ tv: Tv; fake: FakeWatchParty }> {
@@ -297,24 +303,15 @@ test("a refused End Party keeps the room and shows the reason in the lobby", asy
     } finally { await tv.page.context().close(); }
 });
 
-test("Leave party as the host asks first, because it ends the room for everyone", async () => {
+test("Leave party as the host is Apple's leaveRoom: no confirmation, this TV leaves and the party is not ended", async () => {
     const { tv, fake } = await inLobby();
     try {
         await button(tv, "options").click();
         await button(tv, "leave").click();
-        await view(tv, "watchParty:end").waitFor();
-        assert.equal(await tv.page.locator(".watch-party-sheet-title").textContent(), "End this party for everyone?");
-        assert.equal(await tv.focused(), "cancel");
-        assert.deepEqual(fake.closedRooms, [], "nothing is closed until the host confirms");
-        await button(tv, "cancel").click();
-        await view(tv, "watchParty:lobby").waitFor();
-        assert.deepEqual(fake.closedRooms, []);
-        await button(tv, "options").click();
-        await button(tv, "leave").click();
-        await button(tv, "confirm-end").click();
         await view(tv, "watchParty:hub").waitFor();
-        await tv.eventually(async () => fake.closedRooms.length === 1, "room closed");
         assert.equal(await tv.focused(), "create");
+        await tv.eventually(async () => fake.sockets[0]?.closed === true, "room socket closed");
+        assert.deepEqual(fake.closedRooms, [], "the server holds the party while its host is away; End party ends it");
     } finally { await tv.page.context().close(); }
 });
 
@@ -442,13 +439,111 @@ test("a guest whose host is away sees the host-away indicator and Apple's warnin
     } finally { await tv.page.context().close(); }
 });
 
-test("Back from the lobby as the host returns to the entry and ends the room, as before", async () => {
+test("Back from the lobby as the host returns to the entry and leaves as Leave party does, closing nothing", async () => {
     const { tv, fake } = await inLobby();
     try {
         await tv.remote(10009);
         await view(tv, "watchParty:hub").waitFor();
         assert.equal(await tv.focused(), "create");
-        await tv.eventually(async () => fake.closedRooms.length === 1, "host Back ends the room");
+        await tv.eventually(async () => fake.sockets[0]?.closed === true, "room socket closed");
+        assert.deepEqual(fake.closedRooms, []);
+    } finally { await tv.page.context().close(); }
+});
+
+// --- Live over the room socket ---
+
+test("the room socket opens with a room read and a ticket carrying the room token, offering silo.room.v2 and the ticket", async () => {
+    const { tv, fake } = await inLobby();
+    try {
+        assert.deepEqual(fake.roomReads, ["room-proof-one"]);
+        assert.deepEqual(fake.ticketTokens, ["room-proof-one"]);
+        assert.deepEqual(fake.sockets[0]?.protocols, ["silo.room.v2", "silo.ticket.ticket-1"]);
+        assert.equal(fake.sockets[0]?.route.url(), "wss://silo.example.test/api/v2/watch-together/rooms/0b6f3f0e-6c1d-4a39-9d52-3a1f7c7f9e10/ws");
+        await tv.eventually(async () => fake.sockets[0]?.sent[0]?.type === "ping", "the clock warms up from the first moment");
+    } finally { await tv.page.context().close(); }
+});
+
+test("a guest joining shows up in the host's lobby live: their seat, the presence count, the dot and the hint", async () => {
+    const { tv, fake } = await inLobby("host", fake => { fake.guestJoined = false; });
+    try {
+        assert.equal(await tv.page.locator(".watch-party-connection").textContent(), "Open");
+        assert.deepEqual(await texts(tv, ".watch-party-seat:not(.watch-party-seat-invite) .watch-party-seat-name"), ["Owner"]);
+        await stageMovie(tv);
+        assert.equal(await tv.page.locator(".watch-party-hint").count(), 0, "nobody to wait for");
+        fake.guestJoined = true;
+        fake.snapshot();
+        await tv.eventually(async () => (await texts(tv, ".watch-party-seat:not(.watch-party-seat-invite) .watch-party-seat-name")).length === 2, "Sam's seat");
+        assert.deepEqual(await texts(tv, ".watch-party-seat:not(.watch-party-seat-invite) .watch-party-seat-name"), ["Owner", "Sam"]);
+        assert.equal(await tv.page.locator(".watch-party-connection").textContent(), "2 here");
+        assert.equal(await tv.page.locator(".watch-party-presence").textContent(), "1 of 2 ready");
+        assert.equal(await tv.page.locator(".watch-party-hint").textContent(), "Sam hasn't marked ready. You can still start.");
+        assert.equal(await tv.focused(), "start", "focus stays on the action");
+        fake.guestReady = true;
+        fake.snapshot();
+        await tv.eventually(async () => (await tv.page.locator(".watch-party-presence").textContent()) === "2 of 2 ready", "Sam ready");
+        assert.equal(await tv.page.locator(".watch-party-hint").textContent(), "Everyone's ready.");
+    } finally { await tv.page.context().close(); }
+});
+
+test("a guest sees the host's pick and policy arrive live, without reading anything", async () => {
+    const { tv, fake } = await inLobby("guest");
+    try {
+        assert.equal(await tv.page.locator(".watch-party-hero-title").textContent(), "Waiting for\nOwner");
+        fake.selectedContentId = "movie:m0004";
+        fake.snapshot();
+        await tv.eventually(async () => (await tv.page.locator(".watch-party-hero-title").textContent()) === "Movie 0004", "the host's pick");
+        assert.equal(await tv.page.locator(".watch-party-caption").first().textContent(), "Owner chose this");
+        assert.equal(await tv.page.locator(".watch-party-hint").textContent(), "Owner starts the movie when everyone's set.");
+        assert.deepEqual(fake.roomReads, ["room-proof-one"], "the snapshot carried the room");
+        fake.hostConnected = false;
+        fake.snapshot();
+        await tv.eventually(async () => (await tv.page.locator(".watch-party-connection").textContent()) === "Host away", "host away");
+        assert.equal(await tv.page.locator(".watch-party-banner").textContent(), "Owner lost connection. The party holds for two minutes while they come back.");
+    } finally { await tv.page.context().close(); }
+});
+
+test("the host ending the party reaches a guest live: back to the entry with This party has ended.", async () => {
+    const { tv, fake } = await inLobby("guest");
+    try {
+        fake.push({ type: "room_closed", reason: "ended" });
+        await view(tv, "watchParty:hub").waitFor();
+        assert.equal(await tv.page.locator(".watch-party-banner").textContent(), "This party has ended.");
+        await tv.eventually(async () => fake.sockets[0]?.closed === true, "socket closed");
+    } finally { await tv.page.context().close(); }
+});
+
+test("joining on another device takes over: this TV returns to the entry with Apple's take-over message", async () => {
+    const { tv, fake } = await inLobby("guest");
+    try {
+        fake.push({ type: "connection_replaced", reason: "replaced" });
+        await view(tv, "watchParty:hub").waitFor();
+        assert.equal(await tv.page.locator(".watch-party-banner").textContent(), "This profile joined the party on another device. Rejoin here to take over playback.");
+    } finally { await tv.page.context().close(); }
+});
+
+test("a dropped socket shows Reconnecting with Apple's banner, and reconnects with a fresh read and ticket", async () => {
+    const { tv, fake } = await inLobby();
+    try {
+        await fake.sockets[0]?.route.close({ code: 1011 });
+        await tv.eventually(async () => (await tv.page.locator(".watch-party-connection").textContent()) === "Reconnecting", "reconnecting dot");
+        assert.equal(await tv.page.locator(".watch-party-banner").textContent(), "Reconnecting to the party…");
+        assert.equal(await tv.focused(), "choose", "focus holds while the party reconnects");
+        await tv.jump(1000);
+        await connected(tv, fake, 2);
+        assert.equal(await tv.page.locator(".watch-party-connection").textContent(), "2 here");
+        assert.equal(await tv.page.locator(".watch-party-banner").count(), 0);
+        assert.deepEqual(fake.ticketTokens, ["room-proof-one", "room-proof-one"], "every socket gets its own ticket");
+        assert.equal(fake.roomReads.length, 2);
+    } finally { await tv.page.context().close(); }
+});
+
+test("switching profile while in a party closes the room socket, and it does not come back", async () => {
+    const { tv, fake } = await inLobby("guest");
+    try {
+        assert.equal(await tv.page.evaluate(() => window.browseHarness.selectProfile("p-kid", "2468")), "verified");
+        await tv.eventually(async () => fake.sockets[0]?.closed === true, "socket closed");
+        await tv.jump(20_000);
+        assert.equal(fake.sockets.length, 1);
     } finally { await tv.page.context().close(); }
 });
 

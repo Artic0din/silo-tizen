@@ -624,17 +624,30 @@ test("Back walks the room's pages one at a time and only leaves the room from th
 
 // --- What the lobby foregrounds, from WatchPartyLobbyPolicy.primaryAction ---
 
-test("the primary action follows the room: choose, start, return to playback, return everyone to lobby, or nothing for a guest without Ready", async () => {
+test("the primary action follows the room: choose, start, return to playback, return everyone to lobby, or nothing for a guest on a server without Ready", async () => {
     const caps = roomCapabilities({ stop_playback: true });
     const room = (over: Record<string, unknown> = {}) => roomAccess(over).room;
     assert.equal(primaryAction(room(), caps, false), "chooseTitle");
     assert.equal(primaryAction(room({ selected_content_id: "movie:m1" }), caps, true), "start");
     assert.equal(primaryAction(room({ selected_content_id: "movie:m1" }), caps, false), "chooseTitle", "a title the host cannot start yet lays out as Change title");
     assert.equal(primaryAction(room({ phase: "playing", selected_content_id: "movie:m1" }), caps, false), "returnToPlayback");
-    assert.equal(primaryAction(room({ self_can_manage_room: false }), caps, false), "none", "Ready needs the socket");
+    assert.equal(primaryAction(room({ self_can_manage_room: false }), caps, false), "none", "Ready needs the server's lobby_ready capability");
     assert.equal(primaryAction(room({ phase: "playing", self_can_manage_room: false, selected_content_id: "movie:m1" }), caps, false), "returnToPlayback");
     assert.equal(primaryAction(room({ phase: "ended" }), caps, false), "none");
-    assert.equal(primaryAction(room({ selection_mode: "vote" }), caps, false), "none", "voting is not built");
+    assert.equal(primaryAction(room({ selection_mode: "vote" }), caps, false), "waitingForVotes", "a vote room's host suggests until someone votes");
+    assert.equal(primaryAction(room({ selection_mode: "vote" }), caps, true), "start", "then starts the winner");
+});
+
+test("a guest marks Ready on a server with lobby_ready, in either mode, unless the title is hidden from them", () => {
+    const caps = roomCapabilities({ lobby_ready: true });
+    const guest = (over: Record<string, unknown> = {}) => roomAccess({ self_can_manage_room: false, members: [
+        { user_id: "u1", profile_id: "p-owner", display_name: "Owner", is_host: true, is_self: false, connected: true },
+        { user_id: "u2", profile_id: "p-guest", display_name: "Sam", is_host: false, is_self: true, connected: true },
+    ], ...over }).room;
+    assert.equal(primaryAction(guest(), caps, false), "ready");
+    assert.equal(primaryAction(guest({ selection_mode: "vote" }), caps, false), "ready");
+    assert.equal(primaryAction(guest(), caps, false, true), "none", "nothing to ready up for");
+    assert.equal(primaryAction(guest({ members: [] }), caps, false), "none", "a room that does not list this viewer");
 });
 
 test("a guest who cannot see the playing title has nothing to return to, as WatchPartyLobbyPolicy.primaryAction", () => {

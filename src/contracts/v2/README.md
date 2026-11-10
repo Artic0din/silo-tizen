@@ -186,10 +186,10 @@ The copy for each follows the Apple TV app's `LoginViewModel.message`.
 
 ## Watch Together (Watch Party)
 
-`watchTogether.ts` decodes the `/watch-together` documents and the `silo.room.v2` socket frames; `api/watchTogetherOperations.ts` supplies the specs (capabilities, create, join by code, room read, close, socket ticket, and the host's stage, select, start, stop, mode and policy calls and the picker read).
-The Watch Party hub and lobby call the HTTP specs, and `src/ui/watchPartySocket.ts` mints the ticket and decodes the frames (issue 54); the lobby uses snapshots, pongs, `room_closed`, `connection_replaced` and `error`, and nothing uses transport commands or suggestions yet.
+`watchTogether.ts` decodes the `/watch-together` documents and the `silo.room.v2` socket frames; `api/watchTogetherOperations.ts` supplies the specs (capabilities, create, join by code, room read, close, socket ticket, the host's stage, select, start, stop, mode and policy calls, the picker read, and the ballot's suggestions read, add suggestion, vote and promote).
+The Watch Party hub and lobby call the HTTP specs, and `src/ui/watchPartySocket.ts` mints the ticket and decodes the frames (issue 54); the lobby uses snapshots, `suggestions_update`, pongs, `room_closed`, `connection_replaced` and `error`, sends `lobby_ready` and `ping`, and nothing uses transport commands yet.
 Pass each spec to `session.call({ ...spec, profileScoped: true })`, as Apple's calls run for the active profile.
-`room` and `socketTicket` add the room's `X-Room-Token` (`RequestSpec.roomToken`); every create, join and read answer returns a `room_access_token` that replaces the previous one; never log or store it.
+`room`, `socketTicket`, `picker` and the ballot calls add the room's `X-Room-Token` (`RequestSpec.roomToken`); every create, join and read answer returns a `room_access_token` that replaces the previous one; never log or store it.
 
 `watch_together_capabilities` is a byte-identical copy from `SOURCE` and carries `allowed: false`, so it proves the closed gate.
 It is the only Watch Together fixture the server publishes.
@@ -207,14 +207,19 @@ Flags the first servers lacked default to false; `allowed` defaults to false.
 | `getWatchTogetherRoom` | read | One transport retry; the lobby state |
 | `closeWatchTogetherRoom` | `natural_idempotent` | Host only, by account and profile (no room token in the contract); 204, 409 once ended. A guest has no HTTP leave: leaving is closing the room socket, as in Apple's `leave()` |
 | `createWatchTogetherSocketTicket` | `natural_idempotent` | A single-use ticket for one connection; mint a new one for every reconnect |
+| `listWatchTogetherSuggestions` | read | 100 rows a page in creation order, continued by `page.next_cursor`; the only source of `voted_by_me` |
+| `createWatchTogetherSuggestion` | `unique_constraint` | The caller's `suggestion_id` UUID makes a resend return the same suggestion; 201 with the id; `content_type` is `movie` or `episode` |
+| `voteWatchTogetherSuggestion`, `unvoteWatchTogetherSuggestion` | `unique_constraint`, `natural_idempotent` | `POST` and `DELETE` on `.../suggestions/{id}/vote`; 204, and a vote already in that state is a no-op |
+| `promoteWatchTogetherSuggestion` | `non_retryable` | Host only; plays the suggestion for everyone and answers with the room. A lost answer is read back from the room, never resent |
 
 Socket frames still carry numeric `user_id`, `selected_file_id`, `selected_library_id` and `suggester_user_id`, while HTTP v2 bodies carry strings; both decode to strings, as Apple's `watchPartyID` does.
 `anchor_updated_at` is RFC 3339; command and message times are RFC 3339 with nanoseconds and decode to epoch milliseconds.
+`suggestions_update` rows always carry `voted_by_me: false`; the server strips it because it is per viewer, so this profile's votes come only from the HTTP read.
 Unknown `type` values decode to `unknown` and unknown enum values to `"unknown"`; a frame without a string `type`, or with a missing or malformed consumed member, throws `WireError`.
 `encodeRoomClientMessage` writes the seven client frames the server accepts and refuses an empty session id or a position that is not a finite number of seconds, zero or more.
 `roomSocketHandshake` builds the `wss://<server>/api/v2/watch-together/rooms/{id}/ws` address and the `["silo.room.v2", "silo.ticket.<ticket>"]` subprotocols.
 
-The room operations that this layer does not cover yet (staged and direct selection, start and stop playback, selection mode, guest policy, suggestions, votes, promote, member state, picker, source fallback) are in the same contract and are left for the lobby and playback work.
+The room operations that this layer does not cover yet (suggestion delete, member state, source fallback) are in the same contract and are left for the lobby and playback work.
 
 ## Updating the pinned contract
 

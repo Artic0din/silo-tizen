@@ -1,6 +1,6 @@
 // Apple's WatchPartyLobbyView on tvOS, and the sheets it opens: Party options, the End confirmation and the
-// invitation. The room socket keeps the lobby current: who is here, the pick, the policy and the party ending.
-// A guest cannot mark Ready yet and there is no ballot.
+// invitation. The room socket keeps the lobby current: who is here and ready, the pick, the policy, the vote
+// room's ballot (watchPartyBallot.ts) and the party ending.
 // Metrics are Apple's tvOS values at 1920x1080 (WatchPartyMetrics).
 
 import type { Room } from "../contracts/v2/watchTogether.ts";
@@ -8,7 +8,8 @@ import type { FocusItem, View, Zone } from "./browseFocus.ts";
 import { actionButton } from "./browseViews.ts";
 import { qrCode } from "./qr.ts";
 import { el } from "./screen.ts";
-import { backdrop, banner, circleButton, codeText, ellipsisIcon, eyebrow, labelled, playIcon } from "./watchPartyParts.ts";
+import { backdrop, banner, checkIcon, circleButton, codeText, ellipsisIcon, eyebrow, labelled, playIcon, plusIcon } from "./watchPartyParts.ts";
+import { ballotRow } from "./watchPartyBallot.ts";
 import { inviteUrl } from "./watchPartyInvite.ts";
 import { type PrimaryAction, primaryAction, waitingNames } from "./watchPartyPolicy.ts";
 import { seatsRow } from "./watchPartySeats.ts";
@@ -41,9 +42,6 @@ function statusBanner(hub: WatchPartyHub, room: Room): HTMLElement | undefined {
             ? "This title isn't available to your profile. Choose something else so everyone can watch."
             : `This title isn't available to your profile. ${hostName(room)} will need to pick something else.`, true);
     }
-    if (room.selectionMode === "vote" && room.phase === "lobby") {
-        return banner(room.selfCanManageRoom ? "Voting isn't available on this TV yet. Set Who chooses to Host chooses in Party options to pick a title." : "Voting isn't available on this TV yet.", false);
-    }
     if (!room.hostConnected && room.selfRole !== "host") return banner(`${hostName(room)} lost connection. The party holds for two minutes while they come back.`, true);
     if (hub.state.connection === "reconnecting") return banner("Reconnecting to the party…", false);
     return undefined;
@@ -54,8 +52,10 @@ function heroText(room: Room, item: LobbyItem | undefined, hub: WatchPartyHub): 
     const hero = el("div", "watch-party-hero");
     const manage = room.selfCanManageRoom;
     const caption = (text: string): HTMLElement => el("p", "watch-party-caption", text);
-    if (room.selectionMode === "vote" && room.phase === "lobby") {
-        hero.append(eyebrow("Voting"), el("h1", "watch-party-hero-title", "What are we watching?"),
+    if (voting(room)) {
+        const count = hub.state.votes.rows.length;
+        hero.classList.add("watch-party-hero-vote");
+        hero.append(eyebrow(`Voting · ${count} ${count === 1 ? "title" : "titles"}`), el("h1", "watch-party-hero-title", "What are we watching?"),
             el("p", "watch-party-lead", manage ? "Everyone votes. You start the leader." : `Tap a title to vote. ${hostName(room)} starts the winner.`));
     } else if (item !== undefined) {
         const facts = el("p", "watch-party-facts");
@@ -77,22 +77,57 @@ function heroText(room: Room, item: LobbyItem | undefined, hub: WatchPartyHub): 
     return hero;
 }
 
+const voting = (room: Room): boolean => room.selectionMode === "vote" && room.phase === "lobby";
+
 /** WatchPartyLobbyView.hint: advisory text under the buttons. */
-function hint(room: Room): string | undefined {
-    if (room.phase !== "lobby" || room.selectionMode === "vote") return undefined;
+function hint(hub: WatchPartyHub, room: Room): string | undefined {
+    if (room.phase !== "lobby") return undefined;
+    const winner = room.selectionMode === "vote" ? hub.winner() : undefined;
     if (room.selfCanManageRoom) {
-        if (room.selectedContentId === undefined) return undefined;
+        if (room.selectionMode === "vote" && winner === undefined) return hub.state.votes.rows.length === 0 ? "Suggest a title to get the vote going." : "Nobody has voted yet.";
+        if (room.selectedContentId === undefined && room.selectionMode === "host_pick") return undefined;
         const waiting = waitingNames(room.members);
         if (waiting.length === 0) return room.members.filter(member => member.connected).length > 1 ? "Everyone's ready." : undefined;
         return `${waiting.slice(0, 2).join(" and ")}${waiting.length > 2 ? " and others" : ""} ${waiting.length === 1 ? "hasn't" : "haven't"} marked ready. You can still start.`;
     }
+    if (room.selectionMode === "vote") return winner === undefined ? `${hostName(room)} starts the winner when voting settles.` : `${hostName(room)} starts ${winner.title} when voting settles.`;
     return room.selectedContentId === undefined ? undefined : `${hostName(room)} starts the movie when everyone's set.`;
 }
+
+/** Apple's I'm ready, and You're ready with tap to undo once the room says so. Dropped while the socket is not connected. */
+function readyButton(hub: WatchPartyHub, room: Room): FocusItem {
+    const ready = room.members.find(member => member.isSelf)?.lobbyReady === true;
+    const connected = hub.state.connection === "connected";
+    const button = labelled("ready", ready ? "You're ready" : "I'm ready", ready ? "secondary" : "primary", () => { if (connected) hub.setReady(!ready); }, ready ? checkIcon() : readyIcon());
+    // tvOS draws Apple's outlined kind as the secondary pill.
+    if (ready) button.element.append(el("span", "watch-party-undo", "tap to undo"));
+    button.element.setAttribute("aria-pressed", String(ready));
+    button.element.setAttribute("aria-disabled", String(!connected));
+    return button;
+}
+
+/** checkmark.circle. */
+function readyIcon(): SVGSVGElement {
+    const svg = checkIcon();
+    const ring = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    ring.setAttribute("cx", "12"); ring.setAttribute("cy", "12"); ring.setAttribute("r", "10");
+    svg.prepend(ring);
+    svg.querySelector("path")?.setAttribute("d", "M7.5 12.5 10.5 15.5 16.5 9");
+    return svg;
+}
+
+const suggestButton = (hub: WatchPartyHub, label: string, kind: "primary" | "secondary"): FocusItem =>
+    labelled("suggest", label, kind, () => { if (!hub.state.busy) void hub.openPicker("suggest"); }, plusIcon());
 
 function primaryButton(hub: WatchPartyHub, room: Room, action: PrimaryAction): FocusItem | undefined {
     switch (action) {
         case "chooseTitle": return labelled("choose", room.selectedContentId === undefined ? "Choose a title" : "Change title", "primary", () => { void hub.openPicker(); });
-        case "start": return labelled("start", "Start for everyone", "primary", () => { void hub.start(); }, playIcon());
+        case "start": {
+            const winner = room.selectionMode === "vote" ? hub.winner() : undefined;
+            return labelled("start", winner === undefined ? "Start for everyone" : `Start ${winner.title}`, "primary", () => { void hub.start(); }, playIcon());
+        }
+        case "waitingForVotes": return suggestButton(hub, "Suggest a title", "primary");
+        case "ready": return readyButton(hub, room);
         case "returnToPlayback": return labelled("resume", "Return to playback", "primary", () => { hub.resume(); }, playIcon());
         case "returnToLobby": return labelled("return-lobby", "Return everyone to lobby", "primary", () => { void hub.stopPlayback(); });
         case "none": return undefined;
@@ -100,6 +135,8 @@ function primaryButton(hub: WatchPartyHub, room: Room, action: PrimaryAction): F
 }
 
 function secondaryButton(hub: WatchPartyHub, room: Room, action: PrimaryAction): FocusItem | undefined {
+    if (voting(room) && action === "start") return suggestButton(hub, "Suggest", "secondary");
+    if (voting(room) && !room.selfCanManageRoom) return suggestButton(hub, "Suggest a title", "secondary");
     if (room.selectionMode !== "host_pick" || !room.selfCanManageRoom) return undefined;
     if (room.phase === "lobby" && room.selectedContentId !== undefined && action === "start") return labelled("change", "Change title", "secondary", () => { void hub.openPicker(); });
     if (room.phase === "playing") return labelled("change", "Choose something else", "secondary", () => { void hub.openPicker(); });
@@ -107,7 +144,7 @@ function secondaryButton(hub: WatchPartyHub, room: Room, action: PrimaryAction):
 }
 
 /** The lobby behind every room page. `interactive` is false behind an overlay, which owns focus. */
-function lobbyPage(context: LobbyContext, room: Room, interactive: boolean): { node: HTMLElement; items: { top: FocusItem[]; seats: FocusItem[]; actions: FocusItem[] }; defaultKey: string } {
+function lobbyPage(context: LobbyContext, room: Room, interactive: boolean): { node: HTMLElement; items: { top: FocusItem[]; ballot: readonly FocusItem[]; seats: FocusItem[]; actions: FocusItem[] }; defaultKey: string } {
     const { hub } = context;
     const item = hub.state.selected;
     const action = primaryAction(room, hub.state.capabilities, hub.canStart(), hub.state.selectedUnavailable);
@@ -132,19 +169,25 @@ function lobbyPage(context: LobbyContext, room: Room, interactive: boolean): { n
     const body = el("div", "watch-party-room-body");
     const copy = el("div", "watch-party-room-copy");
     copy.appendChild(heroText(room, item, hub));
+    const ballot = voting(room) ? ballotRow(hub, context.baseUrl) : undefined;
     const overview = item?.overview;
-    if (overview !== undefined && overview !== "") copy.appendChild(el("p", "watch-party-overview", overview));
+    if (ballot !== undefined) {
+        // The ballot takes the screen's width under the question, as Apple's tvLobby.
+        body.classList.add("watch-party-room-body-vote");
+        copy.appendChild(ballot.node);
+    } else if (overview !== undefined && overview !== "") copy.appendChild(el("p", "watch-party-overview", overview));
     const notice = statusBanner(hub, room);
     if (notice !== undefined) copy.appendChild(notice);
     body.appendChild(copy);
 
     const seats = seatsRow(room.members, room.phase, () => { hub.show({ kind: "invite" }); });
+    if (ballot !== undefined) seats.node.classList.add("watch-party-here-compact");
     const primary = primaryButton(hub, room, action);
     const secondary = secondaryButton(hub, room, action);
     const actions = el("div", "watch-party-room-actions");
     const buttons = el("div", "watch-party-room-buttons");
     for (const button of [secondary, primary]) if (button !== undefined) buttons.appendChild(button.element);
-    const text = hint(room);
+    const text = hint(hub, room);
     actions.append(buttons, ...(text === undefined ? [] : [el("p", "watch-party-hint", text)]));
     const footer = el("div", "watch-party-room-footer");
     footer.append(seats.node, actions);
@@ -153,14 +196,20 @@ function lobbyPage(context: LobbyContext, room: Room, interactive: boolean): { n
     if (!interactive) page.inert = true;
     return {
         node: page,
-        items: { top: [code, more], seats: [seats.invite], actions: [secondary, primary].filter((button): button is FocusItem => button !== undefined) },
+        items: { top: [code, more], ballot: ballot?.items ?? [], seats: [seats.invite], actions: [secondary, primary].filter((button): button is FocusItem => button !== undefined) },
         defaultKey: primary?.key ?? "lobby-code",
     };
 }
 
+/** The chosen title's art; in a vote room with nothing chosen, the leading suggestion's poster, else the first one's. */
 function roomBackdrop(context: LobbyContext): HTMLElement {
-    const item = context.hub.state.selected;
+    const { hub } = context;
+    const item = hub.state.selected;
     const reference = item?.backdropUrl ?? item?.posterUrl;
+    if (reference === undefined && hub.state.room?.selectionMode === "vote") {
+        const poster = (hub.winner() ?? hub.state.votes.rows[0])?.posterUrl;
+        return backdrop(poster === "" ? undefined : poster, context.baseUrl, true);
+    }
     return backdrop(reference, context.baseUrl, item?.backdropUrl === undefined);
 }
 
@@ -168,6 +217,7 @@ export function lobbyView(context: LobbyContext, room: Room): View {
     const page = lobbyPage(context, room, true);
     const zones: Zone[] = [
         { id: "lobby-top", layout: "row", items: page.items.top },
+        ...(page.items.ballot.length === 0 ? [] : [{ id: "lobby-ballot", layout: "row" as const, items: [...page.items.ballot] }]),
         { id: "lobby-seats", layout: "row", items: page.items.seats },
         ...(page.items.actions.length === 0 ? [] : [{ id: "lobby-actions", layout: "row" as const, items: page.items.actions }]),
     ];

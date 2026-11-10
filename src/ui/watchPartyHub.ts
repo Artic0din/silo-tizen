@@ -1,10 +1,11 @@
 // Apple's WatchPartySession for the Watch Party hub: the support probe, Start a party, Join party and
 // the open room. The host stages a title, starts and stops playback, sets who chooses and who controls,
 // and ends the party; each answer is the room as it now stands. The room socket (watchPartySocket.ts)
-// keeps the room current for everyone between those answers, as Apple's, which never polls.
+// keeps the room current for everyone between those answers, as Apple's, which never polls. Guests mark
+// Ready over the socket, and in a vote room everyone suggests and votes (watchPartyVotes.ts).
 
 import { ApiError } from "../api/errors.ts";
-import { type Clock, systemClock } from "../api/clock.ts";
+import { type Clock, sleep, systemClock } from "../api/clock.ts";
 import { writeMayHaveApplied } from "./browseRoutes.ts";
 import type { Card, Episode, Season } from "../contracts/v2/catalog.ts";
 import type { CreatableSelectionMode, GuestControlPolicy, PickerEntry, Room, RoomAccess, RoomSelection, WatchTogetherCapabilities } from "../contracts/v2/watchTogether.ts";
@@ -12,7 +13,8 @@ import type { PlayRequest } from "./browseModel.ts";
 import { type LobbyItem, type MediaChoice, lobbyItemFromDetail } from "./watchPartyChoice.ts";
 import { supportsSynchronizedParty, uuidV4, type WatchPartyApi, watchPartyFailureText } from "./watchPartyApi.ts";
 import { browserSocket, type ConnectionStatus, RoomConnection, type RoomEnd, type RoomSocketFactory, RoomState } from "./watchPartySocket.ts";
-import type { RoomServerMessage } from "../contracts/v2/watchTogether.ts";
+import type { RoomServerMessage, Suggestion } from "../contracts/v2/watchTogether.ts";
+import { RoomVotes, voteWinner } from "./watchPartyVotes.ts";
 
 export { supportsSynchronizedParty, uuidV4, watchPartyApi, watchPartyFailureText, type WatchPartyApi } from "./watchPartyApi.ts";
 
@@ -58,7 +60,13 @@ export interface WatchPartyState {
     episodes: readonly Episode[] | undefined;
     browseLoading: boolean;
     browseError: string | undefined;
+    /** The vote-mode ballot: every suggestion with its tally, and this profile's own votes. */
+    votes: RoomVotes;
+    /** What the picker's confirmation does: stage the host's pick, or put the title on the ballot. */
+    pickerPurpose: PickerPurpose;
 }
+
+export type PickerPurpose = "select" | "suggest";
 
 export interface WatchPartyHubOptions {
     /** The answer the entry point was offered on. */
@@ -79,6 +87,12 @@ export const UNSUPPORTED_SERVER = "This server needs an update to support synchr
 export const PARTY_ENDED = "This party has ended.";
 export const PARTY_EXPIRED = "The party connection expired or is no longer available. Join again to continue.";
 export const PARTY_REPLACED = "This profile joined the party on another device. Rejoin here to take over playback.";
+
+/** Apple waits this long after a socket update before reading the ballot, so a burst of votes reads once. */
+const SUGGESTIONS_REFRESH_MS = 200;
+/** Reads the ballot this many times while socket updates keep overtaking it. */
+const SUGGESTIONS_READ_ATTEMPTS = 3;
+const SUGGESTIONS_STALE = "The suggestions kept changing while they were read.";
 
 const END_TEXT: Record<RoomEnd, string> = { ended: PARTY_ENDED, expired: PARTY_EXPIRED, replaced: PARTY_REPLACED };
 
@@ -111,6 +125,11 @@ export class WatchPartyHub {
     private connection: RoomConnection | undefined;
     /** Settles when the running host change does, so End party can go after it. */
     private mutation: Promise<void> | undefined;
+    /** Counts ballot reads; a vote, a suggestion or leaving the room drops the one that is running. */
+    private suggestionsEpoch = 0;
+    private suggestionsRefreshing = false;
+    /** A ballot read was due while a change ran; it runs once that change finishes. */
+    private refreshPending = false;
 
     constructor(api: WatchPartyApi, notify: () => void, options: WatchPartyHubOptions = {}) {
         this.api = api;
@@ -120,7 +139,7 @@ export class WatchPartyHub {
         this.state = {
             supported: options.supported ?? false, checking: false, busy: false, error: undefined, room: undefined, connection: "idle", capabilities: undefined,
             page: LOBBY, selected: undefined, selectedUnavailable: false, shelves: [], shelvesLoading: false, shelvesError: undefined,
-            seasons: undefined, episodes: undefined, browseLoading: false, browseError: undefined,
+            seasons: undefined, episodes: undefined, browseLoading: false, browseError: undefined, votes: new RoomVotes(), pickerPurpose: "select",
         };
     }
 
@@ -149,12 +168,16 @@ export class WatchPartyHub {
 
     // --- Lobby state ---
 
-    /** WatchPartySession.canStartPlayback for a host-pick room: staged selection is a requirement of Start, as on Apple. */
+    /** WatchPartySession.canStartPlayback: a vote room starts its winner; a host-pick room needs a staged selection, as on Apple. */
     canStart(): boolean {
         const { room, capabilities } = this.state;
-        return room?.selfCanManageRoom === true && room.phase === "lobby" && room.selectionMode === "host_pick"
-            && capabilities?.stagedSelection === true && room.selectedContentId !== undefined;
+        if (room?.selfCanManageRoom !== true || room.phase !== "lobby") return false;
+        if (room.selectionMode === "vote") return this.winner() !== undefined;
+        return room.selectionMode === "host_pick" && capabilities?.stagedSelection === true && room.selectedContentId !== undefined;
     }
+
+    /** The suggestion with the most votes, or none while nobody has voted. */
+    winner(): Suggestion | undefined { return voteWinner(this.state.votes.rows); }
 
     /** Whether the next render should drop the focus it carries: shelves that arrive claim focus for the first title, as Apple's picker does. */
     takeRefocus(): boolean {
@@ -205,12 +228,40 @@ export class WatchPartyHub {
         return done;
     }
 
-    /** Start for everyone. Opens the player on the room's file when the server says the party is playing. */
+    /** Start for everyone, or in a vote room Start the winner by promoting it. Opens the player when the server says the party is playing. */
     async start(): Promise<boolean> {
         if (!this.canStart()) return false;
-        const started = await this.mutate(signal => this.api.startPlayback(this.requireRoom().roomId, signal), undefined, room => room.phase === "playing");
+        const roomId = this.requireRoom().roomId;
+        const winner = this.state.room?.selectionMode === "vote" ? this.winner() : undefined;
+        const started = winner === undefined
+            ? await this.mutate(signal => this.api.startPlayback(roomId, signal), undefined, room => room.phase === "playing")
+            : await this.mutate(signal => this.api.promoteSuggestion(roomId, this.roomToken, winner.id, signal), undefined, room => room.phase === "playing" && room.selectedContentId === winner.contentId);
         if (started && !this.ending) this.resume();
         return started;
+    }
+
+    /** WatchPartySession.setLobbyReady: a frame on the room socket; the snapshot that follows shows it. Dropped while the socket is not open. */
+    setReady(ready: boolean): boolean {
+        if (this.state.room?.phase !== "lobby" || this.state.capabilities?.lobbyReady !== true) return false;
+        return this.connection?.send({ type: "lobby_ready", ready }) === true;
+    }
+
+    /** Votes for a suggestion, or takes the vote back. Refused until this profile's vote on it is known. */
+    async vote(suggestionId: string, voted: boolean): Promise<boolean> {
+        if (this.state.votes.voted(suggestionId) === undefined) return false;
+        return this.changeBallot((roomId, signal) => this.api.setVote(roomId, this.roomToken, suggestionId, voted, signal));
+    }
+
+    /** Apple's Add suggestion: the picker's title goes on the ballot, and the lobby comes back. */
+    async suggest(choice: MediaChoice): Promise<boolean> {
+        if (choice.type !== "movie" && choice.type !== "episode") return false;
+        const suggestion = {
+            suggestionId: this.options.uuid?.() ?? uuidV4(), contentId: choice.contentId, contentType: choice.type, title: choice.title,
+            ...(choice.subtitle === undefined ? {} : { subtitle: choice.subtitle }), ...(choice.posterUrl === undefined ? {} : { posterUrl: choice.posterUrl }),
+        } as const;
+        const added = await this.changeBallot(async (roomId, signal) => { await this.api.addSuggestion(roomId, this.roomToken, suggestion, signal); });
+        if (added) this.show(LOBBY);
+        return added;
     }
 
     /** Return to playback: the player opens on the room's file, from the room's anchor. */
@@ -262,10 +313,11 @@ export class WatchPartyHub {
         }
     }
 
-    /** The host's picker: group picks and watchlists, from the server's picker when it has one. */
-    async openPicker(): Promise<void> {
+    /** The picker: group picks and watchlists, from the server's picker when it has one. The host picks with it; in a vote room anyone suggests. */
+    async openPicker(purpose: PickerPurpose = "select"): Promise<void> {
         const epoch = ++this.epoch;
         this.state.page = { kind: "picker" };
+        this.state.pickerPurpose = purpose;
         this.state.shelvesLoading = true;
         this.state.shelvesError = undefined;
         this.notify();
@@ -336,9 +388,12 @@ export class WatchPartyHub {
         this.connection?.close();
         this.connection = undefined;
         this.rooms = new RoomState();
+        this.suggestionsEpoch++;
+        this.suggestionsRefreshing = false;
+        this.refreshPending = false;
         Object.assign(this.state, {
             room: undefined, connection: "idle", page: LOBBY, selected: undefined, selectedUnavailable: false, shelves: [], shelvesLoading: false, shelvesError: undefined,
-            seasons: undefined, episodes: undefined, browseLoading: false, browseError: undefined,
+            seasons: undefined, episodes: undefined, browseLoading: false, browseError: undefined, votes: new RoomVotes(), pickerPurpose: "select",
         });
     }
 
@@ -354,6 +409,7 @@ export class WatchPartyHub {
         if (!this.rooms.accept(room, requestReceipt)) return false;
         if (room.phase === "ended") { this.terminate("ended"); return false; }
         this.state.room = room;
+        if (room.selectionMode === "vote" && previous !== undefined && previous.selectionMode !== "vote") this.refreshSuggestions();
         const id = room.selectedContentId;
         if (id === previous?.selectedContentId && (id === undefined || this.state.selected !== undefined)) return true;
         this.state.selectedUnavailable = false;
@@ -382,15 +438,24 @@ export class WatchPartyHub {
                 this.state.connection = status;
                 if (status === "connected") this.state.error = undefined;
                 this.notify();
+                if (status === "connected") this.refreshSuggestions();
             },
             end: reason => { this.terminate(reason); },
         }, { socket: this.options.socket ?? browserSocket, clock: this.options.clock ?? systemClock });
     }
 
-    /** WatchPartySession.receive for the lobby. Transport commands and the ballot belong to synchronized playback and voting. */
+    /** WatchPartySession.receive for the lobby. Transport commands belong to synchronized playback. */
     private receive(message: RoomServerMessage): void {
         switch (message.type) {
             case "snapshot": if (this.take(message.room)) this.notify(); return;
+            case "suggestions_update": {
+                const roomId = this.state.room?.roomId;
+                if (roomId === undefined || !message.suggestions.every(row => row.roomId === roomId)) return;
+                this.state.votes.receive(message.suggestions);
+                this.notify();
+                this.refreshSuggestions();
+                return;
+            }
             case "room_closed": this.terminate("ended"); return;
             case "connection_replaced": this.terminate("replaced"); return;
             case "error":
@@ -455,8 +520,100 @@ export class WatchPartyHub {
             return false;
         } finally {
             settle();
-            if (!this.stopped) { this.state.busy = false; this.notify(); }
+            if (!this.stopped) { this.state.busy = false; this.notify(); this.runPendingRefresh(); }
         }
+    }
+
+    /**
+     * WatchPartySession.mutateSuggestions: one ballot change at a time, from any member, in the lobby. The ballot is read
+     * again afterwards for this profile's votes. A failed change is read back too, since a lost answer may have landed.
+     */
+    private async changeBallot(operation: (roomId: string, signal: AbortSignal) => Promise<void>): Promise<boolean> {
+        const room = this.state.room;
+        if (room?.phase !== "lobby" || this.state.busy || this.ending || this.stopped) return false;
+        const epoch = ++this.suggestionsEpoch;
+        this.suggestionsRefreshing = false;
+        this.state.votes.invalidatePersonalReads();
+        this.state.busy = true;
+        this.state.error = undefined;
+        // End party waits for this, as it does for a host change.
+        let settle: () => void = () => undefined;
+        this.mutation = new Promise<void>(resolve => { settle = resolve; });
+        this.notify();
+        const current = (): boolean => !this.stopped && this.state.room?.roomId === room.roomId && epoch === this.suggestionsEpoch;
+        try {
+            try {
+                await operation(room.roomId, this.controller.signal);
+            } catch (error) {
+                if (!current()) return false;
+                await this.loadSuggestions(room.roomId, epoch).catch(() => undefined);
+                if (!this.stopped && this.state.room?.roomId === room.roomId) this.state.error = this.describe(error);
+                return false;
+            }
+            if (!current()) return false;
+            try {
+                await this.loadSuggestions(room.roomId, epoch);
+            } catch (error) {
+                if (current()) this.state.error = `Your change was saved, but the suggestions could not be refreshed. ${this.describe(error)}`;
+            }
+            return !this.stopped && this.state.room?.roomId === room.roomId;
+        } finally {
+            settle();
+            if (!this.stopped) { this.state.busy = false; this.notify(); this.runPendingRefresh(); }
+        }
+    }
+
+    private runPendingRefresh(): void {
+        if (!this.refreshPending) return;
+        this.refreshPending = false;
+        this.refreshSuggestions();
+    }
+
+    /** WatchPartySession.refreshSuggestions: a vote room reads its ballot shortly after a socket update, one read at a time. */
+    private refreshSuggestions(): void {
+        const room = this.state.room;
+        if (room?.selectionMode !== "vote" || this.suggestionsRefreshing || this.stopped) return;
+        // Apple skips the read while a change runs; this one runs it when the change finishes, so an update or the host's own switch to voting is not lost.
+        if (this.state.busy) { this.refreshPending = true; return; }
+        const epoch = ++this.suggestionsEpoch;
+        this.suggestionsRefreshing = true;
+        void (async () => {
+            try {
+                await sleep(this.options.clock ?? systemClock, SUGGESTIONS_REFRESH_MS, this.controller.signal, () => new Error("stopped"));
+                if (epoch !== this.suggestionsEpoch) return;
+                await this.loadSuggestions(room.roomId, epoch);
+            } catch (error) {
+                if (this.stopped || epoch !== this.suggestionsEpoch || this.state.room?.roomId !== room.roomId) return;
+                this.state.error = `Could not refresh suggestions. ${this.describe(error)}`;
+                this.notify();
+            } finally {
+                if (epoch === this.suggestionsEpoch) this.suggestionsRefreshing = false;
+            }
+        })();
+    }
+
+    /** Every page of the ballot. A socket update or vote that lands meanwhile makes the read stale, so it reads again. */
+    private async loadSuggestions(roomId: string, epoch: number): Promise<void> {
+        const clock = this.options.clock ?? systemClock;
+        for (let attempt = 0; attempt < SUGGESTIONS_READ_ATTEMPTS; attempt++) {
+            const revision = this.state.votes.revision;
+            const rows: Suggestion[] = [];
+            const cursors = new Set<string>();
+            let cursor: string | undefined;
+            do {
+                const page = await this.api.suggestions(roomId, this.roomToken, cursor, this.controller.signal);
+                if (this.stopped || epoch !== this.suggestionsEpoch || this.state.room?.roomId !== roomId) return;
+                if (!page.items.every(row => row.roomId === roomId)) throw new Error("The server sent suggestions for another room.");
+                rows.push(...page.items);
+                cursor = page.nextCursor;
+                if (cursor !== undefined && cursors.has(cursor)) throw new Error("The server repeated a page of suggestions.");
+                if (cursor !== undefined) cursors.add(cursor);
+            } while (cursor !== undefined);
+            if (this.state.votes.reconcile(rows, revision)) { this.notify(); return; }
+            await sleep(clock, SUGGESTIONS_REFRESH_MS, this.controller.signal, () => new Error("stopped"));
+            if (this.stopped || epoch !== this.suggestionsEpoch) return;
+        }
+        throw new Error(SUGGESTIONS_STALE);
     }
 
     private async readRoom(roomId: string): Promise<Room | undefined> {

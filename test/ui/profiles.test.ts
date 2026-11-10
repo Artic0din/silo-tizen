@@ -72,17 +72,34 @@ tvTest("the profile picker uses source-sized circular avatars and centered accou
 
 tvTest("the Change account footer button draws Apple's two-person person.2 glyph", async tv => {
     const footerIcons = (): Promise<(string | null | undefined)[]> => tv.page.evaluate(() => [...document.querySelectorAll(".profile-footer button")].map(button => button.querySelector("svg path")?.getAttribute("d")));
+    // The path alone could be hidden or unpainted: the icon must have a box inside its button and a visible stroke in the label's ink.
+    const footerIconPaint = (): Promise<unknown[]> => tv.page.evaluate(() => [...document.querySelectorAll(".profile-footer button")].map(button => {
+        const icon = button.querySelector("svg");
+        if (icon === null) return "no icon";
+        const box = icon.getBoundingClientRect();
+        const frame = button.getBoundingClientRect();
+        const style = getComputedStyle(icon);
+        return {
+            sized: box.width > 0 && box.height > 0,
+            inside: box.left >= frame.left && box.right <= frame.right && box.top >= frame.top && box.bottom <= frame.bottom,
+            shown: style.display !== "none" && style.visibility === "visible" && style.opacity === "1",
+            inked: style.stroke === getComputedStyle(button).color && !/^(none|transparent|rgba\(.*, 0\))$/.test(style.stroke),
+        };
+    }));
+    const painted = { sized: true, inside: true, shown: true, inked: true };
     const expected = [
         "M8 3A4 4 0 1 1 8 11 4 4 0 0 1 8 3ZM1 22V18C1 12 15 12 15 18V22M18 4A4 4 0 0 1 18 12M19 15C23 15 23 19 23 22",
         "M10 3H3V21H10M8 12H22M17 7 22 12 17 17",
     ];
     await picker(tv);
     assert.deepEqual(await footerIcons(), expected, "Change account shows two people, not a server stack; Sign out keeps its arrow");
+    assert.deepEqual(await footerIconPaint(), [painted, painted], "both footer icons are drawn inside their buttons");
     tv.fake.passwordChangeRequired = true;
     tv.fake.expireAccessTokens();
     await tv.page.evaluate(() => window.harness.mount());
     await screenIs(tv, "profiles-error");
     assert.deepEqual(await footerIcons(), expected, "the reset refusal reuses the picker's footer");
+    assert.deepEqual(await footerIconPaint(), [painted, painted], "the reset refusal draws both footer icons");
     assert.equal(await tv.focused(), "change-account");
 });
 

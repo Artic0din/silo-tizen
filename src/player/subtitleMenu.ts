@@ -29,17 +29,17 @@ export function pickerFor(tracks: TrackView, field: string): Omit<Extract<Subtit
     const display = tracks.subtitleTools?.display;
     if (display === undefined) return undefined;
     const appearance = display.appearance;
-    if (field === "delay") return { kind: "picker", title: "Delay", field, selected: String(display.delayMs), options: delayOptions(display.delayMs) };
-    if (field === "fontSize") return { kind: "picker", title: "Size", field, selected: appearance.fontSize, options: FONT_SIZES.map(([id, label]) => ({ id, label })) };
-    if (field === "position") return { kind: "picker", title: "Position", field, selected: appearance.position, options: POSITIONS.map(([id, label]) => ({ id, label })) };
-    if (field === "fontFamily") return { kind: "picker", title: "Font", field, selected: appearance.fontFamily, options: FONT_FAMILIES.map(([id, label]) => ({ id, label })) };
-    if (field === "fontColor") return { kind: "picker", title: "Text color", field, selected: appearance.fontColor, options: FONT_COLORS.map(([id, label]) => ({ id, label })) };
-    if (field === "textOpacity") return { kind: "picker", title: "Text opacity", field, selected: String(appearance.textOpacity), options: opacityOptions(appearance.textOpacity, 25) };
+    if (field === "delay") return { kind: "picker", title: "Subtitle Delay", field, selected: String(display.delayMs), options: delayOptions(display.delayMs) };
+    if (field === "fontSize") return { kind: "picker", title: "Subtitle Size", field, selected: appearance.fontSize, options: FONT_SIZES.map(([id, label]) => ({ id, label })) };
+    if (field === "position") return { kind: "picker", title: "Subtitle Position", field, selected: appearance.position, options: POSITIONS.map(([id, label]) => ({ id, label })) };
+    if (field === "fontFamily") return { kind: "picker", title: "Subtitle Font", field, selected: appearance.fontFamily, options: FONT_FAMILIES.map(([id, label]) => ({ id, label })) };
+    if (field === "fontColor") return { kind: "picker", title: "Text Color", field, selected: appearance.fontColor, options: FONT_COLORS.map(([id, label]) => ({ id, label })) };
+    if (field === "textOpacity") return { kind: "picker", title: "Text Opacity", field, selected: String(appearance.textOpacity), options: opacityOptions(appearance.textOpacity, 25) };
     if (field === "textOutline") return { kind: "picker", title: "Outline", field, selected: String(appearance.textOutline), options: [{ id: "true", label: "On" }, { id: "false", label: "Off" }] };
-    if (field === "textOutlineColor") return { kind: "picker", title: "Outline color", field, selected: appearance.textOutlineColor, options: BACKGROUND_COLORS.map(([id, label]) => ({ id, label })) };
-    if (field === "backgroundStyle") return { kind: "picker", title: "Style", field, selected: appearance.backgroundStyle, options: STYLES.map(([id, label]) => ({ id, label })) };
-    if (field === "backgroundColor") return { kind: "picker", title: "Background color", field, selected: appearance.backgroundColor, options: BACKGROUND_COLORS.map(([id, label]) => ({ id, label })) };
-    if (field === "backgroundOpacity") return { kind: "picker", title: "Background opacity", field, selected: String(appearance.backgroundOpacity), options: opacityOptions(appearance.backgroundOpacity, 0) };
+    if (field === "textOutlineColor") return { kind: "picker", title: "Outline Color", field, selected: appearance.textOutlineColor, options: BACKGROUND_COLORS.map(([id, label]) => ({ id, label })) };
+    if (field === "backgroundStyle") return { kind: "picker", title: "Subtitle Style", field, selected: appearance.backgroundStyle, options: STYLES.map(([id, label]) => ({ id, label })) };
+    if (field === "backgroundColor") return { kind: "picker", title: "Background Color", field, selected: appearance.backgroundColor, options: BACKGROUND_COLORS.map(([id, label]) => ({ id, label })) };
+    if (field === "backgroundOpacity") return { kind: "picker", title: "Background Opacity", field, selected: String(appearance.backgroundOpacity), options: opacityOptions(appearance.backgroundOpacity, 0) };
     return undefined;
 }
 
@@ -102,7 +102,7 @@ export function fillSubtitleTools(list: HTMLElement, tracks: TrackView, pane: Su
         }
         return;
     }
-    if (!replace && search.offered) list.append(choice("subtitle-search", "Search Subtitles", false));
+    if (!replace && search.offered) list.append(choice("subtitle-search", "Search Subtitles…", false));
     const display = tools.display;
     if (display === undefined || !tools.overlay) return;
     if (display.delay) list.append(choice("subtitle-delay", "Delay", false, delayLabel(display.delayMs)));

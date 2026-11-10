@@ -2524,6 +2524,7 @@ for (const origin of ["tracks", "appearance"] as const) for (const field of ["fo
             await page.locator(`[data-focus="${trigger}"]`).focus();
             await remote(page, ENTER);
             assert.equal(await focused(page), field === "fontSize" ? "subtitle-picker:large" : "subtitle-picker:bottom");
+            assert.equal(await text(page, ".player-menu-subtitles .player-menu-heading"), field === "fontSize" ? "SUBTITLE SIZE" : "SUBTITLE POSITION");
             if (ending === "select") await remote(page, ENTER);
             else if (ending === "remote-back") await remote(page, BACK);
             else await page.locator('[data-focus="subtitle-picker-back"]').click();
@@ -2555,7 +2556,7 @@ test("subtitle search and the delay, size, position and appearance rows are remo
         await remote(page, RIGHT);
         await remote(page, RIGHT);
         await remote(page, RIGHT);
-        assert.match(await text(page, ".player-menu-subtitles"), /Search Subtitles/);
+        assert.equal(await page.locator('[data-focus="subtitle-search"] .player-choice-label').textContent(), "Search Subtitles…");
         assert.match(await text(page, ".player-menu-subtitles"), /Delay[\s\S]*0 ms/);
         assert.match(await text(page, ".player-menu-subtitles"), /Size[\s\S]*Large/);
         assert.match(await text(page, ".player-menu-subtitles"), /Position[\s\S]*Bottom/);
@@ -2563,6 +2564,7 @@ test("subtitle search and the delay, size, position and appearance rows are remo
         for (let step = 0; step < 5; step += 1) await remote(page, DOWN);
         assert.equal(await focused(page), "subtitle-delay");
         await remote(page, ENTER);
+        assert.equal(await text(page, ".player-menu-subtitles .player-menu-heading"), "SUBTITLE DELAY");
         assert.equal(await focused(page), "subtitle-picker:0");
         await remote(page, DOWN);
         assert.equal(await focused(page), "subtitle-picker:100");

@@ -1,6 +1,6 @@
 // The /api/v2/watch-together operations Apple's tvOS Watch Party uses for a lobby: capabilities,
-// create, join by code, room read, close, the room socket ticket, and the host's lobby calls (stage,
-// select, start, stop, mode, policy) and picker.
+// create, join by code, room read, close, the room socket ticket, the host's lobby calls (stage,
+// select, start, stop, mode, policy), the picker and the vote-mode ballot (suggestions and votes).
 // Pass each spec to `session.call({ ...spec, profileScoped: true })`; the session owns bearer,
 // profile proof and cancellation. Read `capabilities()` first and offer nothing unless
 // `watchTogetherAvailable` holds (see ../contracts/v2/watchTogether.ts).
@@ -14,6 +14,8 @@ import {
     decodePicker,
     decodeRoomAccess,
     decodeRoomSocketTicket,
+    decodeSuggestionPage,
+    decodeSuggestionReceipt,
     decodeWatchTogetherCapabilities,
     MAX_JOIN_CODE_LENGTH,
     MAX_ROOM_TOKEN_LENGTH,
@@ -22,6 +24,8 @@ import {
     type RoomSelection,
     type RoomSocketTicket,
     type GuestControlPolicy,
+    type NewSuggestion,
+    type SuggestionPage,
     type WatchTogetherCapabilities,
 } from "../contracts/v2/watchTogether.ts";
 import type { RequestSpec } from "./http.ts";
@@ -44,6 +48,14 @@ function selectionBody(selection: RoomSelection): { content_id: string; file_id?
     for (const id of [selection.fileId, selection.libraryId]) if (id !== undefined && !POSITIVE_ID.test(id)) throw new RangeError("File and library ids must be positive");
     return { content_id: selection.contentId, ...(selection.fileId === undefined ? {} : { file_id: selection.fileId }), ...(selection.libraryId === undefined ? {} : { library_id: selection.libraryId }) };
 }
+
+function suggestionPath(roomId: string, suggestionId: string): string {
+    if (suggestionId === "") throw new RangeError("Suggestion id is required");
+    return `${roomPath(roomId)}/suggestions/${encodeURIComponent(suggestionId)}`;
+}
+
+/** Apple reads the ballot 100 rows at a time. */
+const SUGGESTION_PAGE_LIMIT = 100;
 
 function roomToken(token: string): string {
     if (token.length > MAX_ROOM_TOKEN_LENGTH || !HEADER_SAFE.test(token)) throw new RangeError("Invalid room token");
@@ -104,4 +116,38 @@ export const watchTogetherOperations = {
     /** What the connected members are mid-way through and what is on their watchlists. Needs the room token. */
     picker: (roomId: string, token: string): RequestSpec<Picker> =>
         ({ method: "GET", path: `${roomPath(roomId)}/picker`, retry: "safe", roomToken: roomToken(token), decode: decodePicker }),
+
+    // The ballot, for any member: every call needs the room token. Votes and suggestions change no room, so only promote answers with it.
+
+    /** One page of the room's suggestions in creation order, with this profile's own votes, which the socket never carries. */
+    suggestions: (roomId: string, token: string, cursor?: string): RequestSpec<SuggestionPage> => ({
+        method: "GET",
+        path: `${roomPath(roomId)}/suggestions?${new URLSearchParams({ limit: String(SUGGESTION_PAGE_LIMIT), ...(cursor === undefined ? {} : { cursor }) }).toString()}`,
+        retry: "safe", roomToken: roomToken(token), decode: decodeSuggestionPage,
+    }),
+
+    /** Unique-constraint: the caller's suggestion id makes a resend return the same suggestion. 201 with the id. */
+    addSuggestion: (roomId: string, token: string, suggestion: NewSuggestion): RequestSpec<string> => {
+        if (!UUID.test(suggestion.suggestionId)) throw new RangeError("Suggestion id must be a UUID");
+        if (suggestion.contentId === "" || suggestion.title === "") throw new RangeError("A suggestion needs a title and content id");
+        return {
+            method: "POST", path: `${roomPath(roomId)}/suggestions`, retry: "safe", roomToken: roomToken(token),
+            body: {
+                suggestion_id: suggestion.suggestionId, content_id: suggestion.contentId, content_type: suggestion.contentType, title: suggestion.title,
+                ...(suggestion.subtitle === undefined || suggestion.subtitle === "" ? {} : { subtitle: suggestion.subtitle }),
+                ...(suggestion.posterUrl === undefined || suggestion.posterUrl === "" ? {} : { poster_url: suggestion.posterUrl }),
+            },
+            decode: decodeSuggestionReceipt,
+        };
+    },
+
+    /** POST votes, DELETE takes the vote back; 204 either way, and a vote already in that state is a no-op. */
+    setVote: (roomId: string, token: string, suggestionId: string, voted: boolean): RequestSpec<undefined> =>
+        ({ method: voted ? "POST" : "DELETE", path: `${suggestionPath(roomId, suggestionId)}/vote`, retry: "safe", roomToken: roomToken(token), decode: () => undefined }),
+
+    /** Host only: plays the suggestion for everyone. Non-retryable; a lost answer is read back from the room. */
+    promoteSuggestion: (roomId: string, token: string, suggestionId: string): RequestSpec<RoomAccess> => {
+        if (suggestionId === "") throw new RangeError("Suggestion id is required");
+        return { method: "POST", path: `${roomPath(roomId)}/suggestions/promote`, retry: "never", roomToken: roomToken(token), body: { suggestion_id: suggestionId }, decode: decodeRoomAccess };
+    },
 };

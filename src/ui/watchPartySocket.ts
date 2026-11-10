@@ -6,7 +6,7 @@ import { type Clock, sleep } from "../api/clock.ts";
 import { ApiError } from "../api/errors.ts";
 import { SessionError } from "../session/session.ts";
 import {
-    encodeRoomClientMessage, parseRoomServerMessage, type Room, type RoomAccess, type RoomServerMessage, type RoomSocketTicket, ROOM_SOCKET_PROTOCOL,
+    encodeRoomClientMessage, parseRoomServerMessage, type Room, type RoomAccess, type RoomClientMessage, type RoomServerMessage, type RoomSocketTicket, ROOM_SOCKET_PROTOCOL,
 } from "../contracts/v2/watchTogether.ts";
 import { WireError } from "../contracts/v2/wire.ts";
 
@@ -163,6 +163,8 @@ export class RoomConnection {
     private readonly api: RoomSocketApi;
     private readonly handlers: RoomHandlers;
     private readonly deps: RoomConnectionDeps;
+    /** The socket while it is open; frames are sent only on it. */
+    private open: RoomWebSocket | undefined;
 
     constructor(roomId: string, api: RoomSocketApi, handlers: RoomHandlers, deps: RoomConnectionDeps) {
         this.roomId = roomId;
@@ -170,6 +172,13 @@ export class RoomConnection {
         this.handlers = handlers;
         this.deps = deps;
         void this.run();
+    }
+
+    /** Sends a frame on the open socket. False while connecting or reconnecting: the frame is dropped, as Apple's send. */
+    send(message: RoomClientMessage): boolean {
+        if (this.open === undefined || this.closed) return false;
+        this.open.send(encodeRoomClientMessage(message));
+        return true;
     }
 
     /** Leave, sign-out, profile switch or the room ending: the socket closes and nothing reconnects. */
@@ -215,6 +224,7 @@ export class RoomConnection {
             let cancelTick: (() => void) | undefined;
             const finish = (error?: unknown): void => {
                 socket.onopen = socket.onmessage = socket.onclose = socket.onerror = null;
+                if (this.open === socket) this.open = undefined;
                 cancelTick?.();
                 this.controller.signal.removeEventListener("abort", abort);
                 if (error === undefined) resolve(); else reject(error);
@@ -224,6 +234,7 @@ export class RoomConnection {
             socket.onopen = () => {
                 if (socket.protocol !== ROOM_SOCKET_PROTOCOL) { socket.close(NORMAL_CLOSURE); finish(new UnsupportedProtocol()); return; }
                 attempt.openedAt = clock.now();
+                this.open = socket;
                 this.handlers.status("connected");
                 if (this.closed) return;
                 // Pings run fast until this socket has a few clock samples, then slowly; a clock step discards samples and warms up again.

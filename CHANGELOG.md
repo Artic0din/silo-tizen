@@ -6,6 +6,7 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- The Watch Party lobby now votes and readies up as on Apple TV: in a room where everyone votes, each suggestion shows its live vote count with the leader outlined and a tick on yours, Select votes or takes the vote back, Suggest a title adds one from the picker, and the host starts the winner. Guests can mark I'm ready, and everyone sees it on their seat.
 - The Watch Party lobby now updates live over the room socket: people joining or stepping away, readiness, the host's pick and controls, and the party ending reach every TV in the room as they happen, with Apple's Connecting and Reconnecting states. Leave party and Back as the host now leave this TV only, as on Apple TV; End party is what ends it for everyone.
 - Added the Watch Party lobby: the code with an invitation page and QR, who is here, and, for the host, choosing a title from the group's picks and watchlists, Start for everyone, Who chooses, Playback controls, Return everyone to lobby and End party. Starting opens the player on the party's file without playback sync, and the lobby shows the room as it was when this TV last heard from it.
 - Added a Watch Party hub, off by default: turn it on under Settings › Server › Extra Features and, when the server supports synchronized parties, Watch Party appears in the profile menu with Start a party, Join party and a lobby that shows the code and who is here; going Back as the host ends the party. Playback together is not built yet.

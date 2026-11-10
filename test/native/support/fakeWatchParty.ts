@@ -10,6 +10,19 @@ export const ROOM_FILE_ID = "9001";
 
 const ROOM_PATH = `/watch-together/rooms/${ROOM_ID}`;
 
+/** A ballot row as the fake stores it: who voted is by profile, so each member's own vote can be answered. */
+export interface FakeSuggestion {
+    readonly id: string;
+    readonly contentId: string;
+    readonly contentType: string;
+    readonly title: string;
+    readonly subtitle: string;
+    readonly posterUrl: string;
+    readonly suggesterProfileId: string;
+    readonly createdAt: string;
+    readonly voters: Set<string>;
+}
+
 /** The Watch Together HTTP surface and the playback capability features Apple's Watch Party gate reads. */
 export class FakeWatchParty extends FakeRequests {
     state = "available";
@@ -18,7 +31,7 @@ export class FakeWatchParty extends FakeRequests {
     connectionReplaced = true;
     playbackFeatures = WATCH_PARTY_FEATURES;
     /** The optional capability flags the lobby reads; a missing flag is false. */
-    flags: Record<string, boolean> = { staged_selection: true, selection_mode_switch: true, stop_playback: true, picker: true };
+    flags: Record<string, boolean> = { staged_selection: true, selection_mode_switch: true, stop_playback: true, picker: true, lobby_ready: true };
     capabilitiesFailure: Reply | undefined;
     createFailure: Reply | undefined;
     joinFailure: Reply | undefined;
@@ -56,6 +69,16 @@ export class FakeWatchParty extends FakeRequests {
     /** Sam is in the room; false for a host waiting for someone to join. */
     guestJoined = true;
     generation = 1;
+    /** The vote room's ballot, oldest first. */
+    readonly suggestions: FakeSuggestion[] = [];
+    /** Every ballot read, by its room token and cursor. */
+    readonly suggestionReads: { readonly roomToken: string | undefined; readonly cursor: string | null }[] = [];
+    /** Every ballot write as "METHOD /suffix", with its body and room token. */
+    readonly ballotChanges: { readonly call: string; readonly body: Record<string, unknown> | undefined; readonly roomToken: string | undefined }[] = [];
+    /** Rows per ballot page, so a test can make the read take several. */
+    suggestionPageSize = 100;
+    /** Fails the next ballot write once it is set. */
+    ballotFailure: Reply | undefined;
     /** Every room socket the page opened, newest last, and the frames each one sent. */
     readonly sockets: { readonly route: WebSocketRoute; readonly protocols: readonly string[]; readonly sent: Record<string, unknown>[]; closed: boolean }[] = [];
 
@@ -67,6 +90,8 @@ export class FakeWatchParty extends FakeRequests {
             const frame = JSON.parse(String(message)) as Record<string, unknown>;
             socket.sent.push(frame);
             if (frame.type === "ping") route.send(JSON.stringify({ type: "pong", client_sent_at: frame.client_sent_at, server_received_at: frame.client_sent_at, server_sent_at: frame.client_sent_at }));
+            // The server marks the sender's seat and broadcasts the room; only a guest's readiness shows on a seat.
+            if (frame.type === "lobby_ready" && this.role === "guest") { this.guestReady = frame.ready === true; this.snapshot(); }
         });
         route.onClose(() => { socket.closed = true; });
     }
@@ -82,6 +107,78 @@ export class FakeWatchParty extends FakeRequests {
     snapshot(): void {
         this.generation++;
         this.push({ type: "snapshot", room: this.room() });
+    }
+
+    /** Puts a title on the ballot as Sam, with votes from the given profiles, and broadcasts it when a socket is open. */
+    suggest(id: string, title: string, voters: readonly string[] = [], extra: Partial<Pick<FakeSuggestion, "subtitle" | "posterUrl" | "contentType">> = {}): void {
+        this.suggestions.push({
+            id, contentId: `movie:${id}`, contentType: extra.contentType ?? "movie", title, subtitle: extra.subtitle ?? "", posterUrl: extra.posterUrl ?? `/art/${id}.svg`,
+            suggesterProfileId: "p-guest", createdAt: new Date(Date.UTC(2026, 10, 10, 1, 0, this.suggestions.length)).toISOString(), voters: new Set(voters),
+        });
+        this.broadcastBallot();
+    }
+
+    /** Another member votes or takes their vote back. */
+    voteAs(profileId: string, id: string, voted: boolean): void {
+        const row = this.suggestions.find(candidate => candidate.id === id);
+        if (row === undefined) throw new Error(`no suggestion ${id}`);
+        if (voted) row.voters.add(profileId); else row.voters.delete(profileId);
+        this.broadcastBallot();
+    }
+
+    private get selfProfile(): string { return this.role === "host" ? "p-owner" : "p-guest"; }
+
+    private suggestionRow(row: FakeSuggestion, viewer: string | undefined): Record<string, unknown> {
+        return {
+            id: row.id, room_id: ROOM_ID, suggester_user_id: 2, suggester_profile_id: row.suggesterProfileId, content_id: row.contentId, content_type: row.contentType,
+            title: row.title, subtitle: row.subtitle, poster_url: row.posterUrl, note: "", vote_count: row.voters.size, voted_by_me: viewer !== undefined && row.voters.has(viewer), created_at: row.createdAt,
+        };
+    }
+
+    /** suggestions_update: every row with voted_by_me false, as the server strips it. */
+    private broadcastBallot(): void {
+        const socket = this.sockets.at(-1);
+        if (socket === undefined || socket.closed) return;
+        socket.route.send(JSON.stringify({ type: "suggestions_update", suggestions: this.suggestions.map(row => this.suggestionRow(row, undefined)) }));
+    }
+
+    private ballot(method: string, suffix: string, query: URLSearchParams, body: Record<string, unknown> | undefined, token: string | undefined): Reply | undefined {
+        if (method === "GET" && suffix === "/suggestions") {
+            const cursor = query.get("cursor");
+            this.suggestionReads.push({ roomToken: token, cursor });
+            const start = cursor === null ? 0 : Number(cursor);
+            const rows = this.suggestions.slice(start, start + this.suggestionPageSize);
+            const next = start + rows.length;
+            return { status: 200, body: { items: rows.map(row => this.suggestionRow(row, this.selfProfile)), page: { has_more: next < this.suggestions.length, next_cursor: next < this.suggestions.length ? String(next) : "" } } };
+        }
+        const vote = /^\/suggestions\/([^/]+)\/vote$/.exec(suffix);
+        const write = (method === "POST" && suffix === "/suggestions") || (vote !== null && (method === "POST" || method === "DELETE")) || (method === "POST" && suffix === "/suggestions/promote");
+        if (!write) return undefined;
+        this.ballotChanges.push({ call: `${method} ${suffix}`, body, roomToken: token });
+        if (this.ballotFailure !== undefined) return this.ballotFailure;
+        if (method === "POST" && suffix === "/suggestions") {
+            this.suggestions.push({
+                id: String(body?.suggestion_id), contentId: String(body?.content_id), contentType: String(body?.content_type), title: String(body?.title),
+                subtitle: String(body?.subtitle ?? ""), posterUrl: String(body?.poster_url ?? ""), suggesterProfileId: this.selfProfile,
+                createdAt: new Date(Date.UTC(2026, 10, 10, 1, 0, this.suggestions.length)).toISOString(), voters: new Set(),
+            });
+            this.broadcastBallot();
+            return { status: 201, body: { suggestion_id: body?.suggestion_id } };
+        }
+        if (vote !== null) {
+            const row = this.suggestions.find(candidate => candidate.id === decodeURIComponent(vote[1] ?? ""));
+            if (row === undefined) return problem(404, "not_found", "The room or suggestion was not found.");
+            if (method === "POST") row.voters.add(this.selfProfile); else row.voters.delete(this.selfProfile);
+            this.broadcastBallot();
+            return { status: 204 };
+        }
+        if (this.role !== "host") return problem(403, "forbidden", "Only the host account and profile may promote suggestions.");
+        const row = this.suggestions.find(candidate => candidate.id === body?.suggestion_id);
+        if (row === undefined) return problem(404, "not_found", "The room or suggestion was not found.");
+        this.selectedContentId = row.contentId;
+        this.phase = "playing";
+        this.selectedFileId = ROOM_FILE_ID;
+        return this.access();
     }
 
     room(): Record<string, unknown> {
@@ -158,6 +255,10 @@ export class FakeWatchParty extends FakeRequests {
         if (method === "GET" && pathname === `${ROOM_PATH}/picker`) {
             this.pickerTokens.push(headers?.["x-room-token"]);
             return this.pickerFailure ?? { status: 200, body: this.pickerBody() };
+        }
+        if (pathname.startsWith(`${ROOM_PATH}/suggestions`)) {
+            const handled = this.ballot(method, pathname.slice(ROOM_PATH.length), new URL(path, "https://fake.invalid").searchParams, body, headers?.["x-room-token"]);
+            if (handled !== undefined) return handled;
         }
         if (pathname.startsWith(`${ROOM_PATH}/`)) {
             const suffix = pathname.slice(ROOM_PATH.length);

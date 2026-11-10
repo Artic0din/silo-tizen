@@ -405,13 +405,13 @@ Creation is sent once with refresh replay off.
 A 404 on create shows "This is no longer available to shuffle."
 `advance` runs when the current item finishes (`src/player/nextShuffle.ts`).
 
-### Watch Together (hub, lobby and room socket)
+### Watch Together (hub, lobby, ballot and room socket)
 
 Defined in `src/api/watchTogetherOperations.ts`. The Watch Party hub (`src/ui/watchPartyHub.ts`) calls `capabilities`, `createRoom`, `joinByCode`, the host's lobby calls below, `picker` and, when the host ends the party, `closeRoom`.
 Back and Leave party only close this TV's room socket, for the host too, as Apple's `leaveRoom`.
 The hub also reads `GET /playback/capabilities` for the playback features Apple requires, and reads the chosen title with `getCatalogItem` and the picker's series with `listSeriesSeasons` and `listSeasonEpisodes`.
 Bearer plus Profile.
-`room`, `socketTicket` and `picker` also send `X-Room-Token` (`RequestSpec.roomToken`).
+`room`, `socketTicket`, `picker` and the ballot calls also send `X-Room-Token` (`RequestSpec.roomToken`).
 The host's calls take no room token: the contract authorizes them by account and profile, as it does `closeRoom`, and each answers with the room as it now stands, which replaces the lobby's room unless a newer socket snapshot already has.
 
 The room socket (`src/ui/watchPartySocket.ts`) keeps the lobby current, as Apple's, which never polls.
@@ -421,7 +421,15 @@ Snapshots replace the room unless they are older (`RoomState`); `room_closed`, a
 Any other failure reconnects after 1, 2, 4, 8, then 15 seconds, for as long as the room is open; a socket that stayed open 30 seconds, which the server ends at its connection deadline, reconnects at once.
 The open socket sends `ping` every 2 seconds until four pongs set the server clock offset (`RoomClock`), then every 15.
 Leave, Back, End party, sign-out and a profile switch close the socket with code 1000.
-Transport commands and the suggestion ballot arrive on the socket but nothing uses them yet (issue 54).
+A guest's I'm ready sends `{ "type": "lobby_ready", "ready": true }` on the open socket when the capabilities say `lobby_ready`; the snapshot that follows marks the seat, and nothing is sent while the socket is not open.
+In a vote room the lobby reads the ballot (`suggestions`, every page) 200 ms after the socket opens and after each `suggestions_update`, one read at a time, as Apple's; a read that falls due while a change runs, including the host's own switch to voting, runs when that change finishes.
+A failed ballot read tries again after 1, 2 and 4 seconds, and a vote the server accepted stands even when the read after it fails.
+The host's Start in a vote room waits until the ballot has been read on the current socket connection, since a ballot from before an outage may name a stale winner.
+Suggestion posters, on the cards and as the lobby backdrop, are drawn only from the server's own origin: the server stores whatever the suggesting client sent, so a poster on another host (such as presigned storage) shows the blank poster.
+`suggestions_update` replaces the tallies at once but always says `voted_by_me: false`, so this profile's own votes come only from that read; a read that a socket update or a vote overtook is dropped and read again, up to three times (`RoomVotes`, `src/ui/watchPartyVotes.ts`).
+Voting and Add suggestion read the ballot again afterwards, including after a failure, since a lost answer may have landed.
+The host's Start in a vote room promotes the winner: most votes, then the earlier suggestion, then the smaller id; nobody voting is no winner.
+Transport commands arrive on the socket but nothing uses them yet (issue 54).
 The packaged `.wgt` sends `Origin: file://` on the handshake; the server's origin check treats a non-web scheme like no `Origin` and lets it through, and refuses a foreign web origin with 403.
 
 | Operation | Method and path | Retry |
@@ -439,6 +447,10 @@ The packaged `.wgt` sends `Origin: file://` on the handshake; the server's origi
 | setGuestControlPolicy | `PATCH /watch-together/rooms/{id}/policy` with `{ "guest_control_policy": ... }`, host only | safe |
 | picker | `GET /watch-together/rooms/{id}/picker` | safe |
 | socketTicket | `POST /watch-together/rooms/{id}/ws-ticket` | safe |
+| suggestions | `GET /watch-together/rooms/{id}/suggestions?limit=100&cursor=` | safe |
+| addSuggestion | `POST /watch-together/rooms/{id}/suggestions` with `{ "suggestion_id": <uuid>, "content_id", "content_type": "movie" or "episode", "title", "subtitle"?, "poster_url"? }`, 201 | safe (the `suggestion_id` makes a replay return the same suggestion) |
+| setVote | `POST` to vote, `DELETE` to take it back, `/watch-together/rooms/{id}/suggestions/{suggestionId}/vote`, 204 | safe |
+| promoteSuggestion | `POST /watch-together/rooms/{id}/suggestions/promote` with `{ "suggestion_id": ... }`, host only | never (non-retryable) |
 
 Everything is offered only when `allowed` is true and `state === "available"` (`watchTogetherAvailable`, `src/contracts/v2/watchTogether.ts`).
 See `src/contracts/v2/README.md` for the socket frames and the operations left for later.

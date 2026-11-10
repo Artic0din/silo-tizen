@@ -752,15 +752,20 @@ appTest("a 200-character server name keeps every sign-out dialog's buttons on sc
                 box.width > 0 && box.height > 0 && box.left >= frame.left - 0.5 && box.right <= frame.right + 0.5 && box.top >= frame.top - 0.5 && box.bottom <= frame.bottom + 0.5;
             const viewport = { left: 0, top: 0, right: innerWidth, bottom: innerHeight };
             const card = node.getBoundingClientRect();
+            const title = node.querySelector<HTMLElement>("h2");
+            const message = node.querySelector<HTMLElement>("p");
             return {
                 card: inside(card, viewport),
+                // Two 46 px lines at most, with the rest elided; the message is never cut.
+                titleClamped: title !== null && title.scrollHeight > title.clientHeight && Math.round(title.getBoundingClientRect().height) <= 92 && getComputedStyle(title).webkitLineClamp === "2",
+                message: message !== null && inside(message.getBoundingClientRect(), viewport) && inside(message.getBoundingClientRect(), card) && message.scrollHeight <= message.clientHeight,
                 buttons: [...node.querySelectorAll("button")].map(button => {
                     const box = button.getBoundingClientRect();
                     return inside(box, viewport) && inside(box, card) && document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2)?.closest("button") === button;
                 }),
             };
         });
-        assert.deepEqual(placed, { card: true, buttons: [true, true] }, `${where}: the card and both buttons stay inside the screen and can be hit`);
+        assert.deepEqual(placed, { card: true, titleClamped: true, message: true, buttons: [true, true] }, `${where}: the title stops at two lines, and the message, card and both buttons stay inside the screen`);
         assert.match(await tv.focused() ?? "", /^cancel/, `${where}: Cancel takes focus`);
         await tv.page.keyboard.press("ArrowRight");
         assert.match(await tv.focused() ?? "", /^confirm/, `${where}: the remote reaches the destructive button`);

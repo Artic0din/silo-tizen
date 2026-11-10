@@ -275,6 +275,41 @@ test("a lost start that was not read back because the party was ending is read o
     assert.equal(hub.state.room?.phase, "playing", "the lobby is no longer behind the start");
 });
 
+test("a start that lands while End party is queued does not open the player", async () => {
+    let release: () => void = () => undefined;
+    const { hub, plays, calls } = lobby({
+        startPlayback: () => new Promise(resolve => { release = () => resolve(roomAccess({ selected_content_id: "movie:m0004", phase: "playing", selected_file_id: "42" })); }),
+    }, undefined, { selected_content_id: "movie:m0004" });
+    await hub.create("host_pick");
+    const starting = hub.start();
+    const ending = hub.endParty();
+    release();
+    await Promise.all([starting, ending]);
+    assert.deepEqual(plays, [], "the host ended the party, so nothing starts playing");
+    assert.deepEqual(calls, [`close ${ROOM_ID}`]);
+});
+
+test("a background read that was asked before a newer room arrived does not replace it", async () => {
+    let fail: () => void = () => undefined;
+    let answer: () => void = () => undefined;
+    const { hub } = lobby({
+        startPlayback: () => new Promise((_resolve, reject) => { fail = () => reject(new ApiError({ kind: "timeout" })); }),
+        room: () => new Promise(resolve => { answer = () => resolve(roomAccess({ selected_content_id: "movie:m0004", phase: "playing", selected_file_id: "42" })); }),
+        closeRoom: async () => { throw problem(500, "Try again in a moment."); },
+        setGuestControlPolicy: async () => roomAccess({ selected_content_id: "movie:m0004", guest_control_policy: "guest_play_pause" }),
+    }, undefined, { selected_content_id: "movie:m0004" });
+    await hub.create("host_pick");
+    const starting = hub.start();
+    const ending = hub.endParty();
+    fail();
+    await Promise.all([starting, ending]);
+    assert.equal(await hub.setPolicy("guest_play_pause"), true, "the host changes a setting while the read is out");
+    answer();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.equal(hub.state.room?.phase, "lobby", "the older read cannot bring back playing");
+    assert.equal(hub.state.room?.guestControlPolicy, "guest_play_pause");
+});
+
 test("a live selection whose answer was lost and that the room confirms is a success, so Play for everyone is not sent twice", async () => {
     const playing = { phase: "playing", selected_content_id: "movie:m0001", selected_file_id: "42" };
     const { hub, plays } = lobby({

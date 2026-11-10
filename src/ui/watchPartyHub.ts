@@ -98,6 +98,8 @@ export class WatchPartyHub {
     private ending = false;
     /** A lost change was not read back because the party was ending; a failed close reads it then. */
     private unreconciled = false;
+    /** Counts the rooms taken, so a read that was asked before a newer room arrived can be told apart. */
+    private roomsTaken = 0;
     /** Settles when the running host change does, so End party can go after it. */
     private mutation: Promise<void> | undefined;
 
@@ -189,7 +191,7 @@ export class WatchPartyHub {
         if (done) {
             this.show(LOBBY);
             // Choosing for a party that is already playing starts it for everyone, as the button says.
-            if (!staged) this.resume();
+            if (!staged && !this.ending) this.resume();
         }
         return done;
     }
@@ -198,7 +200,7 @@ export class WatchPartyHub {
     async start(): Promise<boolean> {
         if (!this.canStart()) return false;
         const started = await this.mutate(signal => this.api.startPlayback(this.requireRoom().roomId, signal), undefined, room => room.phase === "playing");
-        if (started) this.resume();
+        if (started && !this.ending) this.resume();
         return started;
     }
 
@@ -332,6 +334,7 @@ export class WatchPartyHub {
     /** Takes the room an answer carries. A new selection reloads the title; the pick the host just made shows until it lands. */
     private accept(answer: RoomAccess): void {
         const previous = this.state.room;
+        this.roomsTaken++;
         this.roomToken = answer.roomAccessToken;
         this.state.room = answer.room;
         const id = answer.room.selectedContentId;
@@ -391,9 +394,11 @@ export class WatchPartyHub {
     }
 
     private async readRoom(roomId: string): Promise<Room | undefined> {
+        const asked = this.roomsTaken;
         try {
             const answer = await this.api.room(roomId, this.roomToken, this.controller.signal);
-            if (this.stopped || this.state.room?.roomId !== roomId) return undefined;
+            // A room that arrived while this read ran is newer than the read.
+            if (this.stopped || this.state.room?.roomId !== roomId || this.roomsTaken !== asked) return undefined;
             this.accept(answer);
             return answer.room;
         } catch {

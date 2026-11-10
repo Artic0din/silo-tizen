@@ -1,6 +1,6 @@
 // Apple's WatchPartyLobbyView on tvOS, and the sheets it opens: Party options, the End confirmation and the
-// invitation. Over HTTP only: the lobby is the room as the last answer left it, so presence does not update by
-// itself, a guest cannot mark Ready and there is no ballot; those need the room socket.
+// invitation. The room socket keeps the lobby current: who is here, the pick, the policy and the party ending.
+// A guest cannot mark Ready yet and there is no ballot.
 // Metrics are Apple's tvOS values at 1920x1080 (WatchPartyMetrics).
 
 import type { Room } from "../contracts/v2/watchTogether.ts";
@@ -19,11 +19,18 @@ export interface LobbyContext { readonly hub: WatchPartyHub; readonly baseUrl: s
 
 const hostName = (room: Room): string => room.members.find(member => member.isHost)?.displayName ?? "The host";
 
-/** Apple's connection dot, read from the room: with no socket the lobby is as live as its last answer. */
-function connection(room: Room): { text: string; tone: "ok" | "warn" } {
-    const here = room.members.filter(member => member.connected).length;
-    if (!room.hostConnected && room.selfRole !== "host") return { text: "Host away", tone: "warn" };
-    return { text: here <= 1 ? "Open" : `${here} here`, tone: "ok" };
+/** WatchPartyLobbyView.connectionDot: the socket's state, and once connected who is here. */
+function connection(hub: WatchPartyHub, room: Room): { text: string; tone: "ok" | "warn" | "wait" | "off" } {
+    switch (hub.state.connection) {
+        case "connected": {
+            if (!room.hostConnected && room.selfRole !== "host") return { text: "Host away", tone: "warn" };
+            const here = room.members.filter(member => member.connected).length;
+            return { text: here <= 1 ? "Open" : `${here} here`, tone: "ok" };
+        }
+        case "connecting": return { text: "Connecting", tone: "wait" };
+        case "reconnecting": return { text: "Reconnecting", tone: "warn" };
+        case "idle": return { text: "Disconnected", tone: "off" };
+    }
 }
 
 function statusBanner(hub: WatchPartyHub, room: Room): HTMLElement | undefined {
@@ -38,6 +45,7 @@ function statusBanner(hub: WatchPartyHub, room: Room): HTMLElement | undefined {
         return banner(room.selfCanManageRoom ? "Voting isn't available on this TV yet. Set Who chooses to Host chooses in Party options to pick a title." : "Voting isn't available on this TV yet.", false);
     }
     if (!room.hostConnected && room.selfRole !== "host") return banner(`${hostName(room)} lost connection. The party holds for two minutes while they come back.`, true);
+    if (hub.state.connection === "reconnecting") return banner("Reconnecting to the party…", false);
     return undefined;
 }
 
@@ -104,7 +112,7 @@ function lobbyPage(context: LobbyContext, room: Room, interactive: boolean): { n
     const item = hub.state.selected;
     const action = primaryAction(room, hub.state.capabilities, hub.canStart(), hub.state.selectedUnavailable);
     const page = el("div", "watch-party-room watch-party-ui");
-    const state = connection(room);
+    const state = connection(hub, room);
     const status = el("span", `watch-party-connection watch-party-connection-${state.tone}`);
     status.append(el("span", "watch-party-connection-dot"), state.text);
     const title = el("div", "watch-party-room-title");
@@ -192,8 +200,7 @@ export function optionsView(context: LobbyContext, room: Room): View {
         }
         rows.push(optionRow("end", "End party for everyone", undefined, true, () => { hub.show({ kind: "end" }); }));
     }
-    // With no room socket the host cannot step out and leave the room running, so Leave ends it: ask first, as End party does.
-    rows.push(optionRow("leave", "Leave party", undefined, true, () => { if (room.selfCanManageRoom) hub.show({ kind: "end" }); else hub.leave(); }));
+    rows.push(optionRow("leave", "Leave party", undefined, true, () => { hub.leave(); }));
     const close = optionRow("close", "Close", undefined, false, () => { hub.show({ kind: "lobby" }); });
     rows.push(close);
     const card = el("div", "watch-party-sheet watch-party-options");

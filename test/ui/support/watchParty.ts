@@ -4,6 +4,8 @@ import { FakeWatchParty } from "../../native/support/fakeWatchParty.ts";
 
 export async function start(tv: Tv, fake = new FakeWatchParty(), enabled = true, beforeMount: () => void = () => undefined): Promise<FakeWatchParty> {
     tv.fake.catalog = fake;
+    // The room socket: Playwright stands in for the server, and the page's WebSocket negotiates the first subprotocol it offered.
+    await tv.page.routeWebSocket(/\/watch-together\/rooms\/[^/]+\/ws$/, route => { fake.acceptSocket(route, route.protocols()); });
     new FakeSettings(tv.fake);
     await tv.page.evaluate(() => window.browseHarness.connect());
     await tv.eventually(async () => tv.fake.devices.size > 0, "device code");

@@ -10,7 +10,7 @@ import { inviteUrl } from "../../src/ui/watchPartyInvite.ts";
 import { WatchPartyHub, type WatchPartyApi } from "../../src/ui/watchPartyHub.ts";
 import { primaryAction } from "../../src/ui/watchPartyPolicy.ts";
 import { fixture } from "./support/fakeSilo.ts";
-import { playbackCapabilities, ROOM_ID, roomAccess, roomCapabilities, unusedLobbyOperations } from "./support/watchPartyApi.ts";
+import { playbackCapabilities, ROOM_ID, roomAccess, roomCapabilities, unusedLobbyOperations, offline } from "./support/watchPartyApi.ts";
 import { decodeItemDetail } from "../../src/contracts/v2/catalog.ts";
 
 const problem = (status: number, detail: string): ApiError => new ApiError({ kind: "problem", problem: { id: "x", title: "Failed", status, detail, instance: "", errors: [] }, retryAfterSeconds: undefined });
@@ -77,7 +77,7 @@ function lobby(over: Partial<WatchPartyApi> = {}, flags: Record<string, unknown>
         item: async id => detail({ content_id: id, title: `Loaded ${id}` }),
         ...over,
     };
-    const hub = new WatchPartyHub(api, () => { renders++; }, { supported: true, onPlay: request => plays.push(request) });
+    const hub = new WatchPartyHub(api, () => { renders++; }, { ...offline(), supported: true, onPlay: request => plays.push(request) });
     return { hub, calls, plays, api, renders: () => renders };
 }
 
@@ -214,25 +214,29 @@ test("the player is pinned to the room's file so an alternate version cannot pla
 
 test("a start whose answer was lost reads the room again and, when the server did start it, carries on as a start; a refusal reads nothing", async () => {
     let reads = 0;
+    let started = false;
     const room = { selected_content_id: "movie:m0004" };
+    // Every room socket opens with a room read, so each count starts once the room is entered.
+    const entered = async (hub: WatchPartyHub): Promise<void> => { await hub.create("host_pick"); await new Promise(resolve => setTimeout(resolve, 0)); reads = 0; };
     const lost = lobby({
-        startPlayback: async () => { throw new ApiError({ kind: "network" }); },
-        room: async () => { reads++; return roomAccess({ ...room, phase: "playing", selected_file_id: "42" }); },
+        startPlayback: async () => { started = true; throw new ApiError({ kind: "network" }); },
+        room: async () => { reads++; return roomAccess(started ? { ...room, phase: "playing", selected_file_id: "42" } : room); },
     }, undefined, room);
-    await lost.hub.create("host_pick");
+    await entered(lost.hub);
     assert.equal(await lost.hub.start(), true, "the room proves the start took effect");
     assert.equal(reads, 1);
     assert.equal(lost.hub.state.room?.phase, "playing");
     assert.equal(lost.hub.state.error, undefined, "a start the room confirms shows no failure");
     assert.deepEqual(lost.plays.map(play => play.fileId), ["42"]);
     const notStarted = lobby({ startPlayback: async () => { throw new ApiError({ kind: "timeout" }); }, room: async () => { reads++; return roomAccess(room); } }, undefined, room);
-    await notStarted.hub.create("host_pick");
+    await entered(notStarted.hub);
     assert.equal(await notStarted.hub.start(), false, "a room still in the lobby means the start did not happen");
     assert.equal(notStarted.hub.state.error !== undefined, true);
-    const refused = lobby({ startPlayback: async () => { throw problem(409, "No."); }, room: async () => { reads++; return roomAccess(); } }, undefined, room);
-    await refused.hub.create("host_pick");
+    assert.equal(reads, 1);
+    const refused = lobby({ startPlayback: async () => { throw problem(409, "No."); }, room: async () => { reads++; return roomAccess(room); } }, undefined, room);
+    await entered(refused.hub);
     await refused.hub.start();
-    assert.equal(reads, 2, "an answer from the server rules out the write, so nothing is read");
+    assert.equal(reads, 0, "an answer from the server rules out the write, so nothing is read");
 });
 
 test("End party does not wait on reading the room back after a lost start", async () => {
@@ -240,9 +244,11 @@ test("End party does not wait on reading the room back after a lost start", asyn
     let fail: () => void = () => undefined;
     const { hub, calls } = lobby({
         startPlayback: () => new Promise((_resolve, reject) => { fail = () => reject(new ApiError({ kind: "timeout" })); }),
-        room: async () => { reads++; return roomAccess(); },
+        room: async () => { reads++; return roomAccess({ selected_content_id: "movie:m0004" }); },
     }, undefined, { selected_content_id: "movie:m0004" });
     await hub.create("host_pick");
+    await new Promise(resolve => setTimeout(resolve, 0));
+    reads = 0; // the room socket's opening read
     const starting = hub.start();
     const ending = hub.endParty();
     fail();
@@ -262,6 +268,7 @@ test("a lost start that was not read back because the party was ending is read o
         closeRoom: async () => { closes++; throw problem(500, "Try again in a moment."); },
     }, undefined, { selected_content_id: "movie:m0004" });
     await hub.create("host_pick");
+    reads = 0; // the room socket's opening read, which stays unanswered
     const starting = hub.start();
     const ending = hub.endParty();
     fail();
@@ -610,9 +617,9 @@ test("Back walks the room's pages one at a time and only leaves the room from th
     assert.equal(pageKind(), "lobby");
     assert.notEqual(hub.state.room, undefined);
     hub.back();
-    assert.equal(hub.state.room, undefined, "Back from the lobby leaves, and the host's room ends");
+    assert.equal(hub.state.room, undefined, "Back from the lobby leaves");
     await new Promise(resolve => setTimeout(resolve, 0));
-    assert.deepEqual(calls, [`close ${ROOM_ID}`]);
+    assert.deepEqual(calls, [], "leaving is local: the host's room is not closed");
 });
 
 // --- What the lobby foregrounds, from WatchPartyLobbyPolicy.primaryAction ---

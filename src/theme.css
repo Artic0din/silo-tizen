@@ -16,6 +16,9 @@
     --silo-text: #ededed;
     /* Apple's siloSecondaryText: primary text at 60%, about 6:1 on black. */
     --silo-secondary: rgba(237, 237, 237, 0.6);
+    /* Apple's siloSecondaryText.opacity(0.7) and (0.5). Chromium 108 has no color-mix(), so keep these in step with --silo-secondary by hand. */
+    --silo-secondary-muted: rgba(237, 237, 237, 0.42);
+    --silo-secondary-faint: rgba(237, 237, 237, 0.3);
     --silo-boundary: #767676;
     --silo-hairline: rgba(255, 255, 255, 0.12);
     --silo-selected: rgba(255, 255, 255, 0.14);

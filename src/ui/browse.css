@@ -1633,7 +1633,7 @@
 .watch-party-code { font-family: ui-monospace, Menlo, monospace; font-size: 30px; font-weight: 700; letter-spacing: 5.4px; }
 .watch-party-here { display: flex; flex-direction: column; gap: 32px; }
 .watch-party-here-heading { display: flex; align-items: baseline; gap: 25.6px; }
-.watch-party-presence { font-size: 20px; color: rgba(237,237,237,.42); }
+.watch-party-presence { font-size: 20px; color: var(--silo-secondary-muted); }
 .watch-party-seats { display: flex; align-items: flex-start; gap: 36px; }
 .watch-party-seat { display: flex; flex-direction: column; align-items: center; gap: 14px; width: 179px; }
 .watch-party-seat-avatar { position: relative; display: block; width: 146px; height: 146px; margin-top: 12.8px; }
@@ -1676,14 +1676,14 @@
 .watch-party-hero-dim { color: var(--silo-secondary); }
 .watch-party-facts { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 25px; white-space: nowrap; color: var(--silo-secondary); }
 .watch-party-facts-dot { opacity: .5; }
-.watch-party-chip { padding: 2px 6px; border: 1px solid rgba(237,237,237,.3); border-radius: 4px; font-size: 17px; font-weight: 600; }
-.watch-party-caption { margin: 0; font-size: 20px; color: rgba(237,237,237,.42); }
+.watch-party-chip { padding: 2px 6px; border: 1px solid var(--silo-secondary-faint); border-radius: 4px; font-size: 17px; font-weight: 600; }
+.watch-party-caption { margin: 0; font-size: 20px; color: var(--silo-secondary-muted); }
 .watch-party-lead { margin: 0; font-size: 26px; line-height: 32px; color: var(--silo-secondary); }
 .watch-party-overview { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; margin: 0; font-size: 24px; line-height: 34px; color: var(--silo-secondary); }
 .watch-party-room-footer { display: flex; align-items: flex-end; justify-content: space-between; gap: 40px; padding-bottom: 96px; }
 .watch-party-room-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 16px; }
 .watch-party-room-buttons { display: flex; gap: 18px; }
-.watch-party-hint { max-width: 620px; margin: 0; font-size: 20px; text-align: center; color: rgba(237,237,237,.42); }
+.watch-party-hint { max-width: 620px; margin: 0; font-size: 20px; text-align: center; color: var(--silo-secondary-muted); }
 .watch-party-icon-solid.watch-party-icon { width: 26px; height: 26px; }
 .watch-party-undo { font-size: 20px; font-weight: 600; opacity: .6; }
 .watch-party-room-body-vote { padding-top: 36px; }
@@ -1704,10 +1704,10 @@
 .watch-party-candidate-tick .watch-party-icon { width: 24px; height: 24px; fill: none; stroke: #000; stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round; }
 .watch-party-candidate-title { max-width: 100%; overflow: hidden; font-size: 26px; font-weight: 600; line-height: 32px; text-overflow: ellipsis; white-space: nowrap; color: var(--silo-text); }
 .watch-party-candidate-line { max-width: 100%; overflow: hidden; font-size: 20px; line-height: 25px; text-overflow: ellipsis; white-space: pre; color: var(--silo-secondary); }
-.watch-party-suggest-card .watch-party-candidate-poster { display: flex; align-items: center; justify-content: center; background: none; outline: 2px dashed rgba(237,237,237,.3); outline-offset: -2px; }
+.watch-party-suggest-card .watch-party-candidate-poster { display: flex; align-items: center; justify-content: center; background: none; outline: 2px dashed var(--silo-secondary-faint); outline-offset: -2px; }
 .watch-party-suggest-card .watch-party-icon { width: 72px; height: 72px; stroke-width: .8; color: var(--silo-secondary); }
 .watch-party-suggest-card .watch-party-candidate-title { color: var(--silo-secondary); }
-.watch-party-suggest-card .watch-party-candidate-line { color: rgba(237,237,237,.42); }
+.watch-party-suggest-card .watch-party-candidate-line { color: var(--silo-secondary-muted); }
 .watch-party-suggest-card:focus .watch-party-candidate-poster { background: rgba(255,255,255,.14); outline: 4px solid var(--silo-text); outline-offset: -4px; }
 .watch-party-suggest-card:focus .watch-party-icon { color: var(--silo-text); }
 .watch-party-here-compact .watch-party-seats { zoom: .625; }

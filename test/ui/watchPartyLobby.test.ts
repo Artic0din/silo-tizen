@@ -132,6 +132,8 @@ test("choosing a movie confirms it, stages it with the staged-selection call and
         assert.equal(await button(tv, "change").textContent(), "Change title", "the secondary button changes the pick");
         assert.equal(await tv.focused(), "start");
         assert.equal(await tv.page.locator(".watch-party-hint").textContent(), "Sam hasn't marked ready. You can still start.");
+        // Apple's siloSecondaryText (#EDEDED at 60%) at a further 70%.
+        assert.deepEqual(await tv.page.locator(".watch-party-caption, .watch-party-hint").evaluateAll(nodes => nodes.map(node => getComputedStyle(node).color)), ["rgba(237, 237, 237, 0.42)", "rgba(237, 237, 237, 0.42)"]);
     } finally { await tv.page.context().close(); }
 });
 

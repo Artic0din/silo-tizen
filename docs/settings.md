@@ -67,7 +67,8 @@ Off, an unsupported panel, a throwing probe, or a failed read of the HDR key the
 
 General ends with Apple's TOP MENU section: a Show Audiobooks switch and the footer `Adds an Audiobooks tab when an audiobook library is available.` (`TVGeneralSettingsView.swift`).
 `nav.show_audiobooks` is `client_local`, default off.
-The choice is stored on this TV for the current server, account and profile, and is never sent to the server.
+The choice is stored on this TV for the current server, account and profile, and is never sent to the server, as Apple's `AppNavPreferences` does.
+TOP MENU is the last section in General, as in Apple's `TVGeneralSettingsView`.
 The Audiobooks tab, and the Audiobooks filter in Search, need the switch on and an audiobook library the profile has not hidden.
 Settings returns to Home, so turning the switch off while on the tab leaves nothing stranded.
 

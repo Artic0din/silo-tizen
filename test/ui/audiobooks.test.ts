@@ -19,11 +19,12 @@ let browser: Browser;
 before(async () => { browser = await launchBrowser(); });
 after(async () => { await browser.close(); });
 
-function audiobookTest(name: string, body: (tv: Tv, catalog: FakeAudiobooks) => Promise<void>): void {
+function audiobookTest(name: string, body: (tv: Tv, catalog: FakeAudiobooks) => Promise<void>, setup?: (catalog: FakeAudiobooks) => void): void {
     test(name, async () => {
         const tv = await openTv(browser, { app: "browse" });
         try {
             const catalog = new FakeAudiobooks();
+            setup?.(catalog);
             tv.fake.catalog = catalog;
             await tv.page.emulateMedia({ reducedMotion: "reduce" });
             await tv.page.evaluate(() => window.browseHarness.connect());
@@ -196,6 +197,36 @@ audiobookTest("Audiobooks stays off until Show Audiobooks is on, then opens the 
     const first = await covers.first().getAttribute("data-focus");
     await covers.first().click();
     await showing(tv, `audiobook:${first}`);
+});
+
+const roots = (tv: Tv): Promise<string[]> => tv.page.locator(".skyline-roots [role=tab]").allInnerTexts();
+
+audiobookTest("Show Audiobooks adds no tab while the profile has no visible audiobook library", async tv => {
+    await showAudiobooks(tv);
+    assert.equal(await tv.focused(), "home", "leaving Settings lands on Home");
+    assert.deepEqual(await roots(tv), ["Home", "Movies", "Series", "For You", "Calendar"], "the switch alone adds nothing");
+}, catalog => {
+    const owner = catalog.households.get("p-owner");
+    if (owner === undefined) throw new Error("Missing synthetic household");
+    owner.hidden = [14, 15];
+});
+
+audiobookTest("the Audiobooks tab appears and goes with the switch and focus is never lost", async tv => {
+    await showAudiobooks(tv);
+    assert.equal(await tv.focused(), "home", "the new tab does not take focus");
+    await tv.remote(39); await tv.remote(39); await tv.remote(39);
+    assert.equal(await tv.focused(), "audiobooks", "Right walks the bar onto the new tab after Series");
+    await tv.page.locator('[data-focus="audiobooks"]').click();
+    await showing(tv, "library:14");
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.locator('[data-focus="settings"]').click();
+    const row = tv.page.locator('[data-focus="show-audiobooks"]');
+    await row.click();
+    assert.equal(await row.getAttribute("aria-checked"), "false");
+    await leaveSettings(tv);
+    assert.equal(await tv.page.locator('[data-focus="audiobooks"]').count(), 0, "the tab goes with the switch");
+    assert.deepEqual(await roots(tv), ["Home", "Movies", "Series", "For You", "Calendar"]);
+    assert.equal(await tv.focused(), "home", "turning the switch off from the Audiobooks tab returns focus to Home, not to nothing");
 });
 
 audiobookTest("the Audiobooks library Browse grid queries by library alone and offers Apple's audiobook sorts", async tv => {

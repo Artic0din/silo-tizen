@@ -263,6 +263,8 @@ Library types appear only when a matching visible library exists; mixed video li
 Music opens an explicit unavailable page because the existing catalog browser supports video queries only; it sends no library queries and offers Back.
 Saved menu order, omissions and library shortcuts no longer affect the bar.
 Audiobooks follows music in the bar and appears only with Show Audiobooks on and an audiobook library the profile has not hidden.
+The bar order is Apple's `Home · Movies · Series · Music · Audiobooks · For You · Calendar` (`TVMainTabView.swift`).
+The tab never takes focus when it appears, and turning the switch off from the Audiobooks tab returns to Home with focus on the Home tab (`TVMainTabView.ensureSelectedRootIsVisible`).
 It opens the same Recommended, Collections and Browse cascade as the video tabs, with square covers, and Browse offers Apple's audiobook sorts (Title, Author, Narrator, Series, Date Added, Runtime) and sends no `type`.
 Home, For You and Search open an audiobook card on its own detail: cover, author and narrator, chapters, a state line and Resume, Play or Play Again.
 Play, Resume and Start Over are drawn but inert until the player can open an audiobook.

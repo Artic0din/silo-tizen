@@ -153,3 +153,39 @@ journey("an expired session on Explore all offers Sign In Again first and Try Ag
     await tv.page.keyboard.press("Enter");
     await tv.eventually(async () => await tv.page.evaluate(() => window.browseHarness.signOutCalls) === 1, "Sign In Again signs out");
 }, true);
+
+/** The Samsung TV simulator's platform rule; the error page must still draw the app's body font. */
+const PLATFORM_FONT = "*{font-family:SamsungOne;font-weight:600}";
+
+async function assertAppFont(tv: Tv): Promise<void> {
+    const fonts = await tv.page.evaluate(() => {
+        // app.css gives body `var(--silo-font)`; this harness loads only theme and browse styles, so a probe stands in for body.
+        const probe = document.createElement("span");
+        probe.style.fontFamily = "var(--silo-font)";
+        document.body.appendChild(probe);
+        const body = getComputedStyle(probe).fontFamily;
+        probe.remove();
+        const page = document.querySelector(".details-failure");
+        const nodes = page === null ? [] : [page.querySelector(".search-state-title"), page.querySelector(".search-state-description"), ...page.querySelectorAll(".browse-button")];
+        return { body, nodes: nodes.map(node => node === null ? "missing" : getComputedStyle(node).fontFamily) };
+    });
+    assert.ok(fonts.nodes.length >= 3, "title, message and a button");
+    for (const font of fonts.nodes) assert.equal(font, fonts.body);
+    assert.equal(await tv.page.locator(".details-failure .search-state-description").evaluate(node => getComputedStyle(node).fontWeight), "400");
+}
+
+journey("the Not found and Explore all error pages keep the app's font under the platform's font rule", async (tv, catalog) => {
+    await tv.page.addStyleTag({ content: PLATFORM_FONT });
+    catalog.removed.add("movie:m0004");
+    await tv.page.locator(CARD).click();
+    await tv.page.locator('[data-view="item:failed"]').waitFor();
+    await assertAppFont(tv);
+    await tv.remote(BACK);
+    await tv.page.locator('[data-view="home"]').waitFor();
+    await tv.page.route("**/api/v2/catalog/query**", route => route.request().method() === "POST" && route.request().postDataJSON()?.source === "section"
+        ? route.fulfill({ status: 500, contentType: "application/problem+json", body: JSON.stringify(SERVER_PROBLEM) })
+        : route.fallback());
+    await tv.page.locator('[data-focus="expand:recent/12"]').click();
+    await errorPage(tv);
+    await assertAppFont(tv);
+});

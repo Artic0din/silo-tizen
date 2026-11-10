@@ -236,3 +236,18 @@ audiobookTest("with Show Audiobooks on, Search offers Audiobooks, names no scope
     await book.click();
     await showing(tv, "audiobook:audiobook:dune");
 });
+
+audiobookTest("reopening a book from its own rail starts at Play and Back restores the rail card", async tv => {
+    await tv.page.locator(`[data-section="shelf"] [data-focus="${TIDE}"]`).click();
+    await showing(tv, `audiobook:${TIDE}`);
+    const rail = tv.page.locator(`.audiobook-rail [data-focus="${TIDE}"]`);
+    await rail.focus();
+    await tv.jump(500);
+    await rail.click();
+    await tv.eventually(async () => { await tv.jump(500); return (await view(tv)) === `audiobook:${TIDE}`; }, "the nested detail");
+    assert.equal(await tv.focused(), "play", "a fresh presentation starts at its primary action");
+    assert.equal(await tv.page.locator(".browse").evaluate(node => node.scrollTop), 0, "a fresh presentation starts at the hero");
+    await tv.remote(BACK);
+    await showing(tv, `audiobook:${TIDE}`);
+    await tv.eventually(async () => (await tv.focused()) === TIDE, "the outer page's rail card");
+});

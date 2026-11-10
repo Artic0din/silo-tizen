@@ -1890,7 +1890,6 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     const open = (destination: Destination): void => {
         if (destination.kind === "item") host.forgetVisit(`item:${destination.id}`);
         if (destination.kind === "person") host.forgetVisit(`person:${destination.id}`);
-        if (destination.kind === "audiobook") host.forgetVisit(`audiobook:${destination.id}`);
         if (destination.kind === "audiobook") { push(newRoute({ kind: "audiobook", id: destination.id, title: destination.title, data: undefined })); return; }
         push(destination.kind === "item"
             ? newRoute({ kind: "item", id: destination.id, title: destination.title, ...(destination.seriesContext === undefined ? {} : { seriesContext: destination.seriesContext }), data: undefined })
@@ -2028,7 +2027,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             const removedEpisodeRetry = host.focused()?.key === "retry-episodes" && !view.zones.some(zone => zone.items.some(item => item.key === "retry-episodes"));
             host.holdVisit();
             shell.hide();
-            if (current.kind === "item") {
+            if (current.kind === "item" || current.kind === "audiobook") {
                 let visitKey = detailVisits.get(current);
                 if (visitKey === undefined) {
                     visitKey = `details-visit:${++detailVisitSequence}`;

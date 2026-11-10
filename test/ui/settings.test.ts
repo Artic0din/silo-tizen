@@ -655,6 +655,9 @@ test("Subtitles, the profile account line and sign-out confirmation follow Apple
         assert.equal(await tv.page.locator(".settings-version").textContent(), "Silo 0.0.1");
         assert.equal(await tv.page.getByRole("button", { name: /Diagnostics/ }).count(), 0);
         assert.equal(await tv.page.locator('[data-focus="subtitles"] .settings-category-detail').textContent(), "Language and appearance");
+        // Apple's siloSecondaryText is #EDEDED at 60%.
+        const secondary = await tv.page.locator('.settings-version, [data-focus="subtitles"] .settings-category-detail').evaluateAll(nodes => nodes.map(node => getComputedStyle(node).color));
+        assert.deepEqual(secondary, ["rgba(237, 237, 237, 0.6)", "rgba(237, 237, 237, 0.6)"]);
         await tv.page.locator('[data-focus="subtitles"]').click();
         assert.equal(await tv.page.locator(".settings-blurb").textContent(), "Language, behavior, and on-screen appearance.");
         assert.equal(await tv.page.locator('[data-focus="subtitle-language"] .settings-row-value').textContent(), "None");

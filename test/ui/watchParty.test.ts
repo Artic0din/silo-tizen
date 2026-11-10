@@ -1,40 +1,15 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import type { Browser } from "playwright";
-import { FakeSettings } from "../native/support/fakeSettings.ts";
 import { FakeWatchParty } from "../native/support/fakeWatchParty.ts";
 import { problem } from "../native/support/fakeSilo.ts";
 import { launchBrowser, openTv, type Tv } from "./support/tv.ts";
+import { button, menuTitles, openHub, pressDisabled, start } from "./support/watchParty.ts";
 
 let browser: Browser;
 before(async () => { browser = await launchBrowser(); });
 after(async () => { await browser.close(); });
 
-async function start(tv: Tv, fake = new FakeWatchParty(), enabled = true, beforeMount: () => void = () => undefined): Promise<FakeWatchParty> {
-    tv.fake.catalog = fake;
-    new FakeSettings(tv.fake);
-    await tv.page.evaluate(() => window.browseHarness.connect());
-    await tv.eventually(async () => tv.fake.devices.size > 0, "device code");
-    tv.fake.approve([...tv.fake.devices.keys()][0] ?? ""); await tv.jump(5000);
-    await tv.eventually(async () => await tv.page.evaluate(() => window.browseHarness.loginPhase === "signed_in"), "signed in");
-    await tv.page.evaluate(() => window.browseHarness.selectProfile("p-owner"));
-    beforeMount();
-    await tv.page.evaluate(on => { window.browseHarness.setExperimental("watchParty", on); window.browseHarness.mount(true); }, enabled);
-    await tv.page.locator('.browse[data-view="home"] .browse-card').first().waitFor();
-    return fake;
-}
-const button = (tv: Tv, key: string) => tv.page.locator(`[data-focus="${key}"]`).last();
-// A synchronous DOM click: Playwright's forced click can land on a button the page has just rebuilt and report it not visible.
-const pressDisabled = (tv: Tv, key: string) => tv.page.evaluate(focus => { [...document.querySelectorAll<HTMLElement>(`[data-focus="${focus}"]`)].at(-1)?.click(); }, key);
-const menuTitles = async (tv: Tv): Promise<string[]> => {
-    if (!(await button(tv, "settings").isVisible())) await button(tv, "profiles").click();
-    return await tv.page.locator('.skyline-selector [role="menuitem"]').allTextContents();
-};
-async function openHub(tv: Tv): Promise<void> {
-    if (!(await button(tv, "watch-party").isVisible())) await button(tv, "profiles").click();
-    await button(tv, "watch-party").click();
-    await tv.page.locator('.browse[data-view="watchParty:hub"]').waitFor();
-}
 async function leaveSettings(tv: Tv): Promise<void> {
     for (let step = 0; step < 4 && !(await tv.page.locator('.browse[data-view="home"]').isVisible()); step++) await tv.remote(10009);
     await tv.page.locator('.browse[data-view="home"]').waitFor();
@@ -205,7 +180,7 @@ test("Start a party creates a host-pick room and shows the code and members the 
         assert.equal(fake.createdRooms[0]?.selection_mode, "host_pick");
         assert.match(String(fake.createdRooms[0]?.room_id), /^[0-9a-f-]{36}$/);
         assert.equal(await tv.page.locator(".watch-party-code").textContent(), "K7M2QX");
-        assert.deepEqual(await tv.page.locator(".watch-party-seat-name").allTextContents(), ["Owner", "Sam"]);
+        assert.deepEqual(await tv.page.locator(".watch-party-seat:not(.watch-party-seat-invite) .watch-party-seat-name").allTextContents(), ["Owner", "Sam"]);
         assert.deepEqual(await tv.page.locator(".watch-party-seat-detail").allTextContents(), ["Host · You", "not ready"]);
         assert.equal(await tv.page.locator(".watch-party-presence").textContent(), "1 of 2 ready");
         await tv.remote(10009);

@@ -1,12 +1,12 @@
 # Watch Party
 
 Apple's Watch Party is an experimental feature.
-This client has the opt-in, the capability check, the hub and a placeholder lobby.
-The full lobby, the room socket and synchronized playback are not built (issue #54).
+This client has the opt-in, the capability check, the hub and the lobby over HTTP.
+The room socket and synchronized playback are not built (issue #54).
 
 ## Reference
 
-Source revision: silo-apple `main` at `650a0b8a4a16601a9549d54d92d7c6d2f11e64eb`, tvOS paths only.
+Source revision: silo-apple `main` at `650a0b8a4a16601a9549d54d92d7c6d2f11e64eb` for the opt-in, gate and hub, and at `2a9a1b322573fe6476fd63cc7d707172ff0cc5a0` for the lobby, tvOS paths only.
 This is not the installed Apple TV build.
 
 | Behaviour | Apple source |
@@ -17,6 +17,10 @@ This is not the installed Apple TV build.
 | Profile menu row | `tvOS/Navigation/TVTopMenuBar.swift` (`TVProfileDropdown`) |
 | Hub layout and copy | `Screens/WatchParty/WatchPartyHubView.swift` (`WatchPartyEntryView.tvLayout`), `WatchPartyComponents.swift` |
 | Error text, busy state, ending a party | `WatchParty/WatchPartySession.swift` (`enter`, `endParty`), `Networking/APIv2/APIv2Client.swift` (`APIv2Error.localizedDescription`) |
+| Lobby layout, copy and focus | `Screens/WatchParty/WatchPartyHubView.swift` (`WatchPartyLobbyView.tvLobby`, `WatchPartyHostControlsOverlay`, `WatchPartyEndConfirmation`), `WatchPartyComponents.swift` (`WatchPartyMetrics`, `WatchPartySeatsRow`, `WatchPartyCodePill`) |
+| Lobby rules | `WatchParty/WatchPartyLobbyState.swift` (`WatchPartyLobbyPolicy`), `WatchPartySession.swift` (`canStartPlayback`, `select`, `startPlayback`, `stopPlayback`, `setMode`, `setPolicy`, `mutate`) |
+| Invitation | `Screens/WatchParty/WatchPartyInviteView.swift`, `WatchPartyLobbyPolicy.inviteURL` |
+| Picker | `Screens/WatchParty/WatchPartyMediaPicker.swift` (`WatchPartyMediaPicker`, `WatchPartyEpisodePicker`, `WatchPartyMediaChoiceView`) |
 
 ## Opt-in
 
@@ -47,19 +51,62 @@ A disabled button takes no focus: it leaves the focus order, and the page opens 
 Done on the Tizen keyboard moves focus from the code field to Join party.
 A refused create or join shows the server's own text, as Apple does, including for 403 and 404.
 
-## Placeholder lobby
+## Lobby
 
-Create and join show a lobby from the room the create or join answered with, as Apple does: the code in Apple's code pill and the members as seats, with Apple's seat states and the "n of m ready" summary.
-Back as the host ends the room with `DELETE /watch-together/rooms/{id}`, so a started party is not left open (Apple refuses a new party while one is open).
-Leaving the Watch Party page from the lobby does the same.
-A room that already ended (409) is not an error; any other failure shows "Could not end the party." on the hub.
-The next Start a party or Join party waits for a close still in flight and retries one that failed, and starts nothing while the close keeps failing.
-A guest has no HTTP leave, so Back as a guest calls nothing.
+Create and join open the lobby from the room the create or join answered with.
+It is a full-screen page with no top bar, as on tvOS: Back steps through its pages and leaves from the lobby itself.
+Layout and copy are `WatchPartyLobbyView.tvLobby` at 1920×1080: the Watch Party title with the presence dot, the code pill and Options at the top right, the hero (eyebrow, title, facts, who chose it, overview) at the left, the seats at the bottom left and the buttons with an advisory hint at the bottom right.
+The backdrop is the chosen title's backdrop, else its poster blurred; an episode's own still and description are never shown, because Apple hides them by the viewer's spoiler setting and this client does not read it.
+
+### Room state
+
+Apple's session never polls the room: it takes the room from each host change and, after that, from the socket.
+There is no manual refresh in Apple, so this client has none.
+Until the socket exists the lobby shows the room as the last answer left it, so presence, readiness and the host's picks made on another device do not update on their own.
+A guest therefore sees the room as it was when they joined.
+The presence dot reads the room: "Host away" for a guest when the host is not connected, "Open" for one member here and "N here" otherwise.
+
+### Host
+
+The primary button follows `WatchPartyLobbyPolicy.primaryAction`: Choose a title, Change title, Start for everyone, Return to playback, or Return everyone to lobby. A guest whose profile cannot see the playing title gets no button, as in Apple.
+Change title sits beside Start for everyone.
+Focus opens on the primary button, and on the code pill when there is none.
+One change runs at a time and a second is ignored while it runs, so the controls stay enabled and focus is not thrown out.
+A refused change shows the server's text in the warning banner and keeps the room.
+A start or live selection whose answer is lost reads the room again (`GET /rooms/{id}`), because the contract marks both non-retryable and the server may have applied them, and counts as done when the room shows it took effect, so it is not sent twice.
+
+- Choose a title opens the picker (below). Choosing stages the title with `PUT /staged-selection` in a host-pick lobby when the server has `staged_selection`, and otherwise, or once the party is playing, sets it with `PUT /selection`. The chosen title shows at once from the pick and is then read from the catalog.
+- Start for everyone needs a staged title and `staged_selection`, as Apple's `canStartPlayback` does. It calls `POST /playback/start` and, when the room answers `playing` with a file, opens the existing player on that file from the room's anchor, pinned to that file so an alternate version cannot play. Choosing a title for a party that is already playing does the same. There is no synchronization: the player plays on its own. Return to playback opens it again.
+- Party options (Back closes it; it opens on Close): Who chooses (needs `selection_mode_switch` and a lobby), Playback controls (Host only or Guests can play and pause), Return everyone to lobby (needs `stop_playback` and a playing party), End party for everyone and Leave party. Rows stay enabled while a change runs.
+- End party for everyone asks "End this party for everyone?" first, then closes the room with `DELETE` and returns to the hub with "This party has ended.". A refused close keeps the room and shows the reason.
+- Back from the lobby ends the host's room, as before, so a started party is not left open. Apple's Leave party only drops the local connection and asks nothing; with no room socket the host's Leave party would end the room, so it opens the End party confirmation instead.
+
+### Guest
+
+A guest sees the hero, the seats, the code and Options with Leave party and Close only; there is no Ready button and no action.
+Leave party and Back exit the room screen and call nothing: a guest has no HTTP leave, and the socket close that leaves is not built.
+
+### Picker
+
+Choose a title opens the picker, which reads `GET /rooms/{id}/picker` with the room token: Continue Together, then On Your Watchlists.
+A server without the `picker` flag shows the viewer's own watchlist instead.
+Focus opens on the first title once the shelves arrive.
+A series the group is part-way through goes to its next episode; any other series opens its seasons as tabs over the chosen season's episodes, with the first season that is not specials selected.
+A confirmation page then shows the title and stages it with Choose for the party, or Play for everyone when the party is already playing.
+A failed read shows the reason with Try Again, under any shelves an earlier read left.
+
+### Invitation
+
+The code pill and the Invite seat open the invitation: the code, "Join with this code", and Done.
+When the room carries an invitation path that is a `/rooms/join` link with one token on this server (`WatchPartyLobbyPolicy.inviteURL`), a QR code for phones is drawn on the TV and "Or scan to open the invitation on a phone." shows.
+Joining by pasted link is still refused, as the native contract joins by code.
 
 ## Not built
 
-- Invitation links.
-  The native contract joins by code, so a pasted link gets Apple's "This Watch Party invitation is invalid." message.
+- The room socket: live presence, readiness, other members' changes, synchronized playback, and the socket close that is a guest's leave.
+- Ready for guests, voting, suggestions and the host's Everyone votes ballot. A vote room shows a banner that voting is not available on this TV, and Who chooses can switch it back to Host chooses.
+- The picker's search, Home's discovery rows, Recently Added shelves and each member's viewing history ("Who's seen it").
+- Episode spoiler protection in the lobby and picker.
+- Invitation links pasted into the code field.
 - Rejoin recent, and the Return to Watch Party label.
-- The Invite seat, the room socket, title selection, voting, Ready, host controls and playback.
 - The Details and episode Watch Party action.

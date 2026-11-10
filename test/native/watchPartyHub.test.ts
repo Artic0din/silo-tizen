@@ -5,6 +5,7 @@ import { decodePlaybackCapabilities, type PlaybackCapabilities } from "../../src
 import { decodeRoomAccess, decodeWatchTogetherCapabilities, type RoomAccess, type WatchTogetherCapabilities } from "../../src/contracts/v2/watchTogether.ts";
 import { supportsSynchronizedParty, WatchPartyHub, type WatchPartyApi } from "../../src/ui/watchPartyHub.ts";
 import { MemoryPublicStorage } from "./support/keyManager.ts";
+import { unusedLobbyOperations } from "./support/watchPartyApi.ts";
 import { fixture } from "./support/fakeSilo.ts";
 import { ApiError } from "../../src/api/errors.ts";
 
@@ -42,6 +43,7 @@ function fakeApi(over: Partial<WatchPartyApi> = {}): { api: WatchPartyApi; calls
         createRoom: async (roomId, mode) => { calls.names.push("create"); calls.create.push({ roomId, mode }); return access(); },
         joinByCode: async code => { calls.names.push("join"); calls.join.push(code); return access(code); },
         closeRoom: async roomId => { calls.names.push("close"); calls.closed.push(roomId); },
+        ...unusedLobbyOperations,
         ...over,
     };
     return { api, calls };
@@ -222,7 +224,7 @@ test("a second tap while a request runs is ignored", async () => {
     assert.deepEqual(calls.join, []);
 });
 
-test("leaving the placeholder lobby returns to the entry and clears the message", async () => {
+test("leaving the lobby returns to the entry and clears the message", async () => {
     const { api } = fakeApi();
     const hub = new WatchPartyHub(api, () => undefined, { supported: true });
     await hub.create("host_pick");

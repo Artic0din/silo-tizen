@@ -33,7 +33,7 @@ export type JsonValue = null | string | number | boolean | readonly JsonValue[] 
 export type JsonBody = { readonly [key: string]: JsonValue | undefined };
 
 export interface RequestSpec<T> {
-    readonly method: "GET" | "POST" | "PUT" | "DELETE";
+    readonly method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
     /** Operation path below /api/v2, starting with "/". */
     readonly path: string;
     readonly retry: RetryPolicy;

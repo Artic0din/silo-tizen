@@ -339,7 +339,7 @@ export class FakeCatalog implements CatalogRoutes {
         return { status: 200, body: { window_cursor: "window", items, page, total: matches.length, total_exact: true } };
     }
 
-    private card(id: string): Record<string, unknown> {
+    protected card(id: string): Record<string, unknown> {
         const title = this.mustTitle(id);
         const template = toRecord(arrayOf(fixture("list_catalog_items_ok").items)[0]);
         const series = title.seriesId === undefined ? undefined : this.titles.get(title.seriesId);

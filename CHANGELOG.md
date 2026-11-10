@@ -33,6 +33,7 @@ All notable changes to this project are documented in this file.
 ### Changed
 
 - The player's subtitle options now use Apple TV's wording: Search Subtitles…, and pickers titled Subtitle Delay, Subtitle Size, Subtitle Position, Subtitle Style, Subtitle Font, Text Color, Text Opacity, Outline Color, Background Color and Background Opacity.
+- Secondary text, such as counts, settings descriptions and metadata lines, now uses Apple TV's colour: the primary text colour at 60%, instead of a lighter flat grey. Watch Party captions, hints, presence and suggestion lines use the same colour at Apple's lower strengths.
 - Details starts the highest-resolution version, honouring the Resolution cap in Playback settings, and lists versions as resolution, video codec, DV or HDR, and audio codec, as Apple TV does. It no longer starts the first version the server lists, and no longer prints the edition in the Version list.
 - The next episode, On Deck and shuffle picks start the file that fits the Resolution cap, as Apple TV does, instead of the last-played or first-listed file.
 - Change Account and Settings › Accounts now list the open server first, then servers and accounts by last use, as Apple TV does. Settings no longer shows "0 profiles", a card spins while its account opens, and SIGN IN AGAIN uses the warning colour with an open lock and a dimmed tile.

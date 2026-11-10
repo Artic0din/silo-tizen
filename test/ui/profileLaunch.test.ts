@@ -16,6 +16,15 @@ async function picker(tv: Tv): Promise<void> {
     await tv.page.locator('[data-screen="profiles"]').waitFor();
 }
 
+/** Remounts the app and returns the name of the profile that launch opens without the picker. */
+async function relaunchedProfile(tv: Tv): Promise<string | null> {
+    await tv.page.evaluate(() => window.appHarness.mount());
+    await tv.page.locator('[data-view="home"]').waitFor();
+    assert.equal(await tv.page.locator('[data-screen="profiles"]').count(), 0, "launch skips the picker");
+    await tv.page.locator('[data-focus="profiles"]').click();
+    return tv.page.locator(".skyline-profile-title").textContent();
+}
+
 async function selectKid(tv: Tv): Promise<void> {
     await tv.page.locator('[data-focus="profile:p-kid"]').click();
     await pressPin(tv.page, "2468");
@@ -337,6 +346,7 @@ test("remember save failure is visible and Remember retries it", async () => {
         await tv.page.evaluate(() => { window.appHarness.keyManager.failSave = false; });
         await tv.page.keyboard.press("Enter");
         await tv.page.locator('[data-view="home"]').waitFor();
+        assert.equal(await relaunchedProfile(tv), "Kid", "the retried Remember was saved for Kid");
         assert.equal(tv.fake.requests.filter(request => request.path.endsWith("/verify-pin")).length, 1);
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); await browser.close(); }
@@ -384,9 +394,8 @@ test("Back after a failed re-save while switching keeps the remembered launch ch
         await tv.remote(10009);
         await tv.page.locator('[data-screen="profiles"]').waitFor();
         assert.equal(await tv.focused(), "profile:p-kid", "Back returns focus to the chosen profile");
-        await tv.page.evaluate(() => { window.appHarness.keyManager.failSave = false; window.appHarness.mount(); });
-        await tv.page.locator('[data-view="home"]').waitFor();
-        assert.equal(await tv.page.locator('[data-screen="profiles"]').count(), 0, "the remembered profile still opens at launch");
+        await tv.page.evaluate(() => { window.appHarness.keyManager.failSave = false; });
+        assert.equal(await relaunchedProfile(tv), "Laura", "Laura stays the remembered profile");
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); await browser.close(); }
 });

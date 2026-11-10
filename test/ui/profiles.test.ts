@@ -120,12 +120,16 @@ tvTest("a focused profile tile follows ProfileTile: the name drops by an offset 
         node.blur();
         node.focus();
         const ring = getComputedStyle(face, "::after");
+        // Hit testing follows paint order: 9 px left of the face lies inside the ring at either scale, and lands on the
+        // face (its ::after) only while the ring paints above the picker's background.
+        const box = face.getBoundingClientRect();
+        const ringHit = document.elementFromPoint(box.left - 9, box.top + box.height / 2) === face;
         const glyph = getComputedStyle(lock, "::before");
         return {
             label: node.getAttribute("aria-label"),
             drop: getComputedStyle(name).transform,
             nameColor: getComputedStyle(name).color,
-            ring: [ring.zIndex, ring.borderTopColor, ring.opacity],
+            ring: [ring.zIndex, ring.borderTopColor, ring.opacity, ringHit],
             kids: [getComputedStyle(kids).height, getComputedStyle(kids).fontWeight, getComputedStyle(kids).borderRadius],
             lock: [getComputedStyle(lock).backgroundColor, glyph.left, glyph.top, glyph.width, glyph.height, glyph.backgroundColor],
         };
@@ -133,10 +137,17 @@ tvTest("a focused profile tile follows ProfileTile: the name drops by an offset 
     assert.equal(tile.label, "Kid, PIN protected, Kids profile");
     assert.equal(tile.drop, "matrix(1, 0, 0, 1, 0, 18)");
     assert.equal(tile.nameColor, "rgb(237, 237, 237)");
-    assert.deepEqual(tile.ring, ["-1", "rgb(237, 237, 237)", "1"]);
+    assert.deepEqual(tile.ring, ["-1", "rgb(237, 237, 237)", "1", true]);
     assert.deepEqual(tile.kids, ["36px", "800", "18px"]);
     assert.deepEqual(tile.lock, ["rgb(28, 28, 30)", "19px", "27px", "18px", "13px", "rgba(237, 237, 237, 0.75)"]);
     assert.equal(await tv.page.locator('[data-focus="add-profile"] .profile-name').textContent(), "Add");
+    // Reduced motion drops the focus transform, so only the face's own stacking context keeps the ring painted.
+    await tv.page.emulateMedia({ reducedMotion: "reduce" });
+    const reducedRingHit = await tv.page.locator('[data-focus="profile:p-kid"] .profile-face').evaluate(face => {
+        const box = face.getBoundingClientRect();
+        return [getComputedStyle(face).transform, document.elementFromPoint(box.left - 9, box.top + box.height / 2) === face];
+    });
+    assert.deepEqual(reducedRingHit, ["none", true], "the ring stays visible without the focus scale");
 });
 
 let browser: Browser;

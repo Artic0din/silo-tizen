@@ -306,6 +306,31 @@ test("Back while the seasons are still loading is not undone when they arrive", 
     assert.equal(hub.state.seasons === undefined || hub.state.episodes === undefined, true, "nothing from the abandoned page is kept");
 });
 
+test("End party while a change is still running closes the room once that change settles", async () => {
+    let release: () => void = () => undefined;
+    const { hub, calls } = lobby({ setGuestControlPolicy: () => new Promise(resolve => { release = () => resolve(roomAccess({ guest_control_policy: "guest_play_pause" })); }) });
+    await hub.create("host_pick");
+    const change = hub.setPolicy("guest_play_pause");
+    const ending = hub.endParty();
+    release();
+    await Promise.all([change, ending]);
+    assert.equal(hub.state.room, undefined, "the party ended instead of the confirmation being swallowed");
+    assert.deepEqual(calls, [`close ${ROOM_ID}`]);
+});
+
+test("Try Again on an empty season list asks the server for the seasons again", async () => {
+    const season = { id: "s1", seasonNumber: 1, title: "Season 1", episodeCount: 1, posterUrl: undefined, isSpecials: false };
+    let reads = 0;
+    const { hub } = lobby({ seasons: async () => { reads++; return reads === 1 ? [] : [season]; }, episodes: async () => [] });
+    await hub.create("host_pick");
+    const series = decodeCard({ content_id: "series:s1", type: "series", title: "Harbor Lights" }, "card");
+    await hub.openEpisodes(series);
+    assert.deepEqual(hub.state.seasons, []);
+    await hub.openEpisodes(series, undefined, true);
+    assert.equal(reads, 2);
+    assert.equal(hub.state.seasons?.length, 1);
+});
+
 test("an older season's episodes cannot land after a newer season was asked for", async () => {
     const seasonOf = (n: number) => ({ id: `s${n}`, seasonNumber: n, title: `Season ${n}`, episodeCount: 1, posterUrl: undefined, isSpecials: false });
     const episodeOf = (n: number) => ({ id: `episode:${n}`, seasonNumber: n, episodeNumber: 1, title: "One", runtimeMinutes: 40, stillUrl: undefined, played: false });

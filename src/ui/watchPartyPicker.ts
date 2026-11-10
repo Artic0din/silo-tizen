@@ -138,7 +138,7 @@ export function episodesView({ hub, baseUrl }: PickerContext, series: Card, seas
         zones.push({ id: "seasons", layout: "row", items: tabs });
         page.appendChild(zoneNode("browse-row watch-party-season-tabs", tabs));
     }
-    const retry = actionButton("episodes-retry", "Try Again", () => { void hub.openEpisodes(series, season); });
+    const retry = actionButton("episodes-retry", "Try Again", () => { void hub.openEpisodes(series, season, true); });
     if (cards.length > 0) {
         zones.push({ id: "episode-rail", layout: "row", items: cards });
         page.appendChild(zoneNode("browse-row watch-party-episode-rail", cards));

@@ -95,6 +95,7 @@ export class WatchPartyHub {
     private unclosed: Room | undefined;
     private closing: Promise<boolean> | undefined;
     private refocus = false;
+    private ending = false;
 
     constructor(api: WatchPartyApi, notify: () => void, options: WatchPartyHubOptions = {}) {
         this.api = api;
@@ -221,7 +222,9 @@ export class WatchPartyHub {
     /** WatchPartySession.endParty: closes the room for everyone, then leaves it with Apple's "This party has ended.". */
     async endParty(): Promise<void> {
         const room = this.state.room;
-        if (room?.selfCanManageRoom !== true || this.state.busy || this.stopped) return;
+        // Not gated on a running change: the confirmation has closed, so a swallowed End would leave the host with no feedback. The change's answer is dropped once the room is gone.
+        if (room?.selfCanManageRoom !== true || this.ending || this.stopped) return;
+        this.ending = true;
         this.state.busy = true;
         this.state.error = undefined;
         this.notify();
@@ -235,6 +238,7 @@ export class WatchPartyHub {
         } catch (error) {
             if (!this.stopped) this.state.error = this.describe(error);
         } finally {
+            this.ending = false;
             if (!this.stopped) { this.state.busy = false; this.notify(); }
         }
     }
@@ -260,11 +264,11 @@ export class WatchPartyHub {
         this.notify();
     }
 
-    /** The series' seasons with one season's episodes: the one asked for, else the first that is not specials. */
-    async openEpisodes(series: Card, wanted?: Season): Promise<void> {
+    /** The series' seasons with one season's episodes: the one asked for, else the first that is not specials. `refreshSeasons` reads the seasons again. */
+    async openEpisodes(series: Card, wanted?: Season, refreshSeasons = false): Promise<void> {
         const epoch = ++this.browseEpoch;
         const sameSeries = this.state.page.kind === "episodes" && this.state.page.series.id === series.id;
-        Object.assign(this.state, { page: { kind: "episodes", series, season: wanted }, episodes: undefined, browseLoading: true, browseError: undefined, ...(sameSeries ? {} : { seasons: undefined }) });
+        Object.assign(this.state, { page: { kind: "episodes", series, season: wanted }, episodes: undefined, browseLoading: true, browseError: undefined, ...(sameSeries && !refreshSeasons ? {} : { seasons: undefined }) });
         this.notify();
         await this.browse(epoch, async signal => {
             const seasons = this.state.seasons ?? await this.api.seasons(series.id, signal);

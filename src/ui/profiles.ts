@@ -389,7 +389,7 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
             const retry = button("retry", "Try Again", () => showList());
             const change = button("change-account", "Change account", options.onChangeServer);
             const out = signOutButton(() => showReset("signout"));
-            change.element.prepend(navigationIcon("switch-server"));
+            change.element.prepend(navigationIcon("switch-profile"));
             out.element.prepend(navigationIcon("signout"));
             const retryRow = actions([retry]);
             const footer = el("div", "profile-footer");

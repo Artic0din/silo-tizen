@@ -70,6 +70,22 @@ tvTest("the profile picker uses source-sized circular avatars and centered accou
     assert.equal(await tv.page.getByRole("button", { name: "Add", exact: true }).isVisible(), true);
 });
 
+tvTest("the Change account footer button draws Apple's two-person person.2 glyph", async tv => {
+    const footerIcons = (): Promise<(string | null | undefined)[]> => tv.page.evaluate(() => [...document.querySelectorAll(".profile-footer button")].map(button => button.querySelector("svg path")?.getAttribute("d")));
+    const expected = [
+        "M8 3A4 4 0 1 1 8 11 4 4 0 0 1 8 3ZM1 22V18C1 12 15 12 15 18V22M18 4A4 4 0 0 1 18 12M19 15C23 15 23 19 23 22",
+        "M10 3H3V21H10M8 12H22M17 7 22 12 17 17",
+    ];
+    await picker(tv);
+    assert.deepEqual(await footerIcons(), expected, "Change account shows two people, not a server stack; Sign out keeps its arrow");
+    tv.fake.passwordChangeRequired = true;
+    tv.fake.expireAccessTokens();
+    await tv.page.evaluate(() => window.harness.mount());
+    await screenIs(tv, "profiles-error");
+    assert.deepEqual(await footerIcons(), expected, "the reset refusal reuses the picker's footer");
+    assert.equal(await tv.focused(), "change-account");
+});
+
 tvTest("profile rows stay still when focus moves on Who's watching", async tv => {
     await tv.page.emulateMedia({ reducedMotion: "reduce" });
     tv.fake.profiles = { ...tv.fake.profiles, items: Array.from({ length: 6 }, (_, index) => profile(`p-${index}`, `Profile ${index}`)) };

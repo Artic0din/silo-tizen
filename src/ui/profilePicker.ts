@@ -91,7 +91,8 @@ export function profilePickerScreen(options: PickerOptions): Screen {
     const footer = el("div", "profile-footer");
     const change = button("change-server", "Change account", options.changeServer);
     const out = button("signout", "Sign out", options.signOut);
-    change.element.prepend(navigationIcon("switch-server"));
+    // ProfileSelectionView labels Change account with SF Symbol person.2, the two-person glyph Switch Profile uses.
+    change.element.prepend(navigationIcon("switch-profile"));
     out.element.prepend(navigationIcon("signout"));
     footer.append(change.element, out.element);
     const footerRow = Math.ceil((options.profiles.length + 1) / columns);

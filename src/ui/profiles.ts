@@ -93,7 +93,7 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
             backdrop.setStage(marqueeScene.stage);
             host = new ScreenHost(root, undefined, backdrop.element);
         }
-        root.classList.toggle("profile-picker", screen.name === "profiles");
+        root.classList.toggle("profile-picker", screen.name === "profiles" || screen.name === "remember-profile");
         root.classList.toggle("profile-editor", screen.name === "profile-create");
         root.classList.toggle("profile-pin", screen.name === "pin");
         host.show(screen, focus);
@@ -248,9 +248,28 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
         );
     };
 
+    /** The picker's last list, drawn dimmed and inert behind an alert, as tvOS keeps Who's watching under `.alert`. */
+    let shownList: readonly ProfileSummary[] | undefined;
+    const pickerBehind = (): HTMLElement => {
+        const behind = el("div", "signin-behind");
+        behind.setAttribute("aria-hidden", "true");
+        if (shownList !== undefined) {
+            const inert = (): void => undefined;
+            const copy = profilePickerScreen({ profiles: shownList, baseUrl: server.server.http.base.baseUrl, accountName: session.account?.username,
+                rememberedId: options.launch?.rememberedProfileId, focus: "", choose: inert, add: inert, changeServer: inert, signOut: inert, back: undefined });
+            behind.append(...copy.content);
+        }
+        for (const node of Array.from(behind.querySelectorAll("button"))) {
+            node.removeAttribute("data-focus");
+            node.setAttribute("disabled", "");
+        }
+        return behind;
+    };
+
     const showList = (focus?: string): void => load((list) => picker(list, focus), () => showList(focus));
 
     const showPicker = (list: readonly ProfileSummary[], focus?: string): void => {
+        shownList = list;
         const preferred = focus ?? current?.id ?? options.launch?.rememberedProfileId ?? list[0]?.id;
         const focusKey = preferred === "signout" || preferred === "add-profile" || preferred === undefined ? (preferred ?? "add-profile") : `profile:${preferred}`;
         show(profilePickerScreen({ profiles: list, baseUrl: server.server.http.base.baseUrl,
@@ -315,21 +334,35 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
     const selected = (profile: ProfileSummary): void => {
         const launch = options.launch;
         if (launch === undefined || (!launch.needsOffer && !launch.remembered)) { handOff(profile); return; }
-        // ProfileSelectionView's tvOS remember offer, with "this Apple TV" read as "this TV". While the offer is pending, Back
-        // answers Ask Every Time, as Menu runs the alert's cancel button. Saving can fail on the TV, so the offer then also says
-        // why and can continue unsaved; a failed silent re-save for an existing choice keeps that choice when Back leaves.
+        // ProfileSelectionView's tvOS remember offer (`.alert`), over the dimmed picker, with "this Apple TV" read as "this TV".
+        // Ask Every Time is the cancel button, drawn first; focus starts on Remember. While the offer is pending, Back answers
+        // Ask Every Time, as Menu runs the cancel button. Saving can fail on the TV, so the offer then also says why and can
+        // continue unsaved; a failed silent re-save for an existing choice keeps that choice when Back leaves.
         const pendingOffer = launch.needsOffer;
         const offer = (error = false): void => {
             begin();
             const name = profile.name.trim();
-            message("remember-profile", name === "" ? "Open this profile automatically?" : `Open ${name} automatically?`, [
-                ...(error ? ["Silo couldn't securely remember this profile. Please try again."] : []),
-                "Silo can skip Who's Watching and open this profile when it starts on this TV. You can change this later in Settings > General > Profile Selection.",
-            ], [
-                button("remember", "Remember", () => save(true)),
-                button("ask-every-launch", "Ask Every Time", () => save(false)),
-                ...(error ? [button("continue-session", "Continue without saving", () => { launch.continueWithoutSaving(); handOff(profile); })] : []),
-            ], pendingOffer ? () => save(false) : () => showList(profile.id), error ? "error" : "info");
+            const ask = button("ask-every-launch", "Ask Every Time", () => save(false));
+            const remember = button("remember", "Remember", () => save(true));
+            const controls: Control[] = [{ ...ask, row: 0, column: 0 }, { ...remember, row: 0, column: 1 }];
+            if (error) controls.push({ ...button("continue-session", "Continue without saving", () => { launch.continueWithoutSaving(); handOff(profile); }), row: 1, column: 0 });
+            const alert = el("div", "signin-alert");
+            alert.setAttribute("role", "alertdialog");
+            alert.setAttribute("aria-labelledby", "remember-offer-title");
+            const title = el("h2", "signin-alert-title", name === "" ? "Open this profile automatically?" : `Open ${name} automatically?`);
+            title.id = "remember-offer-title";
+            alert.appendChild(title);
+            if (error) {
+                const problem = el("p", "signin-alert-text signin-error", "Silo couldn't securely remember this profile. Please try again.");
+                problem.setAttribute("role", "alert");
+                alert.appendChild(problem);
+            }
+            alert.append(
+                el("p", "signin-alert-text", "Silo can skip Who's Watching and open this profile when it starts on this TV. You can change this later in Settings > General > Profile Selection."),
+                actions(controls),
+            );
+            show({ name: "remember-profile", content: [pickerBehind(), alert], controls, focus: "remember",
+                back: pendingOffer ? () => save(false) : () => showList(profile.id) });
         };
         const save = (remember: boolean): void => {
             const token = begin();

@@ -932,7 +932,8 @@
     margin: auto 0 0;
 }
 
-.signin-auth .signin-alert .marquee-button {
+.signin-auth .signin-alert .marquee-button,
+.profiles-flow .signin-alert .signin-button {
     width: 250px;
     height: 66px;
     margin: 0;
@@ -945,9 +946,17 @@
     box-shadow: none;
 }
 
-.signin-auth .signin-alert .marquee-button:focus {
+.signin-auth .signin-alert .marquee-button:focus,
+.profiles-flow .signin-alert .signin-button:focus {
     background: #ffffff;
 }
+
+/* The remember offer's plain buttons take the alert's ink; a failed save adds Continue without saving on its own row. */
+.profiles-flow .signin-alert .signin-button { min-width: 0; padding: 0 12px; color: #ededed; white-space: nowrap; }
+.profiles-flow .signin-alert .signin-button:focus { border-color: transparent; color: #000000; }
+.profiles-flow .signin-alert .signin-actions { flex-wrap: wrap; row-gap: 16px; }
+.profiles-flow .signin-alert [data-focus="continue-session"] { width: 100%; }
+.profiles-flow .signin-alert-text.signin-error { margin-bottom: 12px; color: #ff6961; }
 
 .profile-grid {
     display: grid;
@@ -961,7 +970,7 @@
 .profiles-flow::after { content: ""; position: absolute; inset: 0; pointer-events: none; background: linear-gradient(to bottom, rgba(0,0,0,.35), rgba(0,0,0,.2) 25%, rgba(0,0,0,.75) 55%, black 78%); }
 .profiles-flow .signin-screen { position: relative; z-index: 1; }
 .profile-picker.signin, .profile-editor.signin { padding: 0; overflow: hidden; }
-.profile-picker [data-screen="profiles"] { display: flex; flex-direction: column; width: 1920px; max-width: none; height: 1080px; padding: 120px 80px; }
+.profile-picker [data-screen="profiles"], .profile-picker [data-screen="remember-profile"] { display: flex; flex-direction: column; width: 1920px; max-width: none; height: 1080px; padding: 120px 80px; }
 .profile-picker .signin-wordmark, .profile-editor .signin-wordmark { display: none; }
 .profile-picker-main { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 0; }
 .profile-picker-title { margin: 0; font-size: 64px; line-height: 1.2; font-weight: 800; letter-spacing: -1.6px; text-align: center; }

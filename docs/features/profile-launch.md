@@ -1,7 +1,8 @@
 # TV launch profiles
 
 TVs show Who's watching by default.
-The first selection asks Apple TV's "Open <name> automatically?" with Remember or Ask Every Time, reading "this Apple TV" as "this TV".
+The first selection asks Apple TV's "Open <name> automatically?" as a small centred alert over the dimmed picker, reading "this Apple TV" as "this TV".
+Ask Every Time comes first and Remember second, with focus on Remember, as in the tvOS `.alert`.
 Back answers Ask Every Time, as Menu runs the alert's cancel button on Apple TV.
 General Settings can change that choice later.
 Selecting another protected profile still requires its PIN.

@@ -352,21 +352,37 @@ test("remember save failure is visible and Remember retries it", async () => {
     } finally { await tv.page.context().close(); await browser.close(); }
 });
 
-test("the remember offer uses Apple TV's copy and Back answers Ask Every Time", async () => {
+test("the remember offer is Apple TV's centred alert over the picker, and Back answers Ask Every Time", async () => {
     const browser = await launchBrowser();
     const tv = await openTv(browser, { app: "application" });
     tv.fake.catalog = new FakeDetails();
     try {
         await picker(tv);
         await tv.page.locator('[data-focus="profile:p-owner"]').click();
-        const offer = tv.page.locator('[data-screen="remember-profile"]');
-        await offer.waitFor();
-        assert.equal(await offer.locator("h1").textContent(), "Open Laura automatically?");
-        assert.equal(await offer.locator("p").textContent(), "Silo can skip Who's Watching and open this profile when it starts on this TV. You can change this later in Settings > General > Profile Selection.");
-        assert.deepEqual(await offer.locator("button").allTextContents(), ["Remember", "Ask Every Time"]);
-        assert.equal(await tv.focused(), "remember");
+        const alert = tv.page.getByRole("alertdialog", { name: "Open Laura automatically?" });
+        await alert.waitFor();
+        assert.equal(await alert.locator("p").textContent(), "Silo can skip Who's Watching and open this profile when it starts on this TV. You can change this later in Settings > General > Profile Selection.");
+        assert.deepEqual(await alert.locator("button").allTextContents(), ["Ask Every Time", "Remember"], "the cancel button comes first, as in the tvOS alert");
+        assert.equal(await tv.focused(), "remember", "focus starts on Remember");
+        const layout = await alert.evaluate(node => {
+            const box = node.getBoundingClientRect();
+            const behind = document.querySelector('[data-screen="remember-profile"] .signin-behind');
+            return {
+                centre: [Math.round(box.left + box.width / 2), Math.round(box.top + box.height / 2)],
+                width: Math.round(box.width),
+                picker: behind?.querySelector(".profile-picker-title")?.textContent,
+                inert: behind?.getAttribute("aria-hidden") === "true" && [...behind.querySelectorAll("button")].every(button => button.disabled && !button.hasAttribute("data-focus")),
+                wordmark: getComputedStyle(document.querySelector('[data-screen="remember-profile"] .signin-wordmark') ?? document.body).display,
+            };
+        });
+        assert.deepEqual(layout, { centre: [960, 540], width: 586, picker: "Who's watching?", inert: true, wordmark: "none" }, "a small centred alert over the dimmed, unreachable picker, without the wordmark");
+        await tv.page.keyboard.press("ArrowLeft");
+        assert.equal(await tv.focused(), "ask-every-launch");
+        await tv.page.keyboard.press("ArrowRight");
+        assert.equal(await tv.focused(), "remember", "focus stays inside the alert");
         await tv.remote(10009);
         await tv.page.locator('[data-view="home"]').waitFor();
+        await tv.eventually(async () => await tv.focused() !== null, "Home takes focus after the alert closes");
         await tv.page.evaluate(() => window.appHarness.mount());
         await tv.page.locator('[data-screen="profiles"]').waitFor();
         assert.equal(await tv.focused(), "profile:p-owner", "Ask Every Time shows the picker at the next launch, focused on a profile");

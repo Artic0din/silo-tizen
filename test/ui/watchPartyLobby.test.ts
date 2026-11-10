@@ -744,3 +744,28 @@ test("a ballot wider than the screen scrolls to keep the focused card in view, o
         assert.equal(await tv.focused(), "suggestion:s8");
     } finally { await tv.page.context().close(); }
 });
+
+test("removing suggestions before the focused card keeps that card on screen", async () => {
+    const { tv, fake } = await inLobby("host", fake => {
+        fake.selectionMode = "vote";
+        for (let index = 0; index < 20; index++) fake.suggest(`s${index}`, `Title ${index}`);
+    });
+    try {
+        await ballotShows(tv, 20);
+        await button(tv, "suggestion:s0").focus();
+        for (let index = 0; index < 9; index++) await tv.remote(39);
+        assert.equal(await tv.focused(), "suggestion:s9");
+        fake.suggestions.splice(0, 7);
+        fake.voteAs("p-other", "s19", true);
+        await tv.eventually(async () => (await cards(tv)).length === 13, "seven removed");
+        assert.equal(await tv.focused(), "suggestion:s9");
+        await tv.jump(500);
+        const box = await tv.page.evaluate(() => {
+            const card = document.activeElement as HTMLElement | null;
+            const rect = card?.getBoundingClientRect();
+            return { key: card?.dataset.focus, left: rect?.left ?? -1, right: rect?.right ?? -1 };
+        });
+        assert.equal(box.key, "suggestion:s9");
+        assert.ok(box.left >= 0 && box.right <= 1920, `the focused card is on screen (${JSON.stringify(box)})`);
+    } finally { await tv.page.context().close(); }
+});

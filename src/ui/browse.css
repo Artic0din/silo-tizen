@@ -1528,3 +1528,49 @@
 /* TVSettingsToggleRow: On at 0.9 opacity, Off at 0.55. TVSettingsPaneRowStyle fills every row with siloChromeRestingFill, whether it is on or off. */
 .settings-pane .browse-button[role="switch"][aria-checked="false"] .settings-row-value { opacity: 0.55; }
 .settings-pane .browse-button:not(:focus) { background: rgba(255, 255, 255, 0.07); }
+
+/* Watch Party hub: Apple's WatchPartyEntryView tvLayout and WatchPartyMetrics at 1920x1080. */
+.watch-party-scene .watch-party { box-sizing: border-box; display: flex; align-items: flex-start; justify-content: space-between; min-height: 1080px; padding: 220px 0 0; }
+.watch-party-intro { flex: none; display: flex; flex-direction: column; gap: 40px; width: 760px; }
+.watch-party-headline { display: flex; flex-direction: column; gap: 15.6px; }
+.watch-party-eyebrow { margin: 0; font-size: 17px; font-weight: 600; letter-spacing: 2.04px; line-height: 21px; text-transform: uppercase; color: var(--silo-secondary); }
+.watch-party-title { margin: 0; font-size: 88px; font-weight: 700; letter-spacing: -1.76px; line-height: 88px; white-space: pre-line; color: var(--silo-text); }
+.watch-party-body { margin: 0; font-size: 26px; line-height: 32px; color: var(--silo-secondary); }
+.watch-party-actions { flex: none; display: flex; flex-direction: column; gap: 28px; width: 640px; }
+.watch-party-section { display: flex; flex-direction: column; align-items: flex-start; gap: 16px; }
+.watch-party-banner { box-sizing: border-box; display: flex; align-items: baseline; gap: 10px; width: 100%; padding: 16px 20px; border-radius: 12px; border: 1px solid var(--silo-hairline); background: rgba(255,255,255,.08); font-size: 21px; line-height: 26px; color: var(--silo-text); }
+.watch-party-banner-dot { flex: none; width: 12px; height: 12px; border-radius: 50%; background: var(--silo-secondary); }
+.watch-party-banner-warning { border-color: rgba(245,197,99,.3); background: rgba(245,197,99,.12); color: #f5c563; }
+.watch-party-banner-warning .watch-party-banner-dot { background: #f5c563; }
+/* TVPillButtonStyle(.compact, stabilizesFocusMotion): 76 px tall, 22/20 px side padding, no focus scale; primary white .10 and secondary black .52 at rest; disabled 0.45. */
+.watch-party .watch-party-button { display: inline-flex; align-items: center; justify-content: center; gap: 14px; box-sizing: border-box; height: 76px; margin: 0; padding: 0 20px; border: 0; border-radius: 50px; font-size: 26px; font-weight: 600; line-height: 32px; white-space: nowrap; box-shadow: 0 2px 4px rgba(0,0,0,.14); }
+.watch-party .watch-party-primary { padding: 0 22px; font-size: 29px; background: rgba(255,255,255,.1); color: #fff; }
+.watch-party .watch-party-secondary { background: rgba(0,0,0,.52); color: #fff; }
+.watch-party .watch-party-button[aria-disabled="true"] { opacity: .45; }
+.watch-party .watch-party-button:focus { background: #fff; color: #000; box-shadow: 0 4px 10px rgba(0,0,0,.24); }
+.watch-party-icon { flex: none; width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 3.5; stroke-linecap: round; }
+.watch-party .watch-party-input { box-sizing: border-box; width: 100%; height: 76px; margin: 0; padding: 0 30px; border: 0; border-radius: 14px; font-size: 29px; background: rgba(255,255,255,.1); }
+.watch-party .watch-party-input:focus { background: rgba(255,255,255,.22); box-shadow: 0 0 0 4px rgba(255,255,255,.55); }
+/* Placeholder lobby. */
+.watch-party-lobby-column { display: flex; flex-direction: column; align-items: flex-start; gap: 40px; }
+.watch-party .watch-party-code-pill { display: inline-flex; align-items: center; gap: 15px; box-sizing: border-box; height: 76px; margin: 0; padding: 0 40px; border: 0; border-radius: 50px; background: rgba(0,0,0,.52); color: #fff; }
+.watch-party .watch-party-code-pill:focus { background: #fff; color: #000; box-shadow: 0 4px 10px rgba(0,0,0,.24); }
+.watch-party-code-label { font-size: 15px; font-weight: 600; letter-spacing: 2px; text-transform: uppercase; color: var(--silo-secondary); }
+.watch-party-code-pill:focus .watch-party-code-label { color: rgba(0,0,0,.5); }
+.watch-party-code { font-family: ui-monospace, Menlo, monospace; font-size: 30px; font-weight: 700; letter-spacing: 5.4px; }
+.watch-party-here { display: flex; flex-direction: column; gap: 32px; }
+.watch-party-here-heading { display: flex; align-items: baseline; gap: 25.6px; }
+.watch-party-presence { font-size: 20px; color: rgba(160,160,160,.7); }
+.watch-party-seats { display: flex; align-items: flex-start; gap: 36px; }
+.watch-party-seat { display: flex; flex-direction: column; align-items: center; gap: 14px; width: 179px; }
+.watch-party-seat-avatar { position: relative; display: block; width: 146px; height: 146px; margin-top: 12.8px; }
+.watch-party-seat[data-state="away"] .watch-party-seat-disc { opacity: .45; }
+.watch-party-seat-disc { position: absolute; inset: 9px; display: flex; align-items: center; justify-content: center; border-radius: 50%; font-size: 46px; font-weight: 600; color: var(--silo-text); }
+.watch-party-seat-ring { position: absolute; inset: 0; width: 146px; height: 146px; }
+.watch-party-seat-ring circle { stroke: rgba(237,237,237,.38); stroke-width: 4.5; stroke-linecap: round; }
+.watch-party-seat[data-state="ready"] .watch-party-seat-ring circle, .watch-party-seat[data-state="watching"] .watch-party-seat-ring circle { stroke: var(--silo-text); }
+.watch-party-seat[data-state="away"] .watch-party-seat-ring circle { stroke: rgba(237,237,237,.25); }
+.watch-party-seat-tick { position: absolute; left: 102px; top: 102px; box-sizing: border-box; width: 43.5px; height: 43.5px; padding: 4px; border-radius: 50%; background: #000; }
+.watch-party-seat-tick svg { display: block; width: 100%; height: 100%; padding: 8px; box-sizing: border-box; border-radius: 50%; background: var(--silo-text); fill: none; stroke: #000; stroke-width: 4.5; stroke-linecap: round; stroke-linejoin: round; }
+.watch-party-seat-name { max-width: 100%; overflow: hidden; font-size: 24.3px; font-weight: 500; line-height: 30px; text-overflow: ellipsis; white-space: nowrap; color: var(--silo-text); }
+.watch-party-seat-detail { margin-top: -12px; font-size: 20.5px; line-height: 25px; white-space: nowrap; color: var(--silo-secondary); }

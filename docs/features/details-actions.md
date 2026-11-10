@@ -22,7 +22,7 @@ Only new supported-video identities or local extra IDs finish discovery; existin
 Cooldown, disabled, exhausted, transport failure and rate limit use Apple's status copy, dismissed after three seconds.
 Leaving Details cancels observation; returning resumes an interrupted run without another POST, while an authority change discards it.
 The found payload updates the rail without resetting the selected season or overwriting newer watch state.
-Watch Party stays hidden pending #54's capability, opt-in and device gates (`Screens/WatchParty/WatchPartyEntry.swift:7-24`).
+The Details Watch Party action is not built yet (#54). Its capability and opt-in gates now exist as the profile menu entry's ([Watch Party](watch-party.md)).
 Shuffle Series leads More when the capability supports series and the hierarchy has at least two episodes.
 It creates a series-scoped shuffle and uses the existing shuffle pick and player continuation owners (`TVSeriesDetailView.swift:923-928,954-966,1016-1021`).
 Season Shuffle remains outside this change.

@@ -114,7 +114,7 @@ test("Settings Accounts uses pane rows and Back returns to Settings", async () =
         await tv.page.locator('[data-focus="profiles"]').click();
         await tv.page.getByRole("menuitem", { name: "Settings", exact: true }).click();
         await tv.page.locator('[data-focus="server"]').click();
-        assert.deepEqual(await tv.page.locator('.settings-pane').evaluate(node => [...node.children].filter(child => child.matches('h2, h3, button')).map(child => child.textContent)), ["ACTIVE SERVER", "Accounts", "ABOUT", "Privacy Policy", "Acknowledgements"]);
+        assert.deepEqual(await tv.page.locator('.settings-pane').evaluate(node => [...node.children].filter(child => child.matches('h2, h3, button')).map(child => child.textContent)), ["ACTIVE SERVER", "Accounts", "ABOUT", "Privacy Policy", "Acknowledgements", "EXTRA FEATURES", "Watch PartyOff"]);
         await tv.page.getByRole("button", { name: "Accounts", exact: true }).click();
         await tv.page.locator('[data-view="accounts-settings"]').waitFor();
         const pane = await tv.page.evaluate(() => {

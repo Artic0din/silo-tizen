@@ -19,6 +19,7 @@ import { pairedProfileDescription, pairedProfileLabel, profileSelectionCaption }
 import { bitrateLabel, qualityFooter } from "./qualitySettings.ts";
 import { ConnectionSpeed } from "./connectionSpeed.ts";
 import { signOutConfirmationCopy } from "./signOutConfirmation.ts";
+import { EXPERIMENTAL_FEATURES, type ExperimentalFeatures } from "../session/experimentalFeatures.ts";
 
 type Category = "general" | "playback" | "subtitles" | "server";
 const CATEGORY_LABELS = { general: "General", playback: "Playback", subtitles: "Subtitles", server: "Server" } as const;
@@ -47,7 +48,7 @@ const BITRATE_CHOICES = [200000, 100000, 60000, 40000, 20000, 15000, 10000, 6000
 export interface SettingsActions { readonly profileName: string; readonly profileAvatarUrl?: string | undefined; readonly accountName?: string | undefined; readonly switchProfile: () => void; readonly signOut?: () => void; readonly serverName?: string | undefined; readonly switchServer?: (back: () => void) => void; /** True when this sign-out removes the saved server. Unreadable account lists return false. */ readonly removesServer?: () => boolean }
 export interface SettingsScreen { destroy(): void }
 
-export function mountSettings(root: HTMLElement, session: NativeSession, close: (hiddenChanged: boolean, titleArt?: boolean) => void, launch?: ProfileLaunch, actions?: SettingsActions, accounts?: (back: () => void) => void, spoilers?: EpisodeSpoilerPreferences): SettingsScreen {
+export function mountSettings(root: HTMLElement, session: NativeSession, close: (hiddenChanged: boolean, titleArt?: boolean) => void, launch?: ProfileLaunch, actions?: SettingsActions, accounts?: (back: () => void) => void, spoilers?: EpisodeSpoilerPreferences, experimental?: ExperimentalFeatures): SettingsScreen {
     const container = el("section", "browse settings");
     container.setAttribute("aria-label", "Settings");
     root.appendChild(container);
@@ -710,6 +711,18 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
                 row.element.classList.add("settings-server-action");
                 row.element.prepend(navigationIcon(icon));
                 row.element.appendChild(navigationIcon(row.key === "privacy" ? "qr" : row.key === "acknowledgements" ? "document" : "chevron-right"));
+            }
+        }
+        // Apple's Server pane ends with EXTRA FEATURES: one On/Off row per experimental feature, off until chosen on this device.
+        if (category === "server" && experimental !== undefined) {
+            body.appendChild(el("h3", "settings-section-header", "EXTRA FEATURES"));
+            for (const feature of EXPERIMENTAL_FEATURES) {
+                const on = experimental.isEnabled(feature.id);
+                const key = `experimental-${feature.id}`;
+                const toggle = actionButton(key, feature.title, () => { experimental.setEnabled(feature.id, !on); render({ zone: "settings-rows", key }); });
+                toggle.element.setAttribute("role", "switch"); toggle.element.setAttribute("aria-label", feature.title); toggle.element.setAttribute("aria-checked", String(on));
+                toggle.element.appendChild(el("span", "settings-row-value", on ? "On" : "Off"));
+                rows.push(toggle); body.appendChild(toggle.element);
             }
         }
         const retries = retryButton();

@@ -77,7 +77,6 @@ A row that nothing on this TV acts on stays hidden.
 | Audiobooks Skip Back, Skip Forward | Open PR #230. No audiobook player. |
 | Lower quality when buffering, learned-limit Reset | Playback lowers quality when it keeps buffering (see Lower quality when buffering below), reading `playback.buffering_quality_mode` and defaulting to Automatically. The Settings rows that change the mode and reset the learned limit are not built. Issue #293. |
 | Use Device Settings | tvOS reads Media Accessibility caption preferences (`SystemCaptionAppearance.swift`). Samsung captions are the app overlay. No TV caption-style API is available, so the switch would not change language, behavior, or appearance. |
-| Watch Party | Not built. Issue #54. |
 | Diagnostics | Open issue #218, parked. |
 
 ## Lower quality when buffering

@@ -24,6 +24,7 @@ type VideoTab = "movies" | "series" | "music";
 
 interface ProfileMenu {
     readonly requests?: () => void;
+    readonly watchParty?: () => void;
     readonly settings?: () => void;
     readonly personal?: (source: PersonalSource, anchor?: "for_you" | "profiles") => void;
     readonly name: string;
@@ -79,6 +80,14 @@ export class Skyline {
         this.requestsEnabled = enabled;
         if (this.profileOpen) this.openProfile();
         else if (!enabled) this.selector.querySelector('[data-focus="requests"]')?.remove();
+    }
+
+    private watchPartyEnabled = false;
+    setWatchPartyEnabled(enabled: boolean): void {
+        if (this.watchPartyEnabled === enabled) return;
+        this.watchPartyEnabled = enabled;
+        if (this.profileOpen) this.openProfile();
+        else if (!enabled) this.selector.querySelector('[data-focus="watch-party"]')?.remove();
     }
 
     private routeBack: (() => void) | undefined;
@@ -725,6 +734,8 @@ export class Skyline {
         }
         const requests = this.profiles.requests;
         if (this.requestsEnabled && requests !== undefined) this.panel.push(this.menuItem("requests", "Requests", () => { this.close(); requests(); }));
+        const watchParty = this.profiles.watchParty;
+        if (this.watchPartyEnabled && watchParty !== undefined) this.panel.push(this.menuItem("watch-party", "Watch Party", () => { this.close(); watchParty(); }));
         const settings = this.profiles.settings;
         if (settings !== undefined) this.panel.push(this.menuItem("settings", "Settings", () => { this.close(); settings(); }));
         const switchServer = this.profiles.switchServer;

@@ -251,6 +251,24 @@ test("End party does not wait on reading the room back after a lost start", asyn
     assert.deepEqual(calls, [`close ${ROOM_ID}`]);
 });
 
+test("a lost start that was not read back because the party was ending is read once the close fails", async () => {
+    let reads = 0;
+    let fail: () => void = () => undefined;
+    const { hub } = lobby({
+        startPlayback: () => new Promise((_resolve, reject) => { fail = () => reject(new ApiError({ kind: "timeout" })); }),
+        room: async () => { reads++; return roomAccess({ selected_content_id: "movie:m0004", phase: "playing", selected_file_id: "42" }); },
+        closeRoom: async () => { throw problem(500, "Try again in a moment."); },
+    }, undefined, { selected_content_id: "movie:m0004" });
+    await hub.create("host_pick");
+    const starting = hub.start();
+    const ending = hub.endParty();
+    fail();
+    await Promise.all([starting, ending]);
+    assert.equal(reads, 1, "the room is read once, after the close failed");
+    assert.equal(hub.state.room?.phase, "playing", "the lobby is no longer behind the start");
+    assert.equal(hub.state.error, "Try again in a moment.");
+});
+
 test("a live selection whose answer was lost and that the room confirms is a success, so Play for everyone is not sent twice", async () => {
     const playing = { phase: "playing", selected_content_id: "movie:m0001", selected_file_id: "42" };
     const { hub, plays } = lobby({

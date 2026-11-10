@@ -96,6 +96,8 @@ export class WatchPartyHub {
     private closing: Promise<boolean> | undefined;
     private refocus = false;
     private ending = false;
+    /** A lost change was not read back because the party was ending; a failed close reads it then. */
+    private unreconciled = false;
     /** Settles when the running host change does, so End party can go after it. */
     private mutation: Promise<void> | undefined;
 
@@ -241,8 +243,11 @@ export class WatchPartyHub {
             this.options.onLeave?.();
         } catch (error) {
             if (!this.stopped) this.state.error = this.describe(error);
+            // The party goes on, so the change that was not read back may have landed.
+            if (this.unreconciled && !this.stopped) await this.readRoom(room.roomId);
         } finally {
             this.ending = false;
+            this.unreconciled = false;
             if (!this.stopped) { this.state.busy = false; this.notify(); }
         }
     }
@@ -373,7 +378,8 @@ export class WatchPartyHub {
             if (!this.stopped) this.state.error = this.describe(error);
             // A non-retryable change whose answer never came may have landed: read the room so the lobby does not stay behind it,
             // and count the change as done when the room proves it, so it is not sent a second time.
-            if (applied !== undefined && !this.stopped && !this.ending && writeMayHaveApplied(error)) {
+            if (applied !== undefined && !this.stopped && this.ending && writeMayHaveApplied(error)) this.unreconciled = true;
+            else if (applied !== undefined && !this.stopped && writeMayHaveApplied(error)) {
                 const now = await this.readRoom(room.roomId);
                 if (now !== undefined && applied(now)) { this.state.error = undefined; return true; }
             }

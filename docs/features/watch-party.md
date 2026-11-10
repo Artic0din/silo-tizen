@@ -73,7 +73,7 @@ Change title sits beside Start for everyone.
 Focus opens on the primary button, and on the code pill when there is none.
 One change runs at a time and a second is ignored while it runs, so the controls stay enabled and focus is not thrown out.
 A refused change shows the server's text in the warning banner and keeps the room.
-A start or live selection whose answer is lost reads the room again (`GET /rooms/{id}`), because the contract marks both non-retryable and the server may have applied them.
+A start or live selection whose answer is lost reads the room again (`GET /rooms/{id}`), because the contract marks both non-retryable and the server may have applied them, and counts as done when the room shows it took effect, so it is not sent twice.
 
 - Choose a title opens the picker (below). Choosing stages the title with `PUT /staged-selection` in a host-pick lobby when the server has `staged_selection`, and otherwise, or once the party is playing, sets it with `PUT /selection`. The chosen title shows at once from the pick and is then read from the catalog.
 - Start for everyone needs a staged title and `staged_selection`, as Apple's `canStartPlayback` does. It calls `POST /playback/start` and, when the room answers `playing` with a file, opens the existing player on that file from the room's anchor, pinned to that file so an alternate version cannot play. Choosing a title for a party that is already playing does the same. There is no synchronization: the player plays on its own. Return to playback opens it again.

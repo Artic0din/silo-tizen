@@ -136,7 +136,7 @@ export function episodesView({ hub, baseUrl }: PickerContext, series: Card, seas
     const zones: Zone[] = [{ id: "episodes-top", layout: "row", items: [back] }];
     if (tabs.length > 0) {
         zones.push({ id: "seasons", layout: "row", items: tabs });
-        page.appendChild(zoneNode("watch-party-season-tabs", tabs));
+        page.appendChild(zoneNode("browse-row watch-party-season-tabs", tabs));
     }
     const retry = browseError === undefined ? undefined : actionButton("episodes-retry", "Reload episodes", () => { void hub.openEpisodes(series, season); });
     if (cards.length > 0) {

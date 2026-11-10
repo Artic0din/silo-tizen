@@ -87,8 +87,10 @@ export class WatchPartyHub {
     private stopped = false;
     /** The room's membership proof from the last answer; the picker sends it. Never logged or stored. */
     private roomToken = "";
-    /** Counts rooms and picker or browse reads, so a late answer for an older one is dropped. */
+    /** Counts rooms and picker reads, so a late answer for an older one is dropped. */
     private epoch = 0;
+    /** Counts season and episode reads; leaving the page ends them. The picker's read is not tied to its page, so backing out does not strand it. */
+    private browseEpoch = 0;
     /** A hosted room that Back or leaving the page has not yet ended on the server. */
     private unclosed: Room | undefined;
     private closing: Promise<boolean> | undefined;
@@ -146,9 +148,8 @@ export class WatchPartyHub {
     }
 
     show(page: LobbyPage): void {
-        // Leaving a page ends its reads: a late answer must not undo the move.
-        this.epoch++;
-        this.state.shelvesLoading = false;
+        // Leaving a page ends its season and episode reads: a late answer must not undo the move.
+        this.browseEpoch++;
         this.state.browseLoading = false;
         this.state.page = page;
         this.notify();
@@ -175,7 +176,8 @@ export class WatchPartyHub {
         const picked = this.mutate(
             signal => staged ? this.api.stageSelection(room.roomId, selection, signal) : this.api.selectItem(room.roomId, selection, signal),
             () => { this.state.selected = choice.lobby; this.state.selectedUnavailable = false; },
-            !staged,
+            // A live selection whose answer is lost has taken effect when the room now holds the title.
+            staged ? undefined : room => room.selectedContentId === choice.contentId,
         );
         const done = await picked;
         if (!done && !this.stopped && this.state.selected?.contentId === choice.contentId) this.state.selected = before;
@@ -190,7 +192,7 @@ export class WatchPartyHub {
     /** Start for everyone. Opens the player on the room's file when the server says the party is playing. */
     async start(): Promise<boolean> {
         if (!this.canStart()) return false;
-        const started = await this.mutate(signal => this.api.startPlayback(this.requireRoom().roomId, signal), undefined, true);
+        const started = await this.mutate(signal => this.api.startPlayback(this.requireRoom().roomId, signal), undefined, room => room.phase === "playing");
         if (started) this.resume();
         return started;
     }
@@ -260,19 +262,19 @@ export class WatchPartyHub {
 
     /** The series' seasons with one season's episodes: the one asked for, else the first that is not specials. */
     async openEpisodes(series: Card, wanted?: Season): Promise<void> {
-        const epoch = ++this.epoch;
+        const epoch = ++this.browseEpoch;
         const sameSeries = this.state.page.kind === "episodes" && this.state.page.series.id === series.id;
         Object.assign(this.state, { page: { kind: "episodes", series, season: wanted }, episodes: undefined, browseLoading: true, browseError: undefined, ...(sameSeries ? {} : { seasons: undefined }) });
         this.notify();
         await this.browse(epoch, async signal => {
             const seasons = this.state.seasons ?? await this.api.seasons(series.id, signal);
-            if (this.stale(epoch)) return;
+            if (this.staleBrowse(epoch)) return;
             this.state.seasons = seasons;
             const season = wanted ?? seasons.find(candidate => candidate.isSpecials !== true) ?? seasons[0];
             if (season === undefined) return;
             this.state.page = { kind: "episodes", series, season };
             const episodes = await this.api.episodes(series.id, season.seasonNumber, signal);
-            if (this.stale(epoch)) return;
+            if (this.staleBrowse(epoch)) return;
             this.state.episodes = episodes;
         });
     }
@@ -302,8 +304,11 @@ export class WatchPartyHub {
 
     private stale(epoch: number): boolean { return this.stopped || epoch !== this.epoch; }
 
+    private staleBrowse(epoch: number): boolean { return this.stopped || epoch !== this.browseEpoch; }
+
     private reset(): void {
         this.epoch++;
+        this.browseEpoch++;
         this.roomToken = "";
         Object.assign(this.state, {
             room: undefined, page: LOBBY, selected: undefined, selectedUnavailable: false, shelves: [], shelvesLoading: false, shelvesError: undefined,
@@ -342,7 +347,7 @@ export class WatchPartyHub {
      * One host change at a time, as Apple's `mutate`: a second call while one runs is ignored, so the controls stay enabled
      * and focus is not thrown out. The answer replaces the room; a refusal shows the server's reason and keeps the room.
      */
-    private async mutate(operation: (signal: AbortSignal) => Promise<RoomAccess>, begin?: () => void, reconcile = false): Promise<boolean> {
+    private async mutate(operation: (signal: AbortSignal) => Promise<RoomAccess>, begin?: () => void, applied?: (room: Room) => boolean): Promise<boolean> {
         const room = this.state.room;
         if (room?.selfCanManageRoom !== true || this.state.busy || this.stopped) return false;
         this.state.busy = true;
@@ -356,20 +361,27 @@ export class WatchPartyHub {
             return true;
         } catch (error) {
             if (!this.stopped) this.state.error = this.describe(error);
-            // A non-retryable change whose answer never came may have landed: read the room so the lobby does not stay behind it.
-            if (reconcile && !this.stopped && writeMayHaveApplied(error)) await this.readRoom(room.roomId);
+            // A non-retryable change whose answer never came may have landed: read the room so the lobby does not stay behind it,
+            // and count the change as done when the room proves it, so it is not sent a second time.
+            if (applied !== undefined && !this.stopped && writeMayHaveApplied(error)) {
+                const now = await this.readRoom(room.roomId);
+                if (now !== undefined && applied(now)) { this.state.error = undefined; return true; }
+            }
             return false;
         } finally {
             if (!this.stopped) { this.state.busy = false; this.notify(); }
         }
     }
 
-    private async readRoom(roomId: string): Promise<void> {
+    private async readRoom(roomId: string): Promise<Room | undefined> {
         try {
             const answer = await this.api.room(roomId, this.roomToken, this.controller.signal);
-            if (!this.stopped && this.state.room?.roomId === roomId) this.accept(answer);
+            if (this.stopped || this.state.room?.roomId !== roomId) return undefined;
+            this.accept(answer);
+            return answer.room;
         } catch {
             // The error from the change is already showing; the room stays as it was.
+            return undefined;
         }
     }
 
@@ -392,10 +404,10 @@ export class WatchPartyHub {
         try {
             await load(this.controller.signal);
         } catch (error) {
-            if (this.stale(epoch)) return;
+            if (this.staleBrowse(epoch)) return;
             this.state.browseError = this.describe(error);
         }
-        if (this.stale(epoch)) return;
+        if (this.staleBrowse(epoch)) return;
         this.state.browseLoading = false;
         this.notify();
     }

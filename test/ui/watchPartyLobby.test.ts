@@ -185,6 +185,10 @@ test("a series with no next-up opens its seasons and episodes, and an episode is
         assert.deepEqual(await texts(tv, ".watch-party-season-tab"), ["Season 1", "Season 2"].map(label => label), "season tabs");
         assert.equal(await tv.page.locator('.watch-party-season-tab[aria-pressed="true"]').textContent(), "Season 1");
         await tv.page.locator(".watch-party-episode").first().waitFor();
+        const rail = await tv.page.locator(".watch-party-episode").evaluateAll(nodes => nodes.slice(0, 2).map(node => { const box = node.getBoundingClientRect(); return [Math.round(box.x), Math.round(box.y)]; }));
+        assert.equal(rail[0]?.[1], rail[1]?.[1], "episodes sit side by side");
+        assert.ok((rail[1]?.[0] ?? 0) > (rail[0]?.[0] ?? 0));
+        assert.equal(await tv.page.locator(".watch-party-season-tabs").evaluate(node => [node.classList.contains("browse-row"), getComputedStyle(node).overflowX]).then(value => value.join()), "true,hidden", "season tabs use the shared horizontal row, so focus reveals them");
         await button(tv, "season:2").click();
         await tv.eventually(async () => (await texts(tv, ".watch-party-episode-number"))[0] === "E1" && (await tv.page.locator('.watch-party-season-tab[aria-pressed="true"]').textContent()) === "Season 2", "season 2 episodes");
         await tv.page.locator(".watch-party-episode").first().click();

@@ -1649,12 +1649,12 @@ button.watch-party-seat-invite { box-sizing: content-box; padding: 0; margin: 0;
 .watch-party-episodes { position: absolute; left: 0; top: 0; z-index: 1; box-sizing: border-box; display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-end; width: 1920px; height: 1080px; padding: 48px 88px 40px; background: rgba(0,0,0,.28); }
 .watch-party-episodes-head { display: flex; align-items: center; justify-content: space-between; align-self: stretch; margin-bottom: auto; }
 .watch-party-episodes-title { margin: 0 0 24px; font-size: 64px; font-weight: 700; letter-spacing: -1px; color: var(--silo-text); }
-.watch-party-season-tabs { display: flex; gap: 16px; margin-bottom: 24px; }
-.watch-party-season-tab { box-sizing: border-box; height: 64px; margin: 0; padding: 0 28px; border: 0; border-radius: 32px; background: rgba(255,255,255,.1); font-size: 24px; font-weight: 600; color: #fff; }
+.watch-party-season-tabs { margin-bottom: 24px; }
+.watch-party-season-tab { box-sizing: border-box; height: 64px; margin: 0 16px 0 0; padding: 0 28px; border: 0; border-radius: 32px; background: rgba(255,255,255,.1); font-size: 24px; font-weight: 600; color: #fff; }
 .watch-party-season-tab[aria-pressed="true"] { background: rgba(255,255,255,.28); }
 .watch-party-season-tab:focus { background: #fff; color: #000; }
 .watch-party-episode-rail { align-self: stretch; padding-bottom: 24px; }
-.watch-party-episode { display: flex; flex: none; flex-direction: column; align-items: flex-start; gap: 6px; box-sizing: border-box; width: 400px; margin-right: 36px; padding: 0; border: 0; background: none; text-align: left; color: #fff; }
+.watch-party-episode { display: inline-flex; vertical-align: top; flex: none; flex-direction: column; align-items: flex-start; gap: 6px; box-sizing: border-box; width: 400px; margin-right: 36px; padding: 0; border: 0; background: none; text-align: left; color: #fff; }
 .watch-party-episode-number { display: flex; align-items: center; justify-content: center; box-sizing: border-box; width: 400px; height: 225px; border-radius: 12px; background: rgba(255,255,255,.1); font-size: 64px; font-weight: 700; color: var(--silo-secondary); }
 .watch-party-episode:focus .watch-party-episode-number { background: #fff; color: #000; }
 .watch-party-episode-title { max-width: 400px; overflow: hidden; font-size: 24px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }

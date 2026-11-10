@@ -212,7 +212,7 @@ test("the player is pinned to the room's file so an alternate version cannot pla
     assert.equal(plays[0]?.allowAlternateVersions, false);
 });
 
-test("a start whose answer was lost reads the room again and shows what the server did, while a refusal reads nothing", async () => {
+test("a start whose answer was lost reads the room again and, when the server did start it, carries on as a start; a refusal reads nothing", async () => {
     let reads = 0;
     const room = { selected_content_id: "movie:m0004" };
     const lost = lobby({
@@ -220,14 +220,48 @@ test("a start whose answer was lost reads the room again and shows what the serv
         room: async () => { reads++; return roomAccess({ ...room, phase: "playing", selected_file_id: "42" }); },
     }, undefined, room);
     await lost.hub.create("host_pick");
-    assert.equal(await lost.hub.start(), false);
+    assert.equal(await lost.hub.start(), true, "the room proves the start took effect");
     assert.equal(reads, 1);
-    assert.equal(lost.hub.state.room?.phase, "playing", "the server did start it");
-    assert.deepEqual(lost.plays, [], "a recovered room offers Return to playback and does not open the player by itself");
+    assert.equal(lost.hub.state.room?.phase, "playing");
+    assert.equal(lost.hub.state.error, undefined, "a start the room confirms shows no failure");
+    assert.deepEqual(lost.plays.map(play => play.fileId), ["42"]);
+    const notStarted = lobby({ startPlayback: async () => { throw new ApiError({ kind: "timeout" }); }, room: async () => { reads++; return roomAccess(room); } }, undefined, room);
+    await notStarted.hub.create("host_pick");
+    assert.equal(await notStarted.hub.start(), false, "a room still in the lobby means the start did not happen");
+    assert.equal(notStarted.hub.state.error !== undefined, true);
     const refused = lobby({ startPlayback: async () => { throw problem(409, "No."); }, room: async () => { reads++; return roomAccess(); } }, undefined, room);
     await refused.hub.create("host_pick");
     await refused.hub.start();
-    assert.equal(reads, 1, "an answer from the server rules out the write, so nothing is read");
+    assert.equal(reads, 2, "an answer from the server rules out the write, so nothing is read");
+});
+
+test("a live selection whose answer was lost and that the room confirms is a success, so Play for everyone is not sent twice", async () => {
+    const playing = { phase: "playing", selected_content_id: "movie:m0001", selected_file_id: "42" };
+    const { hub, plays } = lobby({
+        selectItem: async () => { throw new ApiError({ kind: "network" }); },
+        room: async () => roomAccess({ ...playing, selected_content_id: "movie:m0009", selected_file_id: "77" }),
+    }, undefined, playing);
+    await hub.create("host_pick");
+    assert.equal(await hub.stage(movie("movie:m0009")), true);
+    assert.equal(hub.state.page.kind, "lobby");
+    assert.deepEqual(plays.map(play => play.contentId), ["movie:m0009"]);
+});
+
+test("backing out of the picker while it reloads does not strand the shelves it was reloading", async () => {
+    const pick = (id: string) => ({ members: [], continueTogether: [{ card: decodeCard({ content_id: id, type: "movie", title: id }, "card"), members: [], nextUp: undefined }], watchlistUnion: [] });
+    let release: (value: ReturnType<typeof pick>) => void = () => undefined;
+    let first = true;
+    const { hub } = lobby({ picker: () => first ? Promise.resolve(pick("movie:old")) : new Promise(resolve => { release = resolve; }) });
+    await hub.create("host_pick");
+    await hub.openPicker();
+    first = false;
+    const reload = hub.openPicker();
+    hub.show({ kind: "choice", choice: movie("movie:old") });
+    hub.back();
+    release(pick("movie:new"));
+    await reload;
+    assert.deepEqual(hub.state.shelves.flatMap(shelf => shelf.entries.map(entry => entry.card.id)), ["movie:new"]);
+    assert.equal(hub.state.shelvesLoading, false);
 });
 
 test("a late picker answer for an older open does not replace the newer shelves", async () => {

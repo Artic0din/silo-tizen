@@ -97,7 +97,7 @@ export function browseCardDestination(card: Card): Destination | undefined {
  */
 export function visibleLibraries(libraries: readonly UserLibrary[], hiddenIds: readonly string[]): UserLibrary[] {
     return libraries
-        .filter((library) => library.type !== "unknown" && hiddenIds.indexOf(library.id) === -1)
+        .filter((library) => library.type !== "unknown" && library.type !== "audiobooks" && hiddenIds.indexOf(library.id) === -1)
         .sort((a, b) => a.sortOrder - b.sortOrder);
 }
 

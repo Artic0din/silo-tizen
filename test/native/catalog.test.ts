@@ -144,7 +144,8 @@ test("unknown media and library kinds decode as unknown; wrong shapes fail witho
         sections: [{ id: "books", section_type: "recommendations", title: "Books", items: [{ content_id: "ebook:1", type: "ebook", title: "Dune" }] }],
     });
     assert.equal(sections[0]?.items[0]?.type, "unknown");
-    assert.equal(decodeUserLibraries({ items: [{ id: "3", name: "Audio", type: "audiobooks", sort_order: 1 }] })[0]?.type, "unknown");
+    assert.equal(decodeUserLibraries({ items: [{ id: "3", name: "Audio", type: "audiobooks", sort_order: 1 }] })[0]?.type, "audiobooks");
+    assert.equal(decodeUserLibraries({ items: [{ id: "4", name: "Future", type: "future", sort_order: 2 }] })[0]?.type, "unknown");
     assert.deepEqual(
         decodeHiddenLibraries({ items: [{ key: "ui.disabled_library_ids", value: [13, 15], source: "profile", definition_revision: 1 }], revision: 1 }),
         ["13", "15"],
@@ -232,6 +233,7 @@ test("libraries: video kinds in server order, minus the profile's own hidden lis
         { id: "12", name: "Movies", type: "movies" as const, sortOrder: 1 },
         { id: "14", name: "Books", type: "unknown" as const, sortOrder: 0 },
         { id: "15", name: "Home videos", type: "mixed" as const, sortOrder: 2 },
+        { id: "16", name: "Audio", type: "audiobooks" as const, sortOrder: 4 },
     ];
     assert.deepEqual(visibleLibraries(libraries, ["15"]).map((library) => library.id), ["12", "13"]);
 });

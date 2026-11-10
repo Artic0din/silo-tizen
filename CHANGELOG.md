@@ -6,6 +6,7 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added theme music, as on Apple TV: Settings › General has Play Theme Music and Loop Theme Music, and a movie, series, season or episode page plays the title's theme quietly while it is open, stopping before playback starts.
 - The Watch Party lobby now votes and readies up as on Apple TV: in a room where everyone votes, each suggestion shows its live vote count with the leader outlined and a tick on yours, Select votes or takes the vote back, Suggest a title adds one from the picker, and the host starts the winner. Guests can mark I'm ready, and everyone sees it on their seat.
 - The Watch Party lobby now updates live over the room socket: people joining or stepping away, readiness, the host's pick and controls, and the party ending reach every TV in the room as they happen, with Apple's Connecting and Reconnecting states. Leave party and Back as the host now leave this TV only, as on Apple TV; End party is what ends it for everyone.
 - Added the Watch Party lobby: the code with an invitation page and QR, who is here, and, for the host, choosing a title from the group's picks and watchlists, Start for everyone, Who chooses, Playback controls, Return everyone to lobby and End party. Starting opens the player on the party's file without playback sync, and the lobby shows the room as it was when this TV last heard from it.
@@ -32,6 +33,7 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- The player's subtitle options now use Apple TV's wording: Search Subtitles…, and pickers titled Subtitle Delay, Subtitle Size, Subtitle Position, Subtitle Style, Subtitle Font, Text Color, Text Opacity, Outline Color, Background Color and Background Opacity. As on Apple TV, a picker's title stays in view while its options scroll.
 - Secondary text, such as counts, settings descriptions and metadata lines, now uses Apple TV's colour: the primary text colour at 60%, instead of a lighter flat grey. Watch Party captions, hints, presence and suggestion lines use the same colour at Apple's lower strengths.
 - Details starts the highest-resolution version, honouring the Resolution cap in Playback settings, and lists versions as resolution, video codec, DV or HDR, and audio codec, as Apple TV does. It no longer starts the first version the server lists, and no longer prints the edition in the Version list.
 - The next episode, On Deck and shuffle picks start the file that fits the Resolution cap, as Apple TV does, instead of the last-played or first-listed file.

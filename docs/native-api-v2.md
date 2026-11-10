@@ -290,6 +290,7 @@ Notes:
 - `queryCatalogItems` also serves the watchlist, favorites and history lists (`src/ui/personalLists.ts`).
 - Person works use that same POST through `personQuery`: `source: "person"`, `person_id`, `type` (`video`, `movie` or `series`), `sort: "year"`, `order: "desc"`, `limit: 24` and an optional opaque `cursor`. `detailOperations.filmography` (`GET /catalog?source=person...`) is not called.
 - The detail view reads the same `GET /catalog/items/{id}` for Home marquee fields (`marqueeDetail`).
+- Item detail carries `themes`: `owner_id` and ordered `items` (`id`, `title`, `duration_seconds`). A season or episode answers with the set it inherits. A malformed set reads as none, because the server treats the theme lookup as optional.
 - Library search capabilities are probed with `GET /catalog/search/capabilities` (`src/ui/libraryDiscovery.ts`). Text Search sends the episode-inclusive request only after an allowed, available `video_with_episodes_scope: true` answer (`src/contracts/v2/README.md`, Text Search).
 
 ### Personal state and lists
@@ -558,6 +559,21 @@ AI subtitles (`src/player/subtitleAI.ts`):
 Subtitle search (`src/player/subtitleSearch.ts`) stays offered until provider status says the viewer is not allowed, the state is not `available`, or providers are not enabled. A failed probe is not retried and does not change that. Search and download are each sent once. A stored subtitle is selected through the existing track owner. An uncertain download is not sent again while the menu stays open.
 
 Subtitle delay and appearance (`src/player/subtitleDisplay.ts`) are shown only when the settings contract advertises `player.subtitle_sync_ms` and `playback.subtitle_appearance`, and only while the selected subtitle is not burn-in or text AVPlay is drawing itself. A scope is a name, or `{ "scope", "introduced_in" }` from that revision; delay's profile scope starts at revision 19. Delay is clamped to ±10000 ms and written at profile scope, or `profile_device` when "Only on this TV" is on or the manifest revision is below 19. The offset moves cues this app draws. AVPlay has no subtitle-offset call, so text it draws itself is not shifted; a TV has to confirm whether that platform can move its own TEXT track.
+
+### Theme music
+
+Defined in `src/api/themeMusicOperations.ts`. Bearer plus Profile. Used only when the profile opted in (`ui.theme_music_enabled`). See [Theme music](settings.md#theme-music).
+
+| Operation | Method and path | Retry |
+| --- | --- | --- |
+| themeCapability | `GET /catalog/themes/capabilities` | safe |
+| themePlayback | `POST /catalog/items/{owner_id}/themes/{theme_id}/playback`, body `{ "accepted_formats": [{ "container", "audio_codec" }] }` or none | safe |
+
+- The capability counts only when `state` is `available` and `allowed` is not false. The answer stands for 60 s.
+- A grant carries `url`, `delivery` (`original` or `converted`), `content_type` and `expires_at`. It lasts at most five minutes, so a loop of a converted theme asks for a new one.
+- `url` is root-relative (this server's audio route) or an absolute proxy URL. It is resolved with `artworkUrl`, which refuses anything but HTTPS (or HTTP from an HTTP server). It authorizes itself by its token, so no credential is added. It is never logged, stored or shown.
+- `accepted_formats` is built from `canPlayType` on this TV's Chromium. With no body the server sends the original; with `mp4`/`aac` accepted it may convert to progressive AAC in MP4.
+- The audio route (`GET|HEAD .../themes/{theme_id}/audio?token=`) is read by the `<audio>` element, not by `NativeHttp`.
 
 ### Settings
 

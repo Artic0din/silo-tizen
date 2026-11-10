@@ -2524,6 +2524,7 @@ for (const origin of ["tracks", "appearance"] as const) for (const field of ["fo
             await page.locator(`[data-focus="${trigger}"]`).focus();
             await remote(page, ENTER);
             assert.equal(await focused(page), field === "fontSize" ? "subtitle-picker:large" : "subtitle-picker:bottom");
+            assert.equal(await text(page, ".player-menu-subtitles .player-menu-heading"), field === "fontSize" ? "SUBTITLE SIZE" : "SUBTITLE POSITION");
             if (ending === "select") await remote(page, ENTER);
             else if (ending === "remote-back") await remote(page, BACK);
             else await page.locator('[data-focus="subtitle-picker-back"]').click();
@@ -2555,7 +2556,7 @@ test("subtitle search and the delay, size, position and appearance rows are remo
         await remote(page, RIGHT);
         await remote(page, RIGHT);
         await remote(page, RIGHT);
-        assert.match(await text(page, ".player-menu-subtitles"), /Search Subtitles/);
+        assert.equal(await page.locator('[data-focus="subtitle-search"] .player-choice-label').textContent(), "Search Subtitles…");
         assert.match(await text(page, ".player-menu-subtitles"), /Delay[\s\S]*0 ms/);
         assert.match(await text(page, ".player-menu-subtitles"), /Size[\s\S]*Large/);
         assert.match(await text(page, ".player-menu-subtitles"), /Position[\s\S]*Bottom/);
@@ -2563,6 +2564,7 @@ test("subtitle search and the delay, size, position and appearance rows are remo
         for (let step = 0; step < 5; step += 1) await remote(page, DOWN);
         assert.equal(await focused(page), "subtitle-delay");
         await remote(page, ENTER);
+        assert.equal(await text(page, ".player-menu-subtitles .player-menu-heading"), "SUBTITLE DELAY");
         assert.equal(await focused(page), "subtitle-picker:0");
         await remote(page, DOWN);
         assert.equal(await focused(page), "subtitle-picker:100");
@@ -2574,6 +2576,48 @@ test("subtitle search and the delay, size, position and appearance rows are remo
         await page.close();
     }
 });
+
+for (const [trigger, heading] of [["subtitle-delay", "SUBTITLE DELAY"], ["subtitle-size", "SUBTITLE SIZE"], ["subtitle-position", "SUBTITLE POSITION"], ["subtitle-appearance:fontColor", "TEXT COLOR"]] as const) {
+    test(`the ${heading} picker keeps its heading in the panel while its options scroll`, async () => {
+        const { page } = await open();
+        const tracks: TrackView = { ...TRACKS, subtitleTools: {
+            search: { offered: true, unavailableReason: "", phase: "closed", suggested: [], other: [], language: undefined, status: "", message: "", warnings: [], canRetry: false, results: [], downloadingKey: undefined },
+            display: { delay: true, styling: true, deviceScope: true, textOpacity: true, delayMs: 0, appearance: DEFAULT_APPEARANCE, deviceOverride: false, busy: false, message: "" },
+            overlay: true,
+        } };
+        try {
+            await page.emulateMedia({ reducedMotion: "reduce" });
+            await show(page, playing(tracks));
+            await page.evaluate(() => document.fonts.ready);
+            await openPanel(page);
+            for (let step = 0; step < 4; step += 1) await remote(page, RIGHT);
+            if (trigger.startsWith("subtitle-appearance:")) {
+                await page.locator('[data-focus="subtitle-appearance"]').focus();
+                await remote(page, ENTER);
+            }
+            await page.locator(`[data-focus="${trigger}"]`).focus();
+            await remote(page, ENTER);
+            const geometry = await page.evaluate(() => {
+                const box = (node: Element | null): DOMRect | undefined => node?.getBoundingClientRect();
+                const panel = box(document.querySelector(".player-menu"));
+                const pane = document.querySelector(".player-menu-subtitles");
+                const heading = box(pane?.querySelector(".player-menu-heading") ?? null);
+                const focus = box(document.activeElement);
+                const options = pane?.querySelector(".player-menu-picker-options");
+                return { panel, heading, focus, headingText: pane?.querySelector(".player-menu-heading")?.textContent, paneScroll: pane?.scrollTop ?? -1, scrolled: (options?.scrollTop ?? 0) > 0, overflows: options !== null && options !== undefined && options.scrollHeight > options.clientHeight };
+            });
+            assert.equal(geometry.headingText, heading);
+            assert.ok(geometry.panel && geometry.heading && geometry.focus);
+            assert.equal(geometry.paneScroll, 0);
+            assert.ok(geometry.heading.top >= geometry.panel.top && geometry.heading.bottom <= geometry.panel.bottom, "heading is inside the panel");
+            assert.ok(geometry.focus.top >= geometry.heading.bottom && geometry.focus.bottom <= geometry.panel.bottom, "focused option sits below the heading, inside the panel");
+            if (trigger === "subtitle-delay") {
+                assert.equal(await focused(page), "subtitle-picker:0");
+                assert.ok(geometry.overflows && geometry.scrolled, "the middle delay value scrolls the options, not the heading");
+            }
+        } finally { await page.close(); }
+    });
+}
 
 test("an unavailable subtitle row says why, stays focusable and Select does nothing", async () => {
     const { page } = await open();

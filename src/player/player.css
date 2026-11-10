@@ -874,6 +874,19 @@
     scroll-behavior: smooth;
 }
 
+.player-menu-picker {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+.player-menu-picker-options {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    scroll-behavior: smooth;
+}
+
 .player-info {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -998,7 +1011,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .player-menu-list.player-menu-pane-active {
+    .player-menu-list.player-menu-pane-active,
+    .player-menu-picker-options {
         scroll-behavior: auto;
     }
     .player-spinner-mark { animation: none; }

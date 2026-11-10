@@ -50,6 +50,7 @@ export class ThemeMusicPreferences {
     private published = "";
     private refreshSequence = 0;
     private pendingWrites = 0;
+    private readonly generation: Record<ThemeMusicKey, number> = { [THEME_MUSIC_ENABLED_KEY]: 0, [THEME_MUSIC_LOOP_KEY]: 0 };
     private writeChain: Promise<void> = Promise.resolve();
 
     constructor(session: NativeSession) {
@@ -120,21 +121,24 @@ export class ThemeMusicPreferences {
         this.shown = enabled ? { ...this.shown, enabled: on } : { ...this.shown, loop: on };
         this.errorMessage = undefined;
         this.pendingWrites++;
+        const generation = ++this.generation[key];
         this.publish();
         // Serialized so quick changes reach the server in the order made.
-        this.writeChain = this.writeChain.then(() => this.perform(key, on));
+        this.writeChain = this.writeChain.then(() => this.perform(key, on, generation));
     }
 
-    private async perform(key: ThemeMusicKey, on: boolean): Promise<void> {
+    private async perform(key: ThemeMusicKey, on: boolean, generation: number): Promise<void> {
         const enabled = key === THEME_MUSIC_ENABLED_KEY;
         try {
             await this.call(settingsOperations.putSetting(key, on, "profile_device"), false);
         } catch (error) {
             this.pendingWrites--;
             if (this.controller.signal.aborted || (error instanceof ApiError && error.aborted)) return;
-            // Roll back only the key that failed; a queued change to the other one stands.
-            const saved = this.confirmed ?? OFF;
-            this.shown = enabled ? { ...this.shown, enabled: saved.enabled } : { ...this.shown, loop: saved.loop };
+            // Roll back only the key that failed, and only when no newer change to it is queued; a change to the other key stands.
+            if (this.generation[key] === generation) {
+                const saved = this.confirmed ?? OFF;
+                this.shown = enabled ? { ...this.shown, enabled: saved.enabled } : { ...this.shown, loop: saved.loop };
+            }
             this.errorMessage = writeFailure(error);
             this.publish();
             return;

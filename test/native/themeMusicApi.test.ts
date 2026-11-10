@@ -237,3 +237,22 @@ test("a play() the platform refuses for a decode error reports failure; an abort
     await settle();
     assert.equal(failed, 1);
 });
+
+test("a failed write does not roll back a switch that a newer change supersedes", async () => {
+    const h = await preferences();
+    try {
+        h.fake.script(enabledPath, problem(500, "internal", "Unavailable"));
+        const first = h.fake.hold(enabledPath);
+        const second = h.fake.hold(enabledPath);
+        h.store.setEnabled(true);
+        await settle();
+        h.store.setEnabled(false);
+        h.store.setEnabled(true);
+        first.release();
+        await settle();
+        assert.equal(h.store.playsThemeMusic, true, "the newest choice stays shown while its write is queued");
+        second.release();
+        await h.store.waitForPendingWrites();
+        assert.equal(h.store.playsThemeMusic, true);
+    } finally { h.store.stop(); }
+});

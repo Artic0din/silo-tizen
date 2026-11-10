@@ -214,7 +214,7 @@ test("a grant that arrives after stop is ignored", async () => {
 });
 
 function pageOf(overrides: Partial<ThemeMusicPage> = {}): ThemeMusicPage {
-    return { themes: set("movie:1", "a"), isLoading: false, isVisible: true, isOtherMediaActive: false, enabled: true, loop: false, ...overrides };
+    return { themes: set("movie:1", "a"), isLoading: false, isVisible: true, enabled: true, loop: false, ...overrides };
 }
 
 function centerSetup(options: { available?: boolean } = {}) {
@@ -280,7 +280,7 @@ test("other media starting silences the theme at once, before the video opens", 
     await center.waitUntilSettled();
     outputs[0]!.onProgress?.();
     finishFades();
-    center.update(pageOf({ isOtherMediaActive: true }));
+    center.update(pageOf(), true);
     assert.equal(outputs[0]!.tornDown, true, "torn down in the same turn, with no fade");
     assert.equal(outputs[0]!.playing, false);
 });
@@ -315,4 +315,31 @@ test("a capability answer that lands after the page was left starts nothing", as
     await settle();
     assert.equal(grants.length, 0);
     assert.equal(outputs.length, 0);
+});
+
+test("other media hands off even when no title page is open, and silences a theme still fading out", async () => {
+    const { center, outputs, finishFades } = centerSetup();
+    center.update(pageOf());
+    await center.waitUntilSettled();
+    outputs[0]!.onProgress?.();
+    finishFades();
+    center.update(undefined);
+    assert.equal(outputs[0]!.tornDown, false, "leaving the page fades out");
+    center.update(undefined, true);
+    assert.equal(outputs[0]!.tornDown, true, "a video opening from another screen cannot overlap the fade");
+});
+
+test("a converted loop that ends while suspended replays with a fresh grant on return", async () => {
+    const { controller, grants, outputs, finishFades } = setup({ converted: true });
+    controller.select(set("movie:1", "a"), true);
+    await controller.waitUntilSettled();
+    outputs[0]!.onProgress?.();
+    finishFades();
+    controller.suspend();
+    outputs[0]!.onEnded?.();
+    assert.equal(outputs[0]!.tornDown, true);
+    controller.select(set("movie:1", "a"), true);
+    await controller.waitUntilSettled();
+    assert.equal(grants.length, 2);
+    assert.equal(outputs[1]!.playing, true);
 });

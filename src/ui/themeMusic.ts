@@ -180,8 +180,10 @@ export class ThemeMusicController {
             if (generation !== this.generation) return;
             // A converted stream cannot seek back and its URL may have expired, so a loop replays it with a fresh grant.
             // One that ended without playing spends the same single retry as a failure, so a clean conversion failure cannot replay forever.
-            if (this.converted && this.loop && !this.suspended && (this.played || this.spendRetry())) {
-                this.startLoad();
+            if (this.converted && this.loop && (this.played || this.spendRetry())) {
+                // Ended while suspended: drop the output but not the theme, so returning replays it with a fresh grant.
+                if (this.suspended) this.clearOutput();
+                else this.startLoad();
                 return;
             }
             this.finished = true;
@@ -229,8 +231,6 @@ export interface ThemeMusicPage {
     readonly isLoading: boolean;
     /** On screen, in the foreground and not covered. */
     readonly isVisible: boolean;
-    /** A video or trailer is playing or about to open. */
-    readonly isOtherMediaActive: boolean;
     readonly enabled: boolean;
     readonly loop: boolean;
 }
@@ -241,6 +241,7 @@ export class ThemeMusicCenter {
     private readonly capability: () => Promise<boolean>;
     private readonly clock: Clock;
     private page: ThemeMusicPage | undefined;
+    private otherMedia = false;
     private answer: { readonly available: boolean; readonly at: number } | undefined;
     private asking: Promise<void> | undefined;
     /** Bumped by `reset`, so an answer asked for an earlier identity is dropped. */
@@ -252,9 +253,10 @@ export class ThemeMusicCenter {
         this.clock = clock;
     }
 
-    /** The open page changed, or there is none (undefined). */
-    update(page: ThemeMusicPage | undefined): void {
+    /** The open page changed, or there is none (undefined). `otherMediaActive`: a video is playing or about to open, whatever page is showing. */
+    update(page: ThemeMusicPage | undefined, otherMediaActive = false): void {
         this.page = page;
+        this.otherMedia = otherMediaActive;
         this.apply();
     }
 
@@ -265,6 +267,7 @@ export class ThemeMusicCenter {
         this.answer = undefined;
         this.asking = undefined;
         this.page = undefined;
+        this.otherMedia = false;
     }
 
     /** Resolves once no capability or grant request is in flight. For tests. */
@@ -279,12 +282,12 @@ export class ThemeMusicCenter {
 
     private apply(): void {
         const page = this.page;
-        if (page === undefined || !page.enabled) {
-            this.controller.stop();
+        if (this.otherMedia) {
+            this.controller.stop("handOff");
             return;
         }
-        if (page.isOtherMediaActive) {
-            this.controller.stop("handOff");
+        if (page === undefined || !page.enabled) {
+            this.controller.stop();
             return;
         }
         const available = this.available();

@@ -362,12 +362,11 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             themes: detail?.themes ?? (series?.kind === "item" ? series.data?.detail.themes : undefined),
             isLoading: current.data === undefined,
             isVisible: !document.hidden,
-            isOtherMediaActive: playing,
             enabled: themePrefs.playsThemeMusic,
             loop: themePrefs.loops,
         };
     };
-    const syncThemeMusic = (): void => themeCenter.update(themePage());
+    const syncThemeMusic = (): void => themeCenter.update(themePage(), playing);
     const themeVisibility = (): void => syncThemeMusic();
     document.addEventListener("visibilitychange", themeVisibility);
     themePrefs.subscribe(syncThemeMusic);

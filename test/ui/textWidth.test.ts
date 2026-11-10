@@ -132,3 +132,83 @@ test("a compact home title shows The Dog Stars and still truncates a longer line
         await browser.close();
     }
 });
+
+test("Home hero text matches the Apple TV capture's size, spacing and measure", async () => {
+    const browser = await launchBrowser();
+    try {
+        const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
+        await page.setContent(`<!doctype html>
+<style>@font-face { font-family: Inter; src: url(data:font/woff2;base64,${font}) format("woff2"); font-weight: 100 900; }</style>
+<main class="browse skyline-home"><div class="skyline-marquee"><div class="skyline-marquee-layer">
+  <div class="skyline-meta-line"><span class="skyline-chip">TV-Y</span><span class="skyline-meta"><span class="skyline-meta-lead">S1 E25 · Going Green · 11m</span><span class="skyline-meta-dot"> · </span><span class="skyline-meta-trailing">22m left</span></span></div>
+  <p class="skyline-synopsis">Team Spidey must stop Green Goblin from spewing his green gas all over the park in order to make it safe for the trees again.</p>
+  <div class="skyline-detail-line"><span class="skyline-detail-text">Aired 3 Dec 2021 · Nick Fisher, Benjamin Valic, Audrey Bennett</span></div>
+  <div class="skyline-badges"><span class="skyline-chip">1080p</span><span class="skyline-chip">EAC3 5.1</span></div>
+</div></div></main>`);
+        await page.addStyleTag({ content: `${theme}\n${browse}` });
+        await page.evaluate(() => document.fonts.ready);
+        const measured = await page.evaluate(() => {
+            const one = (selector: string): Element => {
+                const node = document.querySelector(selector);
+                if (node === null) throw new Error(selector);
+                return node;
+            };
+            const type = (selector: string) => {
+                const style = getComputedStyle(one(selector));
+                return { size: Number.parseFloat(style.fontSize), weight: style.fontWeight, lineHeight: style.lineHeight, spacing: style.letterSpacing === "normal" ? 0 : Number.parseFloat(style.letterSpacing) };
+            };
+            const width = (selector: string) => {
+                const range = document.createRange();
+                range.selectNodeContents(one(selector));
+                return range.getBoundingClientRect().width;
+            };
+            const synopsis = one(".skyline-synopsis");
+            const text = synopsis.firstChild;
+            if (text === null) throw new Error("synopsis text");
+            const content = text.textContent ?? "";
+            const park = document.createRange();
+            park.setStart(text, content.indexOf("park"));
+            park.setEnd(text, content.indexOf("park") + 4);
+            const lines = document.createRange();
+            lines.selectNodeContents(synopsis);
+            const lineTops = [...new Set([...lines.getClientRects()].map(rect => Math.round(rect.top)))];
+            const chips = [...document.querySelectorAll(".skyline-chip")].map(chip => [(chip as HTMLElement).offsetWidth, (chip as HTMLElement).offsetHeight]);
+            return {
+                meta: { ...type(".skyline-meta-lead"), width: width(".skyline-meta") },
+                synopsis: { ...type(".skyline-synopsis"), lineTops, parkTop: Math.round(park.getBoundingClientRect().top) },
+                detail: { ...type(".skyline-detail-text"), width: width(".skyline-detail-text") },
+                chip: type(".skyline-chip"),
+                chips,
+            };
+        });
+        const near = (actual: number, expected: number, tolerance: number, label: string) => assert.ok(Math.abs(actual - expected) <= tolerance, `${label}: ${actual} vs ${expected}`);
+        // Apple's points (TVFocusMarquee, SiloTheme.Skyline) times SF Pro's cap height over Inter's, 0.7046 / 0.7275.
+        near(measured.meta.size, 20 * 0.9685, 0.01, "meta size");
+        assert.equal(measured.meta.weight, "500");
+        near(measured.meta.spacing, 0, 0.001, "meta tracking");
+        near(measured.synopsis.size, 22 * 0.9685, 0.01, "synopsis size");
+        assert.equal(measured.synopsis.weight, "400");
+        assert.equal(measured.synopsis.lineHeight, "33px");
+        near(measured.synopsis.spacing, -0.35, 0.001, "synopsis tracking");
+        near(measured.detail.size, 20 * 0.9685, 0.01, "detail size");
+        assert.equal(measured.detail.weight, "500");
+        assert.equal(measured.detail.lineHeight, "27px");
+        near(measured.detail.spacing, -0.1, 0.001, "detail tracking");
+        near(measured.chip.size, 15 * 0.9685, 0.01, "chip size");
+        assert.equal(measured.chip.weight, "600");
+        assert.equal(measured.chip.lineHeight, "18px");
+        near(measured.chip.spacing, 1.65, 0.001, "chip tracking");
+        // The Apple capture's measure: "park" ends line one, then a 33px pitch to line two.
+        assert.equal(measured.synopsis.lineTops.length, 2, JSON.stringify(measured.synopsis));
+        assert.equal(measured.synopsis.parkTop, measured.synopsis.lineTops[0], "park stays on line one");
+        assert.equal((measured.synopsis.lineTops[1] ?? 0) - (measured.synopsis.lineTops[0] ?? 0), 33);
+        // Apple's ink runs 326px for the meta text and 556px for the detail line.
+        near(measured.meta.width, 326, 2, "meta width");
+        near(measured.detail.width, 556, 2, "detail width");
+        // Apple's chip boxes: TV-Y 60x28, 1080p 72x28, EAC3 5.1 93x28.
+        assert.deepEqual(measured.chips.map(([, height]) => height), [28, 28, 28]);
+        measured.chips.forEach(([chipWidth], index) => near(chipWidth ?? 0, [60, 72, 93][index] ?? 0, 2, `chip ${index} width`));
+    } finally {
+        await browser.close();
+    }
+});

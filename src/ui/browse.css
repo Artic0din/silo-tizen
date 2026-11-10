@@ -938,10 +938,18 @@
 .silo-sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .skyline-title { margin: 0 0 14px; font-size: 84px; line-height: .98; font-weight: 800; color: #fff; text-shadow: 0 4px 10px rgba(0,0,0,.5); max-height: 166px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .skyline-meta-line { display: flex; align-items: center; max-width: 780px; height: 27px; margin: 0 0 14px; white-space: nowrap; }
-.skyline-meta { display: flex; align-items: baseline; min-width: 0; overflow: hidden; white-space: nowrap; font-size: 20px; font-weight: 500; color: rgba(237,237,237,.6); }
-.skyline-library .skyline-meta { font-size: 19px; }
-.skyline-chip { flex-shrink: 0; display: inline-block; margin-right: 10px; padding: 5px 10px; border: 1px solid rgba(255,255,255,.24); border-radius: 6px; background: rgba(255,255,255,.07); color: rgba(255,255,255,.92); font-size: 15px; font-weight: 600; letter-spacing: 1.2px; line-height: 1.2; }
-.skyline-synopsis { max-width: 780px; margin: 0 0 14px; overflow: hidden; font-size: 22px; line-height: 28px; color: rgba(237,237,237,.6); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
+/* Hero text sizes are Apple's points times --silo-sf-cap-scale. Letter-spacing is tuned per line so Inter's
+   widths match the Apple TV capture (Spidey and His Amazing Friends, 1920x1080) within 2px; SF Pro's own size-specific
+   tracking makes the 20px meta line wider than Inter's default tracking. */
+/* Inter's text centres 1px higher than SF Pro's in the 27px row, so it drops 1px to the capture's position. */
+.skyline-meta { position: relative; top: 1px; display: flex; align-items: baseline; min-width: 0; overflow: hidden; white-space: nowrap; font-size: calc(20px * var(--silo-sf-cap-scale)); font-weight: 500; color: rgba(237,237,237,.6); }
+.skyline-meta, .skyline-meta * { letter-spacing: 0; }
+.skyline-library .skyline-meta { font-size: calc(19px * var(--silo-sf-cap-scale)); }
+/* SwiftUI's strokeBorder sits inside the 10x5 padding; a CSS border sits outside it, so the padding drops 1px. */
+.skyline-chip { flex-shrink: 0; display: inline-block; margin-right: 10px; padding: 4px 9px; border: 1px solid rgba(255,255,255,.24); border-radius: 6px; background: rgba(255,255,255,.07); color: rgba(255,255,255,.92); font-size: calc(15px * var(--silo-sf-cap-scale)); font-weight: 600; letter-spacing: 1.65px; line-height: 18px; }
+/* lineSpacing(6) adds 6px between lines only, a 33px line pitch in the capture. CSS line-height also pads above the
+   first line and below the last, so the margins take that back. */
+.skyline-synopsis { max-width: 780px; margin: -3px 0 9px; overflow: hidden; font-size: calc(22px * var(--silo-sf-cap-scale)); line-height: 33px; letter-spacing: -0.35px; color: rgba(237,237,237,.6); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
 .skyline-synopsis.is-translating { opacity: 0.5; }
 .skyline-translation-visible .skyline-synopsis { -webkit-line-clamp: 2; }
 .skyline-title-wrapped.skyline-translation-visible .skyline-synopsis, .skyline-library .skyline-translation-visible .skyline-synopsis { -webkit-line-clamp: 1; }
@@ -951,7 +959,7 @@
 .skyline-meta-dot { flex-shrink: 0; white-space: pre; }
 /* Apple RatingEntryView at the meta size: a dimmed semibold text mark at 0.87x, 0.35x apart from a bold score. */
 .skyline-rating { flex-shrink: 0; }
-.skyline-rating-mark { margin-right: 7px; font-size: 17px; font-weight: 600; opacity: .72; }
+.skyline-rating-mark { margin-right: 7px; font-size: calc(17px * var(--silo-sf-cap-scale)); font-weight: 600; opacity: .72; }
 .skyline-rating-score { font-weight: 700; font-variant-numeric: tabular-nums; }
 /* TMDB's approved logo replaces its text mark at the score's cap height (0.7x), undimmed, on the baseline. */
 .skyline-rating-logo { height: 14px; width: auto; margin-right: 7px; vertical-align: baseline; }
@@ -966,10 +974,12 @@
 .skyline-logo { display: block; width: 100%; height: 100%; object-fit: contain; object-position: left center; }
 .skyline-library .skyline-title.skyline-title-logo { height: 150px; }
 /* Apple detailLine: one line at the meta size. The marquee stack's meta and badge rows are framed at 27
-   (TVFocusMarquee.swift); a 24px estimate sat the bottom-anchored logo slot 3px too low. */
-.skyline-detail-line { display: flex; max-width: 780px; height: 27px; margin: 0 0 14px; overflow: hidden; white-space: nowrap; font-size: 20px; line-height: 27px; font-weight: 500; color: rgba(237,237,237,.5); }
+   (TVFocusMarquee.swift); a 24px estimate sat the bottom-anchored logo slot 3px too low. The 12px gap below
+   puts the line's ink where the Apple TV capture has it. */
+.skyline-detail-line { display: flex; max-width: 780px; height: 27px; margin: 0 0 12px; overflow: hidden; white-space: nowrap; font-size: calc(20px * var(--silo-sf-cap-scale)); line-height: 27px; font-weight: 500; color: rgba(237,237,237,.5); }
+.skyline-detail-line, .skyline-detail-line * { letter-spacing: -0.1px; }
 .skyline-detail-text { overflow: hidden; text-overflow: ellipsis; }
-.skyline-library .skyline-detail-line { font-size: 19px; }
+.skyline-library .skyline-detail-line { font-size: calc(19px * var(--silo-sf-cap-scale)); }
 .skyline-badges { display: flex; align-items: center; height: 27px; }
 .browse-section { margin-bottom: 32px; position: relative; }
 .browse-section-title { font-size: 30px; font-weight: 700; margin-bottom: 20px; }

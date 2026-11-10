@@ -1197,8 +1197,11 @@ test("the skip pills sit where Apple TV draws them: bottom right, above the tran
         // Measure where the pill settles, not mid-slide.
         await page.addStyleTag({ content: ".player-skip { transition: none !important; }" });
         await show(page, inMarker(INTRO, 25));
+        // The label sets this pill's width, and Inter loads on first use: read once, after it has, and leave the width out.
+        await page.evaluate(() => document.fonts.ready);
         // tvOS padding plus the 80 px side and 60 px top and bottom safe area.
-        assert.deepEqual(await metrics(page), { width: (await metrics(page)).width, height: 72, right: 160, bottom: 460, background: "rgba(0, 0, 0, 0.65)", font: "28px/600" });
+        const { width: _labelWidth, ...intro } = await metrics(page);
+        assert.deepEqual(intro, { height: 72, right: 160, bottom: 460, background: "rgba(0, 0, 0, 0.65)", font: "28px/600" });
         await show(page, playing(TRACKS));
         await show(page, inMarker(RECAP, 5));
         // 220 px label frame plus 20 px of padding a side (TVPillButtonStyle .compact).

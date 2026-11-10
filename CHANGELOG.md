@@ -7,13 +7,14 @@ All notable changes to this project are documented in this file.
 ### Added
 
 - Added theme music, as on Apple TV: Settings › General has Play Theme Music and Loop Theme Music, and a movie, series, season or episode page plays the title's theme quietly while it is open, stopping before playback starts.
-- Playback lowers the quality when it keeps buffering, as Apple TV does: it asks first, or lowers Auto at once and offers Restore quality, depending on `playback.buffering_quality_mode` (Automatically until a Settings row sets it), with the same prompt, undo pill and notices.
+- Playback lowers the quality when it keeps buffering, as Apple TV does: it asks first, or lowers Auto at once and offers Restore quality, depending on `playback.buffering_quality_mode` (Automatically by default), with the same prompt, undo pill and notices.
 - Added HDR on Playback. A TV that reports HDR, with the HDR setting on, claims HDR10 for direct play. HDR10+ and HLG stay unclaimed: the probe is one boolean, and Samsung does not document those formats for every Tizen 8.0 TV. Dolby Vision is not a Playback row: Samsung exposes no Dolby Vision support check, and this client claims no Dolby Vision profile.
 - Added subtitle search and download, plus in-player delay, size, position and appearance controls, during playback.
 - Added player chapters, playback stats, richer title information, supported speed and aspect controls, and an in-player Auto-play next toggle.
 - Added Show Next Up to Playback Settings with five prompt timings and profile inheritance.
 - Showed Up Next before playback ended with Play Now, Keep Watching and an On Deck row, and refreshed autoplay at episode completion.
 - Playback settings show Connection speed and Test speed when the server advertises `connection_speed_v1`.
+- Added Lower quality when buffering (Never, Ask first, Automatically) and, when the server has learned a limit for this connection, "Limited to 44 Mbps after buffering on Oct 17" with Reset to Playback settings, as on Apple TV.
 - Sent the last measured connection speed when playback starts, while it is still current, so Auto can plan the first stream with it.
 - Added Paired Silo Profile on General, showing the profile this TV reopens and opening the profile picker to change it.
 - Added Remove Request for a failed request of yours, including the confirmation, the notice, and focus on the card that takes its place.

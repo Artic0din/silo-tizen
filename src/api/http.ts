@@ -44,6 +44,8 @@ export interface RequestSpec<T> {
     readonly signal?: AbortSignal | undefined;
     readonly timeoutMs?: number;
     readonly clientFamily?: "tv";
+    /** Watch Together room proof, sent as X-Room-Token. */
+    readonly roomToken?: string;
 }
 
 export const DEFAULT_TIMEOUT_MS = 15000;
@@ -235,6 +237,7 @@ export class NativeHttp {
         if (spec.bearer !== undefined) {
             headers.Authorization = `Bearer ${spec.bearer}`;
         }
+        if (spec.roomToken !== undefined) headers["X-Room-Token"] = spec.roomToken;
         if (spec.profile !== undefined) {
             headers["X-Profile-Id"] = spec.profile.id;
             if (spec.profile.token !== undefined) {

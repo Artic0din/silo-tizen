@@ -8,7 +8,7 @@ import { systemClock } from "../api/clock.ts";
 import { operations } from "../api/operations.ts";
 import { runManualSpeedTest, type ManualSpeedTestResult, type ProbeTransportName, type SpeedMeasurement, type SpeedTestClient, type SpeedTestNetwork } from "../api/bandwidthProbe.ts";
 import { bandwidthReadings, readingsKey } from "../player/bandwidthReadings.ts";
-import { CONNECTION_SPEED_FEATURE, type ConnectionProbe, type ConnectionSample, type PlaybackConnection } from "../contracts/v2/connectionSpeed.ts";
+import { BUFFERING_QUALITY_FEATURE, CONNECTION_SPEED_FEATURE, type ConnectionProbe, type ConnectionSample, type LearnedLimit, type PlaybackConnection } from "../contracts/v2/connectionSpeed.ts";
 
 export const CONNECTION_SECTION = "CONNECTION";
 export const CONNECTION_SPEED_TITLE = "Connection speed";
@@ -17,6 +17,8 @@ export const TESTING_SPEED_LABEL = "Testing…";
 export const NOT_MEASURED_TEXT = "Not measured yet";
 export const SPEED_TEST_FAILED = "Couldn't measure the connection speed. Try again.";
 export const SPEED_TEST_NOT_SAVED = "Couldn't save the speed test result. Try again.";
+export const LEARNED_LIMIT_RESET_FAILED = "Couldn't reset the limit. Try again.";
+export const LEARNED_LIMIT_RESET_ACTION = "Reset";
 
 export interface ConnectionSpeedView {
     readonly line: string;
@@ -55,6 +57,15 @@ export function connectionAgeText(measuredAt: number, now: number): string {
     return `${days} ${days === 1 ? "day" : "days"} ago`;
 }
 
+/**
+ * "Limited to 44 Mbps after buffering on Oct 17": the rate as Settings shows rates and the day of the most
+ * recent lowering in the viewer's locale and time zone (SettingsViewModel.learnedLimitText, 486-495).
+ */
+export function learnedLimitText(limit: LearnedLimit, locale?: string, timeZone?: string): string {
+    const day = new Intl.DateTimeFormat(locale, { month: "short", day: "numeric", ...(timeZone === undefined ? {} : { timeZone }) }).format(limit.observedAt);
+    return `Limited to ${connectionRateText(limit.kbps)} after buffering on ${day}`;
+}
+
 export function tryAgainMessage(seconds: number): string {
     return `Try again in ${seconds} ${seconds === 1 ? "second" : "seconds"}`;
 }
@@ -88,6 +99,12 @@ export function currentNetwork(): SpeedTestNetwork & { readonly cellular: boolea
  */
 export class ConnectionSpeed {
     private supported = false;
+    private learnedSupported = false;
+    private resetting = false;
+    /** The Auto limit the server learned for this device on this connection; absent without `buffering_quality_v1`. */
+    learnedLimit: LearnedLimit | undefined;
+    /** Set when Reset failed, until the next Reset or read. */
+    learnedResetError: string | undefined;
     private connectionId: string | undefined;
     private serverProbe: ConnectionProbe | undefined;
     private sample: ConnectionSample | undefined;
@@ -191,12 +208,14 @@ export class ConnectionSpeed {
         try {
             const capabilities = await this.session.call({ ...operations.playbackCapabilities(), profileScoped: true, signal });
             if (generation !== this.generation || signal.aborted) return;
-            if (!capabilities.features.includes(CONNECTION_SPEED_FEATURE)) {
-                this.supported = false;
+            this.learnedResetError = undefined;
+            this.supported = capabilities.features.includes(CONNECTION_SPEED_FEATURE);
+            this.learnedSupported = capabilities.features.includes(BUFFERING_QUALITY_FEATURE);
+            if (!this.supported && !this.learnedSupported) {
+                this.learnedLimit = undefined;
                 this.refresh();
                 return;
             }
-            this.supported = true;
             try {
                 const connection = await this.session.call({ ...operations.playbackConnection(), profileScoped: true, signal });
                 if (generation !== this.generation || signal.aborted) return;
@@ -207,11 +226,14 @@ export class ConnectionSpeed {
                 this.serverProbe = undefined;
                 this.sample = undefined;
                 this.autoBudgetKbps = undefined;
+                this.learnedLimit = undefined;
             }
             this.refresh();
         } catch {
             if (generation !== this.generation || signal.aborted) return;
             this.supported = false;
+            this.learnedSupported = false;
+            this.learnedLimit = undefined;
             this.refresh();
         }
     }
@@ -219,6 +241,9 @@ export class ConnectionSpeed {
     private applyConnection(connection: PlaybackConnection): void {
         if (this.connectionId !== undefined && this.connectionId !== connection.connection) this.own = undefined;
         this.connectionId = connection.connection;
+        this.learnedLimit = this.learnedSupported ? connection.learnedLimit : undefined;
+        // Without connection_speed_v1 the speed members are not Settings' to show or to start with (SettingsViewModel.swift:521-526).
+        if (!this.supported) return;
         this.serverProbe = connection.probe;
         this.sample = connection.playbackSample;
         this.autoBudgetKbps = connection.autoBudgetKbps;
@@ -226,6 +251,33 @@ export class ConnectionSpeed {
             ...(connection.probe === undefined ? {} : { probe: { kbps: connection.probe.kbps, measuredAt: connection.probe.measuredAt } }),
             ...(connection.playbackSample === undefined ? {} : { sample: connection.playbackSample }),
         });
+    }
+
+    /**
+     * DELETE the learned limit. Resolves true once it is cleared; the caller then moves focus off the row
+     * before it vanishes. A failure keeps the row, sets `learnedResetError` and repaints.
+     * SettingsViewModel.resetLearnedConnectionLimit, 531-545.
+     */
+    async resetLearnedLimit(): Promise<boolean> {
+        if (this.resetting || this.learnedLimit === undefined) return false;
+        this.resetting = true;
+        this.learnedResetError = undefined;
+        const signal = this.loadAbort.signal;
+        try {
+            await this.session.call({ ...operations.resetPlaybackLearnedLimit(), profileScoped: true, replayAfterRefresh: false, signal });
+            if (signal.aborted) return false;
+            this.learnedLimit = undefined;
+            // The server's Auto budget counted the limit, so the Connection group reads again.
+            if (this.supported) void this.load(++this.generation);
+            return true;
+        } catch {
+            if (signal.aborted) return false;
+            this.learnedResetError = LEARNED_LIMIT_RESET_FAILED;
+            this.onChange();
+            return false;
+        } finally {
+            this.resetting = false;
+        }
     }
 
     private readingsKey(): string {

@@ -815,6 +815,74 @@ test("quality footer and bitrate labels follow Apple TV", async () => {
     } finally { await tv.page.context().close(); }
 });
 
+const BUFFERING_MODE_KEY = "playback.buffering_quality_mode";
+const BUFFERING_SENTENCES = "What Silo does on Auto when playback keeps buffering. Silo always asks before lowering a quality you picked.";
+
+test("Lower quality when buffering follows Apple's QUALITY rows and saves for this TV only", async () => {
+    const { tv, settings } = await setup(true);
+    settings.bufferingRows = true;
+    try {
+        const deviceId = tv.fake.requests.find(r => r.headers["x-silo-device-id"])?.headers["x-silo-device-id"];
+        assert.ok(deviceId);
+        const device = settings.device("p-owner", deviceId);
+        settings.profile().set(BUFFERING_MODE_KEY, "ask");
+        await openSettings(tv);
+        await tv.page.locator('[data-focus="playback"]').click();
+        const row = tv.page.locator('[data-focus="buffering-mode"]');
+        await row.waitFor();
+        assert.equal(await row.locator(".settings-row-title").textContent(), "Lower quality when buffering");
+        assert.equal(await row.locator(".settings-row-value").textContent(), "Ask first");
+        // TVPlaybackSettingsView.swift:60-90: Resolution, Maximum Bitrate, the buffering row, then one footer with both sentences.
+        const order = await tv.page.evaluate(() => {
+            const keys = ["quality", "bitrate", "buffering-mode"].map(key => document.querySelector(`[data-focus="${key}"]`));
+            const footer = document.querySelector(".settings-quality-footer");
+            const streaming = [...document.querySelectorAll(".settings-section-header")].find(node => node.textContent === "STREAMING");
+            const nodes = [...keys, footer, streaming];
+            if (nodes.some(node => node === null || node === undefined)) return false;
+            return nodes.every((node, index) => index === 0 || (((nodes[index - 1] as Node).compareDocumentPosition(node as Node)) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0);
+        });
+        assert.equal(order, true);
+        assert.equal(await tv.page.locator(".settings-quality-footer").textContent(), `Plays the original file whenever your device and connection can handle it. ${BUFFERING_SENTENCES}`);
+        await row.click();
+        const dialog = tv.page.getByRole("dialog", { name: "Lower quality when buffering" });
+        await dialog.waitFor();
+        assert.deepEqual(await dialog.locator(".settings-modal-options [data-focus]").allTextContents(), ["Use Profile Setting", "Never", "Ask first", "Automatically"]);
+        // No device value yet: the profile's Ask first applies, so Use Profile Setting is the checked choice.
+        assert.equal(await dialog.locator('[data-focus="reset-row"]').getAttribute("aria-checked"), "true");
+        assert.equal(await dialog.locator('[data-focus="choice:ask"]').getAttribute("aria-checked"), "false");
+        await dialog.locator('[data-focus="choice:never"]').click();
+        await row.waitFor();
+        assert.equal(await tv.focused(), "buffering-mode");
+        assert.equal(device.get(BUFFERING_MODE_KEY), "never");
+        assert.equal(settings.profile().get(BUFFERING_MODE_KEY), "ask");
+        assert.equal(await row.locator(".settings-row-value").textContent(), "Never");
+        await row.click();
+        await tv.page.locator('[data-focus="reset-row"]').click();
+        await row.waitFor();
+        assert.equal(device.has(BUFFERING_MODE_KEY), false);
+        assert.equal(await row.locator(".settings-row-value").textContent(), "Ask first");
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
+
+test("Lower quality when buffering defaults to Automatically and is hidden where the server lacks it", async () => {
+    const shown = await setup(true);
+    shown.settings.bufferingRows = true;
+    try {
+        await openSettings(shown.tv);
+        await shown.tv.page.locator('[data-focus="playback"]').click();
+        assert.equal(await shown.tv.page.locator('[data-focus="buffering-mode"] .settings-row-value').textContent(), "Automatically");
+    } finally { await shown.tv.page.context().close(); }
+    const hidden = await setup(true);
+    try {
+        await openSettings(hidden.tv);
+        await hidden.tv.page.locator('[data-focus="playback"]').click();
+        await hidden.tv.page.locator('[data-focus="quality"]').waitFor();
+        assert.equal(await hidden.tv.page.locator('[data-focus="buffering-mode"]').count(), 0);
+        assert.equal(await hidden.tv.page.locator(".settings-quality-footer").textContent(), "Plays the original file whenever your device and connection can handle it.");
+    } finally { await hidden.tv.page.context().close(); }
+});
+
 test("Playback restores video skip intervals after episodes and focus moves do not write settings", async () => {
     const { tv } = await setup();
     try {

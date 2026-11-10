@@ -29,7 +29,7 @@ These parts of Apple's behaviour have no Samsung owner, so they are not copied:
 - The reading kept for this Settings visit follows the server's `connection` string. Apple also keeps an in-memory reading per network path (`SettingsViewModel.swift:595-599`). This TV does not subscribe to network changes while Settings stays open; the next visit reads again.
 - Metered is `navigator.connection.type === "cellular"` or `saveData === true` when the browser exposes them. Otherwise the row offers Test speed. Transport is `wifi`, `ethernet` or `cellular` only when the browser reports that type; otherwise it is `other`, shown as `this connection`.
 - `Stop playback before testing, then try again.` (`SettingsViewModel.swift:577,654-655`) is not shown. Settings replaces the browse screen, so it is not open during playback.
-- Apple hides the auto-budget sentence when buffering quality is Never and a learned limit exists (`SettingsViewModel.swift:630-632`). This TV has no Settings row for the buffering-quality mode yet, so the sentence is shown whenever the server sends `auto_budget_kbps` and tests are not skipped.
+- Apple hides the auto-budget sentence when buffering quality is Never and a learned limit exists (`SettingsViewModel.swift:626-632`), because the server's budget counts the limit and Never ignores it. This TV does the same.
 
 ## HDR
 
@@ -106,20 +106,28 @@ A row that nothing on this TV acts on stays hidden.
 | Show Audiobooks | Open PR #230. No Audiobooks tab. |
 | Show Next Up | Playback offers Play next only after the episode ends. Nothing reads `playback.next_up_prompt_seconds`. Open PR #213 owns the pre-end reader. |
 | Audiobooks Skip Back, Skip Forward | Open PR #230. No audiobook player. |
-| Lower quality when buffering, learned-limit Reset | Playback lowers quality when it keeps buffering (see Lower quality when buffering below), reading `playback.buffering_quality_mode` and defaulting to Automatically. The Settings rows that change the mode and reset the learned limit are not built. Issue #293. |
 | Use Device Settings | tvOS reads Media Accessibility caption preferences (`SystemCaptionAppearance.swift`). Samsung captions are the app overlay. No TV caption-style API is available, so the switch would not change language, behavior, or appearance. |
 | Watch Party | Not built. Issue #54. |
 | Diagnostics | Open issue #218, parked. |
 
 ## Lower quality when buffering
 
-Playback follows Apple's `BufferingQualityController` (`bufferingQuality.ts`), fed by `bufferingSignals.ts` and joined to the player in `bufferingBridge.ts`, as `PlaybackSessionBridge.swift` and `BufferingSignalMapper.swift` do.
+QUALITY keeps Apple's order (`TVPlaybackSettingsView.swift:60-120`): Resolution, Maximum Bitrate, Lower quality when buffering, the learned limit, then one footer.
 
-- The mode is `playback.buffering_quality_mode`: never, ask or always. It is read with the other playback settings before a start, when the server defines the key. Anything unreadable, and a server without the key, keep Apple's default, always. There is no Settings row for it yet.
+- **Lower quality when buffering** is `playback.buffering_quality_mode` with the manifest's labels: Never, Ask first and Automatically (default). It is a device value like Skip Intros: the picker lists Use Profile Setting first, and a choice is saved for this TV only. The row is drawn only when the server's settings define the key (`SettingsViewModel.swift:82`).
+- The footer under Resolution and Maximum Bitrate ends with the manifest's description, "What Silo does on Auto when playback keeps buffering. Silo always asks before lowering a quality you picked.", while the row is shown (`TVPlaybackSettingsView.swift:106-110`).
+- **Learned limit** reads `learned_limit` from `GET /playback/connection` and shows "Limited to 44 Mbps after buffering on Oct 17" with Reset: the rate as Settings shows rates, and the day of the last lowering in the TV's locale and time zone. The row needs `buffering_quality_v1` in the capability answer and a limit on the connection document, and it is hidden in Never, which ignores the limit (`SettingsViewModel.swift:476-481`). Connection speed needs only `connection_speed_v1`: with just `buffering_quality_v1` the document is read for the limit, and the probe, sample and budget in it are ignored.
+- **Reset** sends `DELETE /playback/connection/learned-limit`, which the server answers with 204 and which is never retried. The row then disappears and focus moves to the buffering row, or to Maximum Bitrate when the server has no such row. With `connection_speed_v1` the document is read again because the server's budget counted the limit. A failed reset keeps the row and shows "Couldn't reset the limit. Try again." under the footer until the next reset or read.
+
+### Playback
+
+The row above sets the mode; playback follows Apple's `BufferingQualityController` (`bufferingQuality.ts`), fed by `bufferingSignals.ts` and joined to the player in `bufferingBridge.ts`, as `PlaybackSessionBridge.swift` and `BufferingSignalMapper.swift` do.
+
+- The mode is `playback.buffering_quality_mode`: never, ask or always. It is read with the other playback settings before a start, when the server defines the key. Anything unreadable, and a server without the key, keep Apple's default, always.
 - A stall is AVPlay's `onbufferingstart` to `onbufferingcomplete` while the viewer wants to play. These are not stalls: the plan's start (counted only on evidence, which this client has none of before the first frame), buffering during or after a seek until the playhead moves on, a source reload, a pause, a backgrounded app, and a lost connection or failed media request. AVPlay reports no buffered-ahead figure, bytes received or software route, so the renderer-wait rule, the upstream-silence outage and the arrival-rate evidence have no input here.
 - The decision, its thresholds and the rung choice are Apple's: two stalls of a second inside two minutes, or one of six seconds, after ten seconds of startup grace. In always on Auto it sends `quality_change` with `quality_preference: "auto"`, `bandwidth_estimate_kbps` at 70% of the delivered bitrate, and, when the server advertises `buffering_quality_v1`, `bandwidth_estimate_source: "observed_rebuffer"`. A quality the viewer picked is asked about first, in any mode but never, and lowers to the next rung with that rung's label and bitrate cap.
 - `observed_throughput_kbps` is not sent: the link throughput comes from byte counters AVPlay does not expose.
 - Restore quality sends Auto with `learned_limit: "clear"`. In never, a start or replan to a server that advertises the feature carries `learned_limit: "ignore"`. The player's other replans repeat the kept estimate while a lowering stands.
 - The prompt reads "Playback keeps buffering" over "Try a lower quality to keep watching", with Lower quality and Keep quality; its 15 s countdown runs only while it shows. The undo reads "Quality lowered to stop buffering" with Restore quality. The notices "Quality lowered to stop buffering" and "Can't lower quality for this video" show for 5 s. A skip pill or Up Next holds the buffering pill with its remaining time. Select acts on the pill when the controls are hidden, Left and Right choose between the prompt's buttons, and Back answers the prompt like Keep quality.
 - A lowering the server answers with a refusal leaves the plan playing and shows no error. A lowering whose answer is lost or unusable cannot prove that, so the player reconnects and plays the plan the server holds, as `PlayerViewModel.swift:3435-3444` does. A lowering queued for the next turn is dropped when the plan, the attempt or the viewer's pick changes before it runs; Restore quality still goes out.
-- `plan_summary` events and the Settings rows (mode, learned-limit reset) are not built.
+- `plan_summary` events are not built.

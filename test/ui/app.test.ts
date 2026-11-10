@@ -739,6 +739,56 @@ appTest("an emoji avatar shows in the top bar, the profile menu and Settings ins
     assert.equal(await tv.focused(), "switch-profile", "opening the menu keeps focus on its first row");
 });
 
+appTest("a 200-character server name keeps every sign-out dialog's buttons on screen and focusable", async tv => {
+    await signIn(tv);
+    // One unbroken word: the worst case for wrapping.
+    const serverName = "Livingroommedialibrary".repeat(10).slice(0, 200);
+    await tv.page.evaluate(name => window.appHarness.storage.setItem("silo.native.serverBranding.v1", JSON.stringify({ "https://silo.example.test": { serverName: name } })), serverName);
+    const assertReachable = async (where: string): Promise<void> => {
+        const dialog = tv.page.getByRole("alertdialog").filter({ hasText: serverName.slice(0, 40) });
+        await dialog.waitFor();
+        const placed = await dialog.evaluate(node => {
+            const inside = (box: DOMRect, frame: { left: number; top: number; right: number; bottom: number }): boolean =>
+                box.width > 0 && box.height > 0 && box.left >= frame.left - 0.5 && box.right <= frame.right + 0.5 && box.top >= frame.top - 0.5 && box.bottom <= frame.bottom + 0.5;
+            const viewport = { left: 0, top: 0, right: innerWidth, bottom: innerHeight };
+            const card = node.getBoundingClientRect();
+            return {
+                card: inside(card, viewport),
+                buttons: [...node.querySelectorAll("button")].map(button => {
+                    const box = button.getBoundingClientRect();
+                    return inside(box, viewport) && inside(box, card) && document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2)?.closest("button") === button;
+                }),
+            };
+        });
+        assert.deepEqual(placed, { card: true, buttons: [true, true] }, `${where}: the card and both buttons stay inside the screen and can be hit`);
+        assert.match(await tv.focused() ?? "", /^cancel/, `${where}: Cancel takes focus`);
+        await tv.page.keyboard.press("ArrowRight");
+        assert.match(await tv.focused() ?? "", /^confirm/, `${where}: the remote reaches the destructive button`);
+        await tv.page.keyboard.press("ArrowLeft");
+        assert.match(await tv.focused() ?? "", /^cancel/, `${where}: and comes back to Cancel`);
+        await tv.remote(10009);
+        await tv.eventually(async () => await tv.page.getByRole("alertdialog").count() === 0, `${where}: Back closes the dialog`);
+    };
+
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.locator('[data-focus="signout"]').click();
+    await assertReachable("top bar");
+
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.locator('[data-focus="switch-profile"]').click();
+    await tv.page.locator('[data-screen="profiles"]').waitFor();
+    await tv.page.locator('[data-focus="signout"]').click();
+    await assertReachable("Who's watching");
+    await tv.page.locator('[data-focus="profile:p-owner"]').click();
+    await tv.page.locator('[data-view="home"]').waitFor();
+
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.locator('[data-focus="settings"]').click();
+    await tv.page.locator('[data-focus="settings-signout"]').click();
+    await assertReachable("Settings");
+    assert.equal(tv.fake.revokedSessions.size, 0, "nothing signed out");
+});
+
 appTest("Sign Out confirmation traps focus and cancellation preserves the session", async tv => {
     await signIn(tv);
     await tv.page.evaluate(() => window.appHarness.storage.setItem("silo.native.serverBranding.v1", JSON.stringify({ "https://silo.example.test": { serverName: "Living room library" } })));

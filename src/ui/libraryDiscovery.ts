@@ -37,8 +37,9 @@ export type LibrarySource = { readonly kind: "collection"; readonly id: string; 
 export function discoveryState(): DiscoveryState {
     return { capabilities: undefined, mode: "Recommended", data: undefined, windowCursor: undefined, seek: undefined, letter: undefined, genre: undefined, descending: false, filter: DEFAULT_FILTER, panel: undefined, snapshot: undefined, emptyReason: "libraryEmpty", facets: undefined, facetsRequested: false };
 }
-export function libraryScope(library: UserLibrary): { library_id: string; type: MediaScope } {
-    return { library_id: library.id, type: scopeOf(library) };
+/** Apple BrowseMediaType.catalogTypeParam: an audiobook library is scoped by its id alone. */
+export function libraryScope(library: UserLibrary): { library_id: string; type?: MediaScope } {
+    return library.type === "audiobooks" ? { library_id: library.id } : { library_id: library.id, type: scopeOf(library) };
 }
 /** A library section owns its filters. `type`, `sort`, `order` and `match` are overlay params and the server rejects them. */
 export function librarySectionQuery(libraryId: string, sectionId: string): CatalogQueryRequest {

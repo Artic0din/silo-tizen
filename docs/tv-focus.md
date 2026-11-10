@@ -34,6 +34,8 @@ Each `Zone` has:
 - Optional `up`, `down`, `left`, `right`: the id of the zone to jump to when a key runs past the zone's edge.
 - Optional `entry`: the item key to land on when another zone is entered by Up/Down (the nav zone uses the selected root).
 - Optional `onLeft`: replaces Left entirely for that zone (used for panels that close on Left).
+- Optional `reading`: a single reading stop taller than the page (audiobook About).
+  Entering it shows its leading edge; Up and Down scroll the page 360 px at a time until that edge is visible, and only then leave the zone.
 
 A key press resolves in this order (`FocusHost.onKey`, `moveWithin`):
 
@@ -87,7 +89,8 @@ Focus is always restored by zone id plus item key, never by list position.
 - `FocusHost` keeps a per-view "visit" snapshot: remembered item per zone, last zone, vertical scroll and each shelf's horizontal scroll.
   `show` saves it for the view being left and applies it when the view is entered again.
   Library views key their visit by library, type and mode (`visitKey`).
-  Details routes supply a distinct `View.visitKey` per presentation, retained through loading and repainting and when returning from children.
+  Details and audiobook routes supply a distinct `View.visitKey` per presentation, retained through loading and repainting and when returning from children.
+  A route that leaves the stack for good (popped, replaced by a tab switch or Settings exit) drops those snapshots with `forgetPresentation`; a covered route keeps them for Back.
   Two presentations of the same title therefore retain independent focus and scroll.
 - `holdVisit()` saves the visit before chrome is hidden for Settings or playback, because hiding chrome can resize and clamp the viewport.
 - `focusDefault()` is for deliberate entry into content (for example leaving the nav bar).

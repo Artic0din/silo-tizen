@@ -6,7 +6,7 @@ import type { FocusItem, Zone } from "./browseFocus.ts";
 import type { Route, RouteHandlers } from "./browseRoutes.ts";
 import { actionButton, lines, zoneNode } from "./browseViews.ts";
 import { feedGrid } from "./catalogFeed.ts";
-import { activeFacetCount, canReset, cleared, directionLabel, effectiveOrder, FACETS, facetSummary, options, reset, selected, SORT_KEYS, sortKey, toggled, withSort, type BrowseFilter } from "./libraryBrowse.ts";
+import { activeFacetCount, canReset, cleared, directionLabel, effectiveOrder, FACETS, facetSummary, options, reset, selected, sortKey, sortKeysFor, toggled, withSort, type BrowseFilter } from "./libraryBrowse.ts";
 import type { DiscoveryState } from "./libraryDiscovery.ts";
 import { el } from "./screen.ts";
 
@@ -146,7 +146,7 @@ export function browsePage(route: LibraryRoute, state: DiscoveryState, handlers:
     if (panel === undefined) return { content, zones, back: undefined };
     const scrim = el("div", "browse-panel-scrim");
     if (panel.kind === "sort") {
-        const items = SORT_KEYS.map(entry => {
+        const items = sortKeysFor(route.library.type).map(entry => {
             const current = entry.key === filter.sort;
             const parts: (HTMLElement | string)[] = [current ? icon("check") : el("span", "browse-icon"), entry.label];
             if (current) parts.push(el("span", "browse-panel-detail", directionLabel(entry.key, order)), icon(order === "asc" ? "up" : "down"));

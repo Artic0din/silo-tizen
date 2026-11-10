@@ -227,7 +227,7 @@ test("Search Select opens an episode or season on its series and leaves movies a
     assert.equal(browseCardDestination({ ...card, type: "unknown" }), undefined);
 });
 
-test("libraries: video kinds in server order, minus the profile's own hidden list", () => {
+test("libraries: supported kinds, audiobooks included, in server order, minus the profile's own hidden list", () => {
     const libraries = [
         { id: "13", name: "Shows", type: "series" as const, sortOrder: 3 },
         { id: "12", name: "Movies", type: "movies" as const, sortOrder: 1 },
@@ -235,7 +235,8 @@ test("libraries: video kinds in server order, minus the profile's own hidden lis
         { id: "15", name: "Home videos", type: "mixed" as const, sortOrder: 2 },
         { id: "16", name: "Audio", type: "audiobooks" as const, sortOrder: 4 },
     ];
-    assert.deepEqual(visibleLibraries(libraries, ["15"]).map((library) => library.id), ["12", "13"]);
+    assert.deepEqual(visibleLibraries(libraries, ["15"]).map((library) => library.id), ["12", "13", "16"]);
+    assert.deepEqual(visibleLibraries(libraries, ["16"]).map((library) => library.id), ["12", "15", "13"], "a hidden audiobook library is dropped");
 });
 
 test("artwork: references resolve against the server; only HTTPS is drawn; nothing is added to the URL", () => {

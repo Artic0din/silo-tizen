@@ -93,7 +93,9 @@ export type CatalogPageRequest = {
     readonly cursor: string | undefined;
 } & ({ readonly libraryId?: string; readonly q?: string; readonly type: BrowseScope }
     // Search-only scope on listCatalogItems' default query source, never a library browse.
-    | { readonly libraryId?: never; readonly q: string; readonly type: "video_with_episodes" });
+    | { readonly libraryId?: never; readonly q: string; readonly type: "video_with_episodes" }
+    // Apple SearchMediaType: All names no scope while audiobooks take part.
+    | { readonly libraryId?: never; readonly q: string; readonly type: "audiobook" | undefined });
 
 export const operations = {
     ...audiobookOperations,

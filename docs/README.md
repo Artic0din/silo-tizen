@@ -8,7 +8,7 @@ Start with the root [README](../README.md) for build, signing and release, [FEAT
 - The app is a Tizen web app (`.wgt`) for Samsung TVs on Tizen 8.0 or later, and talks only to Silo's native `/api/v2`.
 - The top bar follows the server's saved TV menu, falling back to Home, Movies, Series, For You and Calendar, with Search to the left.
   Movies and Series appear only when a matching or mixed library exists.
-- Music and Audiobooks menu entries are skipped: the TV app has no music or audiobook playback.
+- Music has no browsing yet. Audiobooks is opt-in (Settings, General, Show Audiobooks) and shows the library and detail but cannot play yet.
 - Requests appears in the top bar only while the server enables it for the active viewer.
 - Playback uses AVPlay: direct play first, HLS transcode as the fallback.
 - Diagnostics reports are not available yet: Silo Server does not accept a Tizen diagnostics platform ([#138](https://github.com/Silo-Server/silo-tizen/issues/138)).

@@ -7,6 +7,9 @@ All notable changes to this project are documented in this file.
 ### Added
 
 - Added theme music, as on Apple TV: Settings › General has Play Theme Music and Loop Theme Music, and a movie, series, season or episode page plays the title's theme quietly while it is open, stopping before playback starts.
+- The Watch Party lobby now updates live over the room socket: people joining or stepping away, readiness, the host's pick and controls, and the party ending reach every TV in the room as they happen, with Apple's Connecting and Reconnecting states. Leave party and Back as the host now leave this TV only, as on Apple TV; End party is what ends it for everyone.
+- Added the Watch Party lobby: the code with an invitation page and QR, who is here, and, for the host, choosing a title from the group's picks and watchlists, Start for everyone, Who chooses, Playback controls, Return everyone to lobby and End party. Starting opens the player on the party's file without playback sync, and the lobby shows the room as it was when this TV last heard from it.
+- Added a Watch Party hub, off by default: turn it on under Settings › Server › Extra Features and, when the server supports synchronized parties, Watch Party appears in the profile menu with Start a party, Join party and a lobby that shows the code and who is here; going Back as the host ends the party. Playback together is not built yet.
 - Playback lowers the quality when it keeps buffering, as Apple TV does: it asks first, or lowers Auto at once and offers Restore quality, depending on `playback.buffering_quality_mode` (Automatically by default), with the same prompt, undo pill and notices.
 - Added HDR on Playback. A TV that reports HDR, with the HDR setting on, claims HDR10 for direct play. HDR10+ and HLG stay unclaimed: the probe is one boolean, and Samsung does not document those formats for every Tizen 8.0 TV. Dolby Vision is not a Playback row: Samsung exposes no Dolby Vision support check, and this client claims no Dolby Vision profile.
 - Added subtitle search and download, plus in-player delay, size, position and appearance controls, during playback.
@@ -23,6 +26,7 @@ All notable changes to this project are documented in this file.
 - Show Trailers & More on movie and series Details for local extras and YouTube listings, using Apple's card size and the 76px gap to the next heading. Local extras still play from the start. YouTube listings stay on their card because this TV cannot play them.
 - Added description translation on Details and the featured marquee, matching Apple TV's Translate Description action, Translating… status and Translated by AI label.
 - Added Change Account with several saved accounts per server and account management.
+- Added the audiobook contract decoders and API operations that the Audiobooks screens will build on. Nothing visible changes yet.
 
 ### Changed
 

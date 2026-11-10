@@ -1264,7 +1264,7 @@ test("Server settings open Acknowledgements with TMDB's logo and required notice
     try {
         await openSettings(tv);
         await tv.page.locator('[data-focus="server"]').click();
-        assert.deepEqual(await tv.page.locator(".settings-section-header").allTextContents(), ["ACTIVE SERVER", "ABOUT"]);
+        assert.deepEqual(await tv.page.locator(".settings-section-header").allTextContents(), ["ACTIVE SERVER", "ABOUT", "EXTRA FEATURES"]);
         await tv.page.getByRole("button", { name: "Acknowledgements", exact: true }).click();
         const credits = tv.page.locator(".acknowledgements-document");
         await credits.waitFor();

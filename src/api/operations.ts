@@ -61,6 +61,7 @@ import { trickplayOperations } from "./trickplayOperations.ts";
 import { subtitleOperations } from "./subtitleOperations.ts";
 import { markerOperations } from "./markerOperations.ts";
 import { bandwidthProbeOperations } from "./bandwidthProbeOperations.ts";
+import { audiobookOperations } from "./audiobookOperations.ts";
 
 type Spec<T> = RequestSpec<T>;
 
@@ -96,6 +97,7 @@ export type CatalogPageRequest = {
     | { readonly libraryId?: never; readonly q: string; readonly type: "video_with_episodes" });
 
 export const operations = {
+    ...audiobookOperations,
     ...bandwidthProbeOperations,
     ...recommendationOperations,
     ...shuffleOperations,

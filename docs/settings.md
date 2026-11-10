@@ -107,7 +107,6 @@ A row that nothing on this TV acts on stays hidden.
 | Show Next Up | Playback offers Play next only after the episode ends. Nothing reads `playback.next_up_prompt_seconds`. Open PR #213 owns the pre-end reader. |
 | Audiobooks Skip Back, Skip Forward | Open PR #230. No audiobook player. |
 | Use Device Settings | tvOS reads Media Accessibility caption preferences (`SystemCaptionAppearance.swift`). Samsung captions are the app overlay. No TV caption-style API is available, so the switch would not change language, behavior, or appearance. |
-| Watch Party | Not built. Issue #54. |
 | Diagnostics | Open issue #218, parked. |
 
 ## Lower quality when buffering

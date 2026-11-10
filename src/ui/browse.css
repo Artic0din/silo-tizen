@@ -1530,3 +1530,134 @@
 /* TVSettingsToggleRow: On at 0.9 opacity, Off at 0.55. TVSettingsPaneRowStyle fills every row with siloChromeRestingFill, whether it is on or off. */
 .settings-pane .browse-button[role="switch"][aria-checked="false"] .settings-row-value { opacity: 0.55; }
 .settings-pane .browse-button:not(:focus) { background: rgba(255, 255, 255, 0.07); }
+
+/* Watch Party hub: Apple's WatchPartyEntryView tvLayout and WatchPartyMetrics at 1920x1080. */
+.watch-party-scene .watch-party { box-sizing: border-box; display: flex; align-items: flex-start; justify-content: space-between; min-height: 1080px; padding: 220px 0 0; }
+.watch-party-intro { flex: none; display: flex; flex-direction: column; gap: 40px; width: 760px; }
+.watch-party-headline { display: flex; flex-direction: column; gap: 15.6px; }
+.watch-party-eyebrow { margin: 0; font-size: 17px; font-weight: 600; letter-spacing: 2.04px; line-height: 21px; text-transform: uppercase; color: var(--silo-secondary); }
+.watch-party-title { margin: 0; font-size: 88px; font-weight: 700; letter-spacing: -1.76px; line-height: 88px; white-space: pre-line; color: var(--silo-text); }
+.watch-party-body { margin: 0; font-size: 26px; line-height: 32px; color: var(--silo-secondary); }
+.watch-party-actions { flex: none; display: flex; flex-direction: column; gap: 28px; width: 640px; }
+.watch-party-section { display: flex; flex-direction: column; align-items: flex-start; gap: 16px; }
+.watch-party-banner { box-sizing: border-box; display: flex; align-items: baseline; gap: 10px; width: 100%; padding: 16px 20px; border-radius: 12px; border: 1px solid var(--silo-hairline); background: rgba(255,255,255,.08); font-size: 21px; line-height: 26px; color: var(--silo-text); }
+.watch-party-banner-dot { flex: none; width: 12px; height: 12px; border-radius: 50%; background: var(--silo-secondary); }
+.watch-party-banner-warning { border-color: rgba(245,197,99,.3); background: rgba(245,197,99,.12); color: #f5c563; }
+.watch-party-banner-warning .watch-party-banner-dot { background: #f5c563; }
+/* TVPillButtonStyle(.compact, stabilizesFocusMotion): 76 px tall, 22/20 px side padding, no focus scale; primary white .10 and secondary black .52 at rest; disabled 0.45. */
+.watch-party-ui .watch-party-button { display: inline-flex; align-items: center; justify-content: center; gap: 14px; box-sizing: border-box; height: 76px; margin: 0; padding: 0 20px; border: 0; border-radius: 50px; font-size: 26px; font-weight: 600; line-height: 32px; white-space: nowrap; box-shadow: 0 2px 4px rgba(0,0,0,.14); }
+.watch-party-ui .watch-party-primary { padding: 0 22px; font-size: 29px; background: rgba(255,255,255,.1); color: #fff; }
+.watch-party-ui .watch-party-secondary { background: rgba(0,0,0,.52); color: #fff; }
+.watch-party-ui .watch-party-button[aria-disabled="true"] { opacity: .45; }
+.watch-party-ui .watch-party-button:focus { background: #fff; color: #000; box-shadow: 0 4px 10px rgba(0,0,0,.24); }
+.watch-party-icon { flex: none; width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 3.5; stroke-linecap: round; }
+.watch-party-ui .watch-party-input { box-sizing: border-box; width: 100%; height: 76px; margin: 0; padding: 0 30px; border: 0; border-radius: 14px; font-size: 29px; background: rgba(255,255,255,.1); }
+.watch-party-ui .watch-party-input:focus { background: rgba(255,255,255,.22); box-shadow: 0 0 0 4px rgba(255,255,255,.55); }
+/* Room pages: the lobby and the sheets, picker and invitation it opens. */
+.watch-party-ui .watch-party-code-pill { display: inline-flex; align-items: center; gap: 15px; box-sizing: border-box; height: 76px; margin: 0; padding: 0 40px; border: 0; border-radius: 50px; background: rgba(0,0,0,.52); color: #fff; }
+.watch-party-ui .watch-party-code-pill:focus { background: #fff; color: #000; box-shadow: 0 4px 10px rgba(0,0,0,.24); }
+.watch-party-code-label { font-size: 15px; font-weight: 600; letter-spacing: 2px; text-transform: uppercase; color: var(--silo-secondary); }
+.watch-party-ui .watch-party-code-pill:focus .watch-party-code-label { color: rgba(0,0,0,.5); }
+.watch-party-code { font-family: ui-monospace, Menlo, monospace; font-size: 30px; font-weight: 700; letter-spacing: 5.4px; }
+.watch-party-here { display: flex; flex-direction: column; gap: 32px; }
+.watch-party-here-heading { display: flex; align-items: baseline; gap: 25.6px; }
+.watch-party-presence { font-size: 20px; color: rgba(160,160,160,.7); }
+.watch-party-seats { display: flex; align-items: flex-start; gap: 36px; }
+.watch-party-seat { display: flex; flex-direction: column; align-items: center; gap: 14px; width: 179px; }
+.watch-party-seat-avatar { position: relative; display: block; width: 146px; height: 146px; margin-top: 12.8px; }
+.watch-party-seat[data-state="away"] .watch-party-seat-disc { opacity: .45; }
+.watch-party-seat-disc { position: absolute; inset: 9px; display: flex; align-items: center; justify-content: center; border-radius: 50%; font-size: 46px; font-weight: 600; color: var(--silo-text); }
+.watch-party-seat-ring { position: absolute; inset: 0; width: 146px; height: 146px; }
+.watch-party-seat-ring circle { stroke: rgba(237,237,237,.38); stroke-width: 4.5; stroke-linecap: round; }
+.watch-party-seat[data-state="ready"] .watch-party-seat-ring circle, .watch-party-seat[data-state="watching"] .watch-party-seat-ring circle { stroke: var(--silo-text); }
+.watch-party-seat[data-state="away"] .watch-party-seat-ring circle { stroke: rgba(237,237,237,.25); }
+.watch-party-seat-tick { position: absolute; left: 102px; top: 102px; box-sizing: border-box; width: 43.5px; height: 43.5px; padding: 4px; border-radius: 50%; background: #000; }
+.watch-party-seat-tick svg { display: block; width: 100%; height: 100%; padding: 8px; box-sizing: border-box; border-radius: 50%; background: var(--silo-text); fill: none; stroke: #000; stroke-width: 4.5; stroke-linecap: round; stroke-linejoin: round; }
+.watch-party-seat-name { max-width: 100%; overflow: hidden; font-size: 24.3px; font-weight: 500; line-height: 30px; text-overflow: ellipsis; white-space: nowrap; color: var(--silo-text); }
+.watch-party-seat-detail { margin-top: -12px; font-size: 20.5px; line-height: 25px; white-space: nowrap; color: var(--silo-secondary); }
+.watch-party-backdrop { position: absolute; left: 0; top: 0; z-index: 0; width: 1920px; height: 1080px; overflow: hidden; background: #000; pointer-events: none; }
+.watch-party-backdrop-art, .watch-party-backdrop-art .browse-art-image { display: block; width: 100%; height: 100%; object-fit: cover; }
+.watch-party-backdrop-poster .watch-party-backdrop-art { opacity: .7; filter: blur(28px); transform: scale(1.1); }
+.watch-party-backdrop-shade { position: absolute; inset: 0; background:
+    linear-gradient(to right, rgba(0,0,0,.92) 0, rgba(0,0,0,.78) 34%, rgba(0,0,0,.25) 62%, rgba(0,0,0,.05) 100%),
+    linear-gradient(to bottom, rgba(0,0,0,.35) 0, rgba(0,0,0,0) 30%, rgba(0,0,0,.4) 70%, rgba(0,0,0,.95) 100%); }
+.watch-party-room { position: absolute; left: 0; top: 0; z-index: 1; box-sizing: border-box; display: flex; flex-direction: column; width: 1920px; height: 1080px; padding: 0 88px; }
+.watch-party-room-header { display: flex; align-items: center; justify-content: space-between; padding-top: 56px; }
+.watch-party-room-title { display: flex; align-items: center; gap: 18px; }
+.watch-party-room-name { font-size: 26px; font-weight: 600; color: var(--silo-text); }
+.watch-party-connection { display: inline-flex; align-items: center; gap: 6px; font-size: 20px; color: var(--silo-secondary); }
+.watch-party-connection-dot { width: 11px; height: 11px; border-radius: 50%; background: #34d399; }
+.watch-party-connection-warn .watch-party-connection-dot { background: #f5c563; }
+.watch-party-connection-wait .watch-party-connection-dot { background: var(--silo-secondary); }
+.watch-party-connection-off .watch-party-connection-dot { background: #fb7185; }
+.watch-party-room-tools { display: flex; align-items: center; gap: 22px; }
+.watch-party-ui .watch-party-circle { display: inline-flex; align-items: center; justify-content: center; gap: 14px; box-sizing: border-box; height: 76px; min-width: 76px; margin: 0; padding: 0; border: 0; border-radius: 38px; background: rgba(0,0,0,.52); color: #fff; font-size: 26px; font-weight: 600; line-height: 32px; box-shadow: 0 2px 4px rgba(0,0,0,.14); }
+.watch-party-ui .watch-party-circle svg { width: 38px; height: 38px; }
+.watch-party-circle-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.watch-party-ui .watch-party-circle:focus { padding: 0 28px; background: #fff; color: #000; }
+.watch-party-circle:focus .watch-party-circle-label { position: static; width: auto; height: auto; clip-path: none; }
+.watch-party-icon-solid { fill: currentColor; stroke: none; }
+.watch-party-room-body { flex: 1; padding-top: 90px; }
+.watch-party-room-copy { display: flex; flex-direction: column; gap: 30px; width: 760px; }
+.watch-party-hero { display: flex; flex-direction: column; gap: 24.6px; }
+.watch-party-hero-title { margin: 0; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; font-size: 88px; font-weight: 700; letter-spacing: -1.76px; line-height: 92px; white-space: pre-line; color: var(--silo-text); }
+.watch-party-hero-dim { color: var(--silo-secondary); }
+.watch-party-facts { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 25px; white-space: nowrap; color: var(--silo-secondary); }
+.watch-party-facts-dot { opacity: .5; }
+.watch-party-chip { padding: 2px 6px; border: 1px solid rgba(160,160,160,.5); border-radius: 4px; font-size: 17px; font-weight: 600; }
+.watch-party-caption { margin: 0; font-size: 20px; color: rgba(160,160,160,.7); }
+.watch-party-lead { margin: 0; font-size: 26px; line-height: 32px; color: var(--silo-secondary); }
+.watch-party-overview { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; margin: 0; font-size: 24px; line-height: 34px; color: var(--silo-secondary); }
+.watch-party-room-footer { display: flex; align-items: flex-end; justify-content: space-between; gap: 40px; padding-bottom: 96px; }
+.watch-party-room-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 16px; }
+.watch-party-room-buttons { display: flex; gap: 18px; }
+.watch-party-hint { max-width: 620px; margin: 0; font-size: 20px; text-align: center; color: rgba(160,160,160,.7); }
+.watch-party-icon-solid.watch-party-icon { width: 26px; height: 26px; }
+button.watch-party-seat-invite { box-sizing: content-box; padding: 0; margin: 0; border: 0; background: none; font: inherit; color: inherit; }
+.watch-party-seat-invite .watch-party-seat-avatar { box-sizing: border-box; border: 4.5px solid rgba(255,255,255,.25); border-radius: 50%; }
+.watch-party-seat-invite .watch-party-icon { position: absolute; inset: 0; width: 58px; height: 58px; margin: auto; stroke-width: 1.6; color: var(--silo-secondary); }
+.watch-party-seat-invite .watch-party-seat-name { color: var(--silo-secondary); }
+.watch-party-seat-invite:focus { background: none; outline: 0; }
+.watch-party-seat-invite:focus .watch-party-seat-avatar { border-color: transparent; background: #fff; transform: scale(1.06); }
+.watch-party-seat-invite:focus .watch-party-icon { color: #000; }
+.watch-party-scrim { position: absolute; left: 0; top: 0; z-index: 3; display: flex; align-items: center; justify-content: center; width: 1920px; height: 1080px; background: rgba(0,0,0,.62); }
+.watch-party-sheet { box-sizing: border-box; display: flex; flex-direction: column; gap: 18px; width: 900px; padding: 48px; border: 1px solid rgba(255,255,255,.12); border-radius: 30px; background: #232326; }
+.watch-party-sheet-title { margin: 0 0 6px; font-size: 38px; font-weight: 600; color: #fff; }
+.watch-party-sheet .watch-party-option { display: flex; align-items: center; justify-content: space-between; box-sizing: border-box; width: 100%; height: auto; margin: 0; padding: 17px 24px; border: 1px solid rgba(255,255,255,.1); border-radius: 14px; background: rgba(255,255,255,.06); font-size: 26px; font-weight: 500; line-height: 32px; text-align: left; color: #fff; }
+.watch-party-option-value { font-size: 24px; opacity: .7; }
+.watch-party-sheet .watch-party-option-destructive { color: #ff6b61; }
+.watch-party-sheet .watch-party-option:focus { border-color: transparent; background: #fff; color: #000; box-shadow: 0 8px 18px rgba(0,0,0,.5); }
+.watch-party-end { align-items: center; gap: 32px; padding: 64px; }
+.watch-party-end-actions { display: flex; gap: 24px; }
+.watch-party-invite { position: absolute; left: 0; top: 0; z-index: 1; box-sizing: border-box; display: flex; align-items: center; justify-content: center; gap: 96px; width: 1920px; height: 1080px; padding: 0 120px; }
+.watch-party-invite-copy { display: flex; flex-direction: column; align-items: flex-start; gap: 36.4px; max-width: 900px; }
+.watch-party-invite-title { margin: 0; font-size: 70.4px; font-weight: 700; color: var(--silo-text); }
+.watch-party-invite-code { margin: 0; padding-left: 14.4px; font-family: ui-monospace, Menlo, monospace; font-size: 72px; font-weight: 700; letter-spacing: 14.4px; white-space: nowrap; color: var(--silo-text); }
+.watch-party-qr { flex: none; box-sizing: content-box; width: 560px; height: 560px; padding: 33.6px; border-radius: 16px; background: #fff; }
+.watch-party-qr svg { display: block; width: 100%; height: 100%; }
+.watch-party-picker-chrome { position: relative; z-index: 1; display: flex; align-items: center; justify-content: space-between; box-sizing: border-box; padding: 0 0 24px; }
+.watch-party-picker-name { font-size: 30px; font-weight: 600; color: #fff; }
+.watch-party-shelf { position: relative; z-index: 1; }
+.watch-party-picker-empty { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: flex-start; gap: 16px; box-sizing: border-box; padding: 64px 0; }
+.watch-party-empty-title { margin: 0; font-size: 28px; font-weight: 600; color: var(--silo-text); }
+.watch-party-choice { position: absolute; left: 0; top: 0; z-index: 1; box-sizing: border-box; display: flex; flex-direction: column; align-items: flex-start; gap: 36.4px; width: 1920px; height: 1080px; padding: 96px 88px; }
+.watch-party-choice-head { display: flex; align-items: flex-end; gap: 26px; }
+.watch-party-choice-poster { flex: none; width: 260px; height: 390px; overflow: hidden; border-radius: 8px; background: #222; box-shadow: 0 10px 16px rgba(0,0,0,.6); }
+.watch-party-choice-poster .browse-art-image { display: block; width: 100%; height: 100%; object-fit: cover; }
+.watch-party-choice-text { display: flex; flex-direction: column; gap: 8px; }
+.watch-party-choice-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; margin: 0; max-width: 1200px; font-size: 79px; font-weight: 700; letter-spacing: -1px; line-height: 84px; color: var(--silo-text); }
+.watch-party-choice-facts { margin: 0; font-size: 26px; color: var(--silo-secondary); }
+.watch-party-choice-overview { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 6; overflow: hidden; margin: 0; max-width: 1100px; font-size: 26px; line-height: 34px; color: var(--silo-secondary); }
+.watch-party-episodes { position: absolute; left: 0; top: 0; z-index: 1; box-sizing: border-box; display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-end; width: 1920px; height: 1080px; padding: 48px 88px 40px; background: rgba(0,0,0,.28); }
+.watch-party-episodes-head { display: flex; align-items: center; justify-content: space-between; align-self: stretch; margin-bottom: auto; }
+.watch-party-episodes-title { margin: 0 0 24px; font-size: 64px; font-weight: 700; letter-spacing: -1px; color: var(--silo-text); }
+.watch-party-season-tabs { margin-bottom: 24px; }
+.watch-party-season-tab { box-sizing: border-box; height: 64px; margin: 0 16px 0 0; padding: 0 28px; border: 0; border-radius: 32px; background: rgba(255,255,255,.1); font-size: 24px; font-weight: 600; color: #fff; }
+.watch-party-season-tab[aria-pressed="true"] { background: rgba(255,255,255,.28); }
+.watch-party-season-tab:focus { background: #fff; color: #000; }
+.watch-party-episode-rail { align-self: stretch; padding-bottom: 24px; }
+.watch-party-episode { display: inline-flex; vertical-align: top; flex: none; flex-direction: column; align-items: flex-start; gap: 6px; box-sizing: border-box; width: 400px; margin-right: 36px; padding: 0; border: 0; background: none; text-align: left; color: #fff; }
+.watch-party-episode-number { display: flex; align-items: center; justify-content: center; box-sizing: border-box; width: 400px; height: 225px; border-radius: 12px; background: rgba(255,255,255,.1); font-size: 64px; font-weight: 700; color: var(--silo-secondary); }
+.watch-party-episode:focus .watch-party-episode-number { background: #fff; color: #000; }
+.watch-party-episode-title { max-width: 400px; overflow: hidden; font-size: 24px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.watch-party-episode-meta { font-size: 20px; color: var(--silo-secondary); }

@@ -406,11 +406,24 @@ Creation is sent once with refresh replay off.
 A 404 on create shows "This is no longer available to shuffle."
 `advance` runs when the current item finishes (`src/player/nextShuffle.ts`).
 
-### Watch Together (not called by any screen yet)
+### Watch Together (hub, lobby and room socket)
 
-Defined in `src/api/watchTogetherOperations.ts`; no screen or socket client uses them yet (issue 54).
+Defined in `src/api/watchTogetherOperations.ts`. The Watch Party hub (`src/ui/watchPartyHub.ts`) calls `capabilities`, `createRoom`, `joinByCode`, the host's lobby calls below, `picker` and, when the host ends the party, `closeRoom`.
+Back and Leave party only close this TV's room socket, for the host too, as Apple's `leaveRoom`.
+The hub also reads `GET /playback/capabilities` for the playback features Apple requires, and reads the chosen title with `getCatalogItem` and the picker's series with `listSeriesSeasons` and `listSeasonEpisodes`.
 Bearer plus Profile.
-`room` and `socketTicket` also send `X-Room-Token` (`RequestSpec.roomToken`).
+`room`, `socketTicket` and `picker` also send `X-Room-Token` (`RequestSpec.roomToken`).
+The host's calls take no room token: the contract authorizes them by account and profile, as it does `closeRoom`, and each answers with the room as it now stands, which replaces the lobby's room unless a newer socket snapshot already has.
+
+The room socket (`src/ui/watchPartySocket.ts`) keeps the lobby current, as Apple's, which never polls.
+Each connection attempt reads `room`, mints a single-use `socketTicket` with the renewed room token, and opens `wss://<base>/api/v2/watch-together/rooms/{id}/ws` offering the subprotocols `silo.room.v2` and `silo.ticket.<ticket>` (`roomSocketHandshake`); the address comes from the session's API root, never from a screen.
+A server that answers with any other subprotocol is refused.
+Snapshots replace the room unless they are older (`RoomState`); `room_closed`, a snapshot in the `ended` phase, `connection_replaced` and a 409 end the party for this TV; 401, 403, 404, 410, a malformed answer or a frame that breaks the contract end it as expired.
+Any other failure reconnects after 1, 2, 4, 8, then 15 seconds, for as long as the room is open; a socket that stayed open 30 seconds, which the server ends at its connection deadline, reconnects at once.
+The open socket sends `ping` every 2 seconds until four pongs set the server clock offset (`RoomClock`), then every 15.
+Leave, Back, End party, sign-out and a profile switch close the socket with code 1000.
+Transport commands and the suggestion ballot arrive on the socket but nothing uses them yet (issue 54).
+The packaged `.wgt` sends `Origin: file://` on the handshake; the server's origin check treats a non-web scheme like no `Origin` and lets it through, and refuses a foreign web origin with 403.
 
 | Operation | Method and path | Retry |
 | --- | --- | --- |
@@ -419,6 +432,13 @@ Bearer plus Profile.
 | joinByCode | `POST /watch-together/join` with `{ "code": ... }` | safe |
 | room | `GET /watch-together/rooms/{id}` | safe |
 | closeRoom | `DELETE /watch-together/rooms/{id}`, host only, 204; no room token | safe |
+| stageSelection | `PUT /watch-together/rooms/{id}/staged-selection` with `{ "content_id": ... }`, host only | safe (natural idempotent) |
+| selectItem | `PUT /watch-together/rooms/{id}/selection`, for a party that is already playing, host only | never (non-retryable) |
+| startPlayback | `POST /watch-together/rooms/{id}/playback/start`, host only | never (non-retryable) |
+| stopPlayback | `POST /watch-together/rooms/{id}/playback/stop`, host only | safe |
+| setSelectionMode | `PATCH /watch-together/rooms/{id}/selection-mode` with `{ "selection_mode": ... }`, host only | safe |
+| setGuestControlPolicy | `PATCH /watch-together/rooms/{id}/policy` with `{ "guest_control_policy": ... }`, host only | safe |
+| picker | `GET /watch-together/rooms/{id}/picker` | safe |
 | socketTicket | `POST /watch-together/rooms/{id}/ws-ticket` | safe |
 
 Everything is offered only when `allowed` is true and `state === "available"` (`watchTogetherAvailable`, `src/contracts/v2/watchTogether.ts`).

@@ -23,6 +23,7 @@ All notable changes to this project are documented in this file.
 - Added description translation on Details and the featured marquee, matching Apple TV's Translate Description action, Translating… status and Translated by AI label.
 - Added Change Account with several saved accounts per server and account management.
 - Added the audiobook contract decoders and API operations that the Audiobooks screens will build on. Nothing visible changes yet.
+- Added the Audiobooks tab (Settings, General, Show Audiobooks) with square covers and the audiobook detail: cover, author and narrator, progress, Chapters, About, narrations and related rails. Home, For You and Search open audiobook cards on that detail, and Search can filter to Audiobooks. Play stays off until audiobook playback lands.
 
 ### Changed
 

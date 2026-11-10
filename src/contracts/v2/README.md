@@ -112,7 +112,7 @@ These factories do not implement the library UI or complete issue 28.
 
 ## Audiobooks
 
-`audiobooks.ts` and `api/audiobookOperations.ts` carry the audiobook contract at `SOURCE` with no screen on top; `operations` exposes them.
+`audiobooks.ts` and `api/audiobookOperations.ts` carry the audiobook contract at `SOURCE`; `operations` exposes them. `ui/audiobookDetail.ts` and `ui/audiobookView.ts` draw the detail and chapter picker on top of it.
 Apple behavior is read from `AudiobookPlaybackContext.swift`, `AudiobookProgress.swift` and `APIv2CatalogReadProjection.swift`.
 
 | Operation | Retry class | Client behavior |

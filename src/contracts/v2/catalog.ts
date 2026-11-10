@@ -110,7 +110,13 @@ export function decodeHiddenLibraries(value: unknown): string[] {
 
 // --- Catalog cards (CatalogItem): listHomeSections, listCatalogItems ---
 
-const CARD_TYPES = ["movie", "series", "season", "episode"] as const;
+const CARD_TYPES = ["movie", "series", "season", "episode", "audiobook"] as const;
+/** silo-apple SiloMediaType.isAudiobook: the spellings that name an audiobook. */
+const AUDIOBOOK_SPELLINGS = ["audiobook", "audiobooks", "book", "books"];
+
+function cardType(raw: string): CardType {
+    return AUDIOBOOK_SPELLINGS.includes(raw.trim().toLowerCase()) ? "audiobook" : oneOf(raw, CARD_TYPES);
+}
 
 export type CardType = (typeof CARD_TYPES)[number] | "unknown";
 
@@ -218,7 +224,7 @@ export function decodeCard(value: unknown, path: string): Card {
         positionSeconds: optionalNumber(obj, "position_seconds", path),
         progressUpdatedAt: optionalString(obj, "progress_updated_at", path),
         id: string(obj, "content_id", path),
-        type: oneOf(string(obj, "type", path), CARD_TYPES),
+        type: cardType(string(obj, "type", path)),
         title: string(obj, "title", path),
         year: optionalInteger(obj, "year", path),
         posterUrl: optionalString(obj, "poster_url", path),
@@ -454,7 +460,7 @@ export function decodeItemDetail(value: unknown): ItemDetail {
         videos: decodeVideos(obj),
         airDate: optionalString(obj, "air_date", path),
         id: string(obj, "content_id", path),
-        type: oneOf(string(obj, "type", path), CARD_TYPES),
+        type: cardType(string(obj, "type", path)),
         title: string(obj, "title", path),
         overview: optionalString(obj, "overview", path),
         tagline: optionalString(obj, "tagline", path),

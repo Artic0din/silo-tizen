@@ -10,7 +10,7 @@ export type PersonalAction = "watchlist" | "favorites" | "watched";
 
 export const detailOperations = {
     refreshTrailers: (id: string): RequestSpec<ReturnType<typeof decodeTrailerRefresh>> => ({ method: "POST", path: `/catalog/items/${encodeURIComponent(id)}/trailers/refresh`, retry: "never", decode: decodeTrailerRefresh }),
-    people: (query: string, scope: BrowseScope | TextSearchScope): RequestSpec<ReturnType<typeof decodePeople>> => ({ method: "GET", path: `/catalog/people?q=${encodeURIComponent(query)}&media_scope=${scope}&limit=20`, retry: "safe", decode: decodePeople }),
+    people: (query: string, scope: BrowseScope | TextSearchScope | "audiobook" | undefined): RequestSpec<ReturnType<typeof decodePeople>> => ({ method: "GET", path: `/catalog/people?q=${encodeURIComponent(query)}${scope === undefined ? "" : `&media_scope=${scope}`}&limit=20`, retry: "safe", decode: decodePeople }),
     resumePosition: (id: string, fileId: string): RequestSpec<ReturnType<typeof decodeResumePosition>> => ({
         method: "GET", path: `/watch/${encodeURIComponent(id)}?file_id=${encodeURIComponent(fileId)}`, retry: "safe",
         decode: value => decodeResumePosition(value, id, fileId),

@@ -26,7 +26,8 @@ export interface ViewContext {
     readonly preview?: (card: Card, row: string, continuing?: boolean, featured?: boolean) => void;
     readonly continueWatching?: boolean;
     /** Apple `SectionRow.layout` on tvOS. Unset keeps the Continue Watching still and poster otherwise. */
-    readonly cardLayout?: "poster" | "thumbnail";
+    /** "grid" sizes each card by its own type: poster, or square for an audiobook. */
+    readonly cardLayout?: "poster" | "thumbnail" | "square" | "grid";
     /** Home captions episodes with their series and an `S01E02 · Pilot` line, as Apple TV does. */
     readonly homeCaptions?: boolean;
     readonly posterScale?: () => number;
@@ -164,6 +165,9 @@ export function cardItem(card: Card, context: ViewContext): FocusItem | undefine
     element.setAttribute("data-focus", card.id);
     const continuing = context.continueWatching === true;
     const thumbnail = context.cardLayout === "thumbnail" || (context.cardLayout === undefined && continuing);
+    // Rows follow their own layout (SectionRow.layout); a grid squares each audiobook cover (CatalogGrid).
+    const square = !thumbnail && (context.cardLayout === "square" || ((context.cardLayout === undefined || context.cardLayout === "grid") && card.type === "audiobook"));
+    if (square) element.classList.add("browse-card-square");
     const art = artwork("browse-art", thumbnail ? card.backdropUrl ?? card.posterUrl : card.posterUrl, context.baseUrl, defaultArtwork(artworkSymbol(card.type)));
     if (hidesCardImage(card, spoilerSettings(context), thumbnail)) blurEpisodeStill(art);
     element.appendChild(art);
@@ -262,6 +266,7 @@ function isTvItem(type: Card["type"]): boolean {
         case "season":
             return true;
         case "movie":
+        case "audiobook":
         case "unknown":
             return false;
         default: {
@@ -275,18 +280,19 @@ function isTvItem(type: Card["type"]): boolean {
  * Apple `SectionRow.layout(for:)` on tvOS (`SectionRow.swift`). The server sends the row type and
  * items; it does not send a card shape. A type containing "next", and Continue Watching, are
  * stills. Any other row is a still only when it contains an episode and every browsable item is
- * TV, so one episode does not turn a shared movie row into stills. An all-audiobook row is square
- * on Apple; this client does not browse audiobooks, so that row is omitted before layout.
+ * TV, so one episode does not turn a shared movie row into stills. A row of only audiobooks is square,
+ * checked after the still rows as on Apple.
  */
-export function homeRowLayout(sectionType: string, cards: readonly Pick<Card, "type">[]): "poster" | "thumbnail" {
+export function homeRowLayout(sectionType: string, cards: readonly Pick<Card, "type">[]): "poster" | "thumbnail" | "square" {
     const type = sectionType.toLowerCase();
     if (type.includes("next") || isContinueWatching(type)) return "thumbnail";
     if (cards.some(card => card.type === "episode") && cards.every(card => isTvItem(card.type))) return "thumbnail";
+    if (cards.length > 0 && cards.every(card => card.type === "audiobook")) return "square";
     return "poster";
 }
 
 /** SectionRowLimit.cards caps each Home shelf without changing the server's order. */
-export function homeRows(sections: readonly HomeSection[]): { section: HomeSection; continuing: boolean; layout: "poster" | "thumbnail"; cards: Card[] }[] {
+export function homeRows(sections: readonly HomeSection[]): { section: HomeSection; continuing: boolean; layout: "poster" | "thumbnail" | "square"; cards: Card[] }[] {
     return sections.map(section => {
         const cards = section.items.filter(card => destinationOf(card) !== undefined).slice(0, HOME_ROW_CARDS);
         return { section, continuing: isContinueWatching(section.sectionType), layout: homeRowLayout(section.sectionType, cards), cards };

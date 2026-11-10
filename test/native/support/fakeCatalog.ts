@@ -6,7 +6,7 @@ import { fixture, problem, type CatalogRoutes, type Reply } from "./fakeSilo.ts"
 
 export interface FakeTitle {
     readonly id: string;
-    readonly type: "movie" | "series" | "episode" | "ebook";
+    readonly type: "movie" | "series" | "episode" | "ebook" | "audiobook";
     readonly title: string;
     readonly libraryId: string;
     readonly year?: number;
@@ -179,7 +179,7 @@ export class FakeCatalog implements CatalogRoutes {
         const id = library?.[1] ?? (typeof body?.library_id === "string" ? body.library_id : collectionLibrary ?? (collection ? household.libraries[0]?.id : undefined));
         if (id === undefined) return undefined;
         if (!household.libraries.some(item => item.id === id)) return problem(404, "not_found", "Not found");
-        const titles = [...this.titles.values()].filter(title => title.libraryId === id && this.visible(household, title.id) && (title.type === "movie" || title.type === "series"));
+        const titles = [...this.titles.values()].filter(title => title.libraryId === id && this.visible(household, title.id) && (title.type === "movie" || title.type === "series" || title.type === "audiobook"));
         if (library?.[2] === "sections" && method === "GET") {
             const rows = household.librarySections ?? (titles.length === 0 ? [] : [{ id: "library-picks", sectionType: "recently_added", title: "Library Picks", items: titles.slice(0, 24).map(title => title.id) }]);
             const sectionBody = (row: LibraryRow): Record<string, unknown> => {
@@ -320,7 +320,7 @@ export class FakeCatalog implements CatalogRoutes {
             .filter((title) => this.visible(household, title.id) && (libraryId === null || title.libraryId === libraryId))
             .filter((title) => (type === "video" || type === "video_with_episodes"
                 ? title.type === "movie" || title.type === "series" || (type === "video_with_episodes" && q.trim() !== "" && title.type === "episode")
-                : title.type === type))
+                : type === null || title.type === type))
             .filter((title) => q === "" || title.title.toLowerCase().indexOf(q) !== -1)
             .sort((a, b) => (a.title < b.title ? -1 : a.title > b.title ? 1 : 0));
         const cursor = params.get("cursor");

@@ -4,6 +4,8 @@
 import { ApiError } from "../api/errors.ts";
 import { requestsView, type RequestsHandlers, type RequestsState, type RequestWrite } from "./requests.ts";
 import type { TextSearchScope } from "../api/operations.ts";
+import type { Audiobook } from "../contracts/v2/audiobooks.ts";
+import { audiobookView } from "./audiobookView.ts";
 import type { CatalogPage, Episode, HomeSection, ItemDetail, Season, UserLibrary } from "../contracts/v2/catalog.ts";
 import type { Person } from "../contracts/v2/details.ts";
 import type { PersonMetadataRefresh } from "./personMetadataRefresh.ts";
@@ -11,7 +13,7 @@ import type { DetailsState } from "./detailsState.ts";
 import { SessionError, SessionRefreshError } from "../session/session.ts";
 import type { FocusTarget, View } from "./browseFocus.ts";
 import { itemView, seasonView } from "./browseDetails.ts";
-import { browseCardDestination, type EpisodeSelection, type PlayRequest, type SeriesContext, type SeriesLine } from "./browseModel.ts";
+import { browseCardDestination, type SearchFilter, type EpisodeSelection, type PlayRequest, type SeriesContext, type SeriesLine } from "./browseModel.ts";
 import type { CalendarState } from "./calendarState.ts";
 import { calendarView, type CalendarHandlers } from "./calendarView.ts";
 import { actionButton, FAILURE_ICON, homeView, lines, pagedGrid, type SearchResults, searchState, searchView, statusView, type ViewContext, zoneNode } from "./browseViews.ts";
@@ -52,7 +54,8 @@ export type RouteData =
     | { readonly kind: "library"; readonly library: UserLibrary; pages: Pages; discovery?: DiscoveryState }
     | { readonly kind: "libraryResults"; readonly library: UserLibrary; readonly title: string; readonly source: LibrarySource; pages: Pages; descending: boolean }
     /** `resultsFor`: the query the shown page answers, which typing can move ahead of. */
-    | { readonly kind: "search"; query: string; pages: Pages | undefined; resultsFor: string; searchType?: TextSearchScope; filter?: "movie" | "series" | undefined; peopleSupported?: boolean; boxSetsSupported?: boolean; supplement?: SearchSupplement }
+    | { readonly kind: "search"; query: string; pages: Pages | undefined; resultsFor: string; searchType?: TextSearchScope; filter?: SearchFilter | undefined; peopleSupported?: boolean; boxSetsSupported?: boolean; supplement?: SearchSupplement }
+    | { readonly kind: "audiobook"; readonly id: string; readonly title: string; data: Audiobook | undefined; /** The chapter picker covers the page. */ picker?: boolean }
     | { readonly kind: "boxSet"; readonly id: string; readonly libraryId: string; readonly title: string; data: CatalogBoxSetDetail | undefined }
     | { readonly kind: "item"; readonly id: string; readonly title: string; readonly seriesContext?: SeriesContext; error?: ErrorState; data: { detail: ItemDetail; seasons: Season[]; details?: DetailsState; boxSet?: BoxSetRowState } | undefined }
     | { readonly kind: "person"; readonly id: string; readonly title: string; data: { person: Person } | undefined; metadataLoading?: boolean; metadataRefresh?: PersonMetadataRefresh; metadataFailure?: string | undefined; availabilityLoading?: boolean; availableFilters?: MediaScope[]; filter: MediaScope; pages: Pages; pendingIndex: number | undefined }
@@ -112,6 +115,7 @@ export interface RouteHandlers {
     readonly morePerson: (route: Extract<Route, { kind: "person" }>) => void;
     readonly calendar: (route: Extract<Route, { kind: "calendar" }>) => CalendarHandlers;
     readonly personalFilter: (route: Extract<Route, { kind: "personal" }>, filter: PersonalFilter) => void;
+    readonly audiobookPicker: (route: Extract<Route, { kind: "audiobook" }>, open: boolean) => void;
     readonly morePersonal: (route: Extract<Route, { kind: "personal" }>) => void;
     readonly signIn: (() => void) | undefined;
     readonly context: ViewContext;
@@ -121,7 +125,9 @@ export interface RouteHandlers {
     /** The search heading, label and field, kept across renders. */
     readonly searchHead: readonly HTMLElement[];
     readonly input: HTMLInputElement;
-    readonly searchFilter: (route: Extract<Route, { kind: "search" }>, filter: "movie" | "series" | undefined) => void;
+    readonly searchFilter: (route: Extract<Route, { kind: "search" }>, filter: SearchFilter | undefined) => void;
+    /** Audiobooks take part in Search: the opt-in is on and an audiobook library is visible. */
+    readonly audiobooksEnabled: boolean;
     readonly retryPeople: (route: Extract<Route, { kind: "search" }>) => void;
     readonly push: (route: Route) => void;
     readonly pop: () => void;
@@ -204,6 +210,11 @@ export function routeView(current: Route, handlers: RouteHandlers): View {
                     ...context, open: destination => context.open(destination.kind === "season" && episodeId !== undefined ? { ...destination, episodeId } : destination),
                 }, handlers.play, pop, current.data.details, current.data.boxSet);
                 return withNote(view, current.failure);
+            }
+            break;
+        case "audiobook":
+            if (current.data !== undefined) {
+                return withNote(audiobookView(current.data, { context, pickerOpen: current.picker === true, setPicker: open => handlers.audiobookPicker(current, open), back: pop }), current.failure);
             }
             break;
         case "boxSet":
@@ -359,6 +370,7 @@ export function failureText(error: unknown, current: Route): string | undefined 
     }
     if (error.status === 404) {
         if (current.kind === "calendar") return "Could not load Calendar. Try again.";
+        if (current.kind === "audiobook") return "This audiobook is no longer available.";
         if (current.kind === "boxSet") return "This box set isn't available. Box sets may be turned off for this library, or too few of its movies are here.";
         return current.kind === "library"
             ? "This library is no longer available."

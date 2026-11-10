@@ -18,7 +18,8 @@ import { requestsState, type RequestsHandlers, type RequestsSource } from "./req
 import { canCancel, canRemove, focusAfterRemoval, REMOVE_CONFLICT_MESSAGE, REMOVED_NOTICE, RequestActionGate, REQUEST_NOTICE_MS, UNCONFIRMED_CANCEL_MESSAGE, UNCONFIRMED_REMOVE_MESSAGE, visibleMineRequests } from "./requestRemoval.ts";
 import { RequestRecordMenu } from "./requestRecordMenu.ts";
 import type { RequestSpec } from "../api/http.ts";
-import { operations } from "../api/operations.ts";
+import { operations, type TextSearchScope } from "../api/operations.ts";
+import { ShowAudiobooks } from "./audiobookPreference.ts";
 import { detailOperations } from "../api/detailOperations.ts";
 import { BOX_SET_SEARCH_LIMIT, boxSetOperations } from "../api/boxSetOperations.ts";
 import { BoxSetRowState } from "./boxSetRow.ts";
@@ -33,7 +34,7 @@ import type { PublicStorage } from "../session/deviceIdentity.ts";
 import { Skyline } from "./skyline.ts";
 import { decodeImageCapabilities, type ImageCapabilities, homeArtworkQuery } from "../contracts/v2/images.ts";
 import { FocusHost, type FocusTarget } from "./browseFocus.ts";
-import { type Destination, type PlayRequest, applySeriesLine, destinationOf, seriesLineFor, playChoices, visibleLibraries, withStartAudioLanguage } from "./browseModel.ts";
+import { type Destination, type PlayRequest, type SearchFilter, applySeriesLine, destinationOf, searchScope, seriesLineFor, playChoices, visibleLibraries, withStartAudioLanguage } from "./browseModel.ts";
 import { errorState, unconfirmedWriteMessage, writeFailureMessage, writeMayHaveApplied, failureText, hasData, newPages, newRoute, PAGE_SIZE, SEARCH_PAGE_SIZE, type Pages, type Route, routeView } from "./browseRoutes.ts";
 import { homeRows, type ViewContext } from "./browseViews.ts";
 import { HomeEnrichment } from "./homeEnrichment.ts";
@@ -159,6 +160,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     let activeBrowse: Pages | undefined;
     let activePersonal: object | undefined;
     const personalSnapshots = new WeakMap<Extract<Route, { kind: "personal" }>, SectionSnapshot>();
+    const showAudiobooks = new ShowAudiobooks(options.publicStorage, `silo.nav.showAudiobooks:${JSON.stringify([server.server.serverId, session.account?.id ?? "", session.activeProfile.id])}`);
     const browsePrefs = new BrowsePrefs(options.publicStorage, `silo.browse:${JSON.stringify([server.server.serverId, session.activeProfile.id])}`);
     const navigation = new NavigationSettings((spec, signal) => session.call({ ...spec, profileScoped: true, signal }), () => {
         if (torn) return;
@@ -376,7 +378,11 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             if (error instanceof ApiError && ["capability_disabled", "capability_not_configured", "capability_unsupported", "permission_denied"].includes(error.problemId ?? "")) void probeRequests(false);
         });
     };
-    const searchPeople = (current: Extract<Route, { kind: "search" }>, type: "movie" | "series" | "video" | "video_with_episodes"): void => {
+    /** Apple SearchView.audiobooksAvailable on tvOS: the opt-in is on and the profile can see an audiobook library. */
+    const audiobooksInSearch = (): boolean => showAudiobooks.value && (pendingHomeLibraries ?? []).some(library => library.type === "audiobooks");
+    const searchTypeFor = (current: Extract<Route, { kind: "search" }>, base: TextSearchScope): TextSearchScope | SearchFilter | undefined =>
+        searchScope(current.filter, audiobooksInSearch(), base === "video_with_episodes");
+    const searchPeople = (current: Extract<Route, { kind: "search" }>, type: TextSearchScope | SearchFilter | undefined): void => {
         searchPeopleController?.abort();
         const supplement = current.supplement ??= {};
         supplement.people = []; supplement.peopleFailure = false;
@@ -1417,6 +1423,14 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 }, quiet);
                 return;
             }
+            case "audiobook": {
+                const had = current.data !== undefined;
+                load(current, signal => read(operations.getAudiobook(current.id), signal), book => {
+                    current.data = book;
+                    if (had) return host.focused() ?? current.focus;
+                }, quiet || had);
+                return;
+            }
             case "boxSet": {
                 const had = current.data !== undefined;
                 load(current, async signal => {
@@ -1649,9 +1663,9 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 }
             }
             if (signal.aborted || top() !== current || current.query !== query) throw new DOMException("Aborted", "AbortError");
-            if (current.supplement?.people === undefined) searchPeople(current, current.filter ?? type);
+            if (current.supplement?.people === undefined) searchPeople(current, searchTypeFor(current, type));
             if (current.supplement?.boxSetsPending !== false) searchBoxSets(current);
-            return read(operations.listCatalogItems({ q: query.trim(), type: current.filter ?? type, limit: SEARCH_PAGE_SIZE, cursor: pages.cursors[index] }), signal);
+            return read(operations.listCatalogItems({ q: query.trim(), type: searchTypeFor(current, type), limit: SEARCH_PAGE_SIZE, cursor: pages.cursors[index] }), signal);
         }, (page) => {
             pages.page = page;
             pages.index = index;
@@ -1783,7 +1797,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         showRoute(next, focus);
     };
 
-    const tabFocus = (current: Route): FocusTarget => ({ zone: "nav", key: current.kind === "library" ? (current.library.type === "music" ? "music" : current.library.type === "series" ? "series" : "movies") : current.kind === "personal" ? current.anchor ?? "profiles" : current.kind === "requests" ? current.anchor ?? "home" : current.kind });
+    const tabFocus = (current: Route): FocusTarget => ({ zone: "nav", key: current.kind === "library" ? (current.library.type === "music" ? "music" : current.library.type === "audiobooks" ? "audiobooks" : current.library.type === "series" ? "series" : "movies") : current.kind === "personal" ? current.anchor ?? "profiles" : current.kind === "requests" ? current.anchor ?? "home" : current.kind });
 
     const showRoute = (current: Route, focus: FocusTarget | undefined): void => {
         if (current.kind === "home" && current.data === undefined) {
@@ -1821,7 +1835,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         }
         if (current.kind === "search") {
             input.value = current.query;
-            if (current.supplement?.peoplePending && current.searchType !== undefined && current.query === current.resultsFor) searchPeople(current, current.filter ?? current.searchType);
+            if (current.supplement?.peoplePending && current.searchType !== undefined && current.query === current.resultsFor) searchPeople(current, searchTypeFor(current, current.searchType));
             if (current.supplement?.boxSetsPending === true && current.boxSetsSupported === true && current.query === current.resultsFor) searchBoxSets(current);
             if (current.supplement !== undefined && current.supplement.requests === undefined) current.supplement.requestsFor = undefined;
             searchRequests(current);
@@ -1853,7 +1867,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     const open = (destination: Destination): void => {
         if (destination.kind === "item") host.forgetVisit(`item:${destination.id}`);
         if (destination.kind === "person") host.forgetVisit(`person:${destination.id}`);
-        if (destination.kind === "item") host.forgetVisit(`item:${destination.id}`);
+        if (destination.kind === "audiobook") host.forgetVisit(`audiobook:${destination.id}`);
+        if (destination.kind === "audiobook") { push(newRoute({ kind: "audiobook", id: destination.id, title: destination.title, data: undefined })); return; }
         push(destination.kind === "item"
             ? newRoute({ kind: "item", id: destination.id, title: destination.title, ...(destination.seriesContext === undefined ? {} : { seriesContext: destination.seriesContext }), data: undefined })
             : destination.kind === "person" ? newRoute({ kind: "person", id: destination.id, title: destination.title, data: undefined, filter: "video", pages: newPages(), pendingIndex: undefined })
@@ -1929,12 +1944,12 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         }
         shell.setAvatar(profileName, profileAvatarUrl, context.baseUrl);
         if (current.kind === "library") shell.setLibraryModes(availableModes(current.discovery?.data?.capabilities ?? current.discovery?.capabilities));
-        const searchFilter = (route: Extract<Route, { kind: "search" }>, filter: "movie" | "series" | undefined): void => {
+        const searchFilter = (route: Extract<Route, { kind: "search" }>, filter: SearchFilter | undefined): void => {
             if (top() !== route || route.filter === filter) return;
             loading?.abort(); loading = undefined; cancelSlow();
             route.filter = filter; route.pages = undefined; search(route);
         };
-        const handlers = { context, focusDefault: () => host.focusDefault(), busy: loading !== undefined, searchHead, input, searchFilter, push, pop, play, chooseProfile, retry, turn, mode, jump, sort, genre, personalFilter, morePersonal, morePerson, signIn: options.onSignOut, personFilter, calendar: calendarHandlers, requests: requestsHandlers, browse: changeBrowse, more: moreBrowse, preserve: (route: Extract<Route, { kind: "library" }>) => browsePrefs.preserve(route.library), gridColumns: presentation.posterScale > 1 ? 5 : 6, shuffle: (current.kind === "library" || current.kind === "libraryResults" && current.source.kind === "collection") && canShuffle(current) ? { starting: shuffleStarting, failure: shuffleFailure?.route === current ? shuffleFailure.text : undefined, start: startShuffle, dismiss: () => { shuffleFailure = undefined; render({ zone: "controls", key: "shuffle" }); } } : undefined };
+        const handlers = { context, focusDefault: () => host.focusDefault(), busy: loading !== undefined, searchHead, input, searchFilter, audiobooksEnabled: audiobooksInSearch(), push, pop, play, chooseProfile, retry, turn, audiobookPicker, mode, jump, sort, genre, personalFilter, morePersonal, morePerson, signIn: options.onSignOut, personFilter, calendar: calendarHandlers, requests: requestsHandlers, browse: changeBrowse, more: moreBrowse, preserve: (route: Extract<Route, { kind: "library" }>) => browsePrefs.preserve(route.library), gridColumns: presentation.posterScale > 1 ? 5 : 6, shuffle: (current.kind === "library" || current.kind === "libraryResults" && current.source.kind === "collection") && canShuffle(current) ? { starting: shuffleStarting, failure: shuffleFailure?.route === current ? shuffleFailure.text : undefined, start: startShuffle, dismiss: () => { shuffleFailure = undefined; render({ zone: "controls", key: "shuffle" }); } } : undefined };
         container.classList.toggle("section-catalog", isSectionRoute(current) || current.kind === "recommendationSection");
         const browsing = current.kind === "library" && current.discovery?.mode === "Browse";
         container.classList.toggle("library-browse", browsing);
@@ -1959,7 +1974,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 loadSection(current, true, true);
             }) : routeView(current, { ...handlers, manageServers: options.onSwitchServer === undefined ? undefined : () => { options.onSwitchServer?.(() => render()); }, retryPeople: route => {
                 if (top() !== route || route.searchType === undefined || route.query.trim() === "") return;
-                searchPeople(route, route.filter ?? route.searchType);
+                searchPeople(route, searchTypeFor(route, route.searchType));
                 render(host.focused());
             } });
         const rootRoute = current.kind === "home" || current.kind === "for_you" || current.kind === "library" || (current.kind === "personal" && current.source !== "history") || current.kind === "calendar" || isHubRoot(current);
@@ -2386,6 +2401,12 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         render({ zone: "filters", key: `filter:${filter}` });
     };
 
+    const audiobookPicker = (current: Extract<Route, { kind: "audiobook" }>, open: boolean): void => {
+        if (top() !== current || (current.picker === true) === open) return;
+        current.picker = open;
+        render(open ? undefined : { zone: "actions", key: "chapters" });
+    };
+
     const mode = (current: Extract<Route, { kind: "library" }>, value: LibraryMode): void => {
         if (current.discovery?.mode === value && hasData(current)) {
             host.focusDefault();
@@ -2506,6 +2527,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 // Settings opens from root chrome, after pushed Details have left the stack.
                 if (titleArt !== undefined) for (const details of visitedDetails.values()) details.acceptTitleArt(titleArt);
                 container.hidden = false;
+                shell.setShowAudiobooks(showAudiobooks.value);
                 presentation.reload();
                 resolutionCap.reload();
                 void navigation.reload();
@@ -2531,6 +2553,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 const spoilersAfterSettings = episodeSpoilers?.settings;
                 if (spoilersBeforeSettings?.hidesImages !== spoilersAfterSettings?.hidesImages || spoilersBeforeSettings?.hidesOverviews !== spoilersAfterSettings?.hidesOverviews) shell.repaint();
             }, server.profileLaunch, {
+                showAudiobooks,
                 profileName,
                 profileAvatarUrl,
                 accountName: session.account?.username,
@@ -2591,6 +2614,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     shell.filled = card => enrichedScene() ? homeDetails.filled(card) : card;
     // This profile's last bar, or no library tabs when it has none. An empty
     // update here would drop Movies and Series that a later failed read should keep.
+    shell.setShowAudiobooks(showAudiobooks.value);
     shell.update(pendingHomeLibraries ?? []);
     void navigation.reload();
     void probeRequests();

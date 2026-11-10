@@ -8,6 +8,7 @@ import { connect } from "../../src/session/core.ts";
 import { type Browse, mountBrowse, type PlayRequest } from "../../src/ui/browse.ts";
 import { browseCache, clearBrowseCache } from "../../src/session/browseCache.ts";
 import { operations } from "../../src/api/operations.ts";
+import { ExperimentalFeatures, type ExperimentalFeature } from "../../src/session/experimentalFeatures.ts";
 import { FakeKeyManager, MemoryPublicStorage } from "../native/support/keyManager.ts";
 
 export interface BrowseHarness {
@@ -25,6 +26,8 @@ export interface BrowseHarness {
     clearResponseCache(): void;
     cacheOffline(route?: "home" | "for_you" | "movie:m0004"): boolean;
     failPublicStorage(read: boolean, write: boolean): void;
+    /** Turns a device experimental feature on before mount, as Settings does. */
+    setExperimental(feature: ExperimentalFeature, enabled: boolean): void;
     hasImageCapabilityCache(): boolean;
     /** As the profile screens do on Switch profile: clear the profile, which ends browse's authority. */
     clearProfile(): void;
@@ -147,6 +150,9 @@ const harness: BrowseHarness = {
     failPublicStorage(read, write) {
         publicStorage.failGet = read;
         publicStorage.failSet = write;
+    },
+    setExperimental(feature, enabled) {
+        new ExperimentalFeatures(publicStorage).setEnabled(feature, enabled);
     },
     hasImageCapabilityCache() {
         return publicStorage.getItem(`silo.imageCapability:${connected().server.serverId}`) !== null;

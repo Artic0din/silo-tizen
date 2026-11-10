@@ -263,7 +263,7 @@ Library types appear only when a matching visible library exists; mixed video li
 Music opens an explicit unavailable page because the existing catalog browser supports video queries only; it sends no library queries and offers Back.
 Saved menu order, omissions and library shortcuts no longer affect the bar.
 Audiobooks requires Apple's opt-in feature; Tizen has no audiobook feature and omits it.
-Watch Party requires both local opt-in and synchronized-party support; Tizen has neither and omits that profile row.
+Watch Party requires both local opt-in (Settings › Server › Extra Features) and synchronized-party support, and sits after Requests in the profile menu only when both hold ([Watch Party](watch-party.md)).
 Search is 58 px wide with an 8 px gap before the roots and an invisible equal-width balance after them, keeping the roots centered at x960.
 Labels retain Apple's 29 px horizontal inset (including the CSS border), 26 px semibold type and 8 px gaps.
 Removing Requests lets the shared flex row recalculate every horizontal anchor from the remaining labels.

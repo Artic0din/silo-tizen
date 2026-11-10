@@ -306,6 +306,26 @@ test("a lost start that a snapshot proves while the room is read back still coun
     r.hub.leave();
 });
 
+test("a socket error that arrives while a lost write is read back is not cleared when the write proves applied", async () => {
+    let reads = 0;
+    let answer: (value: RoomAccess) => void = () => undefined;
+    const staged = { selected_content_id: "movie:m0004", selection_revision: 1 };
+    const r = hubRig(staged, {
+        startPlayback: async () => { throw new ApiError({ kind: "network" }); },
+        room: () => reads++ === 0 ? Promise.resolve(roomAccess(staged)) : new Promise(resolve => { answer = resolve; }),
+    });
+    await r.hub.create("host_pick");
+    await settle();
+    r.sockets[0]?.open();
+    const starting = r.hub.start();
+    await settle();
+    r.sockets[0]?.frame({ type: "error", code: "rate_limited", message: "Slow down." });
+    answer(roomAccess({ ...staged, generation: 2, phase: "playing", selected_file_id: "42" }));
+    assert.equal(await starting, true);
+    assert.equal(r.hub.state.error, "Slow down.");
+    r.hub.leave();
+});
+
 // --- Clock (WatchPartyClock) ---
 
 test("the clock offset comes from the fastest round trip and survives one slow pong", () => {

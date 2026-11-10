@@ -439,13 +439,18 @@ export class WatchPartyHub {
             return true;
         } catch (error) {
             if (this.stopped || this.state.room?.roomId !== room.roomId) return false;
-            this.state.error = this.describe(error);
+            const failure = this.describe(error);
+            this.state.error = failure;
             // A non-retryable change whose answer never came may have landed: read the room so the lobby does not stay behind it,
             // and count the change as done when the room proves it, so it is not sent a second time.
             if (applied !== undefined && !this.stopped && this.ending && writeMayHaveApplied(error)) this.unreconciled = true;
             else if (applied !== undefined && !this.stopped && writeMayHaveApplied(error)) {
                 const now = await this.readRoom(room.roomId);
-                if (now !== undefined && applied(now)) { this.state.error = undefined; return true; }
+                if (now !== undefined && applied(now)) {
+                    // Only this write's own failure goes; a socket error that arrived meanwhile stays.
+                    if (this.state.error === failure) this.state.error = undefined;
+                    return true;
+                }
             }
             return false;
         } finally {

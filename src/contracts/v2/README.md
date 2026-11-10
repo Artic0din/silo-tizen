@@ -187,7 +187,7 @@ The copy for each follows the Apple TV app's `LoginViewModel.message`.
 ## Watch Together (Watch Party)
 
 `watchTogether.ts` decodes the `/watch-together` documents and the `silo.room.v2` socket frames; `api/watchTogetherOperations.ts` supplies the specs (capabilities, create, join by code, room read, close, socket ticket, and the host's stage, select, start, stop, mode and policy calls and the picker read).
-The Watch Party hub and lobby call the HTTP specs (issue 54); no socket client uses the ticket or the frames yet.
+The Watch Party hub and lobby call the HTTP specs, and `src/ui/watchPartySocket.ts` mints the ticket and decodes the frames (issue 54); the lobby uses snapshots, pongs, `room_closed`, `connection_replaced` and `error`, and nothing uses transport commands or suggestions yet.
 Pass each spec to `session.call({ ...spec, profileScoped: true })`, as Apple's calls run for the active profile.
 `room` and `socketTicket` add the room's `X-Room-Token` (`RequestSpec.roomToken`); every create, join and read answer returns a `room_access_token` that replaces the previous one; never log or store it.
 

@@ -1,6 +1,7 @@
 import { decodePlaybackCapabilities, type PlaybackCapabilities } from "../../../src/contracts/v2/playback.ts";
 import { decodeRoomAccess, decodeWatchTogetherCapabilities, type RoomAccess, type WatchTogetherCapabilities } from "../../../src/contracts/v2/watchTogether.ts";
 import type { WatchPartyApi } from "../../../src/ui/watchPartyHub.ts";
+import { ManualClock } from "./clock.ts";
 import { fixture } from "./fakeSilo.ts";
 
 export const ROOM_ID = "0b6f3f0e-6c1d-4a39-9d52-3a1f7c7f9e10";
@@ -46,4 +47,12 @@ export const unusedLobbyOperations: Omit<WatchPartyApi, "capabilities" | "playba
     seasons: unexpected("seasons"),
     episodes: unexpected("episodes"),
     watchlist: unexpected("watchlist"),
+    socketTicket: unexpected("socketTicket"),
+    socketHandshake: unexpected("socketHandshake"),
 };
+
+/**
+ * Hub options for a test that is not about the room socket: the connection's first room read meets `unexpected`
+ * (or the test's own read), and its retry waits on a clock that never moves, so no socket opens.
+ */
+export const offline = (): { clock: ManualClock; socket: () => never } => ({ clock: new ManualClock(), socket: unexpected("socket") });

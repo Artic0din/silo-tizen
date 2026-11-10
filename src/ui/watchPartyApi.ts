@@ -9,10 +9,11 @@ import type { CatalogPage, Episode, ItemDetail, Season } from "../contracts/v2/c
 import type { PlaybackCapabilities } from "../contracts/v2/playback.ts";
 import {
     type CreatableSelectionMode, type GuestControlPolicy, type Picker, type RoomAccess, type RoomSelection,
-    type WatchTogetherCapabilities, watchTogetherSocketSupported,
+    roomSocketHandshake, type WatchTogetherCapabilities, watchTogetherSocketSupported,
 } from "../contracts/v2/watchTogether.ts";
 import type { NativeSession } from "../session/session.ts";
 import { errorState } from "./browseRoutes.ts";
+import type { RoomSocketApi } from "./watchPartySocket.ts";
 
 /** The playback features Apple requires of a server before it offers a synchronized party. */
 const PLAYBACK_FEATURES = ["watch_party_coordinator_v1", "fixed_media_file_v1"] as const;
@@ -25,7 +26,7 @@ export function supportsSynchronizedParty(room: WatchTogetherCapabilities, playb
         && PLAYBACK_FEATURES.every(feature => playback.features.includes(feature));
 }
 
-export interface WatchPartyApi {
+export interface WatchPartyApi extends RoomSocketApi {
     capabilities(signal: AbortSignal): Promise<WatchTogetherCapabilities>;
     playbackCapabilities(signal: AbortSignal): Promise<PlaybackCapabilities>;
     createRoom(roomId: string, mode: CreatableSelectionMode, signal: AbortSignal): Promise<RoomAccess>;
@@ -46,7 +47,7 @@ export interface WatchPartyApi {
     watchlist(signal: AbortSignal): Promise<CatalogPage>;
 }
 
-export function watchPartyApi(session: Pick<NativeSession, "call">): WatchPartyApi {
+export function watchPartyApi(session: Pick<NativeSession, "call" | "http">): WatchPartyApi {
     const call = <T>(spec: RequestSpec<T>, signal: AbortSignal): Promise<T> => session.call({ ...spec, profileScoped: true, signal });
     return {
         capabilities: signal => call(watchTogetherOperations.capabilities(), signal),
@@ -62,6 +63,8 @@ export function watchPartyApi(session: Pick<NativeSession, "call">): WatchPartyA
         setGuestControlPolicy: (roomId, policy, signal) => call(watchTogetherOperations.setGuestControlPolicy(roomId, policy), signal),
         room: (roomId, token, signal) => call(watchTogetherOperations.room(roomId, token), signal),
         picker: (roomId, token, signal) => call(watchTogetherOperations.picker(roomId, token), signal),
+        socketTicket: (roomId, token, signal) => call(watchTogetherOperations.socketTicket(roomId, token), signal),
+        socketHandshake: (roomId, ticket) => roomSocketHandshake(session.http.base.apiRoot, roomId, ticket),
         item: (contentId, signal) => call(operations.getCatalogItem(contentId), signal),
         seasons: (seriesId, signal) => call(operations.listSeriesSeasons(seriesId), signal),
         episodes: (seriesId, seasonNumber, signal) => call(operations.listSeasonEpisodes(seriesId, seasonNumber), signal),

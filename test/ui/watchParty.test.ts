@@ -186,8 +186,8 @@ test("Start a party creates a host-pick room and shows the code and members the 
         await tv.remote(10009);
         await tv.page.locator('.browse[data-view="watchParty:hub"]').waitFor();
         assert.equal(await tv.focused(), "create", "Back returns to the entry on its first control");
-        await tv.eventually(async () => fake.closedRooms.length === 1, "host Back ends the room");
-        assert.deepEqual(fake.closedRooms, ["0b6f3f0e-6c1d-4a39-9d52-3a1f7c7f9e10"]);
+        await tv.eventually(async () => fake.sockets[0]?.closed === true, "host Back closes the room socket");
+        assert.deepEqual(fake.closedRooms, [], "Back leaves as Leave party does; only End party ends the room");
     } finally { await tv.page.context().close(); }
 });
 

@@ -1660,6 +1660,8 @@
 .watch-party-connection { display: inline-flex; align-items: center; gap: 6px; font-size: 20px; color: var(--silo-secondary); }
 .watch-party-connection-dot { width: 11px; height: 11px; border-radius: 50%; background: #34d399; }
 .watch-party-connection-warn .watch-party-connection-dot { background: #f5c563; }
+.watch-party-connection-wait .watch-party-connection-dot { background: var(--silo-secondary); }
+.watch-party-connection-off .watch-party-connection-dot { background: #fb7185; }
 .watch-party-room-tools { display: flex; align-items: center; gap: 22px; }
 .watch-party-ui .watch-party-circle { display: inline-flex; align-items: center; justify-content: center; gap: 14px; box-sizing: border-box; height: 76px; min-width: 76px; margin: 0; padding: 0; border: 0; border-radius: 38px; background: rgba(0,0,0,.52); color: #fff; font-size: 26px; font-weight: 600; line-height: 32px; box-shadow: 0 2px 4px rgba(0,0,0,.14); }
 .watch-party-ui .watch-party-circle svg { width: 38px; height: 38px; }

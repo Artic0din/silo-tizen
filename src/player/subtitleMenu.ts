@@ -64,9 +64,13 @@ export function fillSubtitleTools(list: HTMLElement, tracks: TrackView, pane: Su
     const tools = tracks.subtitleTools;
     if (tools === undefined) return;
     if (pane.kind === "picker") {
-        list.append(el("h2", "player-menu-heading", pane.title.toUpperCase()));
-        list.append(choice("subtitle-picker-back", "Back", false));
-        for (const option of pane.options) list.append(choice(`subtitle-picker:${option.id}`, option.label, option.id === pane.selected));
+        // Apple pins the picker title above the list; only the options scroll.
+        const picker = el("div", "player-menu-picker");
+        const options = el("div", "player-menu-picker-options");
+        options.append(choice("subtitle-picker-back", "Back", false));
+        for (const option of pane.options) options.append(choice(`subtitle-picker:${option.id}`, option.label, option.id === pane.selected));
+        picker.append(el("h2", "player-menu-heading", pane.title.toUpperCase()), options);
+        list.append(picker);
         return;
     }
     if (pane.kind === "appearance") {

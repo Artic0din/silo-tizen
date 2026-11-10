@@ -405,12 +405,14 @@ Creation is sent once with refresh replay off.
 A 404 on create shows "This is no longer available to shuffle."
 `advance` runs when the current item finishes (`src/player/nextShuffle.ts`).
 
-### Watch Together (hub only)
+### Watch Together (hub and lobby, HTTP only)
 
-Defined in `src/api/watchTogetherOperations.ts`. The Watch Party hub (`src/ui/watchPartyHub.ts`) calls `capabilities`, `createRoom`, `joinByCode` and, when the host goes Back or leaves the page, `closeRoom`; no screen uses `room` or `socketTicket`, and no socket client exists yet (issue 54).
-The hub also reads `GET /playback/capabilities` for the playback features Apple requires.
+Defined in `src/api/watchTogetherOperations.ts`. The Watch Party hub (`src/ui/watchPartyHub.ts`) calls `capabilities`, `createRoom`, `joinByCode`, the host's lobby calls below, `picker` and, when the host ends the party or goes Back, `closeRoom`; no screen uses `room` or `socketTicket`, and no socket client exists yet (issue 54).
+The hub also reads `GET /playback/capabilities` for the playback features Apple requires, and reads the chosen title with `getCatalogItem` and the picker's series with `listSeriesSeasons` and `listSeasonEpisodes`.
 Bearer plus Profile.
-`room` and `socketTicket` also send `X-Room-Token` (`RequestSpec.roomToken`).
+`room`, `socketTicket` and `picker` also send `X-Room-Token` (`RequestSpec.roomToken`).
+The host's calls take no room token: the contract authorizes them by account and profile, as it does `closeRoom`, and each answers with the room as it now stands, which replaces the lobby's room.
+Apple keeps the room current over the socket and never polls the room, so the lobby has no refresh until the socket exists.
 
 | Operation | Method and path | Retry |
 | --- | --- | --- |
@@ -419,6 +421,13 @@ Bearer plus Profile.
 | joinByCode | `POST /watch-together/join` with `{ "code": ... }` | safe |
 | room | `GET /watch-together/rooms/{id}` | safe |
 | closeRoom | `DELETE /watch-together/rooms/{id}`, host only, 204; no room token | safe |
+| stageSelection | `PUT /watch-together/rooms/{id}/staged-selection` with `{ "content_id": ... }`, host only | safe (natural idempotent) |
+| selectItem | `PUT /watch-together/rooms/{id}/selection`, for a party that is already playing, host only | never (non-retryable) |
+| startPlayback | `POST /watch-together/rooms/{id}/playback/start`, host only | never (non-retryable) |
+| stopPlayback | `POST /watch-together/rooms/{id}/playback/stop`, host only | safe |
+| setSelectionMode | `PATCH /watch-together/rooms/{id}/selection-mode` with `{ "selection_mode": ... }`, host only | safe |
+| setGuestControlPolicy | `PATCH /watch-together/rooms/{id}/policy` with `{ "guest_control_policy": ... }`, host only | safe |
+| picker | `GET /watch-together/rooms/{id}/picker` | safe |
 | socketTicket | `POST /watch-together/rooms/{id}/ws-ticket` | safe |
 
 Everything is offered only when `allowed` is true and `state === "available"` (`watchTogetherAvailable`, `src/contracts/v2/watchTogether.ts`).

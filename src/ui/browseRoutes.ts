@@ -143,7 +143,7 @@ export interface RouteHandlers {
 export function routeView(current: Route, handlers: RouteHandlers): View {
     if (current.kind === "for_you" || current.kind === "recommendationSection") return recommendationsView(current, handlers);
     if (current.kind === "requests") return requestsView(current.requests, handlers.requests(current), handlers.context.baseUrl);
-    if (current.kind === "watchParty") return watchPartyView(current.watchParty, handlers.pop);
+    if (current.kind === "watchParty") return watchPartyView(current.watchParty, handlers.pop, handlers.context.baseUrl);
     const { context, pop } = handlers;
     if (current.kind === "calendar") return calendarView(current.calendar, handlers.calendar(current));
     const back = current.kind === "home" ? undefined : pop;

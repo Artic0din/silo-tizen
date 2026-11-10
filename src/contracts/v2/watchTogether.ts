@@ -5,6 +5,7 @@
 // Socket frames still carry the legacy numeric user, file and library ids, so those members accept
 // a string or an integer and decode to a string, as Apple's decoders do.
 
+import { type Card, decodeCard } from "./catalog.ts";
 import { boolean, instant, integer, nonEmptyString, object, string, WireError } from "./wire.ts";
 
 type Obj = ReturnType<typeof object>;
@@ -235,6 +236,86 @@ export function decodeRoomAccess(value: unknown): RoomAccess {
     const path = "watch_together_room_response";
     const body = object(value, path);
     return { room: decodeRoom(body.room, `${path}.room`), roomAccessToken: nonEmptyString(body, "room_access_token", path) };
+}
+
+// --- Picker ---
+
+/** A title the host may choose, with the members it applies to. */
+export interface PickerEntry {
+    readonly card: Card;
+    readonly members: readonly PickerMember[];
+    /** For a series: the episode most members would play next. */
+    readonly nextUp: PickerNextUp | undefined;
+}
+
+export interface PickerMember {
+    readonly userId: string;
+    readonly profileId: string;
+    readonly displayName: string;
+    readonly positionSeconds: number | undefined;
+    readonly durationSeconds: number | undefined;
+}
+
+export interface PickerNextUp {
+    readonly contentId: string;
+    readonly seasonNumber: number;
+    readonly episodeNumber: number;
+    readonly title: string | undefined;
+    readonly memberCount: number;
+}
+
+/** GET /rooms/{id}/picker: what the connected members are mid-way through, and what is on their watchlists. */
+export interface Picker {
+    readonly members: readonly RoomMember[];
+    readonly continueTogether: readonly PickerEntry[];
+    readonly watchlistUnion: readonly PickerEntry[];
+}
+
+function optionalNonNegativeNumber(obj: Obj, key: string, path: string): number | undefined {
+    return obj[key] === undefined || obj[key] === null ? undefined : nonNegativeNumber(obj, key, path);
+}
+
+function decodePickerEntry(value: unknown, path: string): PickerEntry {
+    const body = object(value, path);
+    const next = body.next_up === undefined || body.next_up === null ? undefined : object(body.next_up, `${path}.next_up`);
+    return {
+        card: decodeCard(body.item, `${path}.item`),
+        members: array(body, "members", path).map((member, index) => {
+            const memberPath = `${path}.members[${index}]`;
+            const fields = object(member, memberPath);
+            return {
+                userId: opaqueId(fields, "user_id", memberPath),
+                profileId: string(fields, "profile_id", memberPath),
+                displayName: string(fields, "display_name", memberPath),
+                positionSeconds: optionalNonNegativeNumber(fields, "position_seconds", memberPath),
+                durationSeconds: optionalNonNegativeNumber(fields, "duration_seconds", memberPath),
+            };
+        }),
+        nextUp: next === undefined ? undefined : {
+            contentId: nonEmptyString(next, "content_id", `${path}.next_up`),
+            seasonNumber: nonNegativeInteger(next, "season_number", `${path}.next_up`),
+            episodeNumber: nonNegativeInteger(next, "episode_number", `${path}.next_up`),
+            title: optionalString(next, "title", `${path}.next_up`) || undefined,
+            memberCount: nonNegativeInteger(next, "member_count", `${path}.next_up`),
+        },
+    };
+}
+
+export function decodePicker(value: unknown): Picker {
+    const path = "watch_together_picker";
+    const body = object(value, path);
+    return {
+        members: array(body, "members", path).map((member, index) => decodeRoomMember(member, `${path}.members[${index}]`)),
+        continueTogether: array(body, "continue_together", path).map((entry, index) => decodePickerEntry(entry, `${path}.continue_together[${index}]`)),
+        watchlistUnion: array(body, "watchlist_union", path).map((entry, index) => decodePickerEntry(entry, `${path}.watchlist_union[${index}]`)),
+    };
+}
+
+/** A title the host picks: the content, and optionally the file and library to play it from. */
+export interface RoomSelection {
+    readonly contentId: string;
+    readonly fileId?: string;
+    readonly libraryId?: string;
 }
 
 // --- Socket ticket ---

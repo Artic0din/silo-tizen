@@ -235,6 +235,22 @@ test("a start whose answer was lost reads the room again and, when the server di
     assert.equal(reads, 2, "an answer from the server rules out the write, so nothing is read");
 });
 
+test("End party does not wait on reading the room back after a lost start", async () => {
+    let reads = 0;
+    let fail: () => void = () => undefined;
+    const { hub, calls } = lobby({
+        startPlayback: () => new Promise((_resolve, reject) => { fail = () => reject(new ApiError({ kind: "timeout" })); }),
+        room: async () => { reads++; return roomAccess(); },
+    }, undefined, { selected_content_id: "movie:m0004" });
+    await hub.create("host_pick");
+    const starting = hub.start();
+    const ending = hub.endParty();
+    fail();
+    await Promise.all([starting, ending]);
+    assert.equal(reads, 0, "the party is ending, so the lost start is not reconciled");
+    assert.deepEqual(calls, [`close ${ROOM_ID}`]);
+});
+
 test("a live selection whose answer was lost and that the room confirms is a success, so Play for everyone is not sent twice", async () => {
     const playing = { phase: "playing", selected_content_id: "movie:m0001", selected_file_id: "42" };
     const { hub, plays } = lobby({

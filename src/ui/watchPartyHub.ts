@@ -373,7 +373,7 @@ export class WatchPartyHub {
             if (!this.stopped) this.state.error = this.describe(error);
             // A non-retryable change whose answer never came may have landed: read the room so the lobby does not stay behind it,
             // and count the change as done when the room proves it, so it is not sent a second time.
-            if (applied !== undefined && !this.stopped && writeMayHaveApplied(error)) {
+            if (applied !== undefined && !this.stopped && !this.ending && writeMayHaveApplied(error)) {
                 const now = await this.readRoom(room.roomId);
                 if (now !== undefined && applied(now)) { this.state.error = undefined; return true; }
             }

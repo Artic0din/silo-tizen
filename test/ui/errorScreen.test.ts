@@ -9,6 +9,8 @@ const BACK = 10009;
 const CARD = '[data-section="recent/12"] [data-focus="movie:m0004"]';
 const NOT_FOUND = "We couldn't find what you were looking for. It may have been removed or moved.";
 const SERVER_PROBLEM = { type: "about:blank", title: "Server error", status: 500 };
+/** Apple `shell.error.serverProblem` (ErrorState.humanize for a 5xx). */
+const SERVER_PROBLEM_MESSAGE = "The server ran into a problem. Try again in a moment.";
 
 let browser: Browser;
 before(async () => { browser = await launchBrowser(); });
@@ -123,6 +125,7 @@ journey("a failed Explore all page shows Apple's error with only Try Again, and 
     await tv.page.locator('[data-focus="expand:recent/12"]').click();
     const shown = await errorPage(tv);
     assert.equal(shown.headline, "Something went wrong");
+    assert.equal(shown.message, SERVER_PROBLEM_MESSAGE);
     assert.deepEqual(shown.buttons, ["Try Again"], "no Back button: the remote's Back leaves");
     assert.equal(shown.title, 0, "the error replaces the page, title included");
     await assertColumnFocus(tv, ["retry"]);

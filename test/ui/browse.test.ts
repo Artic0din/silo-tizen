@@ -3986,7 +3986,7 @@ browseTest("search uses the TV keyboard, shows only the latest query's answer, a
     await tv.page.fill("#browse-search", "movie 000");
     await tv.remote(IME_DONE);
     await tv.jump(1000);
-    await shows(tv, "The server had a problem. Try again in a moment.");
+    await shows(tv, "The server ran into a problem. Try again in a moment.");
     await press(tv, "ArrowDown", "ArrowDown");
     assert.equal(await tv.focused(), "retry");
     await press(tv, "Enter");

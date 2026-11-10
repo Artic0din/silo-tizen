@@ -358,7 +358,7 @@ export function unconfirmedWriteMessage(action: RequestWrite): string {
 /** What to tell the person; undefined for an error that is not a server or session answer (a defect). */
 export function failureText(error: unknown, current: Route): string | undefined {
     if (error instanceof SessionError) {
-        return error.reason === "unavailable" ? "The server had a problem. Try again in a moment." : "This TV is no longer signed in.";
+        return error.reason === "unavailable" ? "The server ran into a problem. Try again in a moment." : "This TV is no longer signed in.";
     }
     if (!(error instanceof ApiError)) {
         return undefined;
@@ -384,5 +384,5 @@ export function failureText(error: unknown, current: Route): string | undefined 
     if (kind === "invalid_response") {
         return "The server sent an answer this TV could not read.";
     }
-    return error.transient ? "The server had a problem. Try again in a moment." : "Something went wrong. Try again.";
+    return error.transient ? "The server ran into a problem. Try again in a moment." : "Something went wrong. Try again.";
 }

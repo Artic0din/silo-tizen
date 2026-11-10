@@ -755,9 +755,10 @@ appTest("Sign Out confirmation traps focus and cancellation preserves the sessio
     const dialogGeometry = await tv.page.getByRole("alertdialog", { name: "Sign Out" }).evaluate(node => {
         const style = getComputedStyle(node);
         const buttons = [...node.querySelectorAll("button")].map(button => button.getBoundingClientRect());
-        return { width: style.width, topPadding: style.paddingTop, sidePadding: style.paddingLeft, titleSize: getComputedStyle(node.querySelector("h2") as HTMLElement).fontSize, row: Math.abs((buttons[0]?.y ?? 0) - (buttons[1]?.y ?? 1)) < 1 };
+        return { width: `${Math.round(node.getBoundingClientRect().width)}px`, topPadding: style.paddingTop, sidePadding: style.paddingLeft, titleSize: getComputedStyle(node.querySelector("h2") as HTMLElement).fontSize, row: Math.abs((buttons[0]?.y ?? 0) - (buttons[1]?.y ?? 1)) < 1 };
     });
-    assert.deepEqual(dialogGeometry, { width: "632px", topPadding: "42px", sidePadding: "48px", titleSize: "38px", row: true });
+    // The long sign-out message wraps at 820, so the shared TVSettingsConfirmationOverlay card is 916 wide, as on Apple TV.
+    assert.deepEqual(dialogGeometry, { width: "916px", topPadding: "42px", sidePadding: "48px", titleSize: "38px", row: true });
     assert.equal(await tv.page.locator(".browse-nav").evaluate(node => (node as HTMLElement).inert), true);
     assert.equal(await tv.page.locator(".browse-nav").getAttribute("aria-hidden"), "true");
     const destination = tv.page.locator('.browse-nav [data-focus="movies"]');
@@ -867,7 +868,8 @@ appTest("Remove Server confirmation matches the settings alert and dismissal ret
             title: node.querySelector("h2")?.textContent,
             message: node.querySelector("p")?.textContent,
             confirmation: node.getAttribute("data-confirmation"),
-            width: style.width,
+            // The card's outer box: TVSettingsConfirmationOverlay sizes to the 536 px button row plus 2 × 48 padding.
+            width: `${Math.round(bounds.width)}px`,
             topPadding: style.paddingTop,
             sidePadding: style.paddingLeft,
             titleSize: getComputedStyle(node.querySelector("h2") as HTMLElement).fontSize,

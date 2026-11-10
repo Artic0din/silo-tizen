@@ -115,7 +115,7 @@ test("Change Account after Who's watching keeps the warm light, and focused rows
 
         await tv.page.locator(".accounts-settings button").first().click();
         await tv.page.locator('[data-view="accounts-confirm"]').waitFor();
-        await assertSignOutDialog(tv.page, /^Sign out of /);
+        await assertSignOutDialog(tv.page, /^Sign out of /, false);
         const cancel = await focusedPaint(tv, '[data-focus="cancel"]', "focused Cancel");
         noWhiteOutline(cancel, "Cancel");
         assert.equal(cancel.shadow, "rgba(0, 0, 0, 0.5) 0px 8px 18px 0px");

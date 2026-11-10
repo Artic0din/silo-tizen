@@ -2240,7 +2240,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         clearPersonalRoot();
         const origin = top();
         const anchor = origin === undefined ? undefined : tabFocus(origin).key;
-        const hub: WatchPartyHub = new WatchPartyHub(watchPartyApi(session), () => { if (!torn && top() === route) render(host.focused()); }, { supported: true, onSupport: setWatchPartyOffered });
+        const hub: WatchPartyHub = new WatchPartyHub(watchPartyApi(session), () => { if (!torn && top() === route) render(host.focused()); }, { supported: true, onSupport: setWatchPartyOffered, onLeave: () => host.forgetVisit("watchParty:hub") });
         const route = newRoute({ kind: "watchParty", watchParty: watchPartyScreen(hub), ...(anchor === undefined ? {} : { anchor }) });
         push(route);
         if (origin !== undefined && anchor !== undefined) origin.focus = { zone: "nav", key: anchor };

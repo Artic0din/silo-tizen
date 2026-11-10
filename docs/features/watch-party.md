@@ -6,7 +6,7 @@ The full lobby, the room socket and synchronized playback are not built (issue #
 
 ## Reference
 
-Source revision: silo-apple `main` as read for this change, tvOS paths only.
+Source revision: silo-apple `main` at `650a0b8a4a16601a9549d54d92d7c6d2f11e64eb`, tvOS paths only.
 This is not the installed Apple TV build.
 
 | Behaviour | Apple source |
@@ -16,6 +16,7 @@ This is not the installed Apple TV build.
 | Capability check | `WatchParty/WatchPartySession.swift` (`loadCapabilities`, `supportsSynchronizedParty`, `enter`) |
 | Profile menu row | `tvOS/Navigation/TVTopMenuBar.swift` (`TVProfileDropdown`) |
 | Hub layout and copy | `Screens/WatchParty/WatchPartyHubView.swift` (`WatchPartyEntryView.tvLayout`), `WatchPartyComponents.swift` |
+| Error text, busy state, ending a party | `WatchParty/WatchPartySession.swift` (`enter`, `endParty`), `Networking/APIv2/APIv2Client.swift` (`APIv2Error.localizedDescription`) |
 
 ## Opt-in
 
@@ -40,13 +41,19 @@ A failed read keeps the last answer and shows "Could not check Watch Party suppo
 The hub is a root page under the bar, like the Requests hub: the tab underneath stays selected, Up reaches the bar, and Back steps to the bar and then to the tab.
 Layout metrics are Apple's tvOS values at 1920×1080.
 Focus order is Start a party, Start a party and let everyone vote, the code field, Join party and, when the server cannot host a party, Check again.
-The actions are disabled, not hidden, while the server cannot host a party.
+Start a party, the vote button and Join party are disabled while the server cannot host a party and while a create or join runs; Join party is also disabled until a code is typed.
+Check again is disabled while a check runs.
+A disabled button takes no focus: it leaves the focus order, and the page opens on Start a party, else Check again, else the code field.
+Done on the Tizen keyboard moves focus from the code field to Join party.
+A refused create or join shows the server's own text, as Apple does, including for 403 and 404.
 
 ## Placeholder lobby
 
-Create and join show a lobby from one `GET /watch-together/rooms/{id}` read: the code in Apple's code pill and the members as seats, with Apple's seat states and the "n of m ready" summary.
-Back returns to the hub and calls nothing: a guest has no HTTP leave, and ending a room is the host controls' job in the full lobby.
-A room started here therefore stays open on the server until the server closes it.
+Create and join show a lobby from the room the create or join answered with, as Apple does: the code in Apple's code pill and the members as seats, with Apple's seat states and the "n of m ready" summary.
+Back as the host ends the room with `DELETE /watch-together/rooms/{id}`, so a started party is not left open (Apple refuses a new party while one is open).
+Leaving the Watch Party page from the lobby does the same.
+A room that already ended (409) is not an error; any other failure shows "Could not end the party." on the hub.
+A guest has no HTTP leave, so Back as a guest calls nothing.
 
 ## Not built
 

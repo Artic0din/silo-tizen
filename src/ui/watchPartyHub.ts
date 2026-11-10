@@ -1,6 +1,7 @@
 // Apple's WatchPartySession for the Watch Party hub: the support probe, Start a party, Join party and
-// the single room read behind the placeholder lobby. No socket, member state or playback yet.
+// the room the create or join answered with, behind the placeholder lobby. No socket, member state or playback yet.
 
+import { ApiError } from "../api/errors.ts";
 import { operations } from "../api/operations.ts";
 import type { RequestSpec } from "../api/http.ts";
 import { watchTogetherOperations } from "../api/watchTogetherOperations.ts";
@@ -23,7 +24,7 @@ export interface WatchPartyApi {
     playbackCapabilities(signal: AbortSignal): Promise<PlaybackCapabilities>;
     createRoom(roomId: string, mode: CreatableSelectionMode, signal: AbortSignal): Promise<RoomAccess>;
     joinByCode(code: string, signal: AbortSignal): Promise<RoomAccess>;
-    room(roomId: string, token: string, signal: AbortSignal): Promise<RoomAccess>;
+    closeRoom(roomId: string, signal: AbortSignal): Promise<void>;
 }
 
 export function watchPartyApi(session: Pick<NativeSession, "call">): WatchPartyApi {
@@ -33,8 +34,18 @@ export function watchPartyApi(session: Pick<NativeSession, "call">): WatchPartyA
         playbackCapabilities: signal => call(operations.playbackCapabilities(), signal),
         createRoom: (roomId, mode, signal) => call(watchTogetherOperations.createRoom(roomId, mode), signal),
         joinByCode: (code, signal) => call(watchTogetherOperations.joinByCode(code), signal),
-        room: (roomId, token, signal) => call(watchTogetherOperations.room(roomId, token), signal),
+        closeRoom: (roomId, signal) => call(watchTogetherOperations.closeRoom(roomId), signal),
     };
+}
+
+/** Apple shows the server's own text for a refused create or join (APIv2Error.problem: detail, else title), where the shared wording hides it for 403 and 404. */
+export function watchPartyFailureText(error: unknown): string {
+    if (error instanceof ApiError && error.failure.kind === "problem" && (error.failure.problem.status === 403 || error.failure.problem.status === 404)) {
+        const { detail, title } = error.failure.problem;
+        const text = detail?.trim() || title.trim();
+        if (text !== "") return text;
+    }
+    return errorState(error).message;
 }
 
 /** A random version 4 UUID, lower case, as Apple sends for a new room. */
@@ -55,7 +66,7 @@ export interface WatchPartyState {
     busy: boolean;
     /** Apple errorMessage, shown in the warning banner. */
     error: string | undefined;
-    /** The placeholder lobby: the room as one HTTP read returned it. */
+    /** The placeholder lobby: the room the create or join answered with. */
     room: Room | undefined;
 }
 
@@ -63,6 +74,8 @@ export interface WatchPartyHubOptions {
     /** The answer the entry point was offered on. */
     readonly supported?: boolean;
     readonly onSupport?: (supported: boolean) => void;
+    /** Back from the lobby: the entry opens afresh on its first control, not where focus moved while a request ran. */
+    readonly onLeave?: () => void;
     readonly describe?: (error: unknown) => string;
     readonly uuid?: () => string;
 }
@@ -82,7 +95,7 @@ export class WatchPartyHub {
         this.api = api;
         this.notify = notify;
         this.options = options;
-        this.describe = options.describe ?? (error => errorState(error).message);
+        this.describe = options.describe ?? watchPartyFailureText;
         this.state = { supported: options.supported ?? false, checking: false, busy: false, error: undefined, room: undefined };
     }
 
@@ -109,16 +122,32 @@ export class WatchPartyHub {
         await this.enter(signal => this.api.joinByCode(value, signal));
     }
 
-    /** Back from the placeholder lobby. A guest has no HTTP leave, and the host's close arrives with the full lobby. */
+    /** Back from the placeholder lobby. A guest has no HTTP leave; the host ends the room, as Apple's endParty does. */
     leave(): void {
+        const room = this.state.room;
         this.state.room = undefined;
         this.state.error = undefined;
+        this.options.onLeave?.();
         this.notify();
+        if (room !== undefined) this.closeIfHost(room);
     }
 
     stop(): void {
         this.stopped = true;
         this.controller.abort();
+        const room = this.state.room;
+        this.state.room = undefined;
+        if (room !== undefined) this.closeIfHost(room);
+    }
+
+    /** A signal of its own lets the close finish after the hub stops; a failure then has no screen to show on. 409 means the room already ended. */
+    private closeIfHost(room: Room): void {
+        if (!room.selfCanManageRoom) return;
+        this.api.closeRoom(room.roomId, new AbortController().signal).catch((error: unknown) => {
+            if (this.stopped || (error instanceof ApiError && error.failure.kind === "problem" && error.failure.problem.status === 409)) return;
+            this.state.error = `Could not end the party. ${this.describe(error)}`;
+            this.notify();
+        });
     }
 
     private fail(message: string): void {
@@ -153,8 +182,7 @@ export class WatchPartyHub {
             if (!this.state.supported) { this.state.error = UNSUPPORTED_SERVER; return; }
             try {
                 const entered = await operation(this.controller.signal);
-                const read = await this.api.room(entered.room.roomId, entered.roomAccessToken, this.controller.signal);
-                if (!this.stopped) this.state.room = read.room;
+                if (!this.stopped) this.state.room = entered.room;
             } catch (error) {
                 if (!this.stopped) this.state.error = this.describe(error);
             }

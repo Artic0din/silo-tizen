@@ -1,5 +1,5 @@
 import { FakeRequests } from "./fakeRequests.ts";
-import { fixture, problem, type Reply } from "./fakeSilo.ts";
+import { fixture, type Reply } from "./fakeSilo.ts";
 
 const ROOM_ID = "0b6f3f0e-6c1d-4a39-9d52-3a1f7c7f9e10";
 const ROOM_TOKEN = "room-proof-one";
@@ -15,11 +15,11 @@ export class FakeWatchParty extends FakeRequests {
     capabilitiesFailure: Reply | undefined;
     createFailure: Reply | undefined;
     joinFailure: Reply | undefined;
-    roomFailure: Reply | undefined;
+    closeFailure: Reply | undefined;
     readonly capabilityReads: string[] = [];
     readonly createdRooms: Record<string, unknown>[] = [];
     readonly joined: string[] = [];
-    roomReads = 0;
+    readonly closedRooms: string[] = [];
     code = "K7M2QX";
 
     room(): Record<string, unknown> {
@@ -35,7 +35,7 @@ export class FakeWatchParty extends FakeRequests {
         };
     }
 
-    override route(method: string, path: string, profileId: string | undefined, body?: Record<string, unknown>, headers?: Readonly<Record<string, string>>): Reply | undefined {
+    override route(method: string, path: string, profileId: string | undefined, body?: Record<string, unknown>): Reply | undefined {
         const pathname = new URL(path, "https://fake.invalid").pathname;
         if (method === "GET" && pathname === "/watch-together/capabilities") {
             this.capabilityReads.push("watch-together");
@@ -60,11 +60,10 @@ export class FakeWatchParty extends FakeRequests {
             this.joined.push(String(body?.code));
             return { status: 200, body: { room: this.room(), room_access_token: ROOM_TOKEN } };
         }
-        if (method === "GET" && pathname === `/watch-together/rooms/${ROOM_ID}`) {
-            if (this.roomFailure !== undefined) return this.roomFailure;
-            if (headers?.["x-room-token"] !== ROOM_TOKEN) return problem(401, "room_token_invalid", "Room proof required");
-            this.roomReads++;
-            return { status: 200, body: { room: this.room(), room_access_token: ROOM_TOKEN } };
+        if (method === "DELETE" && pathname === `/watch-together/rooms/${ROOM_ID}`) {
+            if (this.closeFailure !== undefined) return this.closeFailure;
+            this.closedRooms.push(ROOM_ID);
+            return { status: 204 };
         }
         return super.route(method, path, profileId, body);
     }

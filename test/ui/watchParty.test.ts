@@ -10,7 +10,7 @@ let browser: Browser;
 before(async () => { browser = await launchBrowser(); });
 after(async () => { await browser.close(); });
 
-async function start(tv: Tv, fake = new FakeWatchParty(), enabled = true): Promise<FakeWatchParty> {
+async function start(tv: Tv, fake = new FakeWatchParty(), enabled = true, beforeMount: () => void = () => undefined): Promise<FakeWatchParty> {
     tv.fake.catalog = fake;
     new FakeSettings(tv.fake);
     await tv.page.evaluate(() => window.browseHarness.connect());
@@ -18,6 +18,7 @@ async function start(tv: Tv, fake = new FakeWatchParty(), enabled = true): Promi
     tv.fake.approve([...tv.fake.devices.keys()][0] ?? ""); await tv.jump(5000);
     await tv.eventually(async () => await tv.page.evaluate(() => window.browseHarness.loginPhase === "signed_in"), "signed in");
     await tv.page.evaluate(() => window.browseHarness.selectProfile("p-owner"));
+    beforeMount();
     await tv.page.evaluate(on => { window.browseHarness.setExperimental("watchParty", on); window.browseHarness.mount(true); }, enabled);
     await tv.page.locator('.browse[data-view="home"] .browse-card').first().waitFor();
     return fake;
@@ -137,7 +138,7 @@ test("the hub is a root page under the bar with Apple's copy, Host and Join sect
     } finally { await tv.page.context().close(); }
 });
 
-test("remote order walks Start a party, vote, the code field and Join party, and Up from the first row reaches the bar", async () => {
+test("remote order walks Start a party, vote and the code field, reaches Join party once a code is typed, and Up from the first row reaches the bar", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {
         await start(tv);
@@ -145,7 +146,10 @@ test("remote order walks Start a party, vote, the code field and Join party, and
         await openHub(tv);
         const seen: string[] = [];
         for (let step = 0; step < 3; step++) { await tv.remote(40); seen.push(await tv.focused() ?? ""); }
-        assert.deepEqual(seen, ["vote", "code", "join"]);
+        assert.deepEqual(seen, ["vote", "code", "code"], "the disabled Join party takes no focus");
+        await tv.page.locator('[data-focus="code"]').fill("K7M2QX");
+        await tv.remote(40);
+        assert.equal(await tv.focused(), "join", "Join party takes focus once a code is typed");
         await tv.remote(38); await tv.remote(38); await tv.remote(38);
         assert.equal(await tv.focused(), "create");
         await tv.remote(38);
@@ -153,6 +157,21 @@ test("remote order walks Start a party, vote, the code field and Join party, and
         await tv.remote(10009);
         await tv.page.locator('.browse[data-view="home"]').waitFor();
         assert.equal(await tv.focused(), "home", "Back from the bar returns to the tab underneath");
+    } finally { await tv.page.context().close(); }
+});
+
+test("Done on the code field moves focus to Join party", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        await start(tv);
+        await tv.eventually(async () => (await menuTitles(tv)).includes("Watch Party"), "entry offered");
+        await openHub(tv);
+        await tv.page.locator('[data-focus="code"]').focus();
+        await tv.remote(65376);
+        assert.equal(await tv.focused(), "code", "Done with no code has nowhere to go");
+        await tv.page.locator('[data-focus="code"]').fill("K7M2QX");
+        await tv.remote(65376);
+        assert.equal(await tv.focused(), "join");
     } finally { await tv.page.context().close(); }
 });
 
@@ -172,7 +191,7 @@ test("Join party is disabled until a code is typed", async () => {
     } finally { await tv.page.context().close(); }
 });
 
-test("Start a party creates a host-pick room and shows the code and members from one room read", async () => {
+test("Start a party creates a host-pick room and shows the code and members the create answered with", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {
         const fake = await start(tv);
@@ -183,7 +202,6 @@ test("Start a party creates a host-pick room and shows the code and members from
         assert.equal(fake.createdRooms.length, 1);
         assert.equal(fake.createdRooms[0]?.selection_mode, "host_pick");
         assert.match(String(fake.createdRooms[0]?.room_id), /^[0-9a-f-]{36}$/);
-        assert.equal(fake.roomReads, 1);
         assert.equal(await tv.page.locator(".watch-party-code").textContent(), "K7M2QX");
         assert.deepEqual(await tv.page.locator(".watch-party-seat-name").allTextContents(), ["Owner", "Sam"]);
         assert.deepEqual(await tv.page.locator(".watch-party-seat-detail").allTextContents(), ["Host · You", "not ready"]);
@@ -191,6 +209,8 @@ test("Start a party creates a host-pick room and shows the code and members from
         await tv.remote(10009);
         await tv.page.locator('.browse[data-view="watchParty:hub"]').waitFor();
         assert.equal(await tv.focused(), "create", "Back returns to the entry on its first control");
+        await tv.eventually(async () => fake.closedRooms.length === 1, "host Back ends the room");
+        assert.deepEqual(fake.closedRooms, ["0b6f3f0e-6c1d-4a39-9d52-3a1f7c7f9e10"]);
     } finally { await tv.page.context().close(); }
 });
 
@@ -238,6 +258,43 @@ test("a refused join shows the server's reason in the warning banner and keeps t
     } finally { await tv.page.context().close(); }
 });
 
+test("a wrong code shows the server's own text, not the generic not-found wording", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const fake = await start(tv);
+        fake.joinFailure = problem(404, "room_not_found", "That party code was not found.");
+        await tv.eventually(async () => (await menuTitles(tv)).includes("Watch Party"), "entry offered");
+        await openHub(tv);
+        await tv.page.locator('[data-focus="code"]').fill("NOPE00");
+        await button(tv, "join").click();
+        await tv.page.locator(".watch-party-banner").waitFor();
+        assert.equal(await tv.page.locator(".watch-party-banner").textContent(), "That party code was not found.");
+    } finally { await tv.page.context().close(); }
+});
+
+test("Start a party, vote and Join party are all disabled and unfocusable while a request runs", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const fake = await start(tv);
+        await tv.eventually(async () => (await menuTitles(tv)).includes("Watch Party"), "entry offered");
+        await openHub(tv);
+        await tv.page.locator('[data-focus="code"]').fill("K7M2QX");
+        assert.equal(await button(tv, "join").getAttribute("aria-disabled"), "false");
+        const hold = tv.fake.hold("/watch-together/rooms");
+        await button(tv, "create").click();
+        await tv.eventually(async () => await button(tv, "create").getAttribute("aria-disabled") === "true", "busy");
+        assert.equal(await button(tv, "vote").getAttribute("aria-disabled"), "true");
+        assert.equal(await button(tv, "join").getAttribute("aria-disabled"), "true");
+        assert.ok(["code", "retry"].includes(await tv.focused() ?? ""), "focus left the disabled button");
+        await button(tv, "vote").click({ force: true });
+        await button(tv, "join").click({ force: true });
+        hold.release();
+        await tv.page.locator('.browse[data-view="watchParty:lobby"]').waitFor();
+        assert.equal(fake.createdRooms.length, 1, "taps while busy send nothing");
+        assert.deepEqual(fake.joined, []);
+    } finally { await tv.page.context().close(); }
+});
+
 test("a link instead of a code gets Apple's invalid-invitation text and sends nothing", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {
@@ -265,7 +322,10 @@ test("a server that stops supporting Watch Party shows the notice, disables the 
         assert.equal(await button(tv, "vote").getAttribute("aria-disabled"), "true");
         assert.equal(await button(tv, "join").getAttribute("aria-disabled"), "true");
         assert.equal(await button(tv, "retry").textContent(), "Check again");
-        assert.ok(await tv.focused(), "focus is not lost when the actions disable");
+        assert.equal(await tv.focused(), "retry", "focus opens on Check again, the one enabled button");
+        const visited = new Set<string>();
+        for (const key of [40, 40, 38, 38, 38]) { await tv.remote(key); visited.add(await tv.focused() ?? ""); }
+        for (const disabled of ["create", "vote", "join"]) assert.ok(!visited.has(disabled), `${disabled} is disabled and takes no focus`);
         fake.state = "available";
         await button(tv, "retry").click();
         await tv.eventually(async () => await tv.page.locator(".watch-party-banner").count() === 0, "banner clears");
@@ -284,5 +344,19 @@ test("a failed support check says so and keeps the entry usable", async () => {
         await tv.page.locator(".watch-party-banner").waitFor();
         assert.equal(await tv.page.locator(".watch-party-banner").textContent(), "Could not check Watch Party support. Down for maintenance.");
         assert.equal(await button(tv, "create").getAttribute("aria-disabled"), "false");
+    } finally { await tv.page.context().close(); }
+});
+
+test("a Watch Party row that appears while the profile menu is open leaves focus on the row it was on", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const capabilities = { hold: undefined as ReturnType<typeof tv.fake.hold> | undefined };
+        await start(tv, new FakeWatchParty(), true, () => { capabilities.hold = tv.fake.hold("/watch-together/capabilities"); });
+        await button(tv, "profiles").click();
+        await button(tv, "settings").focus();
+        assert.equal(await tv.focused(), "settings");
+        capabilities.hold?.release();
+        await tv.eventually(async () => await button(tv, "watch-party").count() > 0, "Watch Party row appears");
+        assert.equal(await tv.focused(), "settings", "the rebuild keeps focus on the row it was on");
     } finally { await tv.page.context().close(); }
 });

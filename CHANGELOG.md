@@ -6,7 +6,7 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
-- Added a Watch Party hub, off by default: turn it on under Settings › Server › Extra Features and, when the server supports synchronized parties, Watch Party appears in the profile menu with Start a party, Join party and a lobby that shows the code and who is here. Playback together is not built yet.
+- Added a Watch Party hub, off by default: turn it on under Settings › Server › Extra Features and, when the server supports synchronized parties, Watch Party appears in the profile menu with Start a party, Join party and a lobby that shows the code and who is here; going Back as the host ends the party. Playback together is not built yet.
 - Playback lowers the quality when it keeps buffering, as Apple TV does: it asks first, or lowers Auto at once and offers Restore quality, depending on `playback.buffering_quality_mode` (Automatically by default), with the same prompt, undo pill and notices.
 - Added HDR on Playback. A TV that reports HDR, with the HDR setting on, claims HDR10 for direct play. HDR10+ and HLG stay unclaimed: the probe is one boolean, and Samsung does not document those formats for every Tizen 8.0 TV. Dolby Vision is not a Playback row: Samsung exposes no Dolby Vision support check, and this client claims no Dolby Vision profile.
 - Added subtitle search and download, plus in-player delay, size, position and appearance controls, during playback.

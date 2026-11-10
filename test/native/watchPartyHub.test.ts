@@ -19,35 +19,36 @@ function playbackCapabilities(overrides: Record<string, unknown> = {}): Playback
     return decodePlaybackCapabilities({ ...base, features: [...(base.features as string[]), "watch_party_coordinator_v1", "fixed_media_file_v1"], ...overrides });
 }
 
-function access(code = "K7M2QX"): RoomAccess {
+function access(code = "K7M2QX", canManage = true): RoomAccess {
     return decodeRoomAccess({
         room_access_token: "room-proof",
         room: {
             room_id: ROOM_ID, phase: "lobby", playback_state: "idle", selection_mode: "host_pick", selection_revision: 0, code,
             guest_control_policy: "host_only", is_paused: true, anchor_position_seconds: 0, anchor_updated_at: "2026-11-10T01:02:03.123Z",
-            generation: 1, member_count: 1, host_connected: true, self_role: "host", self_can_control_transport: true, self_can_manage_room: true,
+            generation: 1, member_count: 1, host_connected: true, self_role: canManage ? "host" : "guest", self_can_control_transport: canManage, self_can_manage_room: canManage,
             self_ignore_wait: false,
             members: [{ user_id: "u1", profile_id: "p-owner", display_name: "Owner", is_host: true, is_self: true, connected: true }],
         },
     });
 }
 
-interface Calls { readonly names: string[]; readonly create: { roomId: string; mode: string }[]; readonly join: string[]; readonly read: { roomId: string; token: string }[] }
+interface Calls { readonly names: string[]; readonly create: { roomId: string; mode: string }[]; readonly join: string[]; readonly closed: string[] }
 
 function fakeApi(over: Partial<WatchPartyApi> = {}): { api: WatchPartyApi; calls: Calls } {
-    const calls: Calls = { names: [], create: [], join: [], read: [] };
+    const calls: Calls = { names: [], create: [], join: [], closed: [] };
     const api: WatchPartyApi = {
         capabilities: async () => { calls.names.push("capabilities"); return roomCapabilities(); },
         playbackCapabilities: async () => { calls.names.push("playback"); return playbackCapabilities(); },
         createRoom: async (roomId, mode) => { calls.names.push("create"); calls.create.push({ roomId, mode }); return access(); },
         joinByCode: async code => { calls.names.push("join"); calls.join.push(code); return access(code); },
-        room: async (roomId, token) => { calls.names.push("room"); calls.read.push({ roomId, token }); return access("READ01"); },
+        closeRoom: async roomId => { calls.names.push("close"); calls.closed.push(roomId); },
         ...over,
     };
     return { api, calls };
 }
 
 const problem = (status: number, detail: string): ApiError => new ApiError({ kind: "problem", problem: { id: "x", title: "Failed", status, detail, instance: "", errors: [] }, retryAfterSeconds: undefined });
+const settle = (): Promise<void> => new Promise(resolve => setTimeout(resolve, 0));
 
 test("Watch Party is off until the device turns it on, and the choice is kept per device", () => {
     const storage = new MemoryPublicStorage();
@@ -112,16 +113,15 @@ test("a failed support check keeps the last answer and says why", async () => {
     assert.equal(hub.state.checking, false);
 });
 
-test("Start a party creates one room with a fresh UUID and shows the room from a single read", async () => {
+test("Start a party creates one room with a fresh UUID and shows the room the create answered with", async () => {
     const { api, calls } = fakeApi();
     const hub = new WatchPartyHub(api, () => undefined, { supported: true });
     await hub.create("host_pick");
     assert.equal(calls.create.length, 1);
     assert.match(calls.create[0]?.roomId ?? "", /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
     assert.equal(calls.create[0]?.mode, "host_pick");
-    assert.deepEqual(calls.read, [{ roomId: ROOM_ID, token: "room-proof" }]);
-    assert.equal(calls.names.filter(name => name === "room").length, 1);
-    assert.equal(hub.state.room?.code, "READ01", "the lobby shows the room read, not the create answer");
+    assert.deepEqual(calls.names.filter(name => name !== "capabilities" && name !== "playback"), ["create"], "no second read of the room");
+    assert.equal(hub.state.room?.code, "K7M2QX");
     assert.equal(hub.state.error, undefined);
     assert.equal(hub.state.busy, false);
 });
@@ -151,13 +151,13 @@ test("create and join check support again first and refuse an unsupported server
     assert.equal(hub.state.room, undefined);
 });
 
-test("Join party sends the typed code trimmed and shows the room from a single read", async () => {
+test("Join party sends the typed code trimmed and shows the room the join answered with", async () => {
     const { api, calls } = fakeApi();
     const hub = new WatchPartyHub(api, () => undefined, { supported: true });
     await hub.join("  k7m2qx \n");
     assert.deepEqual(calls.join, ["k7m2qx"]);
-    assert.equal(calls.read.length, 1);
-    assert.equal(hub.state.room?.code, "READ01");
+    assert.deepEqual(calls.names.filter(name => name !== "capabilities" && name !== "playback"), ["join"], "no second read of the room");
+    assert.equal(hub.state.room?.code, "k7m2qx");
 });
 
 test("an empty code and an invite link get Apple's messages without a request", async () => {
@@ -179,12 +179,33 @@ test("a refused join shows the server's reason and stays on the hub", async () =
     assert.equal(hub.state.busy, false);
 });
 
-test("a failed room read leaves the hub with the reason", async () => {
-    const { api } = fakeApi({ room: async () => { throw problem(500, "Room store unavailable."); } });
+test("a wrong code shows the server's own text, as Apple's localizedDescription does", async () => {
+    const { api } = fakeApi({ joinByCode: async () => { throw problem(404, "That party code was not found."); } });
+    const hub = new WatchPartyHub(api, () => undefined, { supported: true });
+    await hub.join("NOPE00");
+    assert.equal(hub.state.error, "That party code was not found.");
+    assert.equal(hub.state.room, undefined);
+});
+
+test("a forbidden create shows the server's own text", async () => {
+    const { api } = fakeApi({ createRoom: async () => { throw problem(403, "Guests cannot host a party."); } });
     const hub = new WatchPartyHub(api, () => undefined, { supported: true });
     await hub.create("host_pick");
-    assert.equal(hub.state.error, "Room store unavailable.");
-    assert.equal(hub.state.room, undefined);
+    assert.equal(hub.state.error, "Guests cannot host a party.");
+});
+
+test("a 404 or 403 with no detail shows the problem title, then the shared wording only without a problem", async () => {
+    const blank = (status: number): ApiError => new ApiError({ kind: "problem", problem: { id: "x", title: "Party not found", status, detail: "  ", instance: "", errors: [] }, retryAfterSeconds: undefined });
+    for (const status of [403, 404]) {
+        const { api } = fakeApi({ joinByCode: async () => { throw blank(status); } });
+        const hub = new WatchPartyHub(api, () => undefined, { supported: true });
+        await hub.join("NOPE00");
+        assert.equal(hub.state.error, "Party not found", String(status));
+    }
+    const { api } = fakeApi({ joinByCode: async () => { throw new ApiError({ kind: "http", status: 404, retryAfterSeconds: undefined }); } });
+    const hub = new WatchPartyHub(api, () => undefined, { supported: true });
+    await hub.join("NOPE00");
+    assert.equal(hub.state.error, "We couldn't find what you were looking for. It may have been removed or moved.");
 });
 
 test("a second tap while a request runs is ignored", async () => {
@@ -208,6 +229,46 @@ test("leaving the placeholder lobby returns to the entry and clears the message"
     hub.leave();
     assert.equal(hub.state.room, undefined);
     assert.equal(hub.state.error, undefined);
+});
+
+test("Back from the lobby as host closes the room so it is not left open", async () => {
+    const { api, calls } = fakeApi();
+    const hub = new WatchPartyHub(api, () => undefined, { supported: true });
+    await hub.create("host_pick");
+    hub.leave();
+    await settle();
+    assert.deepEqual(calls.closed, [ROOM_ID]);
+    assert.equal(hub.state.room, undefined);
+    assert.equal(hub.state.error, undefined);
+});
+
+test("Back from the lobby as a guest closes nothing", async () => {
+    const { api, calls } = fakeApi({ joinByCode: async code => access(code, false) });
+    const hub = new WatchPartyHub(api, () => undefined, { supported: true });
+    await hub.join("K7M2QX");
+    hub.leave();
+    await settle();
+    assert.deepEqual(calls.closed, []);
+});
+
+test("a room that already ended is not an error, any other close failure is shown on the entry", async () => {
+    for (const [failure, expected] of [[problem(409, "This party has ended."), undefined], [problem(500, "Room store unavailable."), "Could not end the party. Room store unavailable."]] as const) {
+        const { api } = fakeApi({ closeRoom: async () => { throw failure; } });
+        const hub = new WatchPartyHub(api, () => undefined, { supported: true });
+        await hub.create("host_pick");
+        hub.leave();
+        await settle();
+        assert.equal(hub.state.error, expected);
+    }
+});
+
+test("leaving the Watch Party page from the lobby as host also closes the room", async () => {
+    const { api, calls } = fakeApi();
+    const hub = new WatchPartyHub(api, () => undefined, { supported: true });
+    await hub.create("host_pick");
+    hub.stop();
+    await settle();
+    assert.deepEqual(calls.closed, [ROOM_ID]);
 });
 
 test("stopping the hub aborts the request in flight and ignores its answer", async () => {

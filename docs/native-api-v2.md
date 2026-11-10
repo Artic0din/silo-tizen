@@ -407,7 +407,7 @@ A 404 on create shows "This is no longer available to shuffle."
 
 ### Watch Together (hub only)
 
-Defined in `src/api/watchTogetherOperations.ts`. The Watch Party hub (`src/ui/watchPartyHub.ts`) calls `capabilities`, `createRoom`, `joinByCode` and `room`; no screen uses `closeRoom` or `socketTicket`, and no socket client exists yet (issue 54).
+Defined in `src/api/watchTogetherOperations.ts`. The Watch Party hub (`src/ui/watchPartyHub.ts`) calls `capabilities`, `createRoom`, `joinByCode` and, when the host goes Back or leaves the page, `closeRoom`; no screen uses `room` or `socketTicket`, and no socket client exists yet (issue 54).
 The hub also reads `GET /playback/capabilities` for the playback features Apple requires.
 Bearer plus Profile.
 `room` and `socketTicket` also send `X-Room-Token` (`RequestSpec.roomToken`).

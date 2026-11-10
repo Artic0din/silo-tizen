@@ -78,7 +78,7 @@ export class Skyline {
     setRequestsEnabled(enabled: boolean): void {
         if (this.requestsEnabled === enabled) return;
         this.requestsEnabled = enabled;
-        if (this.profileOpen) this.openProfile();
+        if (this.profileOpen) this.rebuildProfile();
         else if (!enabled) this.selector.querySelector('[data-focus="requests"]')?.remove();
     }
 
@@ -86,7 +86,7 @@ export class Skyline {
     setWatchPartyEnabled(enabled: boolean): void {
         if (this.watchPartyEnabled === enabled) return;
         this.watchPartyEnabled = enabled;
-        if (this.profileOpen) this.openProfile();
+        if (this.profileOpen) this.rebuildProfile();
         else if (!enabled) this.selector.querySelector('[data-focus="watch-party"]')?.remove();
     }
 
@@ -718,6 +718,13 @@ export class Skyline {
     /** The marquee the dwell was armed for is still the one on screen. */
     private marqueeOnScreen(): boolean {
         return this.visible && this.marqueeShown && this.marquee.isConnected;
+    }
+
+    /** A row appearing or going while the menu is open replaces every row, so focus returns to the row it was on. */
+    private rebuildProfile(): void {
+        const focusedKey = this.panel.find(item => item.element === document.activeElement)?.key;
+        this.openProfile();
+        if (focusedKey !== undefined) this.panel.find(item => item.key === focusedKey)?.element.focus({ preventScroll: true });
     }
 
     private openProfile(enter = false): void {

@@ -49,6 +49,11 @@ function pill(item: FocusItem, kind: "primary" | "secondary", disabled: boolean)
     return item;
 }
 
+const enabled = (item: FocusItem): boolean => item.element.getAttribute("aria-disabled") !== "true";
+
+/** The IME Done key on the Tizen keyboard. */
+const IME_DONE = 65376;
+
 export function watchPartyView(screen: WatchPartyScreen, back: () => void): View {
     const { hub } = screen;
     const room = hub.state.room;
@@ -56,8 +61,10 @@ export function watchPartyView(screen: WatchPartyScreen, back: () => void): View
 }
 
 function entryView({ hub, input }: WatchPartyScreen, back: () => void): View {
-    const { supported, checking, error } = hub.state;
+    const { supported, checking, busy, error } = hub.state;
     const unusable = !supported;
+    // Apple disables Start a party, vote and Join party while a request runs, and while the server cannot host a party.
+    const locked = unusable || busy;
     const message = error ?? (unusable ? (checking ? "Checking Watch Party support…" : "Watch Party is not available for this profile on this server.") : undefined);
     const intro = el("div", "watch-party-intro");
     const headline = el("div", "watch-party-headline");
@@ -65,19 +72,32 @@ function entryView({ hub, input }: WatchPartyScreen, back: () => void): View {
     intro.append(headline);
     if (message !== undefined) intro.append(banner(message, error !== undefined));
 
-    const create = pill(actionButton("create", "Start a party", () => { if (!unusable) void hub.create("host_pick"); }), "primary", unusable);
+    const create = pill(actionButton("create", "Start a party", () => { if (!locked) void hub.create("host_pick"); }), "primary", locked);
     create.element.prepend(plusIcon());
-    const vote = pill(actionButton("vote", "Start a party and let everyone vote", () => { if (!unusable) void hub.create("vote"); }), "secondary", unusable);
-    const joinable = (): boolean => !unusable && input.value.trim() !== "";
+    const vote = pill(actionButton("vote", "Start a party and let everyone vote", () => { if (!locked) void hub.create("vote"); }), "secondary", locked);
+    const joinable = (): boolean => !locked && input.value.trim() !== "";
     const join = pill(actionButton("join", "Join party", () => { if (joinable()) void hub.join(input.value); }), "secondary", !joinable());
-    // Typing must not rebuild the page, which would drop the field's focus; the one dependent control follows the text.
-    input.oninput = () => join.element.setAttribute("aria-disabled", String(!joinable()));
     const retry = unusable ? pill(actionButton("retry", "Check again", () => { if (!checking) void hub.check(); }), "secondary", checking) : undefined;
 
     const host = el("div", "watch-party-section");
     host.append(eyebrow("Host"), create.element, vote.element);
     const joinSection = el("div", "watch-party-section");
     joinSection.append(eyebrow("Join"), input, join.element, ...(retry === undefined ? [] : [retry.element]));
+    // A disabled button takes no focus, as on tvOS. Typing must not rebuild the page, which would drop the field's focus,
+    // so the one control that depends on the text enters and leaves this list as it changes.
+    const items: FocusItem[] = [];
+    const listItems = (): void => {
+        join.element.setAttribute("aria-disabled", String(!joinable()));
+        items.splice(0, items.length, ...[create, vote, { key: "code", element: input }, join, ...(retry === undefined ? [] : [retry])].filter(enabled));
+    };
+    listItems();
+    input.oninput = listItems;
+    input.onkeydown = event => {
+        if (event.keyCode !== IME_DONE || !joinable()) return;
+        event.preventDefault();
+        event.stopPropagation();
+        join.element.focus();
+    };
     const actions = el("div", "watch-party-actions");
     actions.append(host, joinSection);
     const page = el("div", "watch-party");
@@ -86,8 +106,8 @@ function entryView({ hub, input }: WatchPartyScreen, back: () => void): View {
     return {
         name: "watchParty:hub",
         content: [page],
-        zones: [{ id: "party", layout: "column", items: [create, vote, { key: "code", element: input }, join, ...(retry === undefined ? [] : [retry])] }],
-        focus: { zone: "party", key: "create" },
+        zones: [{ id: "party", layout: "column", items }],
+        focus: { zone: "party", key: [create, retry].find(item => item !== undefined && enabled(item))?.key ?? "code" },
         back,
     };
 }

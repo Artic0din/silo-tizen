@@ -251,3 +251,46 @@ audiobookTest("reopening a book from its own rail starts at Play and Back restor
     await showing(tv, `audiobook:${TIDE}`);
     await tv.eventually(async () => (await tv.focused()) === TIDE, "the outer page's rail card");
 });
+
+audiobookTest("an oversized About scrolls with Down and Up before focus leaves it, and every line is shown", async tv => {
+    await tv.page.locator(`[data-section="shelf"] [data-focus="audiobook:fresh"]`).click();
+    await showing(tv, "audiobook:audiobook:fresh");
+    await tv.eventually(async () => (await tv.focused()) === "play", "the primary action");
+    const viewport = await tv.page.locator(".browse").evaluate(node => node.clientHeight);
+    const about = () => tv.page.locator(".audiobook-about-stop").evaluate(node => {
+        const page = document.querySelector<HTMLElement>(".browse");
+        const box = node.getBoundingClientRect();
+        return { top: box.top, bottom: box.bottom, height: box.height, scroll: page?.scrollTop ?? -1, focused: document.activeElement === node };
+    });
+    assert.ok((await about()).height > viewport, "the fixture is taller than the viewport");
+    await tv.remote(40);
+    let state = await about();
+    assert.ok(state.focused, "Down from the actions enters About");
+    assert.ok(state.top >= 0, `the first line is visible on entry: ${JSON.stringify(state)}`);
+    let presses = 0;
+    while (state.bottom > viewport + 1) {
+        const before = state.scroll;
+        await tv.remote(40);
+        state = await about();
+        assert.ok(state.focused, `Down keeps focus on About while text remains: ${JSON.stringify(state)}`);
+        assert.ok(state.scroll > before && state.scroll - before < viewport, `each step scrolls less than a screen: ${before} -> ${state.scroll}`);
+        assert.ok(++presses < 20, "the end is reached");
+    }
+    assert.ok(presses > 0, "reading needed at least one scroll step");
+    assert.ok(state.bottom <= viewport + 1, "the last line is visible");
+    await tv.remote(40);
+    assert.equal(await tv.focused(), "narration:audiobook:fresh", "the next Down leaves for the next zone");
+    await tv.remote(38);
+    state = await about();
+    assert.ok(state.focused, "Up returns to About");
+    while (state.top < -1) {
+        const before = state.scroll;
+        await tv.remote(38);
+        state = await about();
+        assert.ok(state.focused, `Up keeps focus on About while text remains above: ${JSON.stringify(state)}`);
+        assert.ok(state.scroll < before && before - state.scroll < viewport, `each step scrolls less than a screen: ${before} -> ${state.scroll}`);
+        assert.ok(++presses < 40, "the start is reached");
+    }
+    await tv.remote(38);
+    assert.equal(await tv.focused(), "play", "the next Up returns to the actions");
+});

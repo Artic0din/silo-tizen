@@ -100,7 +100,7 @@ function sections(page: AudiobookPage, context: ViewContext): { content: HTMLEle
         if (body.about !== undefined) stop.element.append(el("h2", "audiobook-section-title", "About"), el("p", "audiobook-about", body.about));
         if (body.credits !== undefined) stop.element.append(el("p", "audiobook-static-credits", body.credits));
         content.push(stop.element);
-        zones.push({ id: "about", layout: "column", spatial: true, items: [stop] });
+        zones.push({ id: "about", layout: "column", spatial: true, reading: true, items: [stop] });
     }
     if (body.narrations.length > 0) {
         const items = body.narrations.map(narration => {

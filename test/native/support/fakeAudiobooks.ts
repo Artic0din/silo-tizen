@@ -2,6 +2,8 @@ import { FakeCatalog } from "./fakeCatalog.ts";
 import type { Reply } from "./fakeSilo.ts";
 
 const LIBRARY = "14";
+/** Taller than the 1080 px viewport at the About size, so the remote must scroll to read it. */
+export const OVERSIZED_OVERVIEW = Array.from({ length: 60 }, (_, index) => `Paragraph ${index + 1}: the house is a maze of halls and statues, and the tides climb its lower floors.`).join(" ");
 
 /** An owner household with an audiobook library: square covers on Home, a library and a detail page per book. */
 export class FakeAudiobooks extends FakeCatalog {
@@ -43,7 +45,7 @@ export class FakeAudiobooks extends FakeCatalog {
         return {
             ...base,
             content_id: id, type: "audiobook", genres: ["Fantasy", "Epic"],
-            overview: "The war for Roshar reaches its last turn, and the oaths that bound the Radiants are tested one more time.",
+            overview: id === "audiobook:fresh" ? OVERSIZED_OVERVIEW : "The war for Roshar reaches its last turn, and the oaths that bound the Radiants are tested one more time.",
             user_data: { played: false, position_seconds: position },
             versions: [{ file_id: "af-1", presentation_kind: "audiobook_part", presentation_part_index: 1, duration: 10800, codec_audio: "aac", chapters: chapters(["Opening", "What the Tide Owes", ""]) }],
             audiobook: {

@@ -34,6 +34,8 @@ Each `Zone` has:
 - Optional `up`, `down`, `left`, `right`: the id of the zone to jump to when a key runs past the zone's edge.
 - Optional `entry`: the item key to land on when another zone is entered by Up/Down (the nav zone uses the selected root).
 - Optional `onLeft`: replaces Left entirely for that zone (used for panels that close on Left).
+- Optional `reading`: a single reading stop taller than the page (audiobook About).
+  Entering it shows its leading edge; Up and Down scroll the page 360 px at a time until that edge is visible, and only then leave the zone.
 
 A key press resolves in this order (`FocusHost.onKey`, `moveWithin`):
 

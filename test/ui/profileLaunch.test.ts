@@ -366,12 +366,12 @@ test("the remember offer is Apple TV's centred alert over the picker, and Back a
         assert.equal(await tv.focused(), "remember", "focus starts on Remember");
         const layout = await alert.evaluate(node => {
             const box = node.getBoundingClientRect();
-            const behind = document.querySelector('[data-screen="remember-profile"] .signin-behind');
+            const behind = [...document.querySelectorAll<HTMLElement>('[data-screen="remember-profile"] .dialog-behind-dimmed')];
             return {
                 centre: [Math.round(box.left + box.width / 2), Math.round(box.top + box.height / 2)],
                 width: Math.round(box.width),
-                picker: behind?.querySelector(".profile-picker-title")?.textContent,
-                inert: behind?.getAttribute("aria-hidden") === "true" && [...behind.querySelectorAll("button")].every(button => button.disabled && !button.hasAttribute("data-focus")),
+                picker: behind.map(node => node.querySelector(".profile-picker-title")?.textContent).find(text => text !== undefined),
+                inert: behind.length > 0 && behind.every(node => node.inert && node.getAttribute("aria-hidden") === "true" && node.querySelector("[data-focus]") === null && [...node.querySelectorAll("button")].every(button => button.disabled)),
                 wordmark: getComputedStyle(document.querySelector('[data-screen="remember-profile"] .signin-wordmark') ?? document.body).display,
             };
         });

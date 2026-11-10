@@ -16,10 +16,12 @@ const EVENTUALLY_TIMEOUT_MS = 10000;
 export type TvApp = "signIn" | "browse" | "application";
 const ENTRY: Record<TvApp, string> = { signIn: "../harness.ts", browse: "../browseHarness.ts", application: "../appHarness.ts" };
 const THEME = readFileSync(new URL("../../../src/theme.css", import.meta.url), "utf8");
+const css = (names: readonly string[]): string => names.map((name) => readFileSync(new URL(`../../../src/${name}`, import.meta.url), "utf8")).join("\n");
+// confirmationDialog.css styles a component every screen can show, so each harness loads it as main.ts does.
 const CSS: Record<TvApp, string> = {
-    signIn: readFileSync(new URL("../../../src/ui/signIn.css", import.meta.url), "utf8"),
-    browse: readFileSync(new URL("../../../src/ui/browse.css", import.meta.url), "utf8"),
-    application: ["ui/signIn.css", "ui/browse.css", "ui/accounts.css", "player/player.css", "app.css"].map((name) => readFileSync(new URL(`../../../src/${name}`, import.meta.url), "utf8")).join("\n"),
+    signIn: css(["ui/signIn.css", "ui/confirmationDialog.css"]),
+    browse: css(["ui/browse.css", "ui/confirmationDialog.css"]),
+    application: css(["ui/signIn.css", "ui/browse.css", "ui/confirmationDialog.css", "ui/accounts.css", "player/player.css", "app.css"]),
 };
 const HTML = `<!DOCTYPE html>
 <html lang="en">

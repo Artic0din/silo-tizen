@@ -13,6 +13,7 @@ import { settingsRows, rowValue, rowEdit, BUFFERING_ROW_ID, type SettingsRow } f
 import { APPEARANCE_KEY, BUFFERING_MODE_KEY } from "../contracts/v2/settingsRows.ts";
 import { qrCode } from "./qr.ts";
 import { profileMenuAvatar } from "./navigationAvatar.ts";
+import { centredDialog } from "./confirmationDialog.ts";
 import { navigationIcon } from "./navigationIcon.ts";
 import { decodeAppearance, DEFAULT_APPEARANCE } from "../contracts/v2/subtitles.ts";
 import { applySubtitleAppearance } from "../player/subtitleView.ts";
@@ -414,8 +415,14 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
         }
         if (confirmingSignOut) {
             const copy = signOutConfirmationCopy(actions?.accountName, actions?.serverName, actions?.removesServer?.() ?? false);
-            const controls = [actionButton("cancel-signout", "Cancel", back), actionButton("confirm-signout", "Sign Out", () => { destroy(); actions?.signOut?.(); })];
-            host.show({ name: "settings:signout", content: [el("h1", "browse-title", copy.title), el("p", "settings-value", copy.message), zoneNode("settings-controls", controls)], zones: [{ id: "settings-confirm", layout: "column", items: controls }], focus: { zone: "settings-confirm", key: "cancel-signout" }, back });
+            const cancel = actionButton("cancel-signout", "Cancel", back);
+            const confirm = actionButton("confirm-signout", "Sign Out", () => { destroy(); actions?.signOut?.(); });
+            const controls = [cancel, confirm];
+            // AccountRemovalConfirmation on tvOS: TVSettingsConfirmationOverlay over Settings, Cancel then Sign Out, Cancel focused.
+            const behind = paneSnapshot?.cloneNode(true);
+            host.show({ name: "settings:signout", content: centredDialog({ style: "confirmation", id: "settings-signout", title: copy.title, message: copy.message,
+                buttons: controls.map(control => control.element), destructive: confirm.element, behind: behind instanceof HTMLElement ? [behind] : [] }),
+                zones: [{ id: "settings-confirm", layout: "row", items: controls }], focus: { zone: "settings-confirm", key: "cancel-signout" }, back });
             return;
         }
         if (acknowledging) { renderAcknowledgements(); return; }

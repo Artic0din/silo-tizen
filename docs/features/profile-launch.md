@@ -47,6 +47,9 @@ Resolved profile artwork takes priority; failed images retain the raw text or in
 An emoji avatar also replaces the initial in the top bar, the profile menu and the Settings profile row, at 45% of the avatar, as Apple's `ProfileAvatarView` draws it.
 Inter, a CSS ring/shadow and a drawn lock stand in for Apple's fonts, focus rendering and symbol.
 
+Sign out asks in Apple TV's `TVSettingsConfirmationOverlay` (`AccountRemovalConfirmation` on tvOS): a centred dialog over the picker with Cancel, then a red Sign Out, and Cancel focused; Back cancels and returns to Sign out.
+Settings and Settings › Accounts show the same dialog through `src/ui/confirmationDialog.ts`.
+
 Change server belongs to the application owner and preserves saved credentials.
 It currently opens manual server entry; the saved-server-list destination remains tracked in #127 and is not a platform limitation.
 

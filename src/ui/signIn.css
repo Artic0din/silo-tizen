@@ -970,7 +970,7 @@
 .profiles-flow::after { content: ""; position: absolute; inset: 0; pointer-events: none; background: linear-gradient(to bottom, rgba(0,0,0,.35), rgba(0,0,0,.2) 25%, rgba(0,0,0,.75) 55%, black 78%); }
 .profiles-flow .signin-screen { position: relative; z-index: 1; }
 .profile-picker.signin, .profile-editor.signin { padding: 0; overflow: hidden; }
-.profile-picker [data-screen="profiles"], .profile-picker [data-screen="remember-profile"] { display: flex; flex-direction: column; width: 1920px; max-width: none; height: 1080px; padding: 120px 80px; }
+.profile-picker [data-screen="profiles"], .profile-picker [data-screen="remember-profile"], .profile-picker [data-screen="profiles:signout"] { display: flex; flex-direction: column; width: 1920px; max-width: none; height: 1080px; padding: 120px 80px; }
 .profile-picker .signin-wordmark, .profile-editor .signin-wordmark { display: none; }
 .profile-picker-main { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 0; }
 .profile-picker-title { margin: 0; font-size: 64px; line-height: 1.2; font-weight: 800; letter-spacing: -1.6px; text-align: center; }

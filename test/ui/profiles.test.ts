@@ -6,6 +6,7 @@ import { after, before, test } from "node:test";
 import type { Browser } from "playwright";
 import { fixture } from "../native/support/fakeSilo.ts";
 import { pressPin } from "./support/pin.ts";
+import { assertSignOutDialog } from "./support/signOutDialog.ts";
 import { launchBrowser, openTv, readLive, type Tv } from "./support/tv.ts";
 
 const BACK = 10009;
@@ -536,6 +537,12 @@ tvTest("Sign out on Who's watching asks with Apple's copy, and Cancel or Back re
     await tv.page.getByRole("heading", { name: SIGN_OUT_TITLE }).waitFor();
     await tv.page.getByText(SIGN_OUT_REMOVES_SERVER, { exact: true }).waitFor();
     assert.equal(await tv.focused(), "cancel-signout");
+    await assertSignOutDialog(tv.page, SIGN_OUT_TITLE);
+    assert.equal(await tv.page.locator('[data-screen="profiles:signout"] .profile-picker-title').textContent(), "Who's watching?", "the picker stays under the dialog");
+    await tv.page.keyboard.press("ArrowRight");
+    assert.equal(await tv.focused(), "confirm-signout");
+    await tv.page.keyboard.press("ArrowLeft");
+    assert.equal(await tv.focused(), "cancel-signout", "focus stays inside the dialog");
     assert.equal(tv.fake.revokedSessions.size, 0, "opening the confirmation does not sign out");
 
     await tv.page.keyboard.press("Enter");

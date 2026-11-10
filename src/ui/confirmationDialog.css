@@ -1,0 +1,19 @@
+/* confirmationDialog.ts and the top bar's sign-out: TVSettingsConfirmationOverlay, which AccountRemovalConfirmation shows for
+   every sign-out on Apple TV. Loaded on every screen, so Who's watching, Settings and the top bar share one set of values. */
+.skyline-selector[data-confirmation], .confirm-dialog { display: flex; flex-direction: column; gap: 28px; width: 632px; max-height: 900px; padding: 42px 48px; border-radius: 30px; background: #15171c; box-shadow: inset 0 0 0 1px rgba(255,255,255,.09); transform: translate(-50%,-50%); animation: skyline-appear 150ms ease-out; }
+.skyline-confirm-header { display: flex; flex-direction: column; gap: 12px; }
+.skyline-confirm-title { font-size: 38px; line-height: 46px; font-weight: 600; color: #ededed; text-align: center; margin: 0; }
+.skyline-confirm-message { font-size: 22px; line-height: 26px; font-weight: 400; color: rgba(237,237,237,.6); text-align: center; margin: 0; }
+.skyline-confirm-actions { display: flex; gap: 16px; }
+.skyline-selector[data-confirmation] .browse-button, .confirm-dialog .skyline-confirm-actions button { width: 260px; height: 63px; padding: 17px 24px; border-radius: 14px; font-size: 24px; line-height: 29px; font-weight: 600; text-align: center; background: rgba(255,255,255,.07); color: #ededed; box-shadow: inset 0 0 0 1px rgba(255,255,255,.09); }
+.confirm-dialog .skyline-confirm-actions button.skyline-destructive { color: #ff453a; }
+.skyline-selector[data-confirmation] .browse-button:focus, .confirm-dialog .skyline-confirm-actions button:focus { background: #ededed; color: #000; box-shadow: 0 8px 18px rgba(0,0,0,.5); transform: scale(1.012); }
+.skyline-selector[data-confirmation] .browse-button.skyline-destructive:focus, .confirm-dialog .skyline-confirm-actions button.skyline-destructive:focus { background: #ededed; color: #d22f3f; }
+.skyline-dropdown-scrim[data-confirmation], .confirm-dialog-scrim { z-index: 6; background: rgba(0,0,0,.62); }
+/* confirmationDialog.ts places the shared confirmation card and scrim above any screen, and resets host button styles. */
+.confirm-dialog-scrim { position: fixed; inset: 0; z-index: 20; }
+.confirm-dialog { position: fixed; z-index: 21; top: 50%; left: 50%; box-sizing: border-box; }
+.confirm-dialog .skyline-confirm-actions button { flex: none; min-width: 0; margin: 0; border: 0; outline: none; }
+.dialog-behind { pointer-events: none; }
+/* What a dialog covers stays in place: the alert dims it, the confirmation lays the scrim over it. */
+.dialog-behind-dimmed { opacity: .55; }

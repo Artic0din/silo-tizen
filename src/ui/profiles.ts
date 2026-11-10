@@ -16,6 +16,7 @@ import { logoutCollectedAccount } from "./signIn.ts";
 import { PASSWORD_CHANGE_REQUIRED_MESSAGE } from "./signInText.ts";
 import { MarqueeBackdrop, marqueeScene } from "./marqueeBackdrop.ts";
 import { profilePickerScreen } from "./profilePicker.ts";
+import { centredDialog } from "./confirmationDialog.ts";
 import { createProfileFlow, type ProfileCreateFlow } from "./profileCreate.ts";
 import { signOutConfirmationCopy, signOutRemovesServer } from "./signOutConfirmation.ts";
 
@@ -93,7 +94,8 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
             backdrop.setStage(marqueeScene.stage);
             host = new ScreenHost(root, undefined, backdrop.element);
         }
-        root.classList.toggle("profile-picker", screen.name === "profiles" || screen.name === "remember-profile");
+        // The sign-out dialog covers whichever screen opened it, so that screen's layout stays.
+        if (screen.name !== "profiles:signout") root.classList.toggle("profile-picker", screen.name === "profiles" || screen.name === "remember-profile");
         root.classList.toggle("profile-editor", screen.name === "profile-create");
         root.classList.toggle("profile-pin", screen.name === "pin");
         host.show(screen, focus);
@@ -190,10 +192,12 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
             heldProfileLoad = undefined;
             signOut();
         });
+        // AccountRemovalConfirmation on tvOS: TVSettingsConfirmationOverlay over the screen, Cancel then Sign Out, Cancel focused.
         show({
             name: "profiles:signout",
-            content: [el("h1", "signin-title", copy.title), el("p", "signin-text", copy.message), actions([cancel, accept])],
-            controls: [cancel, accept],
+            content: centredDialog({ style: "confirmation", id: "profiles-signout", title: copy.title, message: copy.message,
+                buttons: [cancel.element, accept.element], destructive: accept.element, behind: screenBehind() }),
+            controls: [{ ...cancel, row: 0, column: 0 }, { ...accept, row: 0, column: 1 }],
             focus: "cancel-signout",
             back: dismiss,
         });
@@ -250,20 +254,16 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
 
     /** The picker's last list, drawn dimmed and inert behind an alert, as tvOS keeps Who's watching under `.alert`. */
     let shownList: readonly ProfileSummary[] | undefined;
-    const pickerBehind = (): HTMLElement => {
-        const behind = el("div", "signin-behind");
-        behind.setAttribute("aria-hidden", "true");
-        if (shownList !== undefined) {
-            const inert = (): void => undefined;
-            const copy = profilePickerScreen({ profiles: shownList, baseUrl: server.server.http.base.baseUrl, accountName: session.account?.username,
-                rememberedId: options.launch?.rememberedProfileId, focus: "", choose: inert, add: inert, changeServer: inert, signOut: inert, back: undefined });
-            behind.append(...copy.content);
-        }
-        for (const node of Array.from(behind.querySelectorAll("button"))) {
-            node.removeAttribute("data-focus");
-            node.setAttribute("disabled", "");
-        }
-        return behind;
+    const pickerBehind = (): readonly HTMLElement[] => {
+        if (shownList === undefined) return [];
+        const inert = (): void => undefined;
+        return profilePickerScreen({ profiles: shownList, baseUrl: server.server.http.base.baseUrl, accountName: session.account?.username,
+            rememberedId: options.launch?.rememberedProfileId, focus: "", choose: inert, add: inert, changeServer: inert, signOut: inert, back: undefined }).content;
+    };
+    /** A copy of the screen on display, for a dialog to cover. */
+    const screenBehind = (): HTMLElement[] => {
+        const screen = Array.from(root.querySelectorAll<HTMLElement>("[data-screen]")).pop();
+        return screen === undefined ? [] : Array.from(screen.children).filter((node): node is HTMLElement => node instanceof HTMLElement).map(node => node.cloneNode(true) as HTMLElement);
     };
 
     const showList = (focus?: string): void => load((list) => picker(list, focus), () => showList(focus));
@@ -346,22 +346,11 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
             const remember = button("remember", "Remember", () => save(true));
             const controls: Control[] = [{ ...ask, row: 0, column: 0 }, { ...remember, row: 0, column: 1 }];
             if (error) controls.push({ ...button("continue-session", "Continue without saving", () => { launch.continueWithoutSaving(); handOff(profile); }), row: 1, column: 0 });
-            const alert = el("div", "signin-alert");
-            alert.setAttribute("role", "alertdialog");
-            alert.setAttribute("aria-labelledby", "remember-offer-title");
-            const title = el("h2", "signin-alert-title", name === "" ? "Open this profile automatically?" : `Open ${name} automatically?`);
-            title.id = "remember-offer-title";
-            alert.appendChild(title);
-            if (error) {
-                const problem = el("p", "signin-alert-text signin-error", "Silo couldn't securely remember this profile. Please try again.");
-                problem.setAttribute("role", "alert");
-                alert.appendChild(problem);
-            }
-            alert.append(
-                el("p", "signin-alert-text", "Silo can skip Who's Watching and open this profile when it starts on this TV. You can change this later in Settings > General > Profile Selection."),
-                actions(controls),
-            );
-            show({ name: "remember-profile", content: [pickerBehind(), alert], controls, focus: "remember",
+            const content = centredDialog({ style: "alert", id: "remember-offer", title: name === "" ? "Open this profile automatically?" : `Open ${name} automatically?`,
+                ...(error ? { problem: "Silo couldn't securely remember this profile. Please try again." } : {}),
+                message: "Silo can skip Who's Watching and open this profile when it starts on this TV. You can change this later in Settings > General > Profile Selection.",
+                buttons: controls.map(control => control.element), behind: pickerBehind() });
+            show({ name: "remember-profile", content, controls, focus: "remember",
                 back: pendingOffer ? () => save(false) : () => showList(profile.id) });
         };
         const save = (remember: boolean): void => {

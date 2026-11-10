@@ -24,6 +24,8 @@ async function start(tv: Tv, fake = new FakeWatchParty(), enabled = true, before
     return fake;
 }
 const button = (tv: Tv, key: string) => tv.page.locator(`[data-focus="${key}"]`).last();
+// A synchronous DOM click: Playwright's forced click can land on a button the page has just rebuilt and report it not visible.
+const pressDisabled = (tv: Tv, key: string) => tv.page.evaluate(focus => { [...document.querySelectorAll<HTMLElement>(`[data-focus="${focus}"]`)].at(-1)?.click(); }, key);
 const menuTitles = async (tv: Tv): Promise<string[]> => {
     if (!(await button(tv, "settings").isVisible())) await button(tv, "profiles").click();
     return await tv.page.locator('.skyline-selector [role="menuitem"]').allTextContents();
@@ -182,7 +184,7 @@ test("Join party is disabled until a code is typed", async () => {
         await tv.eventually(async () => (await menuTitles(tv)).includes("Watch Party"), "entry offered");
         await openHub(tv);
         assert.equal(await button(tv, "join").getAttribute("aria-disabled"), "true");
-        await button(tv, "join").click({ force: true });
+        await pressDisabled(tv, "join");
         assert.deepEqual(fake.joined, [], "a disabled Join party sends nothing");
         await tv.page.locator('[data-focus="code"]').fill("  k7m2qx ");
         assert.equal(await button(tv, "join").getAttribute("aria-disabled"), "false");
@@ -286,8 +288,8 @@ test("Start a party, vote and Join party are all disabled and unfocusable while 
         assert.equal(await button(tv, "vote").getAttribute("aria-disabled"), "true");
         assert.equal(await button(tv, "join").getAttribute("aria-disabled"), "true");
         assert.ok(["code", "retry"].includes(await tv.focused() ?? ""), "focus left the disabled button");
-        await button(tv, "vote").click({ force: true });
-        await button(tv, "join").click({ force: true });
+        await pressDisabled(tv, "vote");
+        await pressDisabled(tv, "join");
         hold.release();
         await tv.page.locator('.browse[data-view="watchParty:lobby"]').waitFor();
         assert.equal(fake.createdRooms.length, 1, "taps while busy send nothing");

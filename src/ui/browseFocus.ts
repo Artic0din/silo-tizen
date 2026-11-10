@@ -140,6 +140,11 @@ export class FocusHost {
         this.visits.delete(name);
     }
 
+    /** Drops every snapshot of one route presentation: its `View.visitKey` prefixes each of its view names. */
+    forgetPresentation(visitKey: string): void {
+        for (const name of [...this.visits.keys()]) if (name.startsWith(`${visitKey}:`)) this.visits.delete(name);
+    }
+
     /** Save before hiding library chrome can resize and clamp the viewport. */
     holdVisit(): void {
         if (this.view === undefined || this.view.ready === false) return;

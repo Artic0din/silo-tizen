@@ -514,7 +514,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         const index = stack.findIndex(isPersonalRoot);
         if (index < 1) return;
         stopSearchSupplement(); stopDetails(); loading?.abort(); loading = undefined; cancelSearch();
-        for (const removed of stack.slice(index)) stopWatchParty(removed);
+        for (const removed of stack.slice(index)) retireRoute(removed);
         stack.length = index;
     };
     // Apple WatchPartyEntry.isAvailable: the device switch is on and the server can host a synchronized party.
@@ -532,7 +532,15 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         watchPartyProbe = new WatchPartyHub(watchPartyApi(session), () => undefined, { onSupport: setWatchPartyOffered });
         void watchPartyProbe.check();
     };
-    const stopWatchParty = (route: Route | undefined): void => { if (route?.kind === "watchParty") route.watchParty.hub.stop(); };
+    const detailVisits = new WeakMap<Route, string>();
+    let detailVisitSequence = 0;
+    /** A route leaving the stack for good: stop its live party and drop its presentation's focus snapshots. */
+    const retireRoute = (route: Route | undefined): void => {
+        if (route === undefined) return;
+        if (route.kind === "watchParty") route.watchParty.hub.stop();
+        const visit = detailVisits.get(route);
+        if (visit !== undefined) host.forgetPresentation(visit);
+    };
     const probeRequests = async (refreshSearch = true): Promise<void> => {
         const ordinal = ++probeOrdinal;
         try {
@@ -684,7 +692,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         navigation.destroy();
         requestsController.abort();
         watchPartyProbe?.stop();
-        for (const route of stack) stopWatchParty(route);
+        for (const route of stack) retireRoute(route);
         document.removeEventListener("visibilitychange", requestsVisibility);
         cardActions.destroy();
         requestMenu.destroy();
@@ -1768,7 +1776,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         loading = undefined;
         cancelSearch();
         if (active?.kind === "item" && active.data?.details?.series?.seasonNumber !== undefined) seriesSeasons.set(active.id, active.data.details.series.seasonNumber);
-        stopWatchParty(stack.pop());
+        retireRoute(stack.pop());
         const current = top();
         if (current?.kind === "requests" && !requestsCapability.enabled) { closeRequests(); return; }
         if (current !== undefined) {
@@ -1942,8 +1950,6 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         options.onChooseProfile();
     };
 
-    const detailVisits = new WeakMap<Route, string>();
-    let detailVisitSequence = 0;
     const render = (focus?: FocusTarget): void => {
         activeSection?.stop();
         if (activeBrowse !== undefined) stopFeed(activeBrowse);
@@ -2535,7 +2541,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         loading?.abort();
         loading = undefined;
         cancelSearch();
-        for (const covered of stack) stopWatchParty(covered);
+        for (const covered of stack) retireRoute(covered);
         stack = route === home ? [home] : [home, route];
         stopSearchSupplement();
         showRoute(route, route.focus?.zone === "nav" ? undefined : route.focus);
@@ -2585,7 +2591,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 // TVSettingsView.exitSettingsToHome calls switchTab(.home). selectRoot
                 // then replaces whichever tab opened Settings, so the rail's Back
                 // lands on Home.
-                for (const covered of stack) stopWatchParty(covered);
+                for (const covered of stack) retireRoute(covered);
                 stack = [home];
                 host.listen();
                 showRoute(home, { zone: "nav", key: "home" });

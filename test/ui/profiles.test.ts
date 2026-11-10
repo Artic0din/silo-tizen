@@ -145,9 +145,11 @@ tvTest("a focused profile tile follows ProfileTile: the name drops by an offset 
     await tv.page.emulateMedia({ reducedMotion: "reduce" });
     const reducedRingHit = await tv.page.locator('[data-focus="profile:p-kid"] .profile-face').evaluate(face => {
         const box = face.getBoundingClientRect();
-        return [getComputedStyle(face).transform, document.elementFromPoint(box.left - 9, box.top + box.height / 2) === face];
+        const ring = getComputedStyle(face, "::after");
+        // Hit testing ignores opacity, so the ring's paint is read as well.
+        return [getComputedStyle(face).transform, ring.opacity, ring.borderTopColor, ring.borderTopWidth, document.elementFromPoint(box.left - 9, box.top + box.height / 2) === face];
     });
-    assert.deepEqual(reducedRingHit, ["none", true], "the ring stays visible without the focus scale");
+    assert.deepEqual(reducedRingHit, ["none", "1", "rgb(237, 237, 237)", "6px", true], "the ring stays visible without the focus scale");
 });
 
 let browser: Browser;

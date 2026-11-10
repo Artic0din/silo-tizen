@@ -26,6 +26,8 @@
     --silo-font: "Inter", system-ui, sans-serif;
     /* Inter's advances run wider than SF Pro. em resolves on each element, so a 24px title and a 28px title both tighten. A later letter-spacing rule still wins. */
     --silo-tracking: -0.015em;
+    /* SF Pro's cap height is 0.7046em and Inter's 0.7275em, so Inter at Apple's point size draws 3% taller capitals. The Home hero text scales by this to match the Apple TV capture. */
+    --silo-sf-cap-scale: 0.9685;
     --silo-fast: 120ms;
     --silo-page: 200ms;
 }

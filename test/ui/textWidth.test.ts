@@ -212,3 +212,54 @@ test("Home hero text matches the Apple TV capture's size, spacing and measure", 
         await browser.close();
     }
 });
+
+test("Home row heading matches the Apple TV capture's size, tracking and icon spacing", async () => {
+    const browser = await launchBrowser();
+    try {
+        const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
+        await page.setContent(`<!doctype html>
+<style>@font-face { font-family: Inter; src: url(data:font/woff2;base64,${font}) format("woff2"); font-weight: 100 900; }</style>
+<main class="browse skyline-home"><section class="browse-section home-section"><h2 class="browse-section-title"><span class="home-row-glyph" aria-hidden="true"></span>Continue Watching</h2></section></main>`);
+        await page.addStyleTag({ content: `${theme}\n${browse}` });
+        await page.evaluate(() => document.fonts.ready);
+        const measured = await page.evaluate(() => {
+            const title = document.querySelector(".home-section .browse-section-title");
+            const glyph = title?.querySelector(".home-row-glyph");
+            const text = title?.lastChild;
+            if (title === null || title === undefined || glyph === null || glyph === undefined || text === null || text === undefined) throw new Error("missing heading");
+            const style = getComputedStyle(title);
+            const play = getComputedStyle(glyph, "::after");
+            const box = title.getBoundingClientRect();
+            const icon = glyph.getBoundingClientRect();
+            const range = document.createRange();
+            range.selectNodeContents(text);
+            const words = range.getBoundingClientRect();
+            return {
+                size: Number.parseFloat(style.fontSize),
+                weight: style.fontWeight,
+                lineHeight: style.lineHeight,
+                spacing: Number.parseFloat(style.letterSpacing),
+                height: box.height,
+                icon: { left: icon.left - box.left, top: icon.top - box.top, width: icon.width, height: icon.height },
+                play: { top: play.top, left: play.left, width: [play.borderTopWidth, play.borderRightWidth, play.borderBottomWidth, play.borderLeftWidth] },
+                text: { left: words.left - box.left, width: words.width },
+            };
+        });
+        const near = (actual: number, expected: number, tolerance: number, label: string) => assert.ok(Math.abs(actual - expected) <= tolerance, `${label}: ${actual} vs ${expected}`);
+        // Apple MediaRow: siloHeadline 36pt semibold times SF Pro's cap height over Inter's.
+        near(measured.size, 36 * 0.9685, 0.01, "heading size");
+        assert.equal(measured.weight, "600");
+        assert.equal(measured.lineHeight, "43.2px");
+        near(measured.spacing, 0.35, 0.001, "heading tracking");
+        // The line box keeps its 43.2px height, so the cards below stay put.
+        near(measured.height, 43.2, 0.1, "heading height");
+        // play.circle.fill at 32pt: a 33px circle whose ink starts 3px into the header, as in the capture (x83 from x80).
+        assert.deepEqual(measured.icon, { left: 3, top: 5, width: 33, height: 33 });
+        assert.deepEqual(measured.play, { top: "10px", left: "11px", width: ["7px", "0px", "7px", "12px"] });
+        // The capture's ink runs x134-439. The text box adds Inter's side bearings and the trailing tracking to that 306px of ink.
+        near(measured.text.left, 53, 0.5, "text left");
+        near(measured.text.width, 309, 1, "text width");
+    } finally {
+        await browser.close();
+    }
+});

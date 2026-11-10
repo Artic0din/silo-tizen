@@ -14,7 +14,7 @@ let browser: Browser;
 before(async () => { browser = await launchBrowser(); });
 after(async () => { await browser.close(); });
 
-function journey(name: string, body: (tv: Tv, catalog: FakeHome) => Promise<void>): void {
+function journey(name: string, body: (tv: Tv, catalog: FakeHome) => Promise<void>, offerSignOut = false): void {
     test(name, async () => {
         const tv = await openTv(browser, { app: "browse" });
         const catalog = new FakeHome();
@@ -27,7 +27,7 @@ function journey(name: string, body: (tv: Tv, catalog: FakeHome) => Promise<void
             await tv.jump(5000);
             await tv.eventually(async () => await tv.page.evaluate(() => window.browseHarness.loginPhase) === "signed_in", "sign in");
             await tv.page.evaluate(() => window.browseHarness.selectProfile("p-owner"));
-            await tv.page.evaluate(() => window.browseHarness.mount());
+            await tv.page.evaluate(offer => window.browseHarness.mount(offer), offerSignOut);
             await tv.page.locator('[data-view="home"] [data-section]').first().waitFor();
             await homeDetailsRead(tv);
             await body(tv, catalog);
@@ -139,3 +139,17 @@ journey("a failed Explore all page shows Apple's error with only Try Again, and 
     assert.equal(await tv.page.locator(".details-failure").count(), 0);
     assert.match(await tv.focused() ?? "", /^movie:/, "focus moves to the first title once it loads");
 });
+
+journey("an expired session on Explore all offers Sign In Again first and Try Again second", async tv => {
+    await tv.page.route("**/api/v2/catalog/query**", route => route.request().method() === "POST" && route.request().postDataJSON()?.source === "section"
+        ? route.fulfill({ status: 401, contentType: "application/problem+json", body: JSON.stringify({ type: "about:blank", title: "Unauthorized", status: 401 }) })
+        : route.fallback());
+    await tv.page.locator('[data-focus="expand:recent/12"]').click();
+    const shown = await errorPage(tv);
+    assert.equal(shown.headline, "Session expired");
+    assert.deepEqual(shown.buttons, ["Sign In Again", "Try Again"]);
+    await assertColumnFocus(tv, ["sign-in", "retry"]);
+    await tv.page.keyboard.press("ArrowUp");
+    await tv.page.keyboard.press("Enter");
+    await tv.eventually(async () => await tv.page.evaluate(() => window.browseHarness.signOutCalls) === 1, "Sign In Again signs out");
+}, true);

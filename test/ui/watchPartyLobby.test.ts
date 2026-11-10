@@ -725,3 +725,22 @@ test("live votes from others move the tallies and the leader while focus stays o
         assert.equal(await focusKept(tv), "ready");
     } finally { await tv.page.context().close(); }
 });
+
+test("a ballot wider than the screen scrolls to keep the focused card in view, out to the Suggest card", async () => {
+    const { tv } = await inLobby("host", fake => {
+        fake.selectionMode = "vote";
+        for (let index = 0; index < 9; index++) fake.suggest(`s${index}`, `Title ${index}`);
+    });
+    try {
+        await ballotShows(tv, 9);
+        await button(tv, "suggestion:s0").focus();
+        for (let index = 0; index < 9; index++) await tv.remote(39);
+        assert.equal(await tv.focused(), "ballot-suggest");
+        await tv.eventually(async () => {
+            const box = await button(tv, "ballot-suggest").boundingBox();
+            return box !== null && box.x >= 0 && box.x + box.width <= 1920;
+        }, "the Suggest card is on screen");
+        await tv.remote(37);
+        assert.equal(await tv.focused(), "suggestion:s8");
+    } finally { await tv.page.context().close(); }
+});

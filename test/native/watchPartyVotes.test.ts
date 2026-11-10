@@ -4,6 +4,7 @@ import { watchTogetherOperations } from "../../src/api/watchTogetherOperations.t
 import { decodeSuggestion, decodeSuggestionPage, decodeSuggestionReceipt, type Suggestion, type SuggestionPage } from "../../src/contracts/v2/watchTogether.ts";
 import { WatchPartyHub, type WatchPartyApi } from "../../src/ui/watchPartyHub.ts";
 import { RoomVotes, voteWinner } from "../../src/ui/watchPartyVotes.ts";
+import { serverPoster } from "../../src/ui/watchPartyBallot.ts";
 import type { RoomWebSocket } from "../../src/ui/watchPartySocket.ts";
 import type { MediaChoice } from "../../src/ui/watchPartyChoice.ts";
 import { ManualClock } from "./support/clock.ts";
@@ -323,4 +324,66 @@ test("a ballot update that arrives while another change runs is read once that c
     assert.equal(r.reads.length, 2);
     assert.equal(r.hub.state.votes.voted("a"), false, "this profile's vote is known again");
     r.hub.leave();
+});
+
+test("a vote the server took stands when the read after it fails, so the next press takes it back", async () => {
+    let reads = 0;
+    const sent: boolean[] = [];
+    const r = await voteRoom([], { selection_mode: "vote" }, {
+        suggestions: async () => { reads++; if (reads === 1) return page([row("a")])(); throw new TypeError("network down"); },
+        setVote: async (_roomId, _token, _id, voted) => { sent.push(voted); },
+    });
+    await r.clock.advance(200);
+    await settle();
+    assert.equal(await r.hub.vote("a", true), true);
+    assert.match(r.hub.state.error ?? "", /^Your change was saved/);
+    assert.equal(r.hub.state.votes.voted("a"), true);
+    r.hub.leave();
+});
+
+test("a failed ballot read tries again after 1, 2 and 4 seconds, and a success clears its warning", async () => {
+    let reads = 0;
+    const r = await voteRoom([], { selection_mode: "vote" }, {
+        suggestions: async () => { reads++; if (reads <= 2) throw new TypeError("network down"); return page([row("a")])(); },
+    });
+    await r.clock.advance(200);
+    await settle();
+    assert.equal(reads, 1);
+    assert.match(r.hub.state.error ?? "", /^Could not refresh suggestions\./);
+    await r.clock.advance(1000);
+    await settle();
+    assert.equal(reads, 2);
+    await r.clock.advance(1999);
+    await settle();
+    assert.equal(reads, 2, "the second retry waits 2 seconds");
+    await r.clock.advance(1);
+    await settle();
+    assert.equal(reads, 3);
+    assert.equal(r.hub.state.votes.voted("a"), false);
+    assert.equal(r.hub.state.error, undefined);
+    r.hub.leave();
+});
+
+test("the host cannot start a winner while the socket is not connected, as Apple disables Start", async () => {
+    const promoted: string[] = [];
+    const r = await voteRoom([page([row("a", { vote_count: 1 })])], { selection_mode: "vote" }, {
+        promoteSuggestion: async (_roomId, _token, id) => { promoted.push(id); return roomAccess({ selection_mode: "vote" }); },
+    });
+    await r.clock.advance(200);
+    await settle();
+    r.socket().close();
+    await settle();
+    assert.notEqual(r.hub.state.connection, "connected");
+    assert.equal(await r.hub.start(), false);
+    assert.deepEqual(promoted, []);
+    r.hub.leave();
+});
+
+test("a suggestion's poster is drawn only from this server; any other address shows the blank poster", () => {
+    const base = "https://silo.example/base";
+    assert.equal(serverPoster("/api/v2/images/p.jpg", base), "https://silo.example/api/v2/images/p.jpg");
+    assert.equal(serverPoster("https://silo.example/art/p.jpg", base), "https://silo.example/art/p.jpg");
+    assert.equal(serverPoster("https://elsewhere.example/p.jpg", base), undefined);
+    assert.equal(serverPoster("http://192.168.1.1/p.jpg", base), undefined);
+    assert.equal(serverPoster("", base), undefined);
 });

@@ -30,6 +30,9 @@ export class RoomVotes {
         return true;
     }
 
+    /** The server accepted this profile's vote; it stands until a read says otherwise. */
+    confirm(id: string, voted: boolean): void { this.personal.set(id, voted); }
+
     /** A vote or suggestion is being written: reads already out describe the ballot before it. */
     invalidatePersonalReads(): void { this.revision++; }
 }

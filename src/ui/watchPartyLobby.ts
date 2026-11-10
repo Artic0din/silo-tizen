@@ -124,7 +124,9 @@ function primaryButton(hub: WatchPartyHub, room: Room, action: PrimaryAction): F
         case "chooseTitle": return labelled("choose", room.selectedContentId === undefined ? "Choose a title" : "Change title", "primary", () => { void hub.openPicker(); });
         case "start": {
             const winner = room.selectionMode === "vote" ? hub.winner() : undefined;
-            return labelled("start", winner === undefined ? "Start for everyone" : `Start ${winner.title}`, "primary", () => { void hub.start(); }, playIcon());
+            const start = labelled("start", winner === undefined ? "Start for everyone" : `Start ${winner.title}`, "primary", () => { void hub.start(); }, playIcon());
+            if (winner !== undefined) start.element.setAttribute("aria-disabled", String(hub.state.connection !== "connected"));
+            return start;
         }
         case "waitingForVotes": return suggestButton(hub, "Suggest a title", "primary");
         case "ready": return readyButton(hub, room);

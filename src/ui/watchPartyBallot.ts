@@ -6,6 +6,7 @@
 import type { Suggestion } from "../contracts/v2/watchTogether.ts";
 import type { FocusItem } from "./browseFocus.ts";
 import { actionButton, artwork } from "./browseViews.ts";
+import { artworkUrl } from "./browseModel.ts";
 import { el } from "./screen.ts";
 import { checkIcon, plusIcon } from "./watchPartyParts.ts";
 import type { WatchPartyHub } from "./watchPartyHub.ts";
@@ -16,6 +17,15 @@ const votes = (count: number): string => `${count} ${count === 1 ? "vote" : "vot
 function voteLabel(suggestion: Suggestion, voted: boolean | undefined): string {
     if (voted === undefined) return "Loading your vote";
     return voted ? `Remove vote for ${suggestion.title}` : `Vote for ${suggestion.title}`;
+}
+
+/**
+ * A suggestion's poster is whatever the suggesting member's client sent (the server does not check it), so every TV in
+ * the room would load it. Only artwork on this server is drawn; anything else shows the blank poster.
+ */
+export function serverPoster(reference: string, baseUrl: string): string | undefined {
+    const url = artworkUrl(reference, baseUrl);
+    return url !== undefined && new URL(url).origin === new URL(baseUrl).origin ? url : undefined;
 }
 
 /** WatchPartyCandidateCard. Apple disables the card until this profile's vote is known or while a change runs; it stays focusable here so focus never drops, and a press then does nothing. */
@@ -29,7 +39,7 @@ function candidate(hub: WatchPartyHub, suggestion: Suggestion, leader: boolean, 
     item.element.setAttribute("aria-pressed", String(voted === true));
     item.element.setAttribute("aria-label", `${voteLabel(suggestion, voted)}, ${votes(suggestion.voteCount)}${leader ? ", leading" : ""}`);
     const poster = el("span", "watch-party-candidate-poster");
-    poster.appendChild(artwork("watch-party-candidate-art", suggestion.posterUrl === "" ? undefined : suggestion.posterUrl, baseUrl, ""));
+    poster.appendChild(artwork("watch-party-candidate-art", serverPoster(suggestion.posterUrl, baseUrl), baseUrl, ""));
     const badge = el("span", "watch-party-vote-badge");
     badge.append(el("span", "watch-party-vote-count", String(suggestion.voteCount)), el("span", "watch-party-vote-label", suggestion.voteCount === 1 ? "VOTE" : "VOTES"));
     poster.appendChild(badge);
@@ -58,7 +68,8 @@ function suggestCard(hub: WatchPartyHub): FocusItem {
 export function ballotRow(hub: WatchPartyHub, baseUrl: string): { readonly node: HTMLElement; readonly items: readonly FocusItem[] } {
     const leader = hub.winner()?.id;
     const items = [...hub.state.votes.rows.map(row => candidate(hub, row, row.id === leader, baseUrl)), suggestCard(hub)];
-    const node = el("div", "watch-party-ballot");
+    // A browse-row scrolls sideways to reveal the focused card, as every shelf does.
+    const node = el("div", "browse-row watch-party-ballot");
     node.setAttribute("role", "group");
     node.setAttribute("aria-label", "Suggestions");
     node.append(...items.map(item => item.element));

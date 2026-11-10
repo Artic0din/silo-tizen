@@ -92,6 +92,8 @@ export const PARTY_REPLACED = "This profile joined the party on another device. 
 const SUGGESTIONS_REFRESH_MS = 200;
 /** Reads the ballot this many times while socket updates keep overtaking it. */
 const SUGGESTIONS_READ_ATTEMPTS = 3;
+/** Failed ballot reads retried in the background before waiting for the next socket update. */
+const SUGGESTIONS_REFRESH_RETRIES = 3;
 const SUGGESTIONS_STALE = "The suggestions kept changing while they were read.";
 
 const END_TEXT: Record<RoomEnd, string> = { ended: PARTY_ENDED, expired: PARTY_EXPIRED, replaced: PARTY_REPLACED };
@@ -233,6 +235,8 @@ export class WatchPartyHub {
         if (!this.canStart()) return false;
         const roomId = this.requireRoom().roomId;
         const winner = this.state.room?.selectionMode === "vote" ? this.winner() : undefined;
+        // Off the socket a ballot from before the outage may name a stale winner, so a vote room starts only while connected.
+        if (winner !== undefined && this.state.connection !== "connected") return false;
         const started = winner === undefined
             ? await this.mutate(signal => this.api.startPlayback(roomId, signal), undefined, room => room.phase === "playing")
             : await this.mutate(signal => this.api.promoteSuggestion(roomId, this.roomToken, winner.id, signal), undefined, room => room.phase === "playing" && room.selectedContentId === winner.contentId);
@@ -249,7 +253,11 @@ export class WatchPartyHub {
     /** Votes for a suggestion, or takes the vote back. Refused until this profile's vote on it is known. */
     async vote(suggestionId: string, voted: boolean): Promise<boolean> {
         if (this.state.votes.voted(suggestionId) === undefined) return false;
-        return this.changeBallot((roomId, signal) => this.api.setVote(roomId, this.roomToken, suggestionId, voted, signal));
+        return this.changeBallot(async (roomId, signal) => {
+            await this.api.setVote(roomId, this.roomToken, suggestionId, voted, signal);
+            // The server took the vote: keep it even if the read that follows fails, so the card does not offer the same vote again.
+            this.state.votes.confirm(suggestionId, voted);
+        });
     }
 
     /** Apple's Add suggestion: the picker's title goes on the ballot, and the lobby comes back. */
@@ -569,26 +577,34 @@ export class WatchPartyHub {
         this.refreshSuggestions();
     }
 
-    /** WatchPartySession.refreshSuggestions: a vote room reads its ballot shortly after a socket update, one read at a time. */
-    private refreshSuggestions(): void {
+    /**
+     * WatchPartySession.refreshSuggestions: a vote room reads its ballot shortly after a socket update, one read at a time.
+     * A failed read tries again after 1, 2 and 4 seconds, so new suggestions do not stay unvotable until the next update.
+     */
+    private refreshSuggestions(failures = 0): void {
         const room = this.state.room;
         if (room?.selectionMode !== "vote" || this.suggestionsRefreshing || this.stopped) return;
         // Apple skips the read while a change runs; this one runs it when the change finishes, so an update or the host's own switch to voting is not lost.
         if (this.state.busy) { this.refreshPending = true; return; }
         const epoch = ++this.suggestionsEpoch;
         this.suggestionsRefreshing = true;
+        const failure = `Could not refresh suggestions. `;
         void (async () => {
+            let retry = false;
             try {
-                await sleep(this.options.clock ?? systemClock, SUGGESTIONS_REFRESH_MS, this.controller.signal, () => new Error("stopped"));
+                await sleep(this.options.clock ?? systemClock, failures === 0 ? SUGGESTIONS_REFRESH_MS : 1000 * 2 ** (failures - 1), this.controller.signal, () => new Error("stopped"));
                 if (epoch !== this.suggestionsEpoch) return;
                 await this.loadSuggestions(room.roomId, epoch);
+                if (this.state.error?.startsWith(failure) === true && epoch === this.suggestionsEpoch) { this.state.error = undefined; this.notify(); }
             } catch (error) {
                 if (this.stopped || epoch !== this.suggestionsEpoch || this.state.room?.roomId !== room.roomId) return;
-                this.state.error = `Could not refresh suggestions. ${this.describe(error)}`;
+                this.state.error = `${failure}${this.describe(error)}`;
                 this.notify();
+                retry = failures < SUGGESTIONS_REFRESH_RETRIES;
             } finally {
                 if (epoch === this.suggestionsEpoch) this.suggestionsRefreshing = false;
             }
+            if (retry) this.refreshSuggestions(failures + 1);
         })();
     }
 

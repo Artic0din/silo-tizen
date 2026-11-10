@@ -423,6 +423,9 @@ The open socket sends `ping` every 2 seconds until four pongs set the server clo
 Leave, Back, End party, sign-out and a profile switch close the socket with code 1000.
 A guest's I'm ready sends `{ "type": "lobby_ready", "ready": true }` on the open socket when the capabilities say `lobby_ready`; the snapshot that follows marks the seat, and nothing is sent while the socket is not open.
 In a vote room the lobby reads the ballot (`suggestions`, every page) 200 ms after the socket opens and after each `suggestions_update`, one read at a time, as Apple's; a read that falls due while a change runs, including the host's own switch to voting, runs when that change finishes.
+A failed ballot read tries again after 1, 2 and 4 seconds, and a vote the server accepted stands even when the read after it fails.
+The host's Start in a vote room needs the socket connected, since a ballot from before an outage may name a stale winner.
+Suggestion posters are drawn only from the server's own origin: the server stores whatever the suggesting client sent.
 `suggestions_update` replaces the tallies at once but always says `voted_by_me: false`, so this profile's own votes come only from that read; a read that a socket update or a vote overtook is dropped and read again, up to three times (`RoomVotes`, `src/ui/watchPartyVotes.ts`).
 Voting and Add suggestion read the ballot again afterwards, including after a failure, since a lost answer may have landed.
 The host's Start in a vote room promotes the winner: most votes, then the earlier suggestion, then the smaller id; nobody voting is no winner.

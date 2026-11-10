@@ -4045,8 +4045,9 @@ browseTest("loading, slow, offline, removed, empty and missing-artwork states al
 
     catalog.removed.add("movie:m0001");
     await activateDetails(tv);
-    await shows(tv, "This title is no longer available.");
-    await press(tv, "ArrowRight", "Enter");
+    await shows(tv, "We couldn't find what you were looking for. It may have been removed or moved.");
+    assert.equal(await tv.focused(), "go-back");
+    await press(tv, "Enter");
     await showing(tv, "home");
 
     const owner = catalog.households.get("p-owner");

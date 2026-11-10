@@ -798,7 +798,9 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     return;
                 }
                 current.failure = text ?? "Something went wrong. Try again.";
-                if (current.kind === "item") current.error = errorState(error);
+                current.error = errorState(error);
+                // Apple BoxSetDetailViewModel.errorState: a 404 keeps Not found but says why a box set can be missing.
+                if (current.kind === "boxSet" && current.error.headline === "Not found" && text !== undefined) current.error = { ...current.error, message: text };
                 if (current.kind === "search" && current.pages?.page === undefined) {
                     searchBoxSetController?.abort();
                     searchBoxSetController = undefined;
@@ -808,7 +810,6 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     }
                 }
                 if (current.kind === "calendar") current.calendar.error = error instanceof CalendarTimezoneError ? { headline: "Something went wrong", message: error.message, signIn: false } : errorState(error);
-                if (current.kind === "personal") current.error = errorState(error);
                 if (current.kind === "requests") { current.requests.error = errorState(error); if (!current.requests.unconfirmed && !current.requests.writing) current.requests.action = undefined; }
                 if (current.kind === "requests" && error instanceof ApiError && ["capability_disabled", "capability_not_configured", "capability_unsupported", "permission_denied"].includes(error.problemId ?? "")) void probeRequests();
                 if (top() === current) {
@@ -2047,7 +2048,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
 
     const retry = (current: Route): void => {
         current.failure = undefined;
-        if (current.kind === "personal") current.error = undefined;
+        current.error = undefined;
         render();
         loadRoute(current);
     };

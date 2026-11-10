@@ -387,3 +387,28 @@ test("a suggestion's poster is drawn only from this server; any other address sh
     assert.equal(serverPoster("http://192.168.1.1/p.jpg", base), undefined);
     assert.equal(serverPoster("", base), undefined);
 });
+
+test("after a reconnect the host cannot start until the ballot is read again, so a pre-outage winner is not promoted", async () => {
+    let reads = 0;
+    const promoted: string[] = [];
+    const r = await voteRoom([], { selection_mode: "vote" }, {
+        suggestions: async () => { reads++; return page(reads === 1 ? [row("a", { vote_count: 1 }), row("b")] : [row("a", { vote_count: 1 }), row("b", { vote_count: 3 })])(); },
+        promoteSuggestion: async (_roomId, _token, id) => { promoted.push(id); return roomAccess({ selection_mode: "vote" }); },
+    });
+    await r.clock.advance(200);
+    await settle();
+    assert.equal(r.hub.ballotCurrent(), true);
+    r.socket().close();
+    await r.clock.advance(1000);
+    await settle();
+    r.socket().open();
+    assert.equal(r.hub.state.connection, "connected");
+    assert.equal(r.hub.ballotCurrent(), false);
+    assert.equal(await r.hub.start(), false, "the old winner a is not promoted");
+    await r.clock.advance(200);
+    await settle();
+    assert.equal(r.hub.winner()?.id, "b");
+    assert.equal(await r.hub.start(), true);
+    assert.deepEqual(promoted, ["b"]);
+    r.hub.leave();
+});

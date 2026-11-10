@@ -10,6 +10,8 @@ export class RoomVotes {
     private personal = new Map<string, boolean>();
     /** Bumps on every socket update and every vote change, so an HTTP read can tell it was overtaken. */
     revision = 0;
+    /** False until an HTTP read lands on this socket connection: across an outage the tallies may have changed unseen. */
+    current = false;
 
     get rows(): readonly Suggestion[] { return this.rowsValue; }
 
@@ -27,6 +29,7 @@ export class RoomVotes {
         if (this.revision !== requestedAt) return false;
         this.personal = new Map(suggestions.map(row => [row.id, row.votedByMe]));
         this.rowsValue = suggestions;
+        this.current = true;
         return true;
     }
 

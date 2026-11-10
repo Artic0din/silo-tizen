@@ -178,6 +178,9 @@ export class WatchPartyHub {
         return room.selectionMode === "host_pick" && capabilities?.stagedSelection === true && room.selectedContentId !== undefined;
     }
 
+    /** Connected, and the ballot has been read on this connection. */
+    ballotCurrent(): boolean { return this.state.connection === "connected" && this.state.votes.current; }
+
     /** The suggestion with the most votes, or none while nobody has voted. */
     winner(): Suggestion | undefined { return voteWinner(this.state.votes.rows); }
 
@@ -235,8 +238,8 @@ export class WatchPartyHub {
         if (!this.canStart()) return false;
         const roomId = this.requireRoom().roomId;
         const winner = this.state.room?.selectionMode === "vote" ? this.winner() : undefined;
-        // Off the socket a ballot from before the outage may name a stale winner, so a vote room starts only while connected.
-        if (winner !== undefined && this.state.connection !== "connected") return false;
+        // A ballot from before an outage may name a stale winner, so a vote room starts only once this connection has read it.
+        if (winner !== undefined && !this.ballotCurrent()) return false;
         const started = winner === undefined
             ? await this.mutate(signal => this.api.startPlayback(roomId, signal), undefined, room => room.phase === "playing")
             : await this.mutate(signal => this.api.promoteSuggestion(roomId, this.roomToken, winner.id, signal), undefined, room => room.phase === "playing" && room.selectedContentId === winner.contentId);
@@ -444,6 +447,8 @@ export class WatchPartyHub {
             message: message => { this.receive(message); },
             status: status => {
                 this.state.connection = status;
+                // Every connection reads the ballot afresh before its winner can be started.
+                this.state.votes.current = false;
                 if (status === "connected") this.state.error = undefined;
                 this.notify();
                 if (status === "connected") this.refreshSuggestions();

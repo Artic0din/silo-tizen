@@ -9,7 +9,7 @@ import { actionButton } from "./browseViews.ts";
 import { qrCode } from "./qr.ts";
 import { el } from "./screen.ts";
 import { backdrop, banner, checkIcon, circleButton, codeText, ellipsisIcon, eyebrow, labelled, playIcon, plusIcon } from "./watchPartyParts.ts";
-import { ballotRow } from "./watchPartyBallot.ts";
+import { ballotRow, serverPoster } from "./watchPartyBallot.ts";
 import { inviteUrl } from "./watchPartyInvite.ts";
 import { type PrimaryAction, primaryAction, waitingNames } from "./watchPartyPolicy.ts";
 import { seatsRow } from "./watchPartySeats.ts";
@@ -125,7 +125,7 @@ function primaryButton(hub: WatchPartyHub, room: Room, action: PrimaryAction): F
         case "start": {
             const winner = room.selectionMode === "vote" ? hub.winner() : undefined;
             const start = labelled("start", winner === undefined ? "Start for everyone" : `Start ${winner.title}`, "primary", () => { void hub.start(); }, playIcon());
-            if (winner !== undefined) start.element.setAttribute("aria-disabled", String(hub.state.connection !== "connected"));
+            if (winner !== undefined) start.element.setAttribute("aria-disabled", String(!hub.ballotCurrent()));
             return start;
         }
         case "waitingForVotes": return suggestButton(hub, "Suggest a title", "primary");
@@ -210,7 +210,7 @@ function roomBackdrop(context: LobbyContext): HTMLElement {
     const reference = item?.backdropUrl ?? item?.posterUrl;
     if (reference === undefined && hub.state.room?.selectionMode === "vote") {
         const poster = (hub.winner() ?? hub.state.votes.rows[0])?.posterUrl;
-        return backdrop(poster === "" ? undefined : poster, context.baseUrl, true);
+        return backdrop(poster === undefined ? undefined : serverPoster(poster, context.baseUrl), context.baseUrl, true);
     }
     return backdrop(reference, context.baseUrl, item?.backdropUrl === undefined);
 }

@@ -1,9 +1,12 @@
-import { APPEARANCE_KEY, ADVISORY_KEY, METADATA_KEY, INTRO_SKIP_KEY, CREDITS_SKIP_KEY } from "../contracts/v2/settingsRows.ts";
+import { APPEARANCE_KEY, ADVISORY_KEY, BUFFERING_MODE_KEY, METADATA_KEY, INTRO_SKIP_KEY, CREDITS_SKIP_KEY } from "../contracts/v2/settingsRows.ts";
+import { BUFFERING_QUALITY_MODES, BUFFERING_QUALITY_TITLE } from "./qualitySettings.ts";
 import { AUTO_NEXT_KEY, NEXT_UP_KEY, CARD_PRESENTATION_KEY, type SettingValue, type SettingsKey } from "../contracts/v2/settings.ts";
 import { DEFAULT_APPEARANCE } from "../contracts/v2/subtitles.ts";
 import type { SettingsState } from "./settingsState.ts";
 
 type Choice = readonly [SettingValue, string];
+/** Drawn in QUALITY, under Maximum Bitrate, not with the episode rows. */
+export const BUFFERING_ROW_ID = "buffering-mode";
 export interface SettingsRow { readonly id: string; readonly title: string; readonly key: SettingsKey; readonly member?: string; readonly choices: readonly Choice[] }
 const onOff: readonly Choice[] = [[true, "On"], [false, "Off"]];
 const choices = (values: readonly string[]): readonly Choice[] => values.map(value => [value, value[0]?.toUpperCase() + value.slice(1)]);
@@ -16,6 +19,7 @@ export function settingsRows(category: string, state: SettingsState): readonly S
         { id: "advisory-age", title: "Show Advisory Age", key: ADVISORY_KEY, choices: onOff },
         { id: "poster-size", title: "Poster Size", key: CARD_PRESENTATION_KEY, member: "poster_size", choices: [["compact", "Compact"], ["standard", "Standard"], ["large", "Large"]] },
     ] : category === "playback" ? [
+        { id: BUFFERING_ROW_ID, title: BUFFERING_QUALITY_TITLE, key: BUFFERING_MODE_KEY, choices: BUFFERING_QUALITY_MODES },
         { id: "auto-next", title: "Auto-Play Next Episode", key: AUTO_NEXT_KEY, choices: onOff },
         { id: "next-up", title: "Show Next Up", key: NEXT_UP_KEY, choices: [[0, "At end"], [10, "10 seconds before end"], [30, "30 seconds before end"], [60, "1 minute before end"], [120, "2 minutes before end"]] },
         { id: "skip-intros", title: "Skip Intros", key: INTRO_SKIP_KEY, choices: [["never", "Never"], ["ask", "Ask to skip"], ["always", "Skip automatically"]] },

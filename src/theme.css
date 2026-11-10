@@ -14,8 +14,8 @@
     --silo-surface-variant: #0e0f12;
     --silo-elevated: #15171c;
     --silo-text: #ededed;
-    /* Small metadata needs more contrast than the mockup's 38% white. */
-    --silo-secondary: #a0a0a0;
+    /* Apple's siloSecondaryText: primary text at 60%, about 6:1 on black. */
+    --silo-secondary: rgba(237, 237, 237, 0.6);
     --silo-boundary: #767676;
     --silo-hairline: rgba(255, 255, 255, 0.12);
     --silo-selected: rgba(255, 255, 255, 0.14);

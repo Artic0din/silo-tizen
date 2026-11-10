@@ -38,7 +38,9 @@
 /* Apple's two-line row measures 97 at 2ef3a171. Its stroke is an overlay, so the fixed height carries the border here. */
 .settings-pane .browse-button.settings-connection-speed { height: 97px; flex-shrink: 0; }
 .settings-connection-line { font-size: 22px; font-weight: 400; line-height: 26px; opacity: 0.7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.settings-pane .browse-button.settings-connection-speed .settings-row-value { font-weight: 600; opacity: 1; }
+.settings-pane .browse-button.settings-connection-speed .settings-row-value,
+.settings-pane .browse-button.settings-learned-limit .settings-row-value { font-weight: 600; opacity: 1; }
+.settings-learned-limit .settings-row-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .settings-chevron { margin-left: 16px; font-size: 18px; opacity: .55; }
 .settings-controls .browse-button:has(.settings-row-value) { display: flex; align-items: center; gap: 16px; }
 .settings-version { margin: 10px 20px 24px; font-size: 18px; color: var(--silo-secondary); }

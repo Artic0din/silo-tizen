@@ -95,6 +95,7 @@ SELECTED=(
   user_libraries
   verify_profile_pin_ok
   verify_profile_pin_wrong
+  watch_together_capabilities
 )
 
 # Present at silo-server 6e8c68d and newer than SOURCE. Kept until SOURCE includes it

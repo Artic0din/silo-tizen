@@ -184,6 +184,38 @@ Desktop tests do not prove Samsung hardware rendering or live server CORS.
 Refusals follow `internal/apiv2/auth.go` at `SOURCE`: 401 `invalid_token` for a wrong password or unknown name alike, 403 `local_login_disabled`, `not_permitted`, `password_expired`, `account_required`, 409 `email_in_use`, `identity_linked_elsewhere`, 429 `rate_limited`, and 503 `dependency_unavailable` when the server is too busy to check a password.
 The copy for each follows the Apple TV app's `LoginViewModel.message`.
 
+## Watch Together (Watch Party)
+
+`watchTogether.ts` decodes the `/watch-together` documents and the `silo.room.v2` socket frames; `api/watchTogetherOperations.ts` supplies the six specs (capabilities, create, join by code, room read, close, socket ticket).
+Nothing calls them yet: this is the contract layer for issue 54, and no screen or socket client uses it.
+Pass each spec to `session.call({ ...spec, profileScoped: true })`, as Apple's calls run for the active profile.
+`room` and `socketTicket` add the room's `X-Room-Token` (`RequestSpec.roomToken`); every create, join and read answer returns a `room_access_token` that replaces the previous one; never log or store it.
+
+`watch_together_capabilities` is a byte-identical copy from `SOURCE` and carries `allowed: false`, so it proves the closed gate.
+It is the only Watch Together fixture the server publishes.
+Room, join, ticket and socket bodies are built in the tests from the `WatchTogetherRoomSnapshot`, `WatchTogetherRoomMember` and `EventsSocketTicket` schemas, and the socket frames from `internal/watchtogether/service.go` and `internal/api/handlers/watch_together.go` at `SOURCE`; the frames are not in `openapi.json`.
+
+Everything is gated by `GET /watch-together/capabilities`: `watchTogetherAvailable` needs `state: "available"` and `allowed: true`, and `watchTogetherSocketSupported` also needs `socket_protocol: "silo.room.v2"` and `connection_replaced: true`, as Apple requires before it joins.
+Apple additionally requires the playback capabilities features `watch_party_coordinator_v1` and `fixed_media_file_v1`; that check belongs with the player work.
+Flags the first servers lacked default to false; `allowed` defaults to false.
+
+| Operation | Retry class (`x-silo-retry-safety`) | Client behavior |
+| --- | --- | --- |
+| `getWatchTogetherCapabilities` | read | One transport retry |
+| `createWatchTogetherRoom` | `unique_constraint` | The caller's `room_id` UUID makes an exact replay return the same room, so the transport may resend it and a 401 refresh may replay it. Reuse the id for any resend |
+| `joinWatchTogetherRoom` | `natural_idempotent` | One transport retry. Body `code` only, trimmed, 1 to 128 characters; the invite `join_token` is not used |
+| `getWatchTogetherRoom` | read | One transport retry; the lobby state |
+| `closeWatchTogetherRoom` | `natural_idempotent` | Host only, by account and profile (no room token in the contract); 204, 409 once ended. A guest has no HTTP leave: leaving is closing the room socket, as in Apple's `leave()` |
+| `createWatchTogetherSocketTicket` | `natural_idempotent` | A single-use ticket for one connection; mint a new one for every reconnect |
+
+Socket frames still carry numeric `user_id`, `selected_file_id`, `selected_library_id` and `suggester_user_id`, while HTTP v2 bodies carry strings; both decode to strings, as Apple's `watchPartyID` does.
+`anchor_updated_at` is RFC 3339; command and message times are RFC 3339 with nanoseconds and decode to epoch milliseconds.
+Unknown `type` values decode to `unknown` and unknown enum values to `"unknown"`; a frame without a string `type`, or with a missing or malformed consumed member, throws `WireError`.
+`encodeRoomClientMessage` writes the seven client frames the server accepts and refuses an empty session id or a position that is not a finite number of seconds, zero or more.
+`roomSocketHandshake` builds the `wss://<server>/api/v2/watch-together/rooms/{id}/ws` address and the `["silo.room.v2", "silo.ticket.<ticket>"]` subprotocols.
+
+The room operations that this layer does not cover yet (staged and direct selection, start and stop playback, selection mode, guest policy, suggestions, votes, promote, member state, picker, source fallback) are in the same contract and are left for the lobby and playback work.
+
 ## Updating the pinned contract
 
 1. Pick the new server commit and copy the same fixture names from its `contracts/api/v2/fixtures/`.

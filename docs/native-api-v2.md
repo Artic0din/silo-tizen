@@ -35,6 +35,7 @@ The public sign-in reads (branding and auth providers) call `NativeHttp.send` di
   - `Content-Type: application/json` when a body is sent.
   - `Authorization: Bearer <token>` when the spec carries a bearer.
   - `X-Profile-Id`, and `X-Profile-Token` when a PIN proof exists, for profile-scoped specs.
+  - `X-Room-Token` when the spec carries a Watch Together room token (`src/api/watchTogetherOperations.ts`).
   - `X-Silo-Client-Family: tv`, set only on the two `effectiveSettings` reads for the primary menu and card presentation (`src/ui/navigationSettings.ts`, `src/ui/presentationSettings.ts`).
 - **Success.** A 2xx with status 204 or an empty body decodes `undefined`. Any other 2xx body must have media type `application/json`, otherwise the result is `invalid_response` at `content-type`.
 
@@ -404,6 +405,24 @@ Creation is sent once with refresh replay off.
 A 404 on create shows "This is no longer available to shuffle."
 `advance` runs when the current item finishes (`src/player/nextShuffle.ts`).
 
+### Watch Together (not called by any screen yet)
+
+Defined in `src/api/watchTogetherOperations.ts`; no screen or socket client uses them yet (issue 54).
+Bearer plus Profile.
+`room` and `socketTicket` also send `X-Room-Token` (`RequestSpec.roomToken`).
+
+| Operation | Method and path | Retry |
+| --- | --- | --- |
+| capabilities | `GET /watch-together/capabilities` | safe |
+| createRoom | `POST /watch-together/rooms` with `{ "room_id": <uuid>, "selection_mode": ... }` | safe (the `room_id` makes a replay return the same room) |
+| joinByCode | `POST /watch-together/join` with `{ "code": ... }` | safe |
+| room | `GET /watch-together/rooms/{id}` | safe |
+| closeRoom | `DELETE /watch-together/rooms/{id}`, host only, 204; no room token | safe |
+| socketTicket | `POST /watch-together/rooms/{id}/ws-ticket` | safe |
+
+Everything is offered only when `allowed` is true and `state === "available"` (`watchTogetherAvailable`, `src/contracts/v2/watchTogether.ts`).
+See `src/contracts/v2/README.md` for the socket frames and the operations left for later.
+
 ### Playback plan, progress and stop
 
 Defined in `src/api/operations.ts`.
@@ -417,6 +436,8 @@ All are Bearer plus Profile, with refresh replay left at its default.
 | replanPlayback | `POST /playback/{sessionId}/replan` | never |
 | updatePlaybackProgress | `POST /playback/{sessionId}/progress` | never |
 | stopPlayback | `DELETE /playback/{sessionId}` with a JSON body | never |
+| getPlaybackConnection | `GET /playback/connection` | safe |
+| resetPlaybackLearnedLimit | `DELETE /playback/connection/learned-limit` | never |
 | playback defaults | `GET /settings/values/effective?keys=...` | safe |
 
 Gating (`src/player/controller.ts`): playback proceeds only when the capability answer has `state` available, `allowed`, protocol version 3 in `protocol_versions`, an `installation_id`, and an active profile.

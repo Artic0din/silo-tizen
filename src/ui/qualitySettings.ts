@@ -35,12 +35,17 @@ export function bitrateLabel(kbps: number | null): string {
     return `${kbps} kbps`;
 }
 
-/** The sentence under Resolution and Maximum Bitrate. */
-export function qualityFooter(resolution: string | null | undefined, bitrateKbps: number | null | undefined): string {
+/** The manifest's label, description and option labels for `playback.buffering_quality_mode` (BufferingQualityMode.swift:26-32, SettingsViewModel.swift:85-87). */
+export const BUFFERING_QUALITY_TITLE = "Lower quality when buffering";
+export const BUFFERING_QUALITY_DESCRIPTION = "What Silo does on Auto when playback keeps buffering. Silo always asks before lowering a quality you picked.";
+export const BUFFERING_QUALITY_MODES = [["never", "Never"], ["ask", "Ask first"], ["always", "Automatically"]] as const;
+
+/** The sentence under Resolution and Maximum Bitrate, plus the buffering description when that row is shown (TVPlaybackSettingsView.swift:106-110). */
+export function qualityFooter(resolution: string | null | undefined, bitrateKbps: number | null | undefined, bufferingRow = false): string {
     const normalized = normalizeResolution(resolution);
     let text = normalized === "auto"
         ? "Plays the original file whenever your device and connection can handle it."
         : `Plays the original file up to ${resolutionLabel(normalized)}. Larger files are converted.`;
     if (bitrateKbps !== null && bitrateKbps !== undefined && bitrateKbps > 0) text += " Files above this bitrate are converted to fit.";
-    return text;
+    return bufferingRow ? `${text} ${BUFFERING_QUALITY_DESCRIPTION}` : text;
 }

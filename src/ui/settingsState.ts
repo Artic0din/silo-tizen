@@ -5,7 +5,7 @@ import { operations } from "../api/operations.ts";
 import type { UserLibrary } from "../contracts/v2/catalog.ts";
 import { AUDIO_KEY, HDR_KEY, HIDDEN_KEY, QUALITY_KEY, TITLE_ART_KEY, SEEK_KEYS, SETTINGS_KEYS, SHOW_FORCED_KEY, SUBTITLE_LANGUAGE_KEY, SUBTITLE_MODE_KEY, decodeSettingValue, numericLibraryId, profileSettings, type SettingsIdentity, type SettingsScope, type EffectiveSetting, type ExplicitSetting, type SettingDefinition, type SettingsKey, type SettingValue } from "../contracts/v2/settings.ts";
 import { NativeSession, SessionError } from "../session/session.ts";
-import { APPEARANCE_KEY, METADATA_KEY, INTRO_SKIP_KEY, CREDITS_SKIP_KEY } from "../contracts/v2/settingsRows.ts";
+import { APPEARANCE_KEY, BUFFERING_MODE_KEY, METADATA_KEY, INTRO_SKIP_KEY, CREDITS_SKIP_KEY } from "../contracts/v2/settingsRows.ts";
 import { descriptionTranslationOperations } from "../api/descriptionTranslationOperations.ts";
 import { DEFAULT_APPEARANCE } from "../contracts/v2/subtitles.ts";
 
@@ -48,7 +48,7 @@ export class SettingsState {
     scope(key: SettingsKey): SettingsScope {
         if (key === APPEARANCE_KEY && this.device.get(key)?.isSet) return "profile_device";
         if (key === "ui.card_presentation" && this.definitions.some(def => def.key === key && def.client)) return "profile_client";
-        return [AUDIO_KEY, QUALITY_KEY, "playback.max_bitrate_kbps", "playback.auto_play_next", "playback.next_up_prompt_seconds", INTRO_SKIP_KEY, CREDITS_SKIP_KEY, HDR_KEY].includes(key) && this.definitions.some(def => def.key === key && def.device) ? "profile_device" : "profile";
+        return [AUDIO_KEY, QUALITY_KEY, "playback.max_bitrate_kbps", "playback.auto_play_next", "playback.next_up_prompt_seconds", INTRO_SKIP_KEY, CREDITS_SKIP_KEY, BUFFERING_MODE_KEY, HDR_KEY].includes(key) && this.definitions.some(def => def.key === key && def.device) ? "profile_device" : "profile";
     }
     stored(key: SettingsKey): ExplicitSetting | undefined { return (this.scope(key) === "profile_device" ? this.device : this.scope(key) === "profile_client" ? this.client : this.explicit).get(key); }
     subtitleProfileValue(key: typeof SUBTITLE_LANGUAGE_KEY | typeof SUBTITLE_MODE_KEY | typeof SHOW_FORCED_KEY): SettingValue {

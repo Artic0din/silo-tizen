@@ -64,7 +64,7 @@ import { stopFeed } from "./catalogFeed.ts";
 import type { BrowseChange, DiscoveryState } from "./libraryDiscovery.ts";
 import { shufflePick } from "../player/nextShuffle.ts";
 import type { ShuffleCapability } from "../contracts/v2/shuffle.ts";
-import { avatarReference } from "./profilePicker.ts";
+import { avatarReference, avatarText } from "./profilePicker.ts";
 import { ExperimentalFeatures } from "../session/experimentalFeatures.ts";
 import { WatchPartyHub, watchPartyApi } from "./watchPartyHub.ts";
 import { watchPartyScreen } from "./watchParty.ts";
@@ -83,6 +83,7 @@ export interface BrowseOptions {
     readonly onAccounts?: (back: () => void) => void;
     readonly profileName?: string;
     readonly profileAvatarUrl?: string;
+    readonly profileAvatarText?: string;
     readonly clock?: Clock;
     readonly publicStorage?: PublicStorage;
 }
@@ -131,6 +132,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     }
     let profileName = options.profileName ?? "Profiles";
     let profileAvatarUrl = options.profileAvatarUrl;
+    let profileAvatarText = options.profileAvatarText;
     const clock = options.clock ?? systemClock;
     const cache = browseCache(options.publicStorage, [server.server.serverId, session.account?.id ?? "", session.activeProfile.id], session.authoritySignal);
     // Route reads already discard through cache.read. Card menus, episode owners and
@@ -1970,7 +1972,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             midnight.setHours(24, 0, 0, 0);
             cancelCalendarDay = clock.schedule(() => render(host.focused()), midnight.getTime() - clock.now());
         }
-        shell.setAvatar(profileName, profileAvatarUrl, context.baseUrl);
+        shell.setAvatar(profileName, profileAvatarUrl, context.baseUrl, profileAvatarText);
         if (current.kind === "library") shell.setLibraryModes(availableModes(current.discovery?.data?.capabilities ?? current.discovery?.capabilities));
         const searchFilter = (route: Extract<Route, { kind: "search" }>, filter: SearchFilter | undefined): void => {
             if (top() !== route || route.filter === filter) return;
@@ -2602,6 +2604,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 showAudiobooks,
                 profileName,
                 profileAvatarUrl,
+                profileAvatarText,
                 accountName: session.account?.username,
                 switchProfile: chooseProfile,
                 serverName: cachedBranding(options.publicStorage, context.baseUrl)?.serverName,
@@ -2694,7 +2697,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             if (torn) return;
             profileName = profile.name;
             profileAvatarUrl = avatarReference(profile);
-            shell.setAvatar(profileName, profileAvatarUrl, context.baseUrl);
+            profileAvatarText = avatarText(profile);
+            shell.setAvatar(profileName, profileAvatarUrl, context.baseUrl, profileAvatarText);
         },
         destroy: teardown,
         spoilers: () => episodeSpoilers?.settings ?? { hidesImages: false, hidesOverviews: false },

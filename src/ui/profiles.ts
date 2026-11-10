@@ -124,7 +124,8 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
     };
 
     const message = (name: string, title: string, lines: readonly string[], controls: readonly Control[], back?: () => void, tone: Note["tone"] = "info", focus?: string): void => {
-        const body = lines.map((line) => el("p", tone === "error" ? "signin-text signin-error" : "signin-text", line));
+        // Only the first line is the error; any later line is ordinary copy.
+        const body = lines.map((line, index) => el("p", tone === "error" && index === 0 ? "signin-text signin-error" : "signin-text", line));
         if (tone === "error") {
             body[0]?.setAttribute("role", "alert");
         }
@@ -314,13 +315,21 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
     const selected = (profile: ProfileSummary): void => {
         const launch = options.launch;
         if (launch === undefined || (!launch.needsOffer && !launch.remembered)) { handOff(profile); return; }
+        // ProfileSelectionView's tvOS remember offer, with "this Apple TV" read as "this TV". While the offer is pending, Back
+        // answers Ask Every Time, as Menu runs the alert's cancel button. Saving can fail on the TV, so the offer then also says
+        // why and can continue unsaved; a failed silent re-save for an existing choice keeps that choice when Back leaves.
+        const pendingOffer = launch.needsOffer;
         const offer = (error = false): void => {
             begin();
-            message("remember-profile", `Remember ${profile.name} on this TV?`, error ? ["Could not save the launch choice. Try again or choose Ask who's watching."] : [], [
-                button("remember", error ? "Retry remember profile" : "Remember this profile", () => save(true)),
-                button("ask-every-launch", "Ask who's watching at launch", () => save(false)),
+            const name = profile.name.trim();
+            message("remember-profile", name === "" ? "Open this profile automatically?" : `Open ${name} automatically?`, [
+                ...(error ? ["Silo couldn't securely remember this profile. Please try again."] : []),
+                "Silo can skip Who's Watching and open this profile when it starts on this TV. You can change this later in Settings > General > Profile Selection.",
+            ], [
+                button("remember", "Remember", () => save(true)),
+                button("ask-every-launch", "Ask Every Time", () => save(false)),
                 ...(error ? [button("continue-session", "Continue without saving", () => { launch.continueWithoutSaving(); handOff(profile); })] : []),
-            ], () => showList(profile.id), error ? "error" : "info");
+            ], pendingOffer ? () => save(false) : () => showList(profile.id), error ? "error" : "info");
         };
         const save = (remember: boolean): void => {
             const token = begin();
@@ -329,7 +338,7 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
             message("remember-saving", "Saving launch choice", [], [button("back", "Back", () => showList(profile.id))], () => showList(profile.id));
             launch.setRemember(remember, controller.signal, profile).then(() => { if (token === view) handOff(profile); }, () => { if (token === view) offer(true); });
         };
-        if (launch.needsOffer) offer();
+        if (pendingOffer) offer();
         else save(true);
     };
 

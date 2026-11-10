@@ -8,7 +8,7 @@ import { actionButton, zoneNode } from "./browseViews.ts";
 import { el } from "./screen.ts";
 import { TMDB_LOGO_PATH } from "./acknowledgements.ts";
 import { SkylineScroll } from "./skylineScroll.ts";
-import { navigationAvatar } from "./navigationAvatar.ts";
+import { profileMenuAvatar } from "./navigationAvatar.ts";
 import { navigationRoots } from "./navigation.ts";
 import type { PrimaryMenu } from "../contracts/v2/navigation.ts";
 import { navigationIcon } from "./navigationIcon.ts";
@@ -103,6 +103,7 @@ export class Skyline {
     private panelTitle = "";
     private confirmation = false;
     private avatarReference: string | undefined;
+    private avatarText: string | undefined;
     private readonly tools = el("div", "skyline-tools");
     private readonly selector = el("div", "skyline-selector");
     private readonly marquee = el("div", "skyline-marquee");
@@ -280,12 +281,13 @@ export class Skyline {
         this.activate(target, mode);
     }
 
-    setAvatar(name: string, reference: string | undefined, baseUrl: string): void {
+    setAvatar(name: string, reference: string | undefined, baseUrl: string, text?: string): void {
         this.avatarReference = reference;
+        this.avatarText = text;
         const profile = this.items.find(item => item.key === "profiles");
-        const identity = JSON.stringify([name, reference, baseUrl]);
+        const identity = JSON.stringify([name, reference, baseUrl, text]);
         if (profile === undefined || (profile.element.firstElementChild as HTMLElement | null)?.dataset.avatarIdentity === identity) return;
-        const avatar = navigationAvatar(name, reference, baseUrl, 58);
+        const avatar = profileMenuAvatar(name, reference, text, baseUrl, 58);
         avatar.dataset.avatarIdentity = identity;
         replaceNodes(profile.element, [avatar]);
     }
@@ -764,7 +766,7 @@ export class Skyline {
         const header = el("div", "skyline-profile-header");
         const labels = el("div", "skyline-profile-labels");
         labels.append(el("div", "skyline-profile-title", this.profiles.name), el("div", "skyline-profile-server", (this.profiles.serverName?.() ?? new URL(this.baseUrl).host).toUpperCase()));
-        header.append(navigationAvatar(this.profiles.name, this.avatarReference, this.baseUrl, 44), labels);
+        header.append(profileMenuAvatar(this.profiles.name, this.avatarReference, this.avatarText, this.baseUrl, 44), labels);
         const divider = el("div", "skyline-menu-divider");
         const rows: HTMLElement[] = [];
         for (const item of this.panel) { if (item.key === "settings") rows.push(divider); rows.push(item.element); }

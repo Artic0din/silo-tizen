@@ -727,6 +727,18 @@ appTest("the top bar shows a preset's flat PNG when the server's avatar URL is a
     assert.equal(new URL(source).searchParams.get("backgroundType"), null);
 });
 
+appTest("an emoji avatar shows in the top bar, the profile menu and Settings instead of the initial", async tv => {
+    const items = (tv.fake.profiles.items as Record<string, unknown>[]).map(item => item.id === "p-owner" ? { ...item, avatar: "\u{1F98A}", avatar_url: undefined } : item);
+    tv.fake.profiles = { ...tv.fake.profiles, items };
+    await signIn(tv);
+    const avatar = tv.page.locator('[data-focus="profiles"] .navigation-avatar');
+    assert.equal(await avatar.locator(".navigation-avatar-fallback").textContent(), "\u{1F98A}");
+    assert.equal(await avatar.locator(".navigation-avatar-fallback").evaluate(node => getComputedStyle(node).fontSize), "26.1px", "ProfileAvatarView draws text at 45% of the 58 px avatar");
+    await tv.page.locator('[data-focus="profiles"]').click();
+    assert.equal(await tv.page.locator(".skyline-profile-header .navigation-avatar-fallback").textContent(), "\u{1F98A}");
+    assert.equal(await tv.focused(), "switch-profile", "opening the menu keeps focus on its first row");
+});
+
 appTest("Sign Out confirmation traps focus and cancellation preserves the session", async tv => {
     await signIn(tv);
     await tv.page.evaluate(() => window.appHarness.storage.setItem("silo.native.serverBranding.v1", JSON.stringify({ "https://silo.example.test": { serverName: "Living room library" } })));
@@ -1810,7 +1822,7 @@ appTest("a profile-proof refusal stops playback and leaves the PIN successor int
     await signIn(tv);
     await tv.page.locator('[data-focus="profiles"]').click();
     await tv.page.locator('[data-focus="switch-profile"]').click();
-    await tv.page.getByRole("button", { name: "Kid, PIN protected", exact: true }).waitFor();
+    await tv.page.getByRole("button", { name: "Kid, PIN protected, Kids profile", exact: true }).waitFor();
     await tv.page.locator('[data-focus="profile:p-kid"]').click();
     await pressPin(tv.page, "2468");
     await tv.page.locator('[data-view="home"] [data-focus="movie:k1"]').waitFor();

@@ -246,7 +246,9 @@ test("temporary creation from a remembered profile preserves its launch choice a
         await tv.page.locator('[data-focus="switch-profile"]').click();
         await tv.page.locator('[data-screen="profiles"]').waitFor();
         await tv.page.locator('[data-focus="profile:p-kid"] .profile-remembered').waitFor();
-        await tv.page.getByRole("button", { name: "Add profile", exact: true }).click();
+        assert.equal(await tv.page.locator('[data-focus="profile:p-kid"] .profile-remembered').textContent(), "TV user");
+        assert.equal(await tv.page.locator('[data-focus="profile:p-kid"]').getAttribute("aria-label"), "Kid, Paired with this TV user, PIN protected, Kids profile");
+        await tv.page.getByRole("button", { name: "Add", exact: true }).click();
         await tv.page.locator('[data-screen="profile-create"]').waitFor();
         await tv.remote(10009);
         await tv.page.locator('[data-screen="profiles"]').waitFor();
@@ -320,7 +322,7 @@ test("dismissed Settings launch save preserves the current General control focus
     } finally { await tv.page.context().close(); await browser.close(); }
 });
 
-test("remember save failure is visible, Retry is explicit, and Back keeps picker usable", async () => {
+test("remember save failure is visible and Remember retries it", async () => {
     const browser = await launchBrowser();
     const tv = await openTv(browser, { app: "application" });
     tv.fake.catalog = new FakeDetails();
@@ -329,16 +331,62 @@ test("remember save failure is visible, Retry is explicit, and Back keeps picker
         await tv.page.locator('[data-screen="remember-profile"]').waitFor();
         await tv.page.evaluate(() => { window.appHarness.keyManager.failSave = true; });
         await tv.page.keyboard.press("Enter");
-        await tv.page.getByRole("alert").filter({ hasText: "Could not save" }).waitFor();
+        await tv.page.getByRole("alert").filter({ hasText: "couldn't securely remember" }).waitFor();
         assert.equal(await tv.page.locator('[data-view="home"]').count(), 0);
-        await tv.remote(10009);
-        await tv.page.locator('[data-screen="profiles"]').waitFor();
-        await tv.page.locator('[data-focus="profile:p-kid"]').click();
-        await tv.page.locator('[data-screen="remember-profile"]').waitFor();
+        assert.equal(await tv.focused(), "remember", "the failed offer keeps focus on Remember");
         await tv.page.evaluate(() => { window.appHarness.keyManager.failSave = false; });
         await tv.page.keyboard.press("Enter");
         await tv.page.locator('[data-view="home"]').waitFor();
         assert.equal(tv.fake.requests.filter(request => request.path.endsWith("/verify-pin")).length, 1);
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); await browser.close(); }
+});
+
+test("the remember offer uses Apple TV's copy and Back answers Ask Every Time", async () => {
+    const browser = await launchBrowser();
+    const tv = await openTv(browser, { app: "application" });
+    tv.fake.catalog = new FakeDetails();
+    try {
+        await picker(tv);
+        await tv.page.locator('[data-focus="profile:p-owner"]').click();
+        const offer = tv.page.locator('[data-screen="remember-profile"]');
+        await offer.waitFor();
+        assert.equal(await offer.locator("h1").textContent(), "Open Laura automatically?");
+        assert.equal(await offer.locator("p").textContent(), "Silo can skip Who's Watching and open this profile when it starts on this TV. You can change this later in Settings > General > Profile Selection.");
+        assert.deepEqual(await offer.locator("button").allTextContents(), ["Remember", "Ask Every Time"]);
+        assert.equal(await tv.focused(), "remember");
+        await tv.remote(10009);
+        await tv.page.locator('[data-view="home"]').waitFor();
+        await tv.page.evaluate(() => window.appHarness.mount());
+        await tv.page.locator('[data-screen="profiles"]').waitFor();
+        assert.equal(await tv.focused(), "profile:p-owner", "Ask Every Time shows the picker at the next launch, focused on a profile");
+        assert.equal(await tv.page.locator(".profile-remembered").count(), 0);
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); await browser.close(); }
+});
+
+test("Back after a failed re-save while switching keeps the remembered launch choice", async () => {
+    const browser = await launchBrowser();
+    const tv = await openTv(browser, { app: "application" });
+    tv.fake.catalog = new FakeDetails();
+    try {
+        await picker(tv);
+        await tv.page.locator('[data-focus="profile:p-owner"]').click();
+        await tv.page.locator('[data-screen="remember-profile"]').waitFor();
+        await tv.page.locator('[data-focus="remember"]').click();
+        await tv.page.locator('[data-view="home"]').waitFor();
+        await tv.page.locator('[data-focus="profiles"]').click();
+        await tv.page.locator('[data-focus="switch-profile"]').click();
+        await tv.page.locator('[data-screen="profiles"]').waitFor();
+        await tv.page.evaluate(() => { window.appHarness.keyManager.failSave = true; });
+        await selectKid(tv);
+        await tv.page.getByRole("alert").filter({ hasText: "couldn't securely remember" }).waitFor();
+        await tv.remote(10009);
+        await tv.page.locator('[data-screen="profiles"]').waitFor();
+        assert.equal(await tv.focused(), "profile:p-kid", "Back returns focus to the chosen profile");
+        await tv.page.evaluate(() => { window.appHarness.keyManager.failSave = false; window.appHarness.mount(); });
+        await tv.page.locator('[data-view="home"]').waitFor();
+        assert.equal(await tv.page.locator('[data-screen="profiles"]').count(), 0, "the remembered profile still opens at launch");
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); await browser.close(); }
 });
@@ -353,7 +401,7 @@ test("blocked preference storage offers Continue without saving and still asks a
         await tv.page.locator('[data-screen="remember-profile"]').waitFor();
         await tv.page.evaluate(() => { window.appHarness.storage.failSet = true; });
         await tv.page.locator('[data-focus="ask-every-launch"]').click();
-        await tv.page.getByRole("alert").filter({ hasText: "Could not save" }).waitFor();
+        await tv.page.getByRole("alert").filter({ hasText: "couldn't securely remember" }).waitFor();
         await tv.page.locator('[data-focus="continue-session"]').click();
         await tv.page.locator('[data-view="home"]').waitFor();
         await tv.page.evaluate(() => { window.appHarness.storage.failSet = false; window.appHarness.mount(); });

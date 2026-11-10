@@ -15,14 +15,17 @@ export function avatarReference(profile: Pick<ProfileSummary, "avatarUrl" | "ava
     return raw !== undefined && (raw.includes("/") || /\.(png|jpe?g|webp|gif|svg|avif)(?:\?|$)/i.test(raw)) ? raw : undefined;
 }
 
-export function profileAvatar(profile: ProfileSummary, baseUrl: string, size = 220): HTMLElement {
-    const reference = avatarReference(profile);
+/** Apple ProfileAvatarView `displayAvatarText`: an emoji or other text avatar, never an image or `upload:` reference. */
+export function avatarText(profile: Pick<ProfileSummary, "avatar">): string | undefined {
     const raw = profile.avatar?.trim() ?? "";
-    const imageLike = /^upload:|^preset:dicebear:|\/|\.(png|jpe?g|webp|gif|svg|avif)(?:\?|$)/i.test(raw);
-    const fallback = !imageLike && raw !== "" ? raw : Array.from(profile.name.trim())[0]?.toUpperCase() ?? "?";
-    const avatar = navigationAvatar(profile.name, reference, baseUrl, size, fallback);
+    return raw === "" || /^upload:|^preset:dicebear:|\/|\.(png|jpe?g|webp|gif|svg|avif)(?:\?|$)/i.test(raw) ? undefined : raw;
+}
+
+export function profileAvatar(profile: ProfileSummary, baseUrl: string, size = 220): HTMLElement {
+    const text = avatarText(profile);
+    const avatar = navigationAvatar(profile.name, avatarReference(profile), baseUrl, size, text ?? Array.from(profile.name.trim())[0]?.toUpperCase() ?? "?");
     avatar.classList.add("profile-avatar");
-    if (!imageLike && raw !== "") avatar.classList.add("profile-avatar-text");
+    if (text !== undefined) avatar.classList.add("profile-avatar-text");
     let tintIndex = 5381 % PALETTE.length;
     for (const byte of new TextEncoder().encode(profile.id)) tintIndex = (tintIndex * 33 + byte) % PALETTE.length;
     const tint = PALETTE[tintIndex] ?? PALETTE[0];
@@ -55,7 +58,10 @@ export function profilePickerScreen(options: PickerOptions): Screen {
     const controls: Control[] = options.profiles.map((profile, index) => {
         const tile = button(`profile:${profile.id}`, "", () => options.choose(profile));
         tile.element.className = "profile-tile";
-        tile.element.setAttribute("aria-label", `${profile.name}${profile.hasPin ? ", PIN protected" : ""}`);
+        const remembered = profile.id === options.rememberedId;
+        // ProfileTile accessibilityValue on tvOS, with "Apple TV user" read as "TV user".
+        const values = [remembered ? "Paired with this TV user" : "", profile.hasPin ? "PIN protected" : "", profile.isChild ? "Kids profile" : ""].filter(value => value !== "");
+        tile.element.setAttribute("aria-label", [profile.name, ...values].join(", "));
         const face = el("span", "profile-face");
         face.appendChild(profileAvatar(profile, options.baseUrl));
         if (profile.hasPin) {
@@ -65,16 +71,16 @@ export function profilePickerScreen(options: PickerOptions): Screen {
         }
         if (profile.isChild) face.appendChild(el("span", "profile-child", "KIDS"));
         tile.element.append(face, el("span", "profile-name", profile.name));
-        if (profile.id === options.rememberedId) tile.element.appendChild(el("span", "profile-remembered", "Auto-login"));
+        if (remembered) tile.element.appendChild(el("span", "profile-remembered", "TV user"));
         grid.appendChild(tile.element);
         return { ...tile, row: Math.floor(index / columns) };
     });
     const add = button("add-profile", "", options.add);
     add.element.className = "profile-tile profile-add";
-    add.element.setAttribute("aria-label", "Add profile");
+    add.element.setAttribute("aria-label", "Add");
     const plus = el("span", "profile-add-circle", "+");
     plus.setAttribute("aria-hidden", "true");
-    add.element.append(plus, el("span", "profile-name", "Add profile"));
+    add.element.append(plus, el("span", "profile-name", "Add"));
     grid.appendChild(add.element);
     controls.push({ ...add, row: Math.floor(options.profiles.length / columns) });
     grid.addEventListener("focusin", event => {

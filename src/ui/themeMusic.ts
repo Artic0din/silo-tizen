@@ -71,6 +71,8 @@ export class ThemeMusicController {
     private suspended = false;
     /** The theme played to its end and nothing replays it; the page keeps it selected so staying open does not start it again. */
     private finished = false;
+    /** A converted loop ended while suspended and is owed a replay, unless looping is turned off before the page returns. */
+    private endedSuspended = false;
     /** Stopped outputs still fading out, so an immediate stop can silence them. */
     private readonly retiring = new Set<ThemeAudioOutput>();
 
@@ -93,6 +95,7 @@ export class ThemeMusicController {
             if (this.suspended) {
                 this.suspended = false;
                 if (this.output !== undefined) this.resume(this.output);
+                else if (this.endedSuspended && !loop) this.finished = true;
                 else if (!this.finished) this.startLoad();
             }
             return;
@@ -120,6 +123,7 @@ export class ThemeMusicController {
     stop(mode: StopMode = "fade"): void {
         this.suspended = false;
         this.finished = false;
+        this.endedSuspended = false;
         this.generation++;
         this.owner = "";
         this.theme = "";
@@ -166,6 +170,7 @@ export class ThemeMusicController {
         this.converted = granted.converted;
         this.played = false;
         this.finished = false;
+        this.endedSuspended = false;
         output.volume = 0;
         output.loops = this.loop && !this.converted;
         output.onProgress = () => {
@@ -182,8 +187,10 @@ export class ThemeMusicController {
             // One that ended without playing spends the same single retry as a failure, so a clean conversion failure cannot replay forever.
             if (this.converted && this.loop && (this.played || this.spendRetry())) {
                 // Ended while suspended: drop the output but not the theme, so returning replays it with a fresh grant.
-                if (this.suspended) this.clearOutput();
-                else this.startLoad();
+                if (this.suspended) {
+                    this.endedSuspended = true;
+                    this.clearOutput();
+                } else this.startLoad();
                 return;
             }
             this.finished = true;

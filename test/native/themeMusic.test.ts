@@ -343,3 +343,17 @@ test("a converted loop that ends while suspended replays with a fresh grant on r
     assert.equal(grants.length, 2);
     assert.equal(outputs[1]!.playing, true);
 });
+
+test("a converted theme that ended while suspended does not replay if looping was turned off meanwhile", async () => {
+    const { controller, grants, outputs, finishFades } = setup({ converted: true });
+    controller.select(set("movie:1", "a"), true);
+    await controller.waitUntilSettled();
+    outputs[0]!.onProgress?.();
+    finishFades();
+    controller.suspend();
+    outputs[0]!.onEnded?.();
+    controller.select(set("movie:1", "a"), false);
+    await controller.waitUntilSettled();
+    assert.equal(grants.length, 1);
+    assert.equal(outputs.length, 1);
+});

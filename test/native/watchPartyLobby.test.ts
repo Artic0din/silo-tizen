@@ -251,22 +251,28 @@ test("End party does not wait on reading the room back after a lost start", asyn
     assert.deepEqual(calls, [`close ${ROOM_ID}`]);
 });
 
-test("a lost start that was not read back because the party was ending is read once the close fails", async () => {
+test("a lost start that was not read back because the party was ending is read once the close fails, without holding up End", async () => {
     let reads = 0;
+    let closes = 0;
     let fail: () => void = () => undefined;
+    let answer: () => void = () => undefined;
     const { hub } = lobby({
         startPlayback: () => new Promise((_resolve, reject) => { fail = () => reject(new ApiError({ kind: "timeout" })); }),
-        room: async () => { reads++; return roomAccess({ selected_content_id: "movie:m0004", phase: "playing", selected_file_id: "42" }); },
-        closeRoom: async () => { throw problem(500, "Try again in a moment."); },
+        room: () => new Promise(resolve => { reads++; answer = () => resolve(roomAccess({ selected_content_id: "movie:m0004", phase: "playing", selected_file_id: "42" })); }),
+        closeRoom: async () => { closes++; throw problem(500, "Try again in a moment."); },
     }, undefined, { selected_content_id: "movie:m0004" });
     await hub.create("host_pick");
     const starting = hub.start();
     const ending = hub.endParty();
     fail();
     await Promise.all([starting, ending]);
+    assert.equal(hub.state.error, "Try again in a moment.", "the failure shows while the room is still being read");
     assert.equal(reads, 1, "the room is read once, after the close failed");
+    await hub.endParty();
+    assert.equal(closes, 2, "End can be tried again without waiting for the read");
+    answer();
+    await new Promise(resolve => setTimeout(resolve, 0));
     assert.equal(hub.state.room?.phase, "playing", "the lobby is no longer behind the start");
-    assert.equal(hub.state.error, "Try again in a moment.");
 });
 
 test("a live selection whose answer was lost and that the room confirms is a success, so Play for everyone is not sent twice", async () => {

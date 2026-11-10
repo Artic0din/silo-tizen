@@ -243,8 +243,8 @@ export class WatchPartyHub {
             this.options.onLeave?.();
         } catch (error) {
             if (!this.stopped) this.state.error = this.describe(error);
-            // The party goes on, so the change that was not read back may have landed.
-            if (this.unreconciled && !this.stopped) await this.readRoom(room.roomId);
+            // The party goes on, so the change that was not read back may have landed. Read it in the background: the failure shows and End can be retried meanwhile.
+            if (this.unreconciled && !this.stopped) void this.readRoom(room.roomId).then(() => { if (!this.stopped) this.notify(); });
         } finally {
             this.ending = false;
             this.unreconciled = false;

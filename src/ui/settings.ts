@@ -8,6 +8,7 @@ import { SettingsState } from "./settingsState.ts";
 import type { ProfileLaunch, LaunchBehavior } from "../session/profileLaunch.ts";
 import { acknowledgementsDocument } from "./acknowledgements.ts";
 import type { EpisodeSpoilerPreferences } from "./episodeSpoilers.ts";
+import type { ThemeMusicPreferences } from "./themeMusicPreferences.ts";
 import { settingsRows, rowValue, rowEdit, type SettingsRow } from "./settingsRows.ts";
 import { APPEARANCE_KEY } from "../contracts/v2/settingsRows.ts";
 import { qrCode } from "./qr.ts";
@@ -47,7 +48,7 @@ const BITRATE_CHOICES = [200000, 100000, 60000, 40000, 20000, 15000, 10000, 6000
 export interface SettingsActions { readonly profileName: string; readonly profileAvatarUrl?: string | undefined; readonly accountName?: string | undefined; readonly switchProfile: () => void; readonly signOut?: () => void; readonly serverName?: string | undefined; readonly switchServer?: (back: () => void) => void; /** True when this sign-out removes the saved server. Unreadable account lists return false. */ readonly removesServer?: () => boolean }
 export interface SettingsScreen { destroy(): void }
 
-export function mountSettings(root: HTMLElement, session: NativeSession, close: (hiddenChanged: boolean, titleArt?: boolean) => void, launch?: ProfileLaunch, actions?: SettingsActions, accounts?: (back: () => void) => void, spoilers?: EpisodeSpoilerPreferences): SettingsScreen {
+export function mountSettings(root: HTMLElement, session: NativeSession, close: (hiddenChanged: boolean, titleArt?: boolean) => void, launch?: ProfileLaunch, actions?: SettingsActions, accounts?: (back: () => void) => void, spoilers?: EpisodeSpoilerPreferences, themeMusic?: ThemeMusicPreferences): SettingsScreen {
     const container = el("section", "browse settings");
     container.setAttribute("aria-label", "Settings");
     root.appendChild(container);
@@ -93,11 +94,13 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
     const state = new SettingsState(session, () => render());
     const connection = new ConnectionSpeed(session, () => { if (!torn) render(host.focused()); });
     const stopSpoilers = spoilers?.subscribe(() => { if (!torn) render(host.focused()); }) ?? (() => undefined);
+    const stopThemeMusic = themeMusic?.subscribe(() => { if (!torn) render(host.focused()); }) ?? (() => undefined);
     const destroy = (): void => {
         if (torn) return;
         torn = true;
         connection.stop();
         stopSpoilers();
+        stopThemeMusic();
         launchController.abort();
         stopAuthority();
         state.stop();
@@ -537,6 +540,24 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
             body.appendChild(el("p", "settings-value", all
                 ? `Title art is ${titleArtState} on every device signed into this profile. Changing it here changes it everywhere. Turn off Apply to All Devices to choose for this TV only.`
                 : "Use logo artwork as the title when available. Only affects this TV. Your other devices keep their own setting."));
+        }
+        if (category === "general" && state.loaded && themeMusic?.isOffered === true) {
+            body.appendChild(el("h3", "settings-section-header", "THEME MUSIC"));
+            for (const [key, text, checked, action, enabled] of [
+                ["theme-music", "Play Theme Music", themeMusic.playsThemeMusic, () => themeMusic.setEnabled(!themeMusic.playsThemeMusic), themeMusic.allowsEditing],
+                ["theme-music-loop", "Loop Theme Music", themeMusic.loops, () => themeMusic.setLoop(!themeMusic.loops), themeMusic.allowsEditing && themeMusic.playsThemeMusic],
+            ] as const) {
+                const item = button(key, text, () => { if (enabled) action(); });
+                item.element.appendChild(el("span", "settings-row-value", checked ? "On" : "Off"));
+                item.element.setAttribute("role", "switch");
+                item.element.setAttribute("aria-label", text);
+                item.element.setAttribute("aria-checked", String(checked));
+                if (!enabled) item.element.setAttribute("aria-disabled", "true");
+                rows.push(item);
+                body.appendChild(item.element);
+            }
+            body.appendChild(el("p", "settings-value", "Play a title's theme song from your library while its page is open. Only affects this TV."));
+            if (themeMusic.error !== undefined) body.appendChild(el("p", "settings-value", themeMusic.error));
         }
         for (const id of pickers) {
             if (id === "seek-back" || id === "seek-forward") continue;

@@ -33,7 +33,7 @@ import type { PublicStorage } from "../session/deviceIdentity.ts";
 import { Skyline } from "./skyline.ts";
 import { decodeImageCapabilities, type ImageCapabilities, homeArtworkQuery } from "../contracts/v2/images.ts";
 import { FocusHost, type FocusTarget } from "./browseFocus.ts";
-import { type Destination, type PlayRequest, applySeriesLine, destinationOf, seriesLineFor, playChoices, visibleLibraries, withStartAudioLanguage } from "./browseModel.ts";
+import { type Destination, type PlayRequest, applySeriesLine, artworkUrl, destinationOf, seriesLineFor, playChoices, visibleLibraries, withStartAudioLanguage } from "./browseModel.ts";
 import { errorState, unconfirmedWriteMessage, writeFailureMessage, writeMayHaveApplied, failureText, hasData, newPages, newRoute, PAGE_SIZE, SEARCH_PAGE_SIZE, type Pages, type Route, routeView } from "./browseRoutes.ts";
 import { homeRows, type ViewContext } from "./browseViews.ts";
 import { HomeEnrichment } from "./homeEnrichment.ts";
@@ -51,6 +51,10 @@ import type { CardOverlayPrefs } from "./cardOverlays.ts";
 import { PresentationSettings } from "./presentationSettings.ts";
 import { ResolutionCap } from "./resolutionCap.ts";
 import { EpisodeSpoilerPreferences, type EpisodeSpoilerSettings } from "./episodeSpoilers.ts";
+import { themeAudioFormats, type ThemePlayback } from "../contracts/v2/themeMusic.ts";
+import { ElementThemeOutput } from "./themeAudioOutput.ts";
+import { ThemeMusicCenter, ThemeMusicController, createVolumeRamp, type ThemeAudioOutput, type ThemeMusicPage } from "./themeMusic.ts";
+import { ThemeMusicPreferences } from "./themeMusicPreferences.ts";
 import { NavigationSettings } from "./navigationSettings.ts";
 import { cachedBranding } from "./brandingCache.ts";
 import { getCalendar } from "../api/calendarOperations.ts";
@@ -81,6 +85,8 @@ export interface BrowseOptions {
     readonly profileAvatarUrl?: string;
     readonly clock?: Clock;
     readonly publicStorage?: PublicStorage;
+    /** Replaces the `<audio>` element behind theme music. For tests. */
+    readonly themeOutput?: (grant: ThemePlayback) => ThemeAudioOutput;
 }
 
 export interface Browse {
@@ -337,6 +343,35 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     document.addEventListener("pointerdown", recordInput, true);
 
     const top = (): Route | undefined => stack[stack.length - 1];
+    const themePrefs = new ThemeMusicPreferences(session);
+    const themeCenter = new ThemeMusicCenter(new ThemeMusicController(async (ownerId, themeId) => {
+        const probe = document.createElement("audio");
+        const grant = await session.call({ ...operations.themePlayback(ownerId, themeId, themeAudioFormats(probe)), profileScoped: true });
+        // A root-relative URL is this server's audio route; an absolute one is a proxy's origin.
+        const url = artworkUrl(grant.url, context.baseUrl);
+        if (url === undefined) throw new Error("Theme audio URL not permitted");
+        return { ...grant, url };
+    }, grant => options.themeOutput?.(grant) ?? new ElementThemeOutput(grant), createVolumeRamp(clock)), () => session.call({ ...operations.themeCapability(), profileScoped: true }), clock);
+    /** The open title page for theme music: a detail or season page, or none. A season that carries no set of its own keeps its series'. */
+    const themePage = (): ThemeMusicPage | undefined => {
+        const current = top();
+        if (torn || settingsScreen !== undefined || (current?.kind !== "item" && current?.kind !== "season")) return undefined;
+        const detail = current.data?.detail;
+        const series = current.kind === "season" ? stack.find(route => route.kind === "item" && route.id === current.seriesId) : undefined;
+        return {
+            themes: detail?.themes ?? (series?.kind === "item" ? series.data?.detail.themes : undefined),
+            isLoading: current.data === undefined,
+            isVisible: !document.hidden,
+            isOtherMediaActive: playing,
+            enabled: themePrefs.playsThemeMusic,
+            loop: themePrefs.loops,
+        };
+    };
+    const syncThemeMusic = (): void => themeCenter.update(themePage());
+    const themeVisibility = (): void => syncThemeMusic();
+    document.addEventListener("visibilitychange", themeVisibility);
+    themePrefs.subscribe(syncThemeMusic);
+    void themePrefs.refresh();
     let requestsCapability: RequestsCapability = { enabled: false, follow: false, removeFailed: false };
     let searchPeopleController: AbortController | undefined;
     let searchBoxSetController: AbortController | undefined;
@@ -650,6 +685,9 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         presentation.stop();
         resolutionCap.stop();
         episodeSpoilers?.stop();
+        document.removeEventListener("visibilitychange", themeVisibility);
+        themePrefs.stop();
+        themeCenter.reset();
         activeSection?.stop();
         if (activeBrowse !== undefined) stopFeed(activeBrowse);
         if (activePersonal !== undefined) stopFeed(activePersonal);
@@ -1891,6 +1929,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         current.focus = focus ?? host.focused();
         stopDetails();
         playing = true;
+        // Theme audio is gone before the player opens AVPlay.
+        syncThemeMusic();
         stopSearchSupplement();
         cancelCalendarDay();
         host.holdVisit();
@@ -1908,6 +1948,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     const detailVisits = new WeakMap<Route, string>();
     let detailVisitSequence = 0;
     const render = (focus?: FocusTarget): void => {
+        syncThemeMusic();
         activeSection?.stop();
         if (activeBrowse !== undefined) stopFeed(activeBrowse);
         activeSection = undefined;
@@ -2539,7 +2580,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 removesServer: () => signOutRemovesServer(() => server.accounts.directory.list(), context.baseUrl),
                 ...(options.onSignOut === undefined ? {} : { signOut: options.onSignOut }),
                 ...(options.onSwitchServer === undefined ? {} : { switchServer: options.onSwitchServer }),
-            }, options.onAccounts, episodeSpoilers);
+            }, options.onAccounts, episodeSpoilers, themePrefs);
+            syncThemeMusic();
         },
         personal: (source, anchor = "profiles") => {
             if (source !== "history") clearPersonalRoot();
@@ -2555,6 +2597,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             host.stop();
             container.hidden = true;
             playing = true;
+            syncThemeMusic();
             options.onSwitchServer?.(() => {
                 if (torn) return;
                 playing = false;

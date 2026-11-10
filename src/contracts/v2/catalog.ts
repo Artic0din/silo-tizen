@@ -3,6 +3,7 @@
 // Handwritten from openapi.json at the commit in ./SOURCE; not generated. Unknown members are
 // ignored and unknown item or library types decode to "unknown", so additive changes keep working.
 
+import { decodeThemeSongSet, type ThemeSongSet } from "./themeMusic.ts";
 import { translationMembers } from "./descriptionTranslation.ts";
 import { boolean, integer, nonEmptyString, object, optionalString, string, WireError } from "./wire.ts";
 import { decodeDetailExtras, type DetailExtras } from "./details.ts";
@@ -380,6 +381,8 @@ export interface ItemDetail {
     readonly watch: WatchState | undefined;
     readonly pendingTranslationLanguage?: string;
     readonly machineTranslatedFields?: readonly string[];
+    /** The server-resolved local theme songs; absent when the item has none or the optional lookup failed. */
+    readonly themes?: ThemeSongSet;
 }
 
 export interface LocalExtra {
@@ -445,6 +448,7 @@ export function decodeItemDetail(value: unknown): ItemDetail {
     const path = "item_detail";
     const obj = object(value, path);
     const watch = decodeWatch(obj.user_data, `${path}.user_data`);
+    const themes = decodeThemeSongSet(obj.themes);
     return {
         advisoryAge: optionalInteger(obj, "advisory_age", path),
         advisorySource: optionalString(obj, "advisory_source", path),
@@ -486,6 +490,7 @@ export function decodeItemDetail(value: unknown): ItemDetail {
             return { detailLabel, ...(obj.effective_subtitle_mode === undefined && obj.effective_subtitle_track_signature === undefined ? {} : { effectiveSubtitle: decodeSubtitlePreferences(obj, string(obj, "content_id", path), string(version, "file_id", versionPath), undefined) }), fileId: string(version, "file_id", versionPath), effectiveAudioTrackIndex: optionalInteger(version, "effective_audio_track_index", versionPath), durationSeconds: integer(version, "duration", versionPath), audio: decodeAudioTracks(version, versionPath), ...(version.subtitle_tracks === undefined ? {} : { subtitles: decodeCatalogSubtitles(version, versionPath) }), ...(version.audio_tracks === undefined ? {} : { audioMetadata: JSON.stringify(version.audio_tracks) }), ...(label === "" ? {} : { label }), ...(compactLabel === "" ? {} : { compactLabel }), ...(format.resolution === undefined ? {} : { resolution: format.resolution }) };
         }),
         watch,
+        ...(themes === undefined ? {} : { themes }),
         ...translationMembers(obj, path),
     };
 }

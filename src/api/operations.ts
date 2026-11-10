@@ -56,6 +56,7 @@ import type { RequestSpec } from "./http.ts";
 import { decodeImageCapabilities, type ImageCapabilities } from "../contracts/v2/images.ts";
 import { discoveryOperations } from "./discoveryOperations.ts";
 import { settingsOperations } from "./settingsOperations.ts";
+import { themeMusicOperations } from "./themeMusicOperations.ts";
 import { trickplayOperations } from "./trickplayOperations.ts";
 import { subtitleOperations } from "./subtitleOperations.ts";
 import { markerOperations } from "./markerOperations.ts";
@@ -104,6 +105,7 @@ export const operations = {
     }),
     ...discoveryOperations,
     ...settingsOperations,
+    ...themeMusicOperations,
     ...trickplayOperations,
     ...markerOperations,
     /** getSystemInfo: public, read. */

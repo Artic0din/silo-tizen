@@ -63,6 +63,38 @@ The capability body follows `ApplePlaybackV3Capabilities.swift:439-483` and `Pla
 
 Off, an unsupported panel, a throwing probe, or a failed read of the HDR key the server offered sends the same SDR profile as before: `hdr: false` and no `hdr_details` on `client_capabilities`, `output`, `original_http`, or `hls`. HDR off does not leave an original or a remux claimed as HDR. The reason is in the caption section above. A title is never declared direct-playable in a range the panel did not report. If the server does not offer the HDR key, the Apple default stays on, so a panel that reports HDR still claims HDR10. Resolution stays 1080p. No DTS and no audio passthrough.
 
+## Theme music
+
+Settings › General › THEME MUSIC, after the Title Pages group, shows `Play Theme Music` and `Loop Theme Music`.
+Both are switches. Loop is disabled until Play is on. The footer is Apple's: `Play a title's theme song from your library while its page is open. Only affects this TV.`
+Source: [silo-apple `650a0b8a`](https://github.com/Silo-Server/silo-apple/tree/650a0b8a), `TVGeneralSettingsView.themeMusicGroup`, `ThemeMusicPreferences.swift`, `Screens/Detail/ThemeMusic/*`, and silo-server `df9f5501` (`docs/catalog-api.md`, "Local theme songs, V2").
+
+- Keys `ui.theme_music_enabled` and `ui.theme_music_loop` (settings revision 11, boolean, default off). The rows appear only when the capability is available, allowed, batched, at revision 11 or later, with a `profile_device` scope.
+- The server resolves each key for this TV: `profile_device`, then `profile`, then the default. A switch writes this TV's `profile_device` value, which wins over a profile value, so the change always takes effect here. The manifest lists the keys for the web only, so the Tizen decoder does not rely on the platform list.
+- Settings are read when Browse starts (launch, and each profile or server switch) and on return to the foreground. Apple also reads when Settings opens; this client does not, because the rows write and re-read their own keys and a second read would race the Settings load. Nothing is cached: music plays only for an answer read from the server for the active profile.
+- A failed write rolls back only its own switch and says why, using Apple's three messages.
+
+### Playback of the theme
+
+`src/ui/themeMusic.ts` ports Apple's `ThemeMusicController` and `ThemeMusicCenter`.
+
+- Pages: a movie, series, season or episode Details page. Other screens play nothing. A season whose detail has no set keeps its series' set.
+- Starts: as soon as the grant arrives; there is no extra delay. Audio is created silent and fades up over 300 ms (12 steps) to 0.35 once playback has advanced past the start.
+- Same owner and theme across pages (series to season, for example) keeps playing and is not restarted. Loading Details suspends: fade out and pause, then resume in place.
+- Loop off: the theme plays once and is released; staying on the page does not start it again. Loop on: original audio loops in place. A converted theme cannot seek, so it asks for a fresh grant when it ends.
+- A failed stream retries once with a fresh grant. Progress earns another retry. A refused grant leaves the page silent.
+- Leaving Details, opening Settings, or the profile or server changing fades the theme out (or silences it at once).
+- Starting playback stops the theme in the same turn, before the player opens AVPlay (`handoff`, `src/ui/browse.ts`). Nothing starts while the player is open; the theme starts again on return to Details.
+- App hidden (`visibilitychange`) suspends; visible again resumes.
+
+### Audio output
+
+AVPlay is a single instance and belongs to video, so the theme plays through an HTML5 `<audio>` element (`src/ui/themeAudioOutput.ts`).
+The server sends original audio (mp3, aac, flac, ogg, wav) or, for a format this Chromium cannot decode, progressive AAC in MP4 with no length or byte ranges; both are plain audio the web client plays in an `<audio>` element.
+Tearing down pauses, drops `src` and calls `load()` so the element releases the TV's audio decoder before AVPlay opens.
+If the platform refuses `play()` for lack of a user gesture, the next remote key starts it.
+Desktop Chromium proves the state machine and the hand-off order, not that a TV's `<audio>` plays these formats or that it frees the decoder in time; that needs a Samsung TV.
+
 ## Rows left without a control
 
 A row that nothing on this TV acts on stays hidden.
@@ -71,7 +103,6 @@ A row that nothing on this TV acts on stays hidden.
 | --- | --- |
 | Dolby Vision | Samsung exposes no Dolby Vision support check, and this client claims no Dolby Vision profile. A switch would not change playback. This is not a measurement that the panel lacks Dolby Vision. |
 | Paired Silo Profile | Open PR #292. This branch does not change it. |
-| Play Theme Music, Loop Theme Music | No theme-song reader or title-page player. Issue #293. |
 | Show Audiobooks | Open PR #230. No Audiobooks tab. |
 | Show Next Up | Playback offers Play next only after the episode ends. Nothing reads `playback.next_up_prompt_seconds`. Open PR #213 owns the pre-end reader. |
 | Audiobooks Skip Back, Skip Forward | Open PR #230. No audiobook player. |

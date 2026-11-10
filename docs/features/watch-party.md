@@ -68,7 +68,7 @@ The presence dot reads the room: "Host away" for a guest when the host is not co
 
 ### Host
 
-The primary button follows `WatchPartyLobbyPolicy.primaryAction`: Choose a title, Change title, Start for everyone, Return to playback, or Return everyone to lobby.
+The primary button follows `WatchPartyLobbyPolicy.primaryAction`: Choose a title, Change title, Start for everyone, Return to playback, or Return everyone to lobby. A guest whose profile cannot see the playing title gets no button, as in Apple.
 Change title sits beside Start for everyone.
 Focus opens on the primary button, and on the code pill when there is none.
 One change runs at a time and a second is ignored while it runs, so the controls stay enabled and focus is not thrown out.
@@ -79,7 +79,7 @@ A start or live selection whose answer is lost reads the room again (`GET /rooms
 - Start for everyone needs a staged title and `staged_selection`, as Apple's `canStartPlayback` does. It calls `POST /playback/start` and, when the room answers `playing` with a file, opens the existing player on that file from the room's anchor, pinned to that file so an alternate version cannot play. Choosing a title for a party that is already playing does the same. There is no synchronization: the player plays on its own. Return to playback opens it again.
 - Party options (Back closes it; it opens on Close): Who chooses (needs `selection_mode_switch` and a lobby), Playback controls (Host only or Guests can play and pause), Return everyone to lobby (needs `stop_playback` and a playing party), End party for everyone and Leave party. Rows stay enabled while a change runs.
 - End party for everyone asks "End this party for everyone?" first, then closes the room with `DELETE` and returns to the hub with "This party has ended.". A refused close keeps the room and shows the reason.
-- Leave party and Back from the lobby end the host's room, as before, so a started party is not left open.
+- Back from the lobby ends the host's room, as before, so a started party is not left open. Apple's Leave party only drops the local connection and asks nothing; with no room socket the host's Leave party would end the room, so it opens the End party confirmation instead.
 
 ### Guest
 

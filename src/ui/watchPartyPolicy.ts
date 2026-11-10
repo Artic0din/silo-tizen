@@ -29,13 +29,14 @@ export function waitingNames(members: readonly RoomMember[]): string[] {
 /**
  * The one action the lobby foregrounds, WatchPartyLobbyPolicy.primaryAction without voting and without
  * Ready, which both need the room socket. `canStart` is WatchPartySession.canStartPlayback.
+ * `selectionUnavailable` is a title hidden from this profile: a guest has nothing to ready up for or return to.
  */
 export type PrimaryAction = "chooseTitle" | "start" | "returnToPlayback" | "returnToLobby" | "none";
 
-export function primaryAction(room: Room, capabilities: WatchTogetherCapabilities | undefined, canStart: boolean, playbackEnded = false): PrimaryAction {
+export function primaryAction(room: Room, capabilities: WatchTogetherCapabilities | undefined, canStart: boolean, selectionUnavailable = false, playbackEnded = false): PrimaryAction {
     if (room.phase === "playing") {
         if (playbackEnded) return room.selfCanManageRoom && capabilities?.stopPlayback === true ? "returnToLobby" : "none";
-        return "returnToPlayback";
+        return selectionUnavailable && !room.selfCanManageRoom ? "none" : "returnToPlayback";
     }
     if (room.phase !== "lobby" || !room.selfCanManageRoom || room.selectionMode !== "host_pick") return "none";
     if (room.selectedContentId === undefined) return "chooseTitle";

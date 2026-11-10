@@ -256,7 +256,7 @@ export class WatchPartyHub {
         }
         if (this.stale(epoch)) return;
         this.state.shelvesLoading = false;
-        this.refocus = this.state.shelves.length > 0;
+        this.refocus = this.state.page.kind === "picker" && this.state.shelves.length > 0;
         this.notify();
     }
 

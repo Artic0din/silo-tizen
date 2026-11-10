@@ -102,7 +102,7 @@ function secondaryButton(hub: WatchPartyHub, room: Room, action: PrimaryAction):
 function lobbyPage(context: LobbyContext, room: Room, interactive: boolean): { node: HTMLElement; items: { top: FocusItem[]; seats: FocusItem[]; actions: FocusItem[] }; defaultKey: string } {
     const { hub } = context;
     const item = hub.state.selected;
-    const action = primaryAction(room, hub.state.capabilities, hub.canStart());
+    const action = primaryAction(room, hub.state.capabilities, hub.canStart(), hub.state.selectedUnavailable);
     const page = el("div", "watch-party-room watch-party-ui");
     const state = connection(room);
     const status = el("span", `watch-party-connection watch-party-connection-${state.tone}`);
@@ -192,7 +192,8 @@ export function optionsView(context: LobbyContext, room: Room): View {
         }
         rows.push(optionRow("end", "End party for everyone", undefined, true, () => { hub.show({ kind: "end" }); }));
     }
-    rows.push(optionRow("leave", "Leave party", undefined, true, () => { hub.leave(); }));
+    // With no room socket the host cannot step out and leave the room running, so Leave ends it: ask first, as End party does.
+    rows.push(optionRow("leave", "Leave party", undefined, true, () => { if (room.selfCanManageRoom) hub.show({ kind: "end" }); else hub.leave(); }));
     const close = optionRow("close", "Close", undefined, false, () => { hub.show({ kind: "lobby" }); });
     rows.push(close);
     const card = el("div", "watch-party-sheet watch-party-options");

@@ -25,6 +25,8 @@ export class FakeWatchParty extends FakeRequests {
     /** Fails the next room mutation (stage, select, start, stop, mode, policy) once it is set. */
     roomChangeFailure: Reply | undefined;
     pickerFailure: Reply | undefined;
+    /** Answers every season's episodes read in place of the catalog, for an empty or failing season. */
+    episodesReply: Reply | undefined;
     readonly capabilityReads: string[] = [];
     readonly createdRooms: Record<string, unknown>[] = [];
     readonly joined: string[] = [];
@@ -80,6 +82,7 @@ export class FakeWatchParty extends FakeRequests {
 
     override route(method: string, path: string, profileId: string | undefined, body?: Record<string, unknown>, headers?: Readonly<Record<string, string>>): Reply | undefined {
         const pathname = new URL(path, "https://fake.invalid").pathname;
+        if (method === "GET" && this.episodesReply !== undefined && /^\/catalog\/series\/[^/]+\/seasons\/\d+\/episodes$/.test(pathname)) return this.episodesReply;
         if (method === "GET" && pathname === "/watch-together/capabilities") {
             this.capabilityReads.push("watch-together");
             if (this.capabilitiesFailure !== undefined) return this.capabilitiesFailure;

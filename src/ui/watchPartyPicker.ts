@@ -138,7 +138,7 @@ export function episodesView({ hub, baseUrl }: PickerContext, series: Card, seas
         zones.push({ id: "seasons", layout: "row", items: tabs });
         page.appendChild(zoneNode("browse-row watch-party-season-tabs", tabs));
     }
-    const retry = browseError === undefined ? undefined : actionButton("episodes-retry", "Reload episodes", () => { void hub.openEpisodes(series, season); });
+    const retry = actionButton("episodes-retry", "Try Again", () => { void hub.openEpisodes(series, season); });
     if (cards.length > 0) {
         zones.push({ id: "episode-rail", layout: "row", items: cards });
         page.appendChild(zoneNode("browse-row watch-party-episode-rail", cards));
@@ -147,11 +147,12 @@ export function episodesView({ hub, baseUrl }: PickerContext, series: Card, seas
         loading.setAttribute("role", "status");
         page.appendChild(loading);
     } else {
-        page.append(el("h2", "watch-party-empty-title", "No episodes in this season"));
-        if (browseError !== undefined) page.appendChild(banner(browseError, true));
-        if (retry !== undefined) { retry.element.classList.add("watch-party-button", "watch-party-secondary"); zones.push({ id: "episodes-retry", layout: "row", items: [retry] }); page.appendChild(retry.element); }
+        page.append(el("h2", "watch-party-empty-title", "No episodes"), el("p", "watch-party-lead", browseError ?? "Nothing in this season is available to play."));
+        retry.element.classList.add("watch-party-button", "watch-party-secondary");
+        zones.push({ id: "episodes-retry", layout: "row", items: [retry] });
+        page.appendChild(retry.element);
     }
-    const first = cards[0] ?? tabs.find(tab => tab.key === `season:${season?.seasonNumber}`) ?? retry ?? back;
+    const first = cards[0] ?? tabs.find(tab => tab.key === `season:${season?.seasonNumber}`) ?? (browseLoading ? back : retry);
     const zone = zones.find(candidate => candidate.items.includes(first))?.id ?? "episodes-top";
     return {
         name: "watchParty:episodes",

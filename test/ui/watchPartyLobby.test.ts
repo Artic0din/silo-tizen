@@ -297,14 +297,59 @@ test("a refused End Party keeps the room and shows the reason in the lobby", asy
     } finally { await tv.page.context().close(); }
 });
 
-test("Leave party as the host ends the open room and returns to the entry", async () => {
+test("Leave party as the host asks first, because it ends the room for everyone", async () => {
     const { tv, fake } = await inLobby();
     try {
         await button(tv, "options").click();
         await button(tv, "leave").click();
+        await view(tv, "watchParty:end").waitFor();
+        assert.equal(await tv.page.locator(".watch-party-sheet-title").textContent(), "End this party for everyone?");
+        assert.equal(await tv.focused(), "cancel");
+        assert.deepEqual(fake.closedRooms, [], "nothing is closed until the host confirms");
+        await button(tv, "cancel").click();
+        await view(tv, "watchParty:lobby").waitFor();
+        assert.deepEqual(fake.closedRooms, []);
+        await button(tv, "options").click();
+        await button(tv, "leave").click();
+        await button(tv, "confirm-end").click();
         await view(tv, "watchParty:hub").waitFor();
         await tv.eventually(async () => fake.closedRooms.length === 1, "room closed");
         assert.equal(await tv.focused(), "create");
+    } finally { await tv.page.context().close(); }
+});
+
+test("a season with no episodes says so in Apple's words, and Try Again reads it once more", async () => {
+    const { tv, fake } = await inLobby("host", fake => { fake.episodesReply = { status: 200, body: { items: [] } }; });
+    try {
+        await button(tv, "choose").click();
+        await view(tv, "watchParty:picker:shelves").waitFor();
+        await button(tv, "series:s2").click();
+        await view(tv, "watchParty:episodes").waitFor();
+        await tv.page.locator(".watch-party-empty-title").waitFor();
+        assert.equal(await tv.page.locator(".watch-party-empty-title").textContent(), "No episodes");
+        assert.equal(await tv.page.locator(".watch-party-episodes .watch-party-lead").textContent(), "Nothing in this season is available to play.");
+        assert.equal(await button(tv, "episodes-retry").textContent(), "Try Again", "offered with no error too");
+        fake.episodesReply = undefined;
+        await button(tv, "episodes-retry").click();
+        await tv.page.locator(".watch-party-episode").first().waitFor();
+    } finally { await tv.page.context().close(); }
+});
+
+test("a failed episodes read puts the reason under No episodes, with Try Again", async () => {
+    const { tv } = await inLobby("host", fake => { fake.episodesReply = problem(503, "unavailable", "Down for maintenance."); });
+    try {
+        await button(tv, "choose").click();
+        await view(tv, "watchParty:picker:shelves").waitFor();
+        await button(tv, "series:s2").click();
+        await tv.page.locator(".watch-party-empty-title").waitFor();
+        assert.equal(await tv.page.locator(".watch-party-empty-title").textContent(), "No episodes");
+        assert.equal(await tv.page.locator(".watch-party-episodes .watch-party-lead").textContent(), "Down for maintenance.");
+        assert.equal(await tv.focused(), "episodes-close", "focus stays on the strip, where it opened");
+        await tv.remote(40);
+        assert.equal(await tv.focused(), "season:1", "the season tabs sit between Close and Try Again");
+        await tv.remote(40);
+        assert.equal(await tv.focused(), "episodes-retry");
+        assert.equal(await button(tv, "episodes-retry").textContent(), "Try Again");
     } finally { await tv.page.context().close(); }
 });
 

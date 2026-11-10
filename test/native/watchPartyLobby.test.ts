@@ -264,6 +264,19 @@ test("backing out of the picker while it reloads does not strand the shelves it 
     assert.equal(hub.state.shelvesLoading, false);
 });
 
+test("a picker answer that lands after Back does not claim focus from the lobby", async () => {
+    let release: (value: Awaited<ReturnType<WatchPartyApi["picker"]>>) => void = () => undefined;
+    const { hub } = lobby({ picker: () => new Promise(resolve => { release = resolve; }) });
+    await hub.create("host_pick");
+    const opening = hub.openPicker();
+    hub.back();
+    assert.equal(hub.state.page.kind, "lobby");
+    release({ members: [], continueTogether: [{ card: decodeCard({ content_id: "movie:late", type: "movie", title: "Late" }, "card"), members: [], nextUp: undefined }], watchlistUnion: [] });
+    await opening;
+    assert.equal(hub.takeRefocus(), false, "the shelves are kept but the lobby keeps its focus");
+    assert.equal(hub.state.shelves.length, 1);
+});
+
 test("a late picker answer for an older open does not replace the newer shelves", async () => {
     const releases: ((value: Awaited<ReturnType<WatchPartyApi["picker"]>>) => void)[] = [];
     const picker = (id: string) => ({ members: [], continueTogether: [{ card: decodeCard({ content_id: id, type: "movie", title: id }, "card"), members: [], nextUp: undefined }], watchlistUnion: [] });
@@ -487,6 +500,15 @@ test("the primary action follows the room: choose, start, return to playback, re
     assert.equal(primaryAction(room({ phase: "playing", self_can_manage_room: false, selected_content_id: "movie:m1" }), caps, false), "returnToPlayback");
     assert.equal(primaryAction(room({ phase: "ended" }), caps, false), "none");
     assert.equal(primaryAction(room({ selection_mode: "vote" }), caps, false), "none", "voting is not built");
+});
+
+test("a guest who cannot see the playing title has nothing to return to, as WatchPartyLobbyPolicy.primaryAction", () => {
+    const caps = roomCapabilities({ stop_playback: true });
+    const playing = (over: Record<string, unknown> = {}) => roomAccess({ phase: "playing", selected_content_id: "movie:m1", ...over }).room;
+    assert.equal(primaryAction(playing({ self_can_manage_room: false }), caps, false, true), "none");
+    assert.equal(primaryAction(playing(), caps, false, true), "returnToPlayback", "the host can still return to a title they cannot see");
+    assert.equal(primaryAction(playing({ self_can_manage_room: false }), caps, false, false), "returnToPlayback", "a guest who can see it returns");
+    assert.equal(primaryAction(playing(), caps, false, true, true), "returnToLobby", "a parked player still offers the host the lobby");
 });
 
 test("an episode lays out as Apple's lobby does: its own title, with the series and code underneath", () => {

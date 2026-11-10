@@ -145,6 +145,8 @@ audiobookTest("the remote reaches About, narrations and every rail card, and a l
     const down = 40;
     await tv.remote(down);
     assert.equal(await tv.focused(), "about", "Down from the actions reaches the About text");
+    const focused = await tv.page.locator('[data-focus="about"]').evaluate(node => getComputedStyle(node).backgroundColor);
+    assert.match(focused, /rgba\(0, 0, 0, 0\)|transparent/, "focus keeps the text readable: no white fill");
     await tv.remote(down);
     assert.equal(await tv.focused(), "narration:audiobook:fresh");
     await tv.remote(down);

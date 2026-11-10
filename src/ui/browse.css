@@ -1574,7 +1574,8 @@
 .audiobook-section-title { margin: 0; font-size: 38px; font-weight: 600; }
 .audiobook-about { margin: 0; max-width: 1280px; font-size: 25px; line-height: 1.4; color: rgba(255, 255, 255, .72); }
 .audiobook-about-stop { display: flex; flex-direction: column; gap: 20px; align-items: flex-start; padding: 0; border: 0; border-radius: 12px; font: inherit; text-align: left; color: inherit; background: transparent; outline: none; }
-.audiobook-about-stop:focus { box-shadow: 0 0 0 4px rgba(255, 255, 255, .7); }
+/* The shared .browse .browse-button:focus fills white; this text keeps its own colours and shows focus as a ring. */
+.browse .browse-button.audiobook-about-stop:focus { background: transparent; color: inherit; border-color: transparent; box-shadow: 0 0 0 4px rgba(255, 255, 255, .7); }
 .audiobook-static-credits { margin: 0; font-size: 22px; color: rgba(255, 255, 255, .55); }
 .audiobook-rows { display: flex; flex-direction: column; gap: 10px; max-width: 1380px; }
 .audiobook-row { position: relative; display: flex; align-items: center; gap: 20px; box-sizing: border-box; padding: 22px 30px; border: 0; border-radius: 12px; overflow: hidden; font: inherit; text-align: left; color: #fff; background: rgba(255, 255, 255, .06); outline: none; transition: transform var(--silo-fast), background var(--silo-fast); }

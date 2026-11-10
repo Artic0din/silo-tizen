@@ -11,6 +11,8 @@ import { PlaybackController, type PlaybackView, type PlayRequest } from "../../s
 import { ManualClock } from "./support/clock.ts";
 import { FakeAVPlay } from "./support/fakeAVPlay.ts";
 import { FakePlayback, type PlanShape } from "./support/fakePlayback.ts";
+import { SettingsState } from "../../src/ui/settingsState.ts";
+import { FakeCatalog } from "./support/fakeCatalog.ts";
 import { FakeSettings } from "./support/fakeSettings.ts";
 import { FakeSilo, fixture, problem } from "./support/fakeSilo.ts";
 import { connected, signIn, type Harness } from "./support/harness.ts";
@@ -44,18 +46,28 @@ interface Rig {
     readonly views: PlaybackView[];
 }
 
-async function rig(mode?: "never" | "ask" | "always"): Promise<Rig> {
+async function rig(mode?: "never" | "ask" | "always", via: "profile" | "row" = "profile"): Promise<Rig> {
     const clock = new ManualClock();
     const h = await connected({ clock, fake: new FakeSilo(clock) });
     await signIn(h);
     const owner = (await h.core.profiles.list()).find((profile) => profile.id === "p-owner");
     assert.ok(owner !== undefined);
     h.core.profiles.select(owner);
+    // The Settings state also loads the library list, which only the catalog fake answers.
+    if (via === "row") h.fake.catalog = new FakeCatalog();
     const server = new FakePlayback(h.fake);
     const settings = new FakeSettings(h.fake);
     if (mode !== undefined) {
         settings.bufferingRows = true;
-        settings.profile().set(BUFFERING_MODE_KEY as never, mode);
+        if (via === "profile") settings.profile().set(BUFFERING_MODE_KEY as never, mode);
+        else {
+            // The Settings row's own write path: device scope for this TV, not the profile row.
+            const state = new SettingsState(h.core.session, () => undefined, h.clock);
+            await state.load();
+            await state.save(BUFFERING_MODE_KEY, mode);
+            state.stop();
+            assert.equal(settings.profile().has(BUFFERING_MODE_KEY as never), false);
+        }
     }
     const avplay = new FakeAVPlay();
     let serial = 0;
@@ -540,5 +552,19 @@ test("a mode that cannot be read falls back to the last one read, not to the def
     r.avplay.listener?.onbufferingstart();
     await r.h.clock.advance(20_000);
     assert.equal(qualityChanges(r).length, 0);
+    r.controller.destroy();
+});
+
+test("the mode the Settings row saves for this TV is the mode the player reads", async () => {
+    const r = await rig("never", "row");
+    r.server.next.push(advertised());
+    await playPastGrace(r);
+    r.avplay.listener?.onbufferingstart();
+    await r.h.clock.advance(20_000);
+    r.avplay.listener?.onbufferingcomplete();
+    await r.h.clock.advance(0);
+    assert.equal(bodies(r, "/replan").length, 0);
+    assert.equal(pill(r), undefined);
+    assert.equal(bodies(r, "/playback/start")[0]?.learned_limit, "ignore");
     r.controller.destroy();
 });

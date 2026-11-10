@@ -78,7 +78,7 @@ File pointers are repository-relative.
 | Collections (fan-card grid, personal collections) | ✅ | ✅ | ✅ | Layout parity open (#100). Android: `TvCollectionsScreen` |
 | Library Shuffle | ✅ | ✅ | ✅ | Server-owned; hidden in mixed-library scope. Apple: `ShuffleFeatureStore`. Android: no mixed-library screen on TV |
 | Music | 🚧 | ✅ | 🟡 | Blocked on the server parity contract (#56). Android: Music tab browses the library (`TvLibraryTabType.Music`); no music player found in `androidTvApp` |
-| Audiobooks | 🚧 | ✅ | ✅ | #55. Apple: `TVAudiobookDetailView`, `AudioFullPlayerView`. Android: `TvAudiobookPlayerScreen`; top-bar tab is opt-in (Settings → Show Audiobooks) |
+| Audiobooks | 🚧 | ✅ | ✅ | #55. Apple: `TVAudiobookDetailView`, `AudioFullPlayerView`. Android: `TvAudiobookPlayerScreen`; top-bar tab is opt-in (Settings → Show Audiobooks). Tizen has the tab, library, cards and detail; audiobook playback is not built |
 
 ## Search
 
@@ -184,7 +184,7 @@ File pointers are repository-relative.
 | Episode spoiler protection (hide unwatched stills and descriptions) | ✅ | ✅ | ✅ | Apple: `TVPlaybackSettingsView`. Android: `TvSettingsScreen` |
 | Subtitle settings (language, behaviour, appearance) | 🟡 | ✅ | ✅ | Profile language/behaviour, metadata language and profile/device appearance; OS subtitle accessibility settings are unavailable |
 | HDR, Dolby Vision, buffering, lossless audio, deinterlacing | 🟡 | ✅ | 🟡 | HDR is a device switch when the server offers the key. Dolby Vision is absent: Samsung exposes no Dolby Vision support check and this client claims no Dolby Vision profile. Lower quality when buffering works on playback (Apple's decision, pill and replans; default Automatically), with the Settings row and the learned-limit Reset. Lossless audio and deinterlacing are still absent. Android has Dolby Vision, Force HDR Passthrough, buffering quality and frame-rate matching; lossless audio and deinterlacing settings not found |
-| Poster size, advisory age, Show Audiobooks | ➖ | ✅ | 🟡 | Tizen honours the saved poster size but has no editor. Android has Poster Size and Show Audiobooks; advisory age not found |
+| Poster size, advisory age | ➖ | ✅ | 🟡 | Tizen honours the saved poster size but has no editor. Android has Poster Size; advisory age not found. Show Audiobooks is built (see Audiobooks) |
 | Theme music (Play and Loop rows; Details plays the title's theme) | 🟡 | ✅ | ✅ | Plays through an HTML5 `<audio>` element because AVPlay belongs to video, and stops before playback opens. Not yet checked on a physical TV |
 | Acknowledgements (TMDB and open source) | ✅ | ✅ | ➖ | Android: Settings → Server → About shows App Version and Privacy Policy only |
 | Privacy policy | ➖ | ✅ | ✅ | Android: `TvPrivacyPolicyDialog` |

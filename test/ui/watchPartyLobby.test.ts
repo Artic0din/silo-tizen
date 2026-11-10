@@ -3,7 +3,7 @@ import { after, before, test } from "node:test";
 import type { Browser } from "playwright";
 import { FakeWatchParty, ROOM_FILE_ID } from "../native/support/fakeWatchParty.ts";
 import { problem } from "../native/support/fakeSilo.ts";
-import { launchBrowser, openTv, type Tv } from "./support/tv.ts";
+import { jumpUntil, launchBrowser, openTv, type Tv } from "./support/tv.ts";
 import { button, menuTitles, openHub, start } from "./support/watchParty.ts";
 
 let browser: Browser;
@@ -14,13 +14,13 @@ const view = (tv: Tv, name: string) => tv.page.locator(`.browse[data-view="${nam
 const texts = (tv: Tv, selector: string) => tv.page.locator(selector).allTextContents();
 
 /** Opens the hub and creates a host-pick room, or joins as a guest, then waits for the lobby. */
-async function enterLobby(tv: Tv, fake: FakeWatchParty, how: "create" | "join" = "create"): Promise<void> {
+async function enterLobby(tv: Tv, fake: FakeWatchParty, how: "create" | "vote" | "join" = "create"): Promise<void> {
     await tv.eventually(async () => (await menuTitles(tv)).includes("Watch Party"), "entry offered");
     await openHub(tv);
     if (how === "join") {
         await tv.page.locator('[data-focus="code"]').fill("K7M2QX");
         await button(tv, "join").click();
-    } else await button(tv, "create").click();
+    } else await button(tv, how).click();
     await view(tv, "watchParty:lobby").waitFor();
     await connected(tv, fake);
 }
@@ -37,7 +37,7 @@ async function inLobby(role: "host" | "guest" = "host", configure: (fake: FakeWa
     fake.role = role;
     configure(fake);
     await start(tv, fake);
-    await enterLobby(tv, fake, role === "host" ? "create" : "join");
+    await enterLobby(tv, fake, role === "guest" ? "join" : fake.selectionMode === "vote" ? "vote" : "create");
     return { tv, fake };
 }
 
@@ -254,9 +254,9 @@ test("Who chooses and Playback controls change the room and show the value the r
         assert.equal(await tv.focused(), "mode", "focus stays on the row that was changed");
         await tv.remote(10009);
         await view(tv, "watchParty:lobby").waitFor();
-        assert.equal(await tv.page.locator(".watch-party-eyebrow").first().textContent(), "Voting");
+        assert.equal(await tv.page.locator(".watch-party-eyebrow").first().textContent(), "Voting · 0 titles");
         assert.equal(await tv.page.locator(".watch-party-hero-title").textContent(), "What are we watching?");
-        assert.match(await tv.page.locator(".watch-party-banner").textContent() ?? "", /^Voting isn't available on this TV yet\./);
+        assert.equal(await tv.page.locator(".watch-party-banner").count(), 0, "the switched room votes on this TV");
     } finally { await tv.page.context().close(); }
 });
 
@@ -404,7 +404,8 @@ test("a playing party offers Return to playback and, with the stop capability, R
 // --- A guest ---
 
 test("a guest sees the host's room with no host controls: waiting copy, no action, and Leave party in Options", async () => {
-    const { tv, fake } = await inLobby("guest");
+    // Without lobby readiness a guest has no action at all; Ready is covered below.
+    const { tv, fake } = await inLobby("guest", fake => { fake.flags = { ...fake.flags, lobby_ready: false }; });
     try {
         assert.equal(await tv.page.locator(".watch-party-eyebrow").first().textContent(), "Your party is open");
         assert.equal(await tv.page.locator(".watch-party-hero-title").textContent(), "Waiting for\nOwner");
@@ -576,5 +577,195 @@ test("a failed reload keeps the shelves, shows the reason and a Try Again that w
         await button(tv, "picker-retry").click();
         await tv.eventually(async () => await tv.page.locator(".watch-party-banner").count() === 0, "error clears");
         assert.equal(await tv.page.locator(".watch-party-shelf").count(), 2);
+    } finally { await tv.page.context().close(); }
+});
+
+// --- Ready and the vote room's ballot ---
+
+const cards = (tv: Tv) => texts(tv, ".watch-party-ballot .watch-party-candidate:not(.watch-party-suggest-card) .watch-party-candidate-title");
+const tallies = (tv: Tv) => texts(tv, ".watch-party-ballot .watch-party-vote-count");
+
+/** The ballot read has run (the page waits 200 ms after the socket opens) and shows `count` suggestions. */
+async function ballotShows(tv: Tv, count: number): Promise<void> {
+    await jumpUntil(tv, 250, async () => (await cards(tv)).length === count, `${count} suggestions`);
+}
+
+/** Every focus target is still a lobby control: focus never falls to the page. */
+async function focusKept(tv: Tv): Promise<string> {
+    const key = await tv.focused();
+    assert.notEqual(key, null, "focus is on a control");
+    return key ?? "";
+}
+
+test("a guest marks Ready over the room socket, sees You're ready once the room says so, and can undo it", async () => {
+    const { tv, fake } = await inLobby("guest", fake => { fake.selectedContentId = "movie:m0004"; });
+    try {
+        await tv.eventually(async () => (await button(tv, "ready").textContent()) === "I'm ready", "Ready offered");
+        assert.equal(await tv.focused(), "ready", "the lobby opens on Ready");
+        await tv.page.keyboard.press("Enter");
+        await tv.eventually(async () => (await button(tv, "ready").textContent()) === "You're readytap to undo", "the room marked the seat");
+        assert.deepEqual(fake.sockets[0]?.sent.filter(frame => frame.type === "lobby_ready"), [{ type: "lobby_ready", ready: true }]);
+        assert.equal(await button(tv, "ready").getAttribute("aria-pressed"), "true");
+        assert.deepEqual(await texts(tv, ".watch-party-seat-detail"), ["Host", "You"], "Sam's seat no longer says not ready");
+        assert.equal(await tv.page.locator(".watch-party-presence").textContent(), "2 of 2 ready");
+        assert.equal(await tv.focused(), "ready", "focus stays on the button while its label changes");
+        await tv.page.keyboard.press("Enter");
+        await tv.eventually(async () => (await button(tv, "ready").textContent()) === "I'm ready", "undone");
+        assert.deepEqual(fake.sockets[0]?.sent.filter(frame => frame.type === "lobby_ready").map(frame => frame.ready), [true, false]);
+        assert.equal(await tv.focused(), "ready");
+    } finally { await tv.page.context().close(); }
+});
+
+test("a server without lobby readiness offers a guest no Ready", async () => {
+    const { tv } = await inLobby("guest", fake => { fake.flags = { ...fake.flags, lobby_ready: false }; });
+    try {
+        assert.equal(await tv.page.locator('[data-focus="ready"]').count(), 0);
+    } finally { await tv.page.context().close(); }
+});
+
+test("an empty vote room asks the question, offers Suggest a title, and the picker adds one to the ballot", async () => {
+    const { tv, fake } = await inLobby("host", fake => { fake.selectionMode = "vote"; });
+    try {
+        await ballotShows(tv, 0);
+        assert.equal(await tv.page.locator(".watch-party-eyebrow").first().textContent(), "Voting · 0 titles");
+        assert.equal(await tv.page.locator(".watch-party-hero-title").textContent(), "What are we watching?");
+        assert.equal(await tv.page.locator(".watch-party-lead").textContent(), "Everyone votes. You start the leader.");
+        assert.equal(await tv.page.locator(".watch-party-banner").count(), 0, "voting is available");
+        assert.equal(await button(tv, "suggest").textContent(), "Suggest a title");
+        assert.equal(await tv.page.locator(".watch-party-hint").textContent(), "Suggest a title to get the vote going.");
+        assert.equal(await tv.page.locator(".watch-party-suggest-card .watch-party-candidate-title").textContent(), "Suggest a title");
+        assert.equal(await tv.focused(), "suggest");
+        await button(tv, "suggest").click();
+        await view(tv, "watchParty:picker:shelves").waitFor();
+        assert.equal(await tv.page.locator(".watch-party-picker-name").textContent(), "Suggest a title");
+        await button(tv, "movie:m0004").click();
+        await view(tv, "watchParty:choice").waitFor();
+        assert.equal(await tv.page.locator(".watch-party-choice .watch-party-eyebrow").textContent(), "Suggest to the party");
+        assert.equal(await button(tv, "confirm").textContent(), "Add suggestion");
+        await button(tv, "confirm").click();
+        await view(tv, "watchParty:lobby").waitFor();
+        await ballotShows(tv, 1);
+        const added = fake.ballotChanges.at(-1);
+        assert.equal(added?.call, "POST /suggestions");
+        assert.equal(added?.roomToken, "room-proof-one");
+        assert.deepEqual([added?.body?.content_id, added?.body?.content_type, added?.body?.title], ["movie:m0004", "movie", "Movie 0004"]);
+        assert.match(String(added?.body?.suggestion_id), /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+        assert.deepEqual(await cards(tv), ["Movie 0004"]);
+        assert.equal(await tv.page.locator(".watch-party-hint").textContent(), "Nobody has voted yet.");
+        assert.deepEqual(fake.roomChanges, [], "a suggestion changes no room");
+        await focusKept(tv);
+    } finally { await tv.page.context().close(); }
+});
+
+test("the ballot shows each tally and the leader; Select votes and takes it back, and the leader starts with Start", async () => {
+    const { tv, fake } = await inLobby("host", fake => {
+        fake.selectionMode = "vote";
+        fake.suggest("dune", "Dune", ["p-guest"], { subtitle: "Part One" });
+        fake.suggest("heat", "Heat");
+    });
+    try {
+        await ballotShows(tv, 2);
+        assert.equal(await tv.page.locator(".watch-party-eyebrow").first().textContent(), "Voting · 2 titles");
+        assert.deepEqual(await tallies(tv), ["1", "0"]);
+        assert.deepEqual(await texts(tv, ".watch-party-ballot .watch-party-vote-label"), ["VOTE", "VOTES"]);
+        assert.deepEqual(await texts(tv, ".watch-party-candidate-leader .watch-party-candidate-title"), ["Dune"]);
+        assert.deepEqual(await texts(tv, ".watch-party-ballot .watch-party-candidate-line"), ["Part One", " ", "Anyone can add one"]);
+        assert.equal(await button(tv, "start").textContent(), "Start Dune");
+        assert.equal(await button(tv, "suggest").textContent(), "Suggest");
+        assert.equal(await tv.page.locator(".watch-party-hint").textContent(), "Sam hasn't marked ready. You can still start.");
+        assert.equal(await button(tv, "suggestion:heat").getAttribute("aria-label"), "Vote for Heat, 0 votes");
+        // Up from the actions passes the seats and reaches the ballot.
+        await tv.remote(38);
+        await tv.remote(38);
+        assert.ok((await tv.focused())?.startsWith("suggestion:") || await tv.focused() === "ballot-suggest", "the ballot row is reachable");
+        await button(tv, "suggestion:heat").focus();
+        await tv.page.keyboard.press("Enter");
+        await tv.eventually(async () => JSON.stringify(await tallies(tv)) === JSON.stringify(["1", "1"]), "my vote counted");
+        await tv.eventually(async () => (await tv.page.locator('[data-focus="suggestion:heat"] .watch-party-candidate-tick').count()) === 1, "my tick");
+        assert.equal(fake.ballotChanges.at(-1)?.call, "POST /suggestions/heat/vote");
+        assert.equal(fake.ballotChanges.at(-1)?.roomToken, "room-proof-one");
+        assert.equal(await button(tv, "suggestion:heat").getAttribute("aria-label"), "Remove vote for Heat, 1 vote");
+        assert.equal(await tv.focused(), "suggestion:heat", "focus stays on the card it voted for");
+        assert.equal(await button(tv, "start").textContent(), "Start Dune", "a tie goes to the earlier suggestion");
+        await tv.page.keyboard.press("Enter");
+        await tv.eventually(async () => JSON.stringify(await tallies(tv)) === JSON.stringify(["1", "0"]), "my vote taken back");
+        assert.equal(fake.ballotChanges.at(-1)?.call, "DELETE /suggestions/heat/vote");
+        assert.equal(await tv.focused(), "suggestion:heat");
+        await button(tv, "start").click();
+        await tv.eventually(async () => (await tv.page.evaluate(() => window.browseHarness.plays.length)) === 1, "player opened");
+        assert.equal(fake.ballotChanges.at(-1)?.call, "POST /suggestions/promote");
+        assert.deepEqual(fake.ballotChanges.at(-1)?.body, { suggestion_id: "dune" });
+        assert.equal((await tv.page.evaluate(() => window.browseHarness.plays[0]))?.contentId, "movie:dune");
+    } finally { await tv.page.context().close(); }
+});
+
+test("live votes from others move the tallies and the leader while focus stays on its card, and a card that goes hands focus to the action", async () => {
+    const { tv, fake } = await inLobby("guest", fake => {
+        fake.selectionMode = "vote";
+        fake.suggest("dune", "Dune", ["p-owner"]);
+        fake.suggest("heat", "Heat");
+        fake.suggest("alien", "Alien");
+    });
+    try {
+        await ballotShows(tv, 3);
+        assert.equal(await tv.page.locator(".watch-party-lead").textContent(), "Tap a title to vote. Owner starts the winner.");
+        assert.equal(await tv.page.locator(".watch-party-hint").textContent(), "Owner starts Dune when voting settles.");
+        assert.equal(await button(tv, "suggest").textContent(), "Suggest a title");
+        await button(tv, "suggestion:heat").focus();
+        fake.voteAs("p-other1", "heat", true);
+        fake.voteAs("p-other2", "heat", true);
+        await tv.eventually(async () => JSON.stringify(await tallies(tv)) === JSON.stringify(["1", "2", "0"]), "live tallies");
+        await tv.eventually(async () => (await texts(tv, ".watch-party-candidate-leader .watch-party-candidate-title"))[0] === "Heat", "Heat leads");
+        assert.equal(await tv.page.locator(".watch-party-hint").textContent(), "Owner starts Heat when voting settles.");
+        assert.equal(await tv.focused(), "suggestion:heat", "focus is restored by suggestion id, not position");
+        // The host removes the focused suggestion: focus goes to the lobby's action instead of falling to the page.
+        fake.suggestions.splice(1, 1);
+        fake.voteAs("p-other1", "alien", true);
+        await tv.eventually(async () => (await cards(tv)).length === 2, "Heat removed");
+        assert.equal(await focusKept(tv), "ready");
+    } finally { await tv.page.context().close(); }
+});
+
+test("a ballot wider than the screen scrolls to keep the focused card in view, out to the Suggest card", async () => {
+    const { tv } = await inLobby("host", fake => {
+        fake.selectionMode = "vote";
+        for (let index = 0; index < 9; index++) fake.suggest(`s${index}`, `Title ${index}`);
+    });
+    try {
+        await ballotShows(tv, 9);
+        await button(tv, "suggestion:s0").focus();
+        for (let index = 0; index < 9; index++) await tv.remote(39);
+        assert.equal(await tv.focused(), "ballot-suggest");
+        await tv.eventually(async () => {
+            const box = await button(tv, "ballot-suggest").boundingBox();
+            return box !== null && box.x >= 0 && box.x + box.width <= 1920;
+        }, "the Suggest card is on screen");
+        await tv.remote(37);
+        assert.equal(await tv.focused(), "suggestion:s8");
+    } finally { await tv.page.context().close(); }
+});
+
+test("removing suggestions before the focused card keeps that card on screen", async () => {
+    const { tv, fake } = await inLobby("host", fake => {
+        fake.selectionMode = "vote";
+        for (let index = 0; index < 20; index++) fake.suggest(`s${index}`, `Title ${index}`);
+    });
+    try {
+        await ballotShows(tv, 20);
+        await button(tv, "suggestion:s0").focus();
+        for (let index = 0; index < 9; index++) await tv.remote(39);
+        assert.equal(await tv.focused(), "suggestion:s9");
+        fake.suggestions.splice(0, 7);
+        fake.voteAs("p-other", "s19", true);
+        await tv.eventually(async () => (await cards(tv)).length === 13, "seven removed");
+        assert.equal(await tv.focused(), "suggestion:s9");
+        await tv.jump(500);
+        const box = await tv.page.evaluate(() => {
+            const card = document.activeElement as HTMLElement | null;
+            const rect = card?.getBoundingClientRect();
+            return { key: card?.dataset.focus, left: rect?.left ?? -1, right: rect?.right ?? -1 };
+        });
+        assert.equal(box.key, "suggestion:s9");
+        assert.ok(box.left >= 0 && box.right <= 1920, `the focused card is on screen (${JSON.stringify(box)})`);
     } finally { await tv.page.context().close(); }
 });

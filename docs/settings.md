@@ -65,7 +65,7 @@ Off, an unsupported panel, a throwing probe, or a failed read of the HDR key the
 
 ## Theme music
 
-Settings › General › THEME MUSIC, after the Title Pages group, shows `Play Theme Music` and `Loop Theme Music`.
+Settings › General › THEME MUSIC, after the Title Pages group and before Cards & Posters, shows `Play Theme Music` and `Loop Theme Music`.
 Both are switches. Loop is disabled until Play is on. The footer is Apple's: `Play a title's theme song from your library while its page is open. Only affects this TV.`
 Source: [silo-apple `650a0b8a`](https://github.com/Silo-Server/silo-apple/tree/650a0b8a), `TVGeneralSettingsView.themeMusicGroup`, `ThemeMusicPreferences.swift`, `Screens/Detail/ThemeMusic/*`, and silo-server `df9f5501` (`docs/catalog-api.md`, "Local theme songs, V2").
 
@@ -95,6 +95,15 @@ Tearing down pauses, drops `src` and calls `load()` so the element releases the 
 If the platform refuses `play()` for lack of a user gesture, the next remote key starts it.
 Desktop Chromium proves the state machine and the hand-off order, not that a TV's `<audio>` plays these formats or that it frees the decoder in time; that needs a Samsung TV.
 
+## Show Audiobooks
+
+General ends with Apple's TOP MENU section: a Show Audiobooks switch and the footer `Adds an Audiobooks tab when an audiobook library is available.` (`TVGeneralSettingsView.swift`).
+`nav.show_audiobooks` is `client_local`, default off.
+The choice is stored on this TV for the current server, account and profile, and is never sent to the server, as Apple's `AppNavPreferences` does.
+TOP MENU is the last section in General, as in Apple's `TVGeneralSettingsView`.
+The Audiobooks tab, and the Audiobooks filter in Search, need the switch on and an audiobook library the profile has not hidden.
+Settings returns to Home, so turning the switch off while on the tab leaves nothing stranded.
+
 ## Rows left without a control
 
 A row that nothing on this TV acts on stays hidden.
@@ -103,9 +112,8 @@ A row that nothing on this TV acts on stays hidden.
 | --- | --- |
 | Dolby Vision | Samsung exposes no Dolby Vision support check, and this client claims no Dolby Vision profile. A switch would not change playback. This is not a measurement that the panel lacks Dolby Vision. |
 | Paired Silo Profile | Open PR #292. This branch does not change it. |
-| Show Audiobooks | Open PR #230. No Audiobooks tab. |
 | Show Next Up | Playback offers Play next only after the episode ends. Nothing reads `playback.next_up_prompt_seconds`. Open PR #213 owns the pre-end reader. |
-| Audiobooks Skip Back, Skip Forward | Open PR #230. No audiobook player. |
+| Audiobooks Skip Back, Skip Forward | No audiobook player yet. The audiobook screens ship first (#55). |
 | Use Device Settings | tvOS reads Media Accessibility caption preferences (`SystemCaptionAppearance.swift`). Samsung captions are the app overlay. No TV caption-style API is available, so the switch would not change language, behavior, or appearance. |
 | Diagnostics | Open issue #218, parked. |
 

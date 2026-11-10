@@ -262,7 +262,12 @@ The fixed roots follow Apple TVRootDestination.visibleRoots: Home, Movies, Serie
 Library types appear only when a matching visible library exists; mixed video libraries appear under Movies and Series.
 Music opens an explicit unavailable page because the existing catalog browser supports video queries only; it sends no library queries and offers Back.
 Saved menu order, omissions and library shortcuts no longer affect the bar.
-Audiobooks requires Apple's opt-in feature; Tizen has no audiobook feature and omits it.
+Audiobooks follows music in the bar and appears only with Show Audiobooks on and an audiobook library the profile has not hidden.
+The bar order is Apple's `Home · Movies · Series · Music · Audiobooks · For You · Calendar` (`TVMainTabView.swift`).
+The tab never takes focus when it appears, and turning the switch off from the Audiobooks tab returns to Home with focus on the Home tab (`TVMainTabView.ensureSelectedRootIsVisible`).
+It opens the same Recommended, Collections and Browse cascade as the video tabs, with square covers, and Browse offers Apple's audiobook sorts (Title, Author, Narrator, Series, Date Added, Runtime) and sends no `type`.
+Home, For You and Search open an audiobook card on its own detail: cover, author and narrator, chapters, a state line and Resume, Play or Play Again.
+Play, Resume and Start Over are drawn but inert until the player can open an audiobook.
 Watch Party requires both local opt-in (Settings › Server › Extra Features) and synchronized-party support, and sits after Requests in the profile menu only when both hold ([Watch Party](watch-party.md)).
 Search is 58 px wide with an 8 px gap before the roots and an invisible equal-width balance after them, keeping the roots centered at x960.
 Labels retain Apple's 29 px horizontal inset (including the CSS border), 26 px semibold type and 8 px gaps.
@@ -296,7 +301,7 @@ The server web client's recommendation adapter was checked, but importing its Re
 This slice does not implement Apple's saved-server list or the additional Sign Out & Remove Server confirmation action.
 The saved-server list is tracked in #127; the additional removal action remains under #107.
 Those are client work, not claimed Tizen limitations.
-Music, Audiobooks and Watch Party remain in their existing separate scopes.
+Music and Watch Party remain in their existing separate scopes.
 Inter, original SVG drawings and CSS material/focus effects remain documented platform equivalents; full-product and physical-TV parity are not established by these changes.
 The [current signed simulator comparisons](../evidence/screenshots/94-navigation/README.md) record package identity, historical-frame labels, measured menu/dialog bounds and remaining validation limits.
 

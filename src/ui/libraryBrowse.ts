@@ -6,7 +6,7 @@ import type { UserLibrary } from "../contracts/v2/catalog.ts";
 import type { CatalogFilters, CatalogQueryRequest, FilterGroup, FilterRule, Order } from "../contracts/v2/discovery.ts";
 import { scopeOf } from "./browseModel.ts";
 
-export type SortKey = "title" | "added_at" | "release_date" | "year" | "rating_imdb" | "runtime" | "resolution";
+export type SortKey = "title" | "added_at" | "release_date" | "year" | "rating_imdb" | "runtime" | "resolution" | "author" | "narrator" | "series";
 /** CatalogSortKey.available(for: .movie / .series), in display order, with labels and natural order. */
 export const SORT_KEYS: readonly { readonly key: SortKey; readonly label: string; readonly order: Order }[] = [
     { key: "title", label: "Title", order: "asc" },
@@ -17,6 +17,21 @@ export const SORT_KEYS: readonly { readonly key: SortKey; readonly label: string
     { key: "runtime", label: "Runtime", order: "desc" },
     { key: "resolution", label: "Resolution", order: "desc" },
 ];
+
+/** CatalogSortKey.available(for: .audiobook), in display order. */
+const AUDIOBOOK_SORT_KEYS: typeof SORT_KEYS = [
+    { key: "title", label: "Title", order: "asc" },
+    { key: "author", label: "Author", order: "asc" },
+    { key: "narrator", label: "Narrator", order: "asc" },
+    { key: "series", label: "Series", order: "asc" },
+    { key: "added_at", label: "Date Added", order: "desc" },
+    { key: "runtime", label: "Runtime", order: "desc" },
+];
+
+/** The sort keys a library of this type offers. */
+export function sortKeysFor(libraryType: string): typeof SORT_KEYS {
+    return libraryType === "audiobooks" ? AUDIOBOOK_SORT_KEYS : SORT_KEYS;
+}
 
 export type Facet = "genre" | "decade" | "watchStatus" | "contentRating" | "resolution" | "dynamicRange" | "studio" | "network" | "country" | "audioLanguage" | "subtitleLanguage" | "originalLanguage";
 /** CatalogFacet.available(for: .movie / .series), in display order. */
@@ -46,7 +61,7 @@ export interface BrowseFilter {
 export const DEFAULT_FILTER: BrowseFilter = { sort: "title", order: undefined, matchAll: true, values: {}, prefix: undefined };
 
 export function sortKey(key: SortKey): (typeof SORT_KEYS)[number] {
-    return SORT_KEYS.find(entry => entry.key === key) ?? SORT_KEYS[0] as (typeof SORT_KEYS)[number];
+    return SORT_KEYS.find(entry => entry.key === key) ?? AUDIOBOOK_SORT_KEYS.find(entry => entry.key === key) ?? SORT_KEYS[0] as (typeof SORT_KEYS)[number];
 }
 
 export function effectiveOrder(filter: BrowseFilter): Order {
@@ -144,7 +159,7 @@ export function browseQuery(filter: BrowseFilter, library: UserLibrary, limit: n
     const status = WATCH_STATUS.find(([value]) => value === selected(filter, "watchStatus")[0]);
     if (status !== undefined) groups.push({ match: "all", rules: [{ field: status[2], op: "is", value: status[0] !== "unwatched" }] });
     return {
-        library_id: library.id, type: scopeOf(library), limit,
+        library_id: library.id, ...(library.type === "audiobooks" ? {} : { type: scopeOf(library) }), limit,
         sort: filter.sort, order: effectiveOrder(filter), match: filter.matchAll ? "all" : "any",
         ...(filter.prefix === undefined ? {} : { name_prefix: filter.prefix }),
         ...(groups.length === 0 ? {} : { groups }),
@@ -189,7 +204,7 @@ export class BrowsePrefs {
         if (raw == null) return undefined;
         try {
             const value = JSON.parse(raw) as Partial<BrowseFilter>;
-            const sort = SORT_KEYS.find(entry => entry.key === value.sort)?.key ?? "title";
+            const sort = sortKeysFor(library.type).find(entry => entry.key === value.sort)?.key ?? "title";
             const order = value.order === "asc" || value.order === "desc" ? value.order : undefined;
             const values: Partial<Record<Facet, readonly string[]>> = {};
             for (const { facet } of FACETS) {

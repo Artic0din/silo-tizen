@@ -433,6 +433,40 @@ export function decodeSuggestion(value: unknown, path = "watch_together_suggesti
     };
 }
 
+/** GET /rooms/{id}/suggestions: one page in creation order, with this profile's own votes. */
+export interface SuggestionPage {
+    readonly items: readonly Suggestion[];
+    /** Present only when more rows follow. */
+    readonly nextCursor: string | undefined;
+}
+
+export function decodeSuggestionPage(value: unknown): SuggestionPage {
+    const path = "watch_together_suggestion_page";
+    const body = object(value, path);
+    const page = body.page === undefined || body.page === null ? undefined : object(body.page, `${path}.page`);
+    const hasMore = page === undefined ? false : boolean(page, "has_more", `${path}.page`);
+    return {
+        items: array(body, "items", path).map((entry, index) => decodeSuggestion(entry, `${path}.items[${index}]`)),
+        nextCursor: hasMore && page !== undefined ? nonEmptyString(page, "next_cursor", `${path}.page`) : undefined,
+    };
+}
+
+/** A title a member puts on the ballot. `suggestionId` is a UUID the caller picks once, so a resend is the same suggestion. */
+export interface NewSuggestion {
+    readonly suggestionId: string;
+    readonly contentId: string;
+    readonly contentType: "movie" | "episode";
+    readonly title: string;
+    readonly subtitle?: string;
+    readonly posterUrl?: string;
+}
+
+/** POST /rooms/{id}/suggestions answers 201 with the id it stored. */
+export function decodeSuggestionReceipt(value: unknown): string {
+    const path = "watch_together_suggestion_receipt";
+    return nonEmptyString(object(value, path), "suggestion_id", path);
+}
+
 /** Decodes one parsed frame. An unrecognised `type` is `unknown`; a frame without a string `type` throws. */
 export function decodeRoomServerMessage(value: unknown): RoomServerMessage {
     const path = "watch_together_frame";

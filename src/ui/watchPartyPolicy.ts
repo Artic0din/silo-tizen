@@ -1,4 +1,4 @@
-// Apple's WatchPartyLobbyPolicy for the parts the lobby uses before the room socket exists.
+// Apple's WatchPartyLobbyPolicy: seat states, the presence summary, the host's hint and the lobby's one action.
 
 import type { Room, RoomMember, WatchTogetherCapabilities } from "../contracts/v2/watchTogether.ts";
 
@@ -27,18 +27,24 @@ export function waitingNames(members: readonly RoomMember[]): string[] {
 }
 
 /**
- * The one action the lobby foregrounds, WatchPartyLobbyPolicy.primaryAction without voting and without
- * Ready, which both need the room socket. `canStart` is WatchPartySession.canStartPlayback.
- * `selectionUnavailable` is a title hidden from this profile: a guest has nothing to ready up for or return to.
+ * The one action the lobby foregrounds, WatchPartyLobbyPolicy.primaryAction. `canStart` is
+ * WatchPartySession.canStartPlayback. `selectionUnavailable` is a title hidden from this profile: a guest
+ * has nothing to ready up for or return to. A vote room's host starts the winner, or suggests while
+ * nobody has voted; a guest marks Ready when the server takes lobby readiness.
  */
-export type PrimaryAction = "chooseTitle" | "start" | "returnToPlayback" | "returnToLobby" | "none";
+export type PrimaryAction = "chooseTitle" | "start" | "waitingForVotes" | "ready" | "returnToPlayback" | "returnToLobby" | "none";
 
 export function primaryAction(room: Room, capabilities: WatchTogetherCapabilities | undefined, canStart: boolean, selectionUnavailable = false, playbackEnded = false): PrimaryAction {
     if (room.phase === "playing") {
         if (playbackEnded) return room.selfCanManageRoom && capabilities?.stopPlayback === true ? "returnToLobby" : "none";
         return selectionUnavailable && !room.selfCanManageRoom ? "none" : "returnToPlayback";
     }
-    if (room.phase !== "lobby" || !room.selfCanManageRoom || room.selectionMode !== "host_pick") return "none";
-    if (room.selectedContentId === undefined) return "chooseTitle";
-    return canStart ? "start" : "chooseTitle";
+    if (room.phase !== "lobby") return "none";
+    if (selectionUnavailable && !room.selfCanManageRoom) return "none";
+    if (room.selfCanManageRoom) {
+        if (room.selectionMode === "vote") return canStart ? "start" : "waitingForVotes";
+        if (room.selectedContentId === undefined) return "chooseTitle";
+        return canStart ? "start" : "chooseTitle";
+    }
+    return capabilities?.lobbyReady === true && room.members.some(member => member.isSelf) ? "ready" : "none";
 }

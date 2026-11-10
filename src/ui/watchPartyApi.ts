@@ -8,7 +8,7 @@ import { watchTogetherOperations } from "../api/watchTogetherOperations.ts";
 import type { CatalogPage, Episode, ItemDetail, Season } from "../contracts/v2/catalog.ts";
 import type { PlaybackCapabilities } from "../contracts/v2/playback.ts";
 import {
-    type CreatableSelectionMode, type GuestControlPolicy, type Picker, type RoomAccess, type RoomSelection,
+    type CreatableSelectionMode, type GuestControlPolicy, type NewSuggestion, type Picker, type RoomAccess, type RoomSelection, type SuggestionPage,
     roomSocketHandshake, type WatchTogetherCapabilities, watchTogetherSocketSupported,
 } from "../contracts/v2/watchTogether.ts";
 import type { NativeSession } from "../session/session.ts";
@@ -41,6 +41,10 @@ export interface WatchPartyApi extends RoomSocketApi {
     /** The room as it now stands, read with the room token, to reconcile after a change whose answer was lost. */
     room(roomId: string, token: string, signal: AbortSignal): Promise<RoomAccess>;
     picker(roomId: string, token: string, signal: AbortSignal): Promise<Picker>;
+    suggestions(roomId: string, token: string, cursor: string | undefined, signal: AbortSignal): Promise<SuggestionPage>;
+    addSuggestion(roomId: string, token: string, suggestion: NewSuggestion, signal: AbortSignal): Promise<string>;
+    setVote(roomId: string, token: string, suggestionId: string, voted: boolean, signal: AbortSignal): Promise<void>;
+    promoteSuggestion(roomId: string, token: string, suggestionId: string, signal: AbortSignal): Promise<RoomAccess>;
     item(contentId: string, signal: AbortSignal): Promise<ItemDetail>;
     seasons(seriesId: string, signal: AbortSignal): Promise<Season[]>;
     episodes(seriesId: string, seasonNumber: number, signal: AbortSignal): Promise<Episode[]>;
@@ -63,6 +67,10 @@ export function watchPartyApi(session: Pick<NativeSession, "call" | "http">): Wa
         setGuestControlPolicy: (roomId, policy, signal) => call(watchTogetherOperations.setGuestControlPolicy(roomId, policy), signal),
         room: (roomId, token, signal) => call(watchTogetherOperations.room(roomId, token), signal),
         picker: (roomId, token, signal) => call(watchTogetherOperations.picker(roomId, token), signal),
+        suggestions: (roomId, token, cursor, signal) => call(watchTogetherOperations.suggestions(roomId, token, cursor), signal),
+        addSuggestion: (roomId, token, suggestion, signal) => call(watchTogetherOperations.addSuggestion(roomId, token, suggestion), signal),
+        setVote: (roomId, token, suggestionId, voted, signal) => call(watchTogetherOperations.setVote(roomId, token, suggestionId, voted), signal),
+        promoteSuggestion: (roomId, token, suggestionId, signal) => call(watchTogetherOperations.promoteSuggestion(roomId, token, suggestionId), signal),
         socketTicket: (roomId, token, signal) => call(watchTogetherOperations.socketTicket(roomId, token), signal),
         socketHandshake: (roomId, ticket) => roomSocketHandshake(session.http.base.apiRoot, roomId, ticket),
         item: (contentId, signal) => call(operations.getCatalogItem(contentId), signal),

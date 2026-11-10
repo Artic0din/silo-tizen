@@ -5,6 +5,7 @@ import type { RequestTitle } from "../contracts/v2/requests.ts";
 import type { FocusItem, View, Zone } from "./browseFocus.ts";
 import { actionButton, artwork, searchLoading, zoneNode } from "./browseViews.ts";
 import { newRoute, type Route, type RouteHandlers } from "./browseRoutes.ts";
+import type { SearchFilter } from "./browseModel.ts";
 import { defaultArtwork } from "./defaultArtwork.ts";
 import { requestCard, requestsState } from "./requests.ts";
 import { requestProgress } from "./requestProgress.ts";
@@ -44,7 +45,8 @@ export function searchRequestCard(title: RequestTitle, baseUrl: string, open: ()
 }
 
 export function globalSearchView(view: View, route: Extract<Route, { kind: "search" }>, h: RouteHandlers): View {
-    const filters = ([[undefined, "All"], ["movie", "Movies"], ["series", "Series"]] as const).map(([value, label]) => {
+    const choices: readonly (readonly [SearchFilter | undefined, string])[] = [[undefined, "All"], ["movie", "Movies"], ["series", "Series"], ...(h.audiobooksEnabled ? [["audiobook", "Audiobooks"] as const] : [])];
+    const filters = choices.map(([value, label]) => {
         const item = actionButton(`search-filter:${value ?? "all"}`, label, () => h.searchFilter(route, value));
         item.element.addEventListener("focus", () => h.searchFilter(route, value));
         item.element.setAttribute("aria-pressed", String(route.filter === value));

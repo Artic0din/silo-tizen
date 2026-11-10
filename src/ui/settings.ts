@@ -20,6 +20,7 @@ import { pairedProfileDescription, pairedProfileLabel, profileSelectionCaption }
 import { BUFFERING_QUALITY_MODES, BUFFERING_QUALITY_TITLE, bitrateLabel, qualityFooter } from "./qualitySettings.ts";
 import { ConnectionSpeed, LEARNED_LIMIT_RESET_ACTION, learnedLimitText } from "./connectionSpeed.ts";
 import { signOutConfirmationCopy } from "./signOutConfirmation.ts";
+import type { ShowAudiobooks } from "./audiobookPreference.ts";
 import { EXPERIMENTAL_FEATURES, type ExperimentalFeatures } from "../session/experimentalFeatures.ts";
 
 type Category = "general" | "playback" | "subtitles" | "server";
@@ -46,7 +47,7 @@ type Picker = "audio" | "quality" | "bitrate" | "seek-back" | "seek-forward" | "
 const PICKER_KEYS = { audio: AUDIO_KEY, quality: QUALITY_KEY, bitrate: BITRATE_KEY, "seek-back": SEEK_BACK_KEY, "seek-forward": SEEK_FORWARD_KEY, "subtitle-language": SUBTITLE_LANGUAGE_KEY, "subtitle-mode": SUBTITLE_MODE_KEY } as const;
 const PICKER_LABELS = { audio: "Audio Language", quality: "Resolution", bitrate: "Maximum Bitrate", "seek-back": "Skip Back", "seek-forward": "Skip Forward", "subtitle-language": "Language", "subtitle-mode": "Behavior" } as const;
 const BITRATE_CHOICES = [200000, 100000, 60000, 40000, 20000, 15000, 10000, 6000, 4000, 2000, 1500];
-export interface SettingsActions { readonly profileName: string; readonly profileAvatarUrl?: string | undefined; readonly accountName?: string | undefined; readonly switchProfile: () => void; readonly signOut?: () => void; readonly serverName?: string | undefined; readonly switchServer?: (back: () => void) => void; /** True when this sign-out removes the saved server. Unreadable account lists return false. */ readonly removesServer?: () => boolean }
+export interface SettingsActions { readonly showAudiobooks?: ShowAudiobooks; readonly profileName: string; readonly profileAvatarUrl?: string | undefined; readonly accountName?: string | undefined; readonly switchProfile: () => void; readonly signOut?: () => void; readonly serverName?: string | undefined; readonly switchServer?: (back: () => void) => void; /** True when this sign-out removes the saved server. Unreadable account lists return false. */ readonly removesServer?: () => boolean }
 export interface SettingsScreen { destroy(): void }
 
 export function mountSettings(root: HTMLElement, session: NativeSession, close: (hiddenChanged: boolean, titleArt?: boolean) => void, launch?: ProfileLaunch, actions?: SettingsActions, accounts?: (back: () => void) => void, spoilers?: EpisodeSpoilerPreferences, experimental?: ExperimentalFeatures, themeMusic?: ThemeMusicPreferences): SettingsScreen {
@@ -752,6 +753,18 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
                     rows.push(toggle); body.appendChild(toggle.element);
                 }
             }
+        }
+        if (category === "general" && actions?.showAudiobooks !== undefined) {
+            // TVGeneralSettingsView TOP MENU: a client_local opt-in, stored on this TV per profile.
+            const audiobooks = actions.showAudiobooks;
+            const on = audiobooks.value;
+            const item = button("show-audiobooks", "Show Audiobooks", () => { audiobooks.set(!audiobooks.value); render({ zone: "settings-rows", key: "show-audiobooks" }); });
+            item.element.appendChild(el("span", "settings-row-value", on ? "On" : "Off"));
+            item.element.setAttribute("role", "switch");
+            item.element.setAttribute("aria-label", "Show Audiobooks");
+            item.element.setAttribute("aria-checked", String(on));
+            rows.push(item);
+            body.append(el("h3", "settings-section-header", "TOP MENU"), item.element, el("p", "settings-value", "Adds an Audiobooks tab when an audiobook library is available."));
         }
         if (state.loaded && rows.length === 0) body.appendChild(el("p", "browse-text", "No supported settings in this category."));
         if (category === "server") {

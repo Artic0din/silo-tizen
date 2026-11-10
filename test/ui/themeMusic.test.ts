@@ -60,6 +60,8 @@ test("Settings › General lists Play and Loop Theme Music with Apple's copy, of
         await tv.page.getByText("Play a title's theme song from your library while its page is open. Only affects this TV.", { exact: true }).waitFor();
         const order = await tv.page.locator('.settings-section-header, [data-focus="title-art"], [data-focus="theme-music"], [data-focus="theme-music-loop"]').evaluateAll(nodes => nodes.map(node => node.getAttribute("data-focus") ?? node.textContent ?? ""));
         assert.deepEqual(order.slice(order.indexOf("TITLE PAGES"), order.indexOf("TITLE PAGES") + 4), ["TITLE PAGES", "title-art", "THEME MUSIC", "theme-music"]);
+        const headers = order.filter(name => ["THEME MUSIC", "CARDS & POSTERS", "TOP MENU"].includes(name));
+        assert.deepEqual(headers, ["THEME MUSIC", "CARDS & POSTERS", "TOP MENU"], "Theme Music comes before Cards & Posters and Top Menu, as on Apple TV");
         await loop.click({ force: true });
         assert.equal(await loop.getAttribute("aria-checked"), "false", "a disabled Loop does nothing");
         assert.equal(tv.fake.paths().some(path => path.startsWith("PUT /settings/values/ui.theme_music_loop")), false);

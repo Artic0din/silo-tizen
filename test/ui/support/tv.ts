@@ -37,7 +37,9 @@ function svgArt(name: string): string {
         hue = (hue * 31 + name.charCodeAt(i)) % 360;
     }
     const label = name.replace(/[^A-Za-z0-9:.-]/g, " ").slice(0, 24);
-    return `<svg xmlns="http://www.w3.org/2000/svg" width="500" height="750" viewBox="0 0 500 750"><rect width="500" height="750" fill="hsl(${hue},45%,32%)"/><text x="250" y="400" font-family="sans-serif" font-size="40" fill="#fff" text-anchor="middle">${label}</text></svg>`;
+    // An audiobook cover is square (Apple MediaCardAspect.square).
+    const height = name.startsWith("audiobook") ? 500 : 750;
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="500" height="${height}" viewBox="0 0 500 ${height}"><rect width="500" height="${height}" fill="hsl(${hue},45%,32%)"/><text x="250" y="${height / 2 + 25}" font-family="sans-serif" font-size="40" fill="#fff" text-anchor="middle">${label}</text></svg>`;
 }
 
 /** The harness as the TV build bundles it: one classic script lowered to Chrome 108. */

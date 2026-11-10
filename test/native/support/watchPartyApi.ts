@@ -40,6 +40,7 @@ export const unusedLobbyOperations: Omit<WatchPartyApi, "capabilities" | "playba
     stopPlayback: unexpected("stopPlayback"),
     setSelectionMode: unexpected("setSelectionMode"),
     setGuestControlPolicy: unexpected("setGuestControlPolicy"),
+    room: unexpected("room"),
     picker: unexpected("picker"),
     item: unexpected("item"),
     seasons: unexpected("seasons"),

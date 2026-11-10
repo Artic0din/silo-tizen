@@ -37,6 +37,8 @@ export interface WatchPartyApi {
     stopPlayback(roomId: string, signal: AbortSignal): Promise<RoomAccess>;
     setSelectionMode(roomId: string, mode: CreatableSelectionMode, signal: AbortSignal): Promise<RoomAccess>;
     setGuestControlPolicy(roomId: string, policy: Exclude<GuestControlPolicy, "unknown">, signal: AbortSignal): Promise<RoomAccess>;
+    /** The room as it now stands, read with the room token, to reconcile after a change whose answer was lost. */
+    room(roomId: string, token: string, signal: AbortSignal): Promise<RoomAccess>;
     picker(roomId: string, token: string, signal: AbortSignal): Promise<Picker>;
     item(contentId: string, signal: AbortSignal): Promise<ItemDetail>;
     seasons(seriesId: string, signal: AbortSignal): Promise<Season[]>;
@@ -58,6 +60,7 @@ export function watchPartyApi(session: Pick<NativeSession, "call">): WatchPartyA
         stopPlayback: (roomId, signal) => call(watchTogetherOperations.stopPlayback(roomId), signal),
         setSelectionMode: (roomId, mode, signal) => call(watchTogetherOperations.setSelectionMode(roomId, mode), signal),
         setGuestControlPolicy: (roomId, policy, signal) => call(watchTogetherOperations.setGuestControlPolicy(roomId, policy), signal),
+        room: (roomId, token, signal) => call(watchTogetherOperations.room(roomId, token), signal),
         picker: (roomId, token, signal) => call(watchTogetherOperations.picker(roomId, token), signal),
         item: (contentId, signal) => call(operations.getCatalogItem(contentId), signal),
         seasons: (seriesId, signal) => call(operations.listSeriesSeasons(seriesId), signal),

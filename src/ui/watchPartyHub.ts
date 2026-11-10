@@ -5,6 +5,7 @@
 // built, so a guest sees the room as it was when they joined.
 
 import { ApiError } from "../api/errors.ts";
+import { writeMayHaveApplied } from "./browseRoutes.ts";
 import type { Card, Episode, Season } from "../contracts/v2/catalog.ts";
 import type { CreatableSelectionMode, GuestControlPolicy, PickerEntry, Room, RoomAccess, RoomSelection, WatchTogetherCapabilities } from "../contracts/v2/watchTogether.ts";
 import type { PlayRequest } from "./browseModel.ts";
@@ -145,6 +146,10 @@ export class WatchPartyHub {
     }
 
     show(page: LobbyPage): void {
+        // Leaving a page ends its reads: a late answer must not undo the move.
+        this.epoch++;
+        this.state.shelvesLoading = false;
+        this.state.browseLoading = false;
         this.state.page = page;
         this.notify();
     }
@@ -170,17 +175,22 @@ export class WatchPartyHub {
         const picked = this.mutate(
             signal => staged ? this.api.stageSelection(room.roomId, selection, signal) : this.api.selectItem(room.roomId, selection, signal),
             () => { this.state.selected = choice.lobby; this.state.selectedUnavailable = false; },
+            !staged,
         );
         const done = await picked;
         if (!done && !this.stopped && this.state.selected?.contentId === choice.contentId) this.state.selected = before;
-        if (done) this.show(LOBBY);
+        if (done) {
+            this.show(LOBBY);
+            // Choosing for a party that is already playing starts it for everyone, as the button says.
+            if (!staged) this.resume();
+        }
         return done;
     }
 
     /** Start for everyone. Opens the player on the room's file when the server says the party is playing. */
     async start(): Promise<boolean> {
         if (!this.canStart()) return false;
-        const started = await this.mutate(signal => this.api.startPlayback(this.requireRoom().roomId, signal));
+        const started = await this.mutate(signal => this.api.startPlayback(this.requireRoom().roomId, signal), undefined, true);
         if (started) this.resume();
         return started;
     }
@@ -189,7 +199,7 @@ export class WatchPartyHub {
     resume(): void {
         const room = this.state.room;
         if (room?.phase !== "playing" || room.selectedContentId === undefined || room.selectedFileId === undefined) return;
-        this.options.onPlay?.({ contentId: room.selectedContentId, fileId: room.selectedFileId, title: this.state.selected?.title ?? "Watch Party", startSeconds: room.anchorPositionSeconds });
+        this.options.onPlay?.({ contentId: room.selectedContentId, fileId: room.selectedFileId, title: this.state.selected?.title ?? "Watch Party", startSeconds: room.anchorPositionSeconds, allowAlternateVersions: false });
     }
 
     async stopPlayback(): Promise<boolean> {
@@ -235,7 +245,9 @@ export class WatchPartyHub {
         this.state.shelvesError = undefined;
         this.notify();
         try {
-            this.state.shelves = await this.loadShelves();
+            const shelves = await this.loadShelves();
+            if (this.stale(epoch)) return;
+            this.state.shelves = shelves;
         } catch (error) {
             if (this.stale(epoch)) return;
             this.state.shelvesError = this.describe(error);
@@ -259,7 +271,9 @@ export class WatchPartyHub {
             const season = wanted ?? seasons.find(candidate => candidate.isSpecials !== true) ?? seasons[0];
             if (season === undefined) return;
             this.state.page = { kind: "episodes", series, season };
-            this.state.episodes = await this.api.episodes(series.id, season.seasonNumber, signal);
+            const episodes = await this.api.episodes(series.id, season.seasonNumber, signal);
+            if (this.stale(epoch)) return;
+            this.state.episodes = episodes;
         });
     }
 
@@ -328,7 +342,7 @@ export class WatchPartyHub {
      * One host change at a time, as Apple's `mutate`: a second call while one runs is ignored, so the controls stay enabled
      * and focus is not thrown out. The answer replaces the room; a refusal shows the server's reason and keeps the room.
      */
-    private async mutate(operation: (signal: AbortSignal) => Promise<RoomAccess>, begin?: () => void): Promise<boolean> {
+    private async mutate(operation: (signal: AbortSignal) => Promise<RoomAccess>, begin?: () => void, reconcile = false): Promise<boolean> {
         const room = this.state.room;
         if (room?.selfCanManageRoom !== true || this.state.busy || this.stopped) return false;
         this.state.busy = true;
@@ -342,9 +356,20 @@ export class WatchPartyHub {
             return true;
         } catch (error) {
             if (!this.stopped) this.state.error = this.describe(error);
+            // A non-retryable change whose answer never came may have landed: read the room so the lobby does not stay behind it.
+            if (reconcile && !this.stopped && writeMayHaveApplied(error)) await this.readRoom(room.roomId);
             return false;
         } finally {
             if (!this.stopped) { this.state.busy = false; this.notify(); }
+        }
+    }
+
+    private async readRoom(roomId: string): Promise<void> {
+        try {
+            const answer = await this.api.room(roomId, this.roomToken, this.controller.signal);
+            if (!this.stopped && this.state.room?.roomId === roomId) this.accept(answer);
+        } catch {
+            // The error from the change is already showing; the room stays as it was.
         }
     }
 

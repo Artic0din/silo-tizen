@@ -402,3 +402,35 @@ test("Back from the lobby as the host returns to the entry and ends the room, as
         await tv.eventually(async () => fake.closedRooms.length === 1, "host Back ends the room");
     } finally { await tv.page.context().close(); }
 });
+
+test("a series on both shelves opens the entry of the shelf it was chosen from", async () => {
+    const { tv } = await inLobby("host", fake => { fake.duplicateSeries = true; });
+    try {
+        await button(tv, "choose").click();
+        await view(tv, "watchParty:picker:shelves").waitFor();
+        assert.equal(await tv.page.locator('[data-focus="series:s1"]').count(), 2);
+        await tv.page.locator('[data-focus="series:s1"]').first().click();
+        await view(tv, "watchParty:choice").waitFor();
+        assert.equal(await tv.page.locator(".watch-party-choice-facts").textContent(), "S1 · E2 · Harbor Lights chapter 1.2", "Continue Together goes to its next-up episode");
+    } finally { await tv.page.context().close(); }
+});
+
+test("a failed reload keeps the shelves, shows the reason and a Try Again that works", async () => {
+    const { tv, fake } = await inLobby();
+    try {
+        await button(tv, "choose").click();
+        await view(tv, "watchParty:picker:shelves").waitFor();
+        await tv.remote(10009);
+        await view(tv, "watchParty:lobby").waitFor();
+        fake.pickerFailure = problem(503, "unavailable", "Down for maintenance.");
+        await button(tv, "choose").click();
+        await tv.page.locator(".watch-party-banner").waitFor();
+        assert.equal(await tv.page.locator(".watch-party-shelf").count(), 2, "the shelves from the first read stay");
+        assert.equal(await tv.page.locator(".watch-party-banner").textContent(), "Down for maintenance.");
+        assert.equal(await button(tv, "picker-retry").count(), 1, "Try Again is on the page");
+        fake.pickerFailure = undefined;
+        await button(tv, "picker-retry").click();
+        await tv.eventually(async () => await tv.page.locator(".watch-party-banner").count() === 0, "error clears");
+        assert.equal(await tv.page.locator(".watch-party-shelf").count(), 2);
+    } finally { await tv.page.context().close(); }
+});

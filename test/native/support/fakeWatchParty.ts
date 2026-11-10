@@ -43,6 +43,10 @@ export class FakeWatchParty extends FakeRequests {
     invitePath: string | undefined = "/rooms/join?token=invite-one";
     /** Members as the room reads them; the viewer's own row follows `role`. */
     guestReady = false;
+    /** Puts the series that Continue Together offers with a next-up episode on the watchlist shelf too, without one. */
+    duplicateSeries = false;
+    /** Fails the next room read once with a lost answer, then reads normally. */
+    readonly roomReads: string[] = [];
 
     room(): Record<string, unknown> {
         const host = this.role === "host";
@@ -70,7 +74,7 @@ export class FakeWatchParty extends FakeRequests {
         return {
             members: (this.room().members as unknown[]),
             continue_together: [entry("movie:m0004"), entry("series:s1", { next_up: { content_id: "episode:s1e12", season_number: 1, episode_number: 2, title: "Harbor Lights chapter 1.2", member_count: 2 } })],
-            watchlist_union: [entry("movie:m0005"), entry("series:s2")],
+            watchlist_union: [entry("movie:m0005"), entry("series:s2"), ...(this.duplicateSeries ? [entry("series:s1")] : [])],
         };
     }
 

@@ -38,18 +38,14 @@ export function pickerView({ hub, baseUrl }: PickerContext): View {
     const top = chrome(hub);
     const content: HTMLElement[] = [top.node];
     const zones: Zone[] = [{ id: "picker-top", layout: "row", items: [top.close] }];
-    const entries = new Map(shelves.flatMap(shelf => shelf.entries.map(entry => [entry.card.id, entry] as const)));
-    const context = {
-        baseUrl, posterWidth: 220,
-        cardDestination: (card: Card) => ({ kind: "item" as const, id: card.id, title: card.title }),
-        open: (destination: { readonly kind: string; readonly id?: string }) => {
-            const entry = destination.id === undefined ? undefined : entries.get(destination.id);
-            if (entry !== undefined) open(hub, entry.card, entry.nextUp);
-        },
-    };
     let firstShelf: FocusItem | undefined;
     for (const shelf of shelves) {
-        const cards = shelf.entries.map(entry => cardItem(entry.card, context)).filter((card): card is FocusItem => card !== undefined);
+        // Each card opens its own shelf's entry: the same series can sit in both shelves, and only one has a next-up episode.
+        const cards = shelf.entries.map(entry => cardItem(entry.card, {
+            baseUrl, posterWidth: 220,
+            cardDestination: card => ({ kind: "item" as const, id: card.id, title: card.title }),
+            open: () => { open(hub, entry.card, entry.nextUp); },
+        })).filter((card): card is FocusItem => card !== undefined);
         if (cards.length === 0) continue;
         firstShelf ??= cards[0];
         zones.push({ id: `shelf:${shelf.id}`, layout: "row", spatial: true, items: cards });
@@ -57,23 +53,27 @@ export function pickerView({ hub, baseUrl }: PickerContext): View {
         block.append(el("h2", "browse-section-title", shelf.title), zoneNode("browse-row", cards));
         content.push(block);
     }
+    // A failed read shows its reason and Try Again whether or not an earlier read left shelves on the page.
     const retry = shelvesError === undefined ? undefined : actionButton("picker-retry", "Try Again", () => { void hub.openPicker(); });
-    if (retry !== undefined) { retry.element.classList.add("watch-party-button", "watch-party-secondary"); zones.push({ id: "picker-retry", layout: "row", items: [retry] }); }
+    const notice = el("div", "watch-party-picker-empty watch-party-ui");
     if (shelves.length === 0) {
-        const empty = el("div", "watch-party-picker-empty watch-party-ui");
         if (shelvesLoading) {
             const loading = el("p", "watch-party-lead", "Loading titles…");
             loading.setAttribute("role", "status");
-            empty.appendChild(loading);
+            notice.appendChild(loading);
         } else {
-            empty.append(el("h2", "watch-party-empty-title", "Nothing to pick from yet"), el("p", "watch-party-lead", "Add a title to a watchlist and it shows up here."));
-            if (shelvesError !== undefined) empty.appendChild(banner(shelvesError, true));
-            if (retry !== undefined) empty.appendChild(retry.element);
+            notice.append(el("h2", "watch-party-empty-title", "Nothing to pick from yet"), el("p", "watch-party-lead", "Add a title to a watchlist and it shows up here."));
         }
-        content.push(empty);
     }
+    if (shelvesError !== undefined) notice.appendChild(banner(shelvesError, true));
+    if (retry !== undefined) {
+        retry.element.classList.add("watch-party-button", "watch-party-secondary");
+        notice.appendChild(retry.element);
+        zones.push({ id: "picker-retry", layout: "row", items: [retry] });
+    }
+    if (notice.childElementCount > 0) content.push(notice);
     const first = firstShelf ?? retry ?? top.close;
-    const zone = firstShelf !== undefined ? zones.find(candidate => candidate.items.includes(first))?.id ?? "picker-top" : retry !== undefined ? "picker-retry" : "picker-top";
+    const zone = zones.find(candidate => candidate.items.includes(first))?.id ?? "picker-top";
     // Shelves arriving is a new page for focus: the first title takes it, as the first card does on Home; the empty and loading page keeps the strip.
     return { name: `watchParty:picker:${firstShelf === undefined ? "empty" : "shelves"}`, content, zones, focus: { zone, key: first.key }, back: () => hub.back() };
 }

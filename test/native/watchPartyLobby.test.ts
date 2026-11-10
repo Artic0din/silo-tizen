@@ -197,6 +197,86 @@ test("a start the server accepted without a file does not open the player", asyn
     assert.deepEqual(plays, []);
 });
 
+test("choosing a title for a party that is already playing opens the player on it, as Play for everyone says", async () => {
+    const playing = { phase: "playing", selected_content_id: "movie:m0001", selected_file_id: "42" };
+    const { hub, plays } = lobby({ selectItem: async () => roomAccess({ ...playing, selected_content_id: "movie:m0009", selected_file_id: "77" }) }, undefined, playing);
+    await hub.create("host_pick");
+    assert.equal(await hub.stage(movie("movie:m0009")), true);
+    assert.deepEqual(plays.map(play => [play.contentId, play.fileId]), [["movie:m0009", "77"]]);
+});
+
+test("the player is pinned to the room's file so an alternate version cannot play instead", async () => {
+    const { hub, plays } = lobby({ startPlayback: async () => roomAccess({ phase: "playing", selected_content_id: "movie:m0004", selected_file_id: "42" }) }, undefined, { selected_content_id: "movie:m0004" });
+    await hub.create("host_pick");
+    await hub.start();
+    assert.equal(plays[0]?.allowAlternateVersions, false);
+});
+
+test("a start whose answer was lost reads the room again and shows what the server did, while a refusal reads nothing", async () => {
+    let reads = 0;
+    const room = { selected_content_id: "movie:m0004" };
+    const lost = lobby({
+        startPlayback: async () => { throw new ApiError({ kind: "network" }); },
+        room: async () => { reads++; return roomAccess({ ...room, phase: "playing", selected_file_id: "42" }); },
+    }, undefined, room);
+    await lost.hub.create("host_pick");
+    assert.equal(await lost.hub.start(), false);
+    assert.equal(reads, 1);
+    assert.equal(lost.hub.state.room?.phase, "playing", "the server did start it");
+    assert.deepEqual(lost.plays, [], "a recovered room offers Return to playback and does not open the player by itself");
+    const refused = lobby({ startPlayback: async () => { throw problem(409, "No."); }, room: async () => { reads++; return roomAccess(); } }, undefined, room);
+    await refused.hub.create("host_pick");
+    await refused.hub.start();
+    assert.equal(reads, 1, "an answer from the server rules out the write, so nothing is read");
+});
+
+test("a late picker answer for an older open does not replace the newer shelves", async () => {
+    const releases: ((value: Awaited<ReturnType<WatchPartyApi["picker"]>>) => void)[] = [];
+    const picker = (id: string) => ({ members: [], continueTogether: [{ card: decodeCard({ content_id: id, type: "movie", title: id }, "card"), members: [], nextUp: undefined }], watchlistUnion: [] });
+    const { hub } = lobby({ picker: () => new Promise(resolve => { releases.push(resolve); }) });
+    await hub.create("host_pick");
+    const first = hub.openPicker();
+    const second = hub.openPicker();
+    releases[1]?.(picker("movie:new"));
+    await second;
+    releases[0]?.(picker("movie:old"));
+    await first;
+    assert.deepEqual(hub.state.shelves.flatMap(shelf => shelf.entries.map(entry => entry.card.id)), ["movie:new"]);
+});
+
+test("Back while the seasons are still loading is not undone when they arrive", async () => {
+    const season = { id: "s1", seasonNumber: 1, title: "Season 1", episodeCount: 1, posterUrl: undefined, isSpecials: false };
+    let release: (value: (typeof season)[]) => void = () => undefined;
+    const { hub } = lobby({ seasons: () => new Promise(resolve => { release = resolve; }), episodes: async () => [] });
+    await hub.create("host_pick");
+    const series = decodeCard({ content_id: "series:s1", type: "series", title: "Harbor Lights" }, "card");
+    const loading = hub.openEpisodes(series);
+    hub.back();
+    assert.equal(hub.state.page.kind, "picker");
+    release([season]);
+    await loading;
+    assert.equal(hub.state.page.kind, "picker");
+    assert.equal(hub.state.seasons === undefined || hub.state.episodes === undefined, true, "nothing from the abandoned page is kept");
+});
+
+test("an older season's episodes cannot land after a newer season was asked for", async () => {
+    const seasonOf = (n: number) => ({ id: `s${n}`, seasonNumber: n, title: `Season ${n}`, episodeCount: 1, posterUrl: undefined, isSpecials: false });
+    const episodeOf = (n: number) => ({ id: `episode:${n}`, seasonNumber: n, episodeNumber: 1, title: "One", runtimeMinutes: 40, stillUrl: undefined, played: false });
+    const releases = new Map<number, () => void>();
+    const { hub } = lobby({ seasons: async () => [seasonOf(1), seasonOf(2)], episodes: (_id, n) => new Promise(resolve => { releases.set(n, () => resolve([episodeOf(n)])); }) });
+    await hub.create("host_pick");
+    const series = decodeCard({ content_id: "series:s1", type: "series", title: "Harbor Lights" }, "card");
+    const first = hub.openEpisodes(series);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    const second = hub.openEpisodes(series, seasonOf(2));
+    await new Promise(resolve => setTimeout(resolve, 0));
+    releases.get(2)?.();
+    await second;
+    releases.get(1)?.();
+    await first;
+    assert.deepEqual(hub.state.episodes?.map(entry => entry.id), ["episode:2"]);
+});
+
 test("Return everyone to lobby needs the stop capability and a playing room", async () => {
     let stops = 0;
     const stopPlayback = async () => { stops++; return roomAccess({ phase: "lobby", selected_content_id: "movie:m0004" }); };

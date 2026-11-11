@@ -64,8 +64,8 @@ const ICONS = {
     "xmark.circle": '<circle cx="12" cy="12" r="9.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="m8.6 8.6 6.8 6.8m0-6.8-6.8 6.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
 } as const;
 
-/** The gap between the focused card and the menu beside it. */
-const MENU_GAP = 40;
+/** The gap between the focused card and the menu's rim, measured on Apple's Continue Watching capture. */
+const MENU_GAP = 25;
 /** The safe area the menu stays inside. */
 const MENU_MARGIN = 60;
 
@@ -161,7 +161,7 @@ export class CardActions {
             const icon = el("span", "card-menu-icon");
             icon.setAttribute("aria-hidden", "true");
             icon.innerHTML = `<svg viewBox="0 0 24 24">${ICONS[row.icon]}</svg>`;
-            button.append(el("span", "card-menu-label", row.label), icon);
+            button.append(menuLabel(row.label), icon);
             button.addEventListener("click", () => {
                 if (button.getAttribute("aria-disabled") === "true") return;
                 this.close();
@@ -353,6 +353,18 @@ export class CardActions {
     };
 }
 
+/**
+ * A row's label. tvOS balances a two-line label ("Remove from / Continue Watching"); Chromium 108 has no
+ * `text-wrap: balance`, so the last two words stay together, which gives the same break for Apple's labels.
+ */
+function menuLabel(text: string): HTMLElement {
+    const label = el("span", "card-menu-label");
+    const words = text.split(" ");
+    if (words.length < 3) { label.textContent = text; return label; }
+    label.append(`${words.slice(0, -2).join(" ")} `, el("span", "card-menu-keep", words.slice(-2).join(" ")));
+    return label;
+}
+
 /** Consumes the rest of a Select press: window capture runs ahead of the screen's document listeners. */
 function swallowSelect(): void {
     const consume = (event: KeyboardEvent): void => {
@@ -382,7 +394,8 @@ function place(menu: HTMLElement, anchor: HTMLElement | undefined): void {
     }
     const right = rect.right + MENU_GAP;
     const left = right + width <= viewportWidth - MENU_MARGIN ? right : Math.max(MENU_MARGIN, rect.left - MENU_GAP - width);
-    const top = Math.max(MENU_MARGIN, Math.min(viewportHeight - MENU_MARGIN - height, rect.top));
+    // Centred on the card, as tvOS centres its menu on the lifted card.
+    const top = Math.max(MENU_MARGIN, Math.min(viewportHeight - MENU_MARGIN - height, rect.top + (rect.height - height) / 2));
     menu.style.left = `${Math.round(left)}px`;
     menu.style.top = `${Math.round(top)}px`;
 }

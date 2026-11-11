@@ -1013,9 +1013,13 @@
    40px gutter so a lifted first card is never clipped; cards still start at the 88px edge. */
 .skyline-preview:not(.skyline-library):not(.skyline-home) .skyline-content { left: 48px; width: 1824px; padding-left: 40px; }
 .home-section { margin: 0; }
-.home-section .browse-section-title { margin: 0; font-size: 36px; font-weight: 600; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.home-row-glyph { position: relative; display: inline-block; vertical-align: -4px; width: 32px; height: 32px; margin-right: 14px; border-radius: 50%; background: #ededed; }
-.home-row-glyph::after { content: ""; position: absolute; top: 9px; left: 12px; border-style: solid; border-width: 7px 0 7px 11px; border-color: transparent transparent transparent #000; }
+/* Apple MediaRow header: siloHeadline 36pt semibold, play.circle.fill at 32pt, HStack(spacing: 14) (silo-apple 85679e7).
+   The size is 36 times --silo-sf-cap-scale and the tracking is tuned so the "Continue Watching" ink runs x134-439 as in
+   the Apple TV capture. The line box stays 43.2px so the cards below do not move. */
+.home-section .browse-section-title { margin: 0; font-size: calc(36px * var(--silo-sf-cap-scale)); font-weight: 600; line-height: 43.2px; letter-spacing: .35px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* The symbol's 33px circle sits 3px inside its image frame, so its ink starts at x83 and the text 18px after it. */
+.home-row-glyph { position: relative; display: inline-block; vertical-align: -4px; width: 33px; height: 33px; margin: 0 17px 0 3px; border-radius: 50%; background: #ededed; }
+.home-row-glyph::after { content: ""; position: absolute; top: 10px; left: 11px; border-style: solid; border-width: 7px 0 7px 12px; border-color: transparent transparent transparent #000; }
 /* Top is the 20px title gap plus Skyline's 14px card padding. Bottom is that 14px, not MediaRow's 24px default. */
 .home-section .browse-row { margin-left: -40px; padding: 34px 40px 14px; }
 .home-section .browse-card { width: 176px; margin: 0 40px 0 0; border: 0; border-radius: 0; transition: none; scroll-margin-top: 20px; }

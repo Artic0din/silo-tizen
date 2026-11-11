@@ -243,6 +243,8 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
         return failed.length > 0;
     };
     const savePending = [preferences, tracks].some(owner => owner?.audioPreference.pending === true || owner?.subtitlePreference.pending === true);
+    // deferPlay keeps a press that raced a shared preference save; Play starts it once the save confirms.
+    if (tracks?.failedPlay !== undefined && !savePending) notes.push("Press Play again to start playback.");
     const choices = playChoices(detail, state?.selectedFileId, state?.preferredQuality);
     const choose = (request: PlayRequest): void => {
         if (retriedPreference()) return;
@@ -283,7 +285,8 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
         const label = labelTarget === undefined ? failed ? "Play" : "Loading episodes…" : `${canResume ? "Resume" : "Play"} ${episodeLabel(labelTarget.seasonNumber, labelTarget.episodeNumber) ?? labelTarget.title}`;
         // A failed episode read still plays through the episode route, which loads its own detail.
         const primary = actionButton("next-episode", label, () => { if (primary.element.getAttribute("aria-disabled") !== "true") playNext(); });
-        const unplayable = labelTarget === undefined || targetChoices === undefined && (state?.offline === true || target !== undefined);
+        // After a failed read, Play still knows the episode id, so it plays through the episode route.
+        const unplayable = labelTarget === undefined && !failed || targetChoices === undefined && (state?.offline === true || target !== undefined);
         primary.element.setAttribute("aria-disabled", String(savePending || unplayable));
         actions.push(primary);
         if (canResume) actions.push(actionButton("start-over-episode", "Start Over", () => playNext(true)));
@@ -375,6 +378,10 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
     // focus keeps it until the viewer moves, so a repaint never moves focus by itself.
     const held = document.activeElement?.closest(".details-editorial .browse-actions") ? document.activeElement.getAttribute("data-focus") : null;
     const focusable = actions.filter(action => action.element.getAttribute("aria-disabled") !== "true" || action.key === held);
+    for (const action of focusable) {
+        if (action.element.getAttribute("aria-disabled") !== "true") continue;
+        action.element.addEventListener("focusout", () => { focusable.splice(focusable.indexOf(action), 1); }, { once: true });
+    }
     if (state?.nextEpisodeFailed === true && !state.offline) content.push(...lines(["Could not load the next episode."], "error"));
     if (state?.titleArtPolicy === "failed" && !state.offline) content.push(...lines(["Could not load title-art settings."], "error"));
     if (series !== undefined) content.push(...series.content);

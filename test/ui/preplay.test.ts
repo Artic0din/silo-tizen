@@ -124,8 +124,11 @@ preplay("an in-flight resume lookup defers handoff if another episode starts a s
     preference.release();
     const primary = tv.page.locator('[data-focus="next-episode"]');
     await tv.eventually(async () => await primary.getAttribute('aria-disabled') === 'false', 'Play is live again after confirmation');
+    const prompt = tv.page.getByText('Press Play again to start playback.');
+    await prompt.waitFor();
     await primary.click();
     await prepare(tv);
+    assert.equal(await prompt.count(), 0);
     assert.equal(tv.fake.requests.filter(request => request.path === '/playback/start').length, 1);
 });
 

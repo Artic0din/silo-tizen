@@ -149,3 +149,29 @@ test("a series reads Loading episodes… on a disabled Play, enters on Watchlist
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }
 });
+
+test("a season whose next-episode read fails keeps Play live and plays that episode", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    tv.fake.catalog = new FakeDetails();
+    try {
+        await tv.page.evaluate(() => window.browseHarness.connect());
+        await tv.eventually(async () => tv.fake.devices.size > 0, "device code");
+        tv.fake.approve([...tv.fake.devices.keys()][0] ?? "");
+        await tv.jump(5000);
+        await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.loginPhase === "signed_in"), "login");
+        await tv.page.evaluate(() => window.browseHarness.selectProfile("p-owner"));
+        await tv.page.evaluate(() => window.browseHarness.mount());
+        await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
+        await tv.page.locator('[data-focus="series:s1-S1"]').waitFor();
+        await tv.page.route("**/api/v2/catalog/items/episode%3A*", route => route.fulfill({ status: 500 }));
+        await tv.page.locator('[data-focus="series:s1-S1"]').click();
+        await tv.page.getByText("Could not load the next episode.").waitFor();
+        const primary = tv.page.locator('[data-focus="next-episode"]');
+        assert.equal(await primary.getAttribute("aria-disabled"), "false");
+        assert.equal(await tv.page.getByRole("button", { name: "Retry episode", exact: true }).count(), 0);
+        await tv.page.unroute("**/api/v2/catalog/items/episode%3A*");
+        const plays = await tv.page.evaluate(() => window.browseHarness.plays.length);
+        await primary.click();
+        await tv.eventually(async () => await tv.page.evaluate(() => window.browseHarness.plays.length) === plays + 1, "Play reaches the episode route");
+    } finally { await tv.page.context().close(); }
+});

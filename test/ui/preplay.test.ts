@@ -406,7 +406,7 @@ preplay("direct episode malformed watch plays the same target from its cached po
     tv.fake.script("/watch/episode%3As1e12?file_id=42", { status: 200, body: { content_id: "episode:s1e12", type: "episode", versions: [] } });
     await tv.page.locator('.details-episodes [data-focus="episode:s1e12"]').click();
     await prepare(tv);
-    assert.equal(await tv.page.getByRole("button", { name: "Try again", exact: true }).count(), 0);
+    assert.equal(await tv.page.getByRole("button", { name: /^Try again$/i }).count(), 0);
     assert.equal(await tv.page.locator('[data-view="item:episode:s1e12"]').count(), 0);
     assert.equal(starts(tv).length, 1);
     assert.equal(starts(tv)[0]?.body?.file_id, "42");
@@ -530,7 +530,7 @@ for (const failure of ["identity", "files"] as const) {
         assert.ok(typeof reply.body === "object" && reply.body !== null);
         tv.fake.script("/catalog/items/episode%3As1e12?image_size=large", { status: 200, body: { ...reply.body, ...(failure === "identity" ? { content_id: "wrong-target" } : { versions: [] }) } });
         await tv.page.locator('.details-episodes [data-focus="episode:s1e12"]').click();
-        await tv.page.getByRole("button", { name: "Try again", exact: true }).waitFor();
+        await tv.page.getByRole("button", { name: "Try Again", exact: true }).waitFor();
         assert.equal(starts(tv).length, 0);
         assert.equal(await tv.page.locator('[data-view="item:episode:s1e12"]').count(), 0);
         await tv.remote(10009);

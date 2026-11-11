@@ -5,6 +5,7 @@ import { FakeCatalog } from "../native/support/fakeCatalog.ts";
 import { FakeSettings } from "../native/support/fakeSettings.ts";
 import { AUDIO_KEY, HDR_KEY, HIDDEN_KEY, QUALITY_KEY, BITRATE_KEY, SUBTITLE_LANGUAGE_KEY, SUBTITLE_MODE_KEY, SHOW_FORCED_KEY } from "../../src/contracts/v2/settings.ts";
 import { fixture, problem } from "../native/support/fakeSilo.ts";
+import { assertSignOutDialog } from "./support/signOutDialog.ts";
 import { launchBrowser, openTv, readLive, type Tv } from "./support/tv.ts";
 
 const DOLBY_VISION_KEY = "player.dolby_vision_enabled";
@@ -681,6 +682,15 @@ test("Subtitles, the profile account line and sign-out confirmation follow Apple
         await tv.page.getByRole("heading", { name: "Sign out of laura on this server?" }).waitFor();
         await tv.page.getByText("This account's profiles and settings leave this TV, and this server will be removed from it.", { exact: true }).waitFor();
         assert.equal(await tv.focused(), "cancel-signout");
+        await assertSignOutDialog(tv.page, "Sign out of laura on this server?");
+        await tv.page.keyboard.press("ArrowRight");
+        assert.equal(await tv.focused(), "confirm-signout");
+        await tv.page.keyboard.press("ArrowLeft");
+        assert.equal(await tv.focused(), "cancel-signout", "focus stays inside the dialog");
+        await tv.remote(10009);
+        await tv.page.locator('[data-focus="settings-signout"]').waitFor();
+        assert.equal(await tv.focused(), "settings-signout", "Back cancels and returns to Sign Out");
+        assert.equal(await tv.page.getByRole("alertdialog").count(), 0);
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }
 });

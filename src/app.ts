@@ -4,7 +4,7 @@ import type { LogoutResult } from "./session/session.ts";
 import { mountBrowse, type Browse, type PlayRequest } from "./ui/browse.ts";
 import { mountExitDialog, type ExitDialog } from "./ui/exitDialog.ts";
 import { remoteKey } from "./ui/keys.ts";
-import { avatarReference } from "./ui/profilePicker.ts";
+import { avatarReference, avatarText } from "./ui/profilePicker.ts";
 import { mountProfiles, type ProfileHandoff, type ProfileScreens } from "./ui/profiles.ts";
 import { actions, button, el, ScreenHost } from "./ui/screen.ts";
 import { mountSignIn, rememberServer, type SignInScreens } from "./ui/signIn.ts";
@@ -220,10 +220,12 @@ export function mountApp(root: HTMLElement, options: AppOptions): SiloApp {
         // The signal aborts before profile-screen listeners reclaim the root.
         active.signal.addEventListener("abort", stopContent, { once: true });
         const avatar = avatarReference(active.profile);
+        const text = avatarText(active.profile);
         const content = mountBrowse(root, {
             server,
             profileName: active.profile.name,
             ...(avatar === undefined ? {} : { profileAvatarUrl: avatar }),
+            ...(text === undefined ? {} : { profileAvatarText: text }),
             ...(activeCore.publicStorage === undefined ? {} : { publicStorage: activeCore.publicStorage }),
             onSignOut: () => {
                 stopContent();

@@ -34,7 +34,7 @@ class RecommendationsCatalog extends FakeCatalog {
     }
 }
 
-async function start(tv: Tv, menu: PrimaryMenu | null = null, catalog: FakeCatalog = new RecommendationsCatalog()): Promise<void> {
+async function start(tv: Tv, menu: PrimaryMenu | null = null, catalog: FakeCatalog = new RecommendationsCatalog(), offerSignOut = false): Promise<void> {
     tv.fake.catalog = catalog;
     const settings = new FakeSettings(tv.fake);
     settings.profile().set(PRIMARY_MENU_KEY, menu);
@@ -45,7 +45,7 @@ async function start(tv: Tv, menu: PrimaryMenu | null = null, catalog: FakeCatal
     await tv.jump(5000);
     await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.loginPhase === "signed_in"), "signed in");
     await tv.page.evaluate(() => window.browseHarness.selectProfile("p-owner"));
-    await tv.page.evaluate(() => window.browseHarness.mount());
+    await tv.page.evaluate(offer => window.browseHarness.mount(offer), offerSignOut);
     await tv.page.locator('.browse[data-view="home"] .browse-card').first().waitFor();
     await homeDetailsRead(tv);
 }
@@ -223,6 +223,27 @@ test("the bar centers fixed roots despite authored order with fixed Search and a
         assert.equal(await tv.focused(), "home");
         await tv.remote(37);
         assert.equal(await tv.focused(), "search");
+    } finally { await tv.page.context().close(); }
+});
+
+test("an expired session on an expanded For You row offers Sign In Again first and Try Again second", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        await start(tv, null, new RecommendationsCatalog(), true);
+        await tv.page.route("**/api/v2/recommendations/section/**", route => route.fulfill({ status: 401, contentType: "application/problem+json", body: JSON.stringify({ type: "about:blank", title: "Unauthorized", status: 401 }) }));
+        await tv.page.locator('[data-focus="for_you"]').click();
+        await tv.page.locator('.browse[data-view="for_you"] .browse-card').first().waitFor();
+        await tv.page.locator('[data-focus^="expand:recommendation:"]').first().click();
+        const page = tv.page.locator('[data-view^="recommendationSection:"] .details-failure');
+        await page.waitFor();
+        assert.equal(await page.locator(".search-state-title").innerText(), "Session expired");
+        assert.deepEqual(await page.locator(".browse-button").allInnerTexts(), ["Sign In Again", "Try Again"]);
+        assert.equal(await tv.focused(), "sign-in");
+        await tv.page.keyboard.press("ArrowDown");
+        assert.equal(await tv.focused(), "retry");
+        await tv.page.keyboard.press("ArrowUp");
+        await tv.page.keyboard.press("Enter");
+        await tv.eventually(async () => await tv.page.evaluate(() => window.browseHarness.signOutCalls) === 1, "Sign In Again signs out");
     } finally { await tv.page.context().close(); }
 });
 

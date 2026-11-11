@@ -529,8 +529,8 @@ calendarTest("Calendar metadata-only and missing targets retain safe Details and
     await tv.remote(10009); await ready(tv, 33);
     catalog.removed.add("movie:m0003");
     await tv.page.locator('.calendar-event[data-content-id="movie:m0003"]').focus(); await tv.page.keyboard.press("Enter");
-    await tv.page.getByText("This title is no longer available.").waitFor();
-    await activate(tv, "back"); await ready(tv, 33);
+    await tv.page.getByText("We couldn't find what you were looking for. It may have been removed or moved.").waitFor();
+    await activate(tv, "go-back"); await ready(tv, 33);
     assert.equal(await tv.page.locator(":focus").getAttribute("data-content-id"), "movie:m0003");
 });
 

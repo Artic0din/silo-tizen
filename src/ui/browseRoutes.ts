@@ -16,7 +16,7 @@ import { itemView, seasonView } from "./browseDetails.ts";
 import { browseCardDestination, type SearchFilter, type EpisodeSelection, type PlayRequest, type SeriesContext, type SeriesLine } from "./browseModel.ts";
 import type { CalendarState } from "./calendarState.ts";
 import { calendarView, type CalendarHandlers } from "./calendarView.ts";
-import { actionButton, FAILURE_ICON, homeView, lines, pagedGrid, type SearchResults, searchState, searchView, statusView, type ViewContext, zoneNode } from "./browseViews.ts";
+import { actionButton, homeView, lines, errorView, failureError, pagedGrid, type SearchResults, searchView, statusView, type ViewContext, zoneNode } from "./browseViews.ts";
 import { el } from "./screen.ts";
 import { discoveryState, type BrowseChange, type DiscoveryState, type LibraryMode, type LibrarySource } from "./libraryDiscovery.ts";
 import { discoveryView, resultsView } from "./libraryDiscoveryViews.ts";
@@ -67,6 +67,8 @@ export type Route = RouteData & {
     /** Where focus was when another route covered this one. */
     focus: FocusTarget | undefined;
     failure: string | undefined;
+    /** Apple ErrorState for the last failed read, which picks the error page's headline and buttons. */
+    error?: ErrorState | undefined;
     slow: boolean;
     /** Shown data may be out of date (after playback): refresh it in place when shown. */
     stale: boolean;
@@ -165,15 +167,7 @@ export function routeView(current: Route, handlers: RouteHandlers): View {
         return globalSearchView(searchView(handlers.searchHead, handlers.input, searchResults(current, handlers), pop), current, handlers);
     }
     if (current.failure !== undefined && !hasData(current)) {
-        if (current.kind === "home" || current.kind === "item" && current.error?.headline === "Something went wrong") {
-            const retry = actionButton("retry", "Try Again", () => handlers.retry(current));
-            const controls = [retry, ...(current.kind === "home" && handlers.manageServers ? [actionButton("manage-servers", "Manage Servers", handlers.manageServers)] : [])];
-            const page = searchState("Something went wrong", current.failure, "details-failure", FAILURE_ICON);
-            page.setAttribute("role", "alert");
-            page.appendChild(zoneNode("browse-actions", controls));
-            return { name: `${current.kind}:failed`, content: [page], zones: [{ id: "status", layout: "column", items: controls }], focus: { zone: "status", key: "retry" }, back };
-        }
-        return statusView(`${current.kind}:failed`, "Something went wrong", [current.failure], [actionButton("retry", "Try again", () => handlers.retry(current)), escape], back, "error");
+        return errorView(`${current.kind}:failed`, failureError(current.failure, current.error), () => handlers.retry(current), back, handlers.signIn, current.kind === "home" ? handlers.manageServers : undefined);
     }
     switch (current.kind) {
         case "home": {
@@ -364,7 +358,7 @@ export function unconfirmedWriteMessage(action: RequestWrite): string {
 /** What to tell the person; undefined for an error that is not a server or session answer (a defect). */
 export function failureText(error: unknown, current: Route): string | undefined {
     if (error instanceof SessionError) {
-        return error.reason === "unavailable" ? "The server had a problem. Try again in a moment." : "This TV is no longer signed in.";
+        return error.reason === "unavailable" ? "The server ran into a problem. Try again in a moment." : "This TV is no longer signed in.";
     }
     if (!(error instanceof ApiError)) {
         return undefined;
@@ -390,5 +384,5 @@ export function failureText(error: unknown, current: Route): string | undefined 
     if (kind === "invalid_response") {
         return "The server sent an answer this TV could not read.";
     }
-    return error.transient ? "The server had a problem. Try again in a moment." : "Something went wrong. Try again.";
+    return error.transient ? "The server ran into a problem. Try again in a moment." : "Something went wrong. Try again.";
 }

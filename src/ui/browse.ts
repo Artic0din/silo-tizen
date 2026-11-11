@@ -68,7 +68,7 @@ import { stopFeed } from "./catalogFeed.ts";
 import type { BrowseChange, DiscoveryState } from "./libraryDiscovery.ts";
 import { shufflePick } from "../player/nextShuffle.ts";
 import type { ShuffleCapability } from "../contracts/v2/shuffle.ts";
-import { avatarReference } from "./profilePicker.ts";
+import { avatarReference, avatarText } from "./profilePicker.ts";
 import { ExperimentalFeatures } from "../session/experimentalFeatures.ts";
 import { WatchPartyHub, watchPartyApi } from "./watchPartyHub.ts";
 import { watchPartyScreen } from "./watchParty.ts";
@@ -87,6 +87,7 @@ export interface BrowseOptions {
     readonly onAccounts?: (back: () => void) => void;
     readonly profileName?: string;
     readonly profileAvatarUrl?: string;
+    readonly profileAvatarText?: string;
     readonly clock?: Clock;
     readonly publicStorage?: PublicStorage;
     /** Replaces the `<audio>` element behind theme music. For tests. */
@@ -137,6 +138,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     }
     let profileName = options.profileName ?? "Profiles";
     let profileAvatarUrl = options.profileAvatarUrl;
+    let profileAvatarText = options.profileAvatarText;
     const clock = options.clock ?? systemClock;
     const cache = browseCache(options.publicStorage, [server.server.serverId, session.account?.id ?? "", session.activeProfile.id], session.authoritySignal);
     // Route reads already discard through cache.read. Card menus, episode owners and
@@ -835,7 +837,9 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     return;
                 }
                 current.failure = text ?? "Something went wrong. Try again.";
-                if (current.kind === "item") current.error = errorState(error);
+                current.error = errorState(error);
+                // Apple BoxSetDetailViewModel.errorState: a 404 keeps Not found but says why a box set can be missing.
+                if (current.kind === "boxSet" && current.error.headline === "Not found" && text !== undefined) current.error = { ...current.error, message: text };
                 if (current.kind === "search" && current.pages?.page === undefined) {
                     searchBoxSetController?.abort();
                     searchBoxSetController = undefined;
@@ -845,7 +849,6 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     }
                 }
                 if (current.kind === "calendar") current.calendar.error = error instanceof CalendarTimezoneError ? { headline: "Something went wrong", message: error.message, signIn: false } : errorState(error);
-                if (current.kind === "personal") current.error = errorState(error);
                 if (current.kind === "requests") { current.requests.error = errorState(error); if (!current.requests.unconfirmed && !current.requests.writing) current.requests.action = undefined; }
                 if (current.kind === "requests" && error instanceof ApiError && ["capability_disabled", "capability_not_configured", "capability_unsupported", "permission_denied"].includes(error.problemId ?? "")) void probeRequests();
                 if (top() === current) {
@@ -2010,7 +2013,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             midnight.setHours(24, 0, 0, 0);
             cancelCalendarDay = clock.schedule(() => render(host.focused()), midnight.getTime() - clock.now());
         }
-        shell.setAvatar(profileName, profileAvatarUrl, context.baseUrl);
+        shell.setAvatar(profileName, profileAvatarUrl, context.baseUrl, profileAvatarText);
         if (current.kind === "library") shell.setLibraryModes(availableModes(current.discovery?.data?.capabilities ?? current.discovery?.capabilities));
         const searchFilter = (route: Extract<Route, { kind: "search" }>, filter: SearchFilter | undefined): void => {
             if (top() !== route || route.filter === filter) return;
@@ -2041,7 +2044,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             ? activeSection.view(current, context, loading !== undefined, pop, () => retry(current), () => {
                 if (top() !== current || torn || playing || loading !== undefined || cardActions.active || settingsScreen !== undefined || current.failure !== undefined || current.pages.page?.nextCursor === undefined) return;
                 loadSection(current, true, true);
-            }) : routeView(current, { ...handlers, manageServers: options.onSwitchServer === undefined ? undefined : () => { options.onSwitchServer?.(() => render()); }, retryPeople: route => {
+            }, options.onSignOut) : routeView(current, { ...handlers, manageServers: options.onSwitchServer === undefined ? undefined : () => { options.onSwitchServer?.(() => render()); }, retryPeople: route => {
                 if (top() !== route || route.searchType === undefined || route.query.trim() === "") return;
                 searchPeople(route, searchTypeFor(route, route.searchType));
                 render(host.focused());
@@ -2087,7 +2090,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
 
     const retry = (current: Route): void => {
         current.failure = undefined;
-        if (current.kind === "personal") current.error = undefined;
+        current.error = undefined;
         render();
         loadRoute(current);
     };
@@ -2642,6 +2645,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 showAudiobooks,
                 profileName,
                 profileAvatarUrl,
+                profileAvatarText,
                 accountName: session.account?.username,
                 switchProfile: chooseProfile,
                 serverName: cachedBranding(options.publicStorage, context.baseUrl)?.serverName,
@@ -2736,7 +2740,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             if (torn) return;
             profileName = profile.name;
             profileAvatarUrl = avatarReference(profile);
-            shell.setAvatar(profileName, profileAvatarUrl, context.baseUrl);
+            profileAvatarText = avatarText(profile);
+            shell.setAvatar(profileName, profileAvatarUrl, context.baseUrl, profileAvatarText);
         },
         destroy: teardown,
         spoilers: () => episodeSpoilers?.settings ?? { hidesImages: false, hidesOverviews: false },

@@ -12,7 +12,8 @@ import type { ThemeMusicPreferences } from "./themeMusicPreferences.ts";
 import { settingsRows, rowValue, rowEdit, BUFFERING_ROW_ID, type SettingsRow } from "./settingsRows.ts";
 import { APPEARANCE_KEY, BUFFERING_MODE_KEY } from "../contracts/v2/settingsRows.ts";
 import { qrCode } from "./qr.ts";
-import { navigationAvatar } from "./navigationAvatar.ts";
+import { profileMenuAvatar } from "./navigationAvatar.ts";
+import { centredDialog } from "./confirmationDialog.ts";
 import { navigationIcon } from "./navigationIcon.ts";
 import { decodeAppearance, DEFAULT_APPEARANCE } from "../contracts/v2/subtitles.ts";
 import { applySubtitleAppearance } from "../player/subtitleView.ts";
@@ -47,7 +48,7 @@ type Picker = "audio" | "quality" | "bitrate" | "seek-back" | "seek-forward" | "
 const PICKER_KEYS = { audio: AUDIO_KEY, quality: QUALITY_KEY, bitrate: BITRATE_KEY, "seek-back": SEEK_BACK_KEY, "seek-forward": SEEK_FORWARD_KEY, "subtitle-language": SUBTITLE_LANGUAGE_KEY, "subtitle-mode": SUBTITLE_MODE_KEY } as const;
 const PICKER_LABELS = { audio: "Audio Language", quality: "Resolution", bitrate: "Maximum Bitrate", "seek-back": "Skip Back", "seek-forward": "Skip Forward", "subtitle-language": "Language", "subtitle-mode": "Behavior" } as const;
 const BITRATE_CHOICES = [200000, 100000, 60000, 40000, 20000, 15000, 10000, 6000, 4000, 2000, 1500];
-export interface SettingsActions { readonly showAudiobooks?: ShowAudiobooks; readonly profileName: string; readonly profileAvatarUrl?: string | undefined; readonly accountName?: string | undefined; readonly switchProfile: () => void; readonly signOut?: () => void; readonly serverName?: string | undefined; readonly switchServer?: (back: () => void) => void; /** True when this sign-out removes the saved server. Unreadable account lists return false. */ readonly removesServer?: () => boolean }
+export interface SettingsActions { readonly showAudiobooks?: ShowAudiobooks; readonly profileName: string; readonly profileAvatarUrl?: string | undefined; readonly profileAvatarText?: string | undefined; readonly accountName?: string | undefined; readonly switchProfile: () => void; readonly signOut?: () => void; readonly serverName?: string | undefined; readonly switchServer?: (back: () => void) => void; /** True when this sign-out removes the saved server. Unreadable account lists return false. */ readonly removesServer?: () => boolean }
 export interface SettingsScreen { destroy(): void }
 
 export function mountSettings(root: HTMLElement, session: NativeSession, close: (hiddenChanged: boolean, titleArt?: boolean) => void, launch?: ProfileLaunch, actions?: SettingsActions, accounts?: (back: () => void) => void, spoilers?: EpisodeSpoilerPreferences, experimental?: ExperimentalFeatures, themeMusic?: ThemeMusicPreferences): SettingsScreen {
@@ -414,8 +415,14 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
         }
         if (confirmingSignOut) {
             const copy = signOutConfirmationCopy(actions?.accountName, actions?.serverName, actions?.removesServer?.() ?? false);
-            const controls = [actionButton("cancel-signout", "Cancel", back), actionButton("confirm-signout", "Sign Out", () => { destroy(); actions?.signOut?.(); })];
-            host.show({ name: "settings:signout", content: [el("h1", "browse-title", copy.title), el("p", "settings-value", copy.message), zoneNode("settings-controls", controls)], zones: [{ id: "settings-confirm", layout: "column", items: controls }], focus: { zone: "settings-confirm", key: "cancel-signout" }, back });
+            const cancel = actionButton("cancel-signout", "Cancel", back);
+            const confirm = actionButton("confirm-signout", "Sign Out", () => { destroy(); actions?.signOut?.(); });
+            const controls = [cancel, confirm];
+            // AccountRemovalConfirmation on tvOS: TVSettingsConfirmationOverlay over Settings, Cancel then Sign Out, Cancel focused.
+            const behind = paneSnapshot?.cloneNode(true);
+            host.show({ name: "settings:signout", content: centredDialog({ style: "confirmation", id: "settings-signout", title: copy.title, message: copy.message,
+                buttons: controls.map(control => control.element), destructive: confirm.element, behind: behind instanceof HTMLElement ? [behind] : [] }),
+                zones: [{ id: "settings-confirm", layout: "row", items: controls }], focus: { zone: "settings-confirm", key: "cancel-signout" }, back });
             return;
         }
         if (acknowledging) { renderAcknowledgements(); return; }
@@ -439,7 +446,7 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
             profile.element.classList.add("settings-profile");
             const copy = el("span", "settings-profile-copy");
             copy.append(el("span", "settings-profile-name", actions.profileName), el("span", "settings-profile-account", account));
-            profile.element.replaceChildren(navigationAvatar(actions.profileName, actions.profileAvatarUrl, session.http.base.baseUrl, 68), copy, el("span", "settings-chevron", "›"));
+            profile.element.replaceChildren(profileMenuAvatar(actions.profileName, actions.profileAvatarUrl, actions.profileAvatarText, session.http.base.baseUrl, 68), copy, el("span", "settings-chevron", "›"));
             profile.element.setAttribute("aria-label", `${actions.profileName}, ${account}`);
             categories.unshift(profile);
             if (actions.signOut !== undefined) {

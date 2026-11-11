@@ -1,7 +1,7 @@
 import type { Card } from "../contracts/v2/catalog.ts";
 import type { Route } from "./browseRoutes.ts";
 import type { FocusItem, View } from "./browseFocus.ts";
-import { actionButton, cardItem, type ViewContext } from "./browseViews.ts";
+import { actionButton, cardItem, errorView, failureError, type ViewContext } from "./browseViews.ts";
 import { el } from "./screen.ts";
 import { sectionCountLabel, type SectionSnapshot } from "./sectionCatalogState.ts";
 
@@ -30,7 +30,7 @@ export class SectionCatalog {
     stop(): void { this.observer?.disconnect(); this.observer = undefined; }
     invalidate(): void { this.dirty = true; }
 
-    view(route: SectionRoute, context: ViewContext, busy: boolean, back: () => void, retry: () => void, more: () => void): View {
+    view(route: SectionRoute, context: ViewContext, busy: boolean, back: () => void, retry: () => void, more: () => void, signIn?: () => void): View {
         this.stop();
         const title = el("h1", "section-catalog-title", route.title);
         const page = route.pages.page;
@@ -43,7 +43,8 @@ export class SectionCatalog {
         const content: HTMLElement[] = [title];
         if (page === undefined || page.items.length === 0) {
             const unavailable = this.snapshot?.unavailable === true;
-            const message = unavailable ? "Row unavailable" : route.failure !== undefined ? "Something went wrong" : busy ? "Loading" : "Nothing here yet";
+            if (!unavailable && route.failure !== undefined) return errorView(name, failureError(route.failure, route.error), retry, back, signIn);
+            const message = unavailable ? "Row unavailable" : busy ? "Loading" : "Nothing here yet";
             const owner = el("div", "section-catalog-state", message);
             owner.tabIndex = 0;
             owner.setAttribute("role", route.failure === undefined ? "status" : "alert");

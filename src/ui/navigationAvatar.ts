@@ -6,6 +6,7 @@ export function navigationAvatar(name: string, reference: string | undefined, ba
     const avatar = el("span", "navigation-avatar");
     avatar.style.width = `${size}px`;
     avatar.style.height = `${size}px`;
+    avatar.style.setProperty("--avatar-size", `${size}px`);
     avatar.setAttribute("aria-hidden", "true");
     const fallback = el("span", "navigation-avatar-fallback", fallbackText ?? Array.from(name.trim())[0]?.toUpperCase() ?? "");
     avatar.appendChild(fallback);
@@ -18,5 +19,12 @@ export function navigationAvatar(name: string, reference: string | undefined, ba
         image.src = url;
         avatar.appendChild(image);
     }
+    return avatar;
+}
+
+/** Apple ProfileAvatarView in the top bar and Settings: a text (emoji) avatar replaces the initial at 45% of the diameter. */
+export function profileMenuAvatar(name: string, reference: string | undefined, text: string | undefined, baseUrl: string, size: number): HTMLElement {
+    const avatar = navigationAvatar(name, reference, baseUrl, size, text);
+    if (text !== undefined) avatar.classList.add("navigation-avatar-emoji");
     return avatar;
 }

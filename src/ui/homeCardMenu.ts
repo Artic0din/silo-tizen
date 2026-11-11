@@ -58,6 +58,7 @@ type Override = { -readonly [K in "played" | "favorite" | "inWatchlist"]?: boole
 
 export class HomeCardMenu {
     private panel: HTMLElement | undefined;
+    private shield: HTMLElement | undefined;
     private alert: HTMLElement[] = [];
     /** Where focus was when the alert opened; the menu has closed by then. */
     private returnFocus: FocusTarget | undefined;
@@ -78,6 +79,7 @@ export class HomeCardMenu {
     /** Swallows a chosen row's Select until it is released, ahead of FocusHost's hold detection. */
     private latch: (() => void) | undefined;
     private torn = false;
+    private choosing = false;
 
     /** Browse's FocusHost replaces its container's children on every render, so the menu and alert sit beside it. */
     private readonly container: HTMLElement;
@@ -117,7 +119,12 @@ export class HomeCardMenu {
         panel.setAttribute("aria-label", request.card.title);
         panel.append(...items.map(item => item.element));
         this.panel = panel;
-        this.layer.appendChild(panel);
+        // The menu owns input: a pointer click outside it closes it instead of reaching the cards or the bar.
+        const shield = el("div", "card-menu-shield");
+        shield.addEventListener("click", () => this.close());
+        shield.addEventListener("contextmenu", event => { event.preventDefault(); this.close(); });
+        this.shield = shield;
+        this.layer.append(shield, panel);
         this.place(panel, request.anchor);
         this.listen(true);
         items[0]?.element.focus({ preventScroll: true });
@@ -171,8 +178,16 @@ export class HomeCardMenu {
     private row(key: string, label: string, icon: string, action: () => void, guard?: "state" | "remove"): FocusItem {
         const item = actionButton(key, label, () => {
             if (item.element.getAttribute("aria-disabled") === "true") return;
-            this.choose();
-            action();
+            // The row's action runs before any held failure, so Resume reaches the player first.
+            this.choosing = true;
+            try {
+                this.dismiss();
+                this.closed();
+                action();
+            } finally {
+                this.choosing = false;
+            }
+            this.flush();
         });
         item.element.classList.add("skyline-menu-item");
         item.element.setAttribute("role", "menuitem");
@@ -247,8 +262,9 @@ export class HomeCardMenu {
 
     /** Apple's `.alert`: title, message and OK, over the dimmed screen. */
     private fail(failure: Failure): void {
-        if (this.torn || !this.onHome()) return;
-        if (this.active) {
+        if (this.torn) return;
+        // HomeView's alert waits for Home: an open menu, Settings or the player hold it until Home is back.
+        if (this.active || !this.onHome()) {
             if (this.alert.length === 0) this.queued ??= failure;
             return;
         }
@@ -283,21 +299,25 @@ export class HomeCardMenu {
     }
 
     /** A chosen row closes the menu before its action runs, as a tvOS context menu does. */
-    private choose(): void {
-        this.close();
-    }
-
     private close(): void {
         this.dismiss();
         this.closed();
+        this.flush();
+    }
+
+    /** Shows a failure held while Home was covered, once Home is on screen with nothing open. */
+    flush(): void {
         const queued = this.queued;
+        if (queued === undefined || this.choosing || this.active || this.torn || !this.onHome()) return;
         this.queued = undefined;
-        if (queued !== undefined) this.fail(queued);
+        this.fail(queued);
     }
 
     private dismiss(): void {
         this.panel?.remove();
         this.panel = undefined;
+        this.shield?.remove();
+        this.shield = undefined;
         this.request = undefined;
         if (this.alert.length === 0) this.release();
     }

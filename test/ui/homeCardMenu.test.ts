@@ -368,7 +368,7 @@ test("the Select that chooses a row, held until it repeats, does not open the ca
     } finally { await tv.page.context().close(); }
 });
 
-test("a change that fails after Settings opens shows no alert over Settings", async () => {
+test("a change that fails after Settings opens waits for Home before showing its alert", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {
         const catalog = await start(tv);
@@ -383,7 +383,51 @@ test("a change that fails after Settings opens shows no alert over Settings", as
         answer.release();
         await jumpUntil(tv, 100, async () => catalog.mutations.includes("PUT /favorites/movie%3Am0002"), "favorite write");
         await tv.jump(500);
-        assert.equal(await tv.page.getByRole("alertdialog").count(), 0);
+        assert.equal(await tv.page.getByRole("alertdialog").count(), 0, "no alert over Settings");
+        await tv.remote(10009);
+        await tv.eventually(async () => await tv.page.locator('.browse[data-view="home"]').evaluate(node => (node as HTMLElement).hidden === false), "back on Home");
+        await tv.page.getByRole("alertdialog").waitFor();
+        assert.equal(await tv.focused(), "alert-ok");
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
+
+test("Resume chosen while a failure waits starts playback first and keeps the alert for a visible Home", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const catalog = await start(tv);
+        catalog.mutationFailure = problem(500, "internal_error", "Failed");
+        const answer = tv.fake.hold("/favorites/movie%3Am0001");
+        await hold(tv, "continue_watching", "movie:m0001");
+        await menu(tv).getByRole("menuitem", { name: "Add to Favorites" }).click();
+        await hold(tv, "continue_watching", "movie:m0001");
+        answer.release();
+        await jumpUntil(tv, 100, async () => catalog.mutations.includes("PUT /favorites/movie%3Am0001") && await menu(tv).getByRole("menuitem", { name: "Add to Favorites" }).count() === 1, "failure while the menu is open");
+        await menu(tv).getByRole("menuitem", { name: "Resume" }).click();
+        await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.plays.length === 1), "Resume hands off to playback");
+        await tv.jump(500);
+        // The harness hands playback off and returns to Home at once; the held alert may show only on a visible Home.
+        if (await tv.page.getByRole("alertdialog").count() === 1) {
+            assert.equal(await tv.page.locator('.browse[data-view="home"]').evaluate(node => (node as HTMLElement).hidden), false);
+            assert.equal(await tv.focused(), "alert-ok");
+        }
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
+
+test("a pointer click outside the menu closes it without opening what lies behind", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        await start(tv);
+        await hold(tv, "recently_added", "movie:m0002");
+        const panel = await menu(tv).boundingBox();
+        assert.ok(panel !== null);
+        // Far from the menu: a Home card or the bar would take this click without the shield.
+        await tv.page.mouse.click(panel.x + panel.width + 400 > 1900 ? 40 : 1880, 1060);
+        assert.equal(await menu(tv).count(), 0);
+        await tv.jump(300);
+        assert.equal(await tv.page.locator(".browse").getAttribute("data-view"), "home");
+        assert.equal(await tv.focused(), "movie:m0002");
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }
 });

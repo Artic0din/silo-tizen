@@ -1877,6 +1877,7 @@ button.watch-party-seat-invite { box-sizing: content-box; padding: 0; margin: 0;
 .card-menu, .home-card-alert { box-sizing: border-box; color: var(--silo-text); font-family: var(--silo-font); }
 .card-menu .browse-button, .home-card-alert .browse-button { font-family: inherit; }
 .card-menu .browse-button:focus, .home-card-alert .browse-button:focus { box-shadow: none; }
+.card-menu-shield { position: fixed; inset: 0; z-index: 29; }
 .card-menu .skyline-menu-icon { width: 26px; height: 20px; }
 .card-menu .skyline-menu-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .card-menu [aria-disabled="true"] { opacity: .5; }

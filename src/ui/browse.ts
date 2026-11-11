@@ -329,7 +329,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             home.focus = target;
             showRoute(home, target);
         }
-    }, () => host.focused(), () => top() === home && !torn && !playing && settingsScreen === undefined);
+    }, () => host.focused(), () => top() === home && !torn && !playing && settingsScreen === undefined && !container.hidden);
     const requestGate = new RequestActionGate();
     const requestMenu = new RequestRecordMenu();
     let clearRequestNotice = (): void => undefined;
@@ -1963,6 +1963,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         }
         homeDetails.suspend();
         render(focus);
+        // A card change that failed while Home was covered reports now.
+        if (current === home) homeMenu.flush();
         if ((current.kind === "item" || current.kind === "season") && current.data?.details !== undefined && (!current.stale || cachedDetailOwners.has(current.data.details))) {
             detailWork = current.data.details;
             detailWork.start();

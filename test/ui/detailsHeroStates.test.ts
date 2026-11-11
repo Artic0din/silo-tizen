@@ -63,6 +63,12 @@ async function patchDetail(tv: Tv, id: string, fields: Record<string, unknown>):
     await tv.page.route(`**/api/v2/catalog/items/${encodeURIComponent(id)}?**`, route => route.fulfill({ json: { ...body, ...fields } }));
 }
 
+/** Leaves the item's detail unanswered, Home's prefetch included, and remounts so no cached copy opens the page. */
+async function holdDetail(tv: Tv, id: string): Promise<void> {
+    await tv.page.route(`**/api/v2/catalog/items/${encodeURIComponent(id)}?**`, () => undefined);
+    await tv.page.evaluate(() => { window.browseHarness.clearResponseCache(); window.browseHarness.destroy(); window.browseHarness.mount(); });
+}
+
 function skeleton(): Record<string, unknown> | null {
     const page = document.querySelector<HTMLElement>(".details-loading-page");
     const hero = page?.querySelector<HTMLElement>(".details-hero");
@@ -98,10 +104,7 @@ function skeleton(): Record<string, unknown> | null {
 
 detailTest("a held Details page paints the card's seed in Apple's loading frame and takes no button focus", async tv => {
     await patchCard(tv, "movie:m0001", { year: 2024, genres: ["Drama", "Mystery"], runtime: 112, content_rating: "pg-13", overview: "A remote observatory hears a message.", backdrop_url: "/art/last-signal-backdrop.svg" });
-    await tv.page.evaluate(() => window.browseHarness.clearResponseCache());
-    await tv.page.evaluate(() => window.browseHarness.destroy());
-    await tv.page.evaluate(() => window.browseHarness.mount());
-    const hold = tv.fake.hold("/catalog/items/movie%3Am0001");
+    await holdDetail(tv, "movie:m0001");
     await tv.page.locator(MOVIE).first().click();
     await tv.page.locator('[data-view="item:loading"]').waitFor();
     const frame = await readLive(tv, skeleton, null, value => value.focus === true, "seeded skeleton");
@@ -132,30 +135,25 @@ detailTest("a held Details page paints the card's seed in Apple's loading frame 
     assert.match(String(frame.art), /hero-art-surface/, "the seeded backdrop loads on Apple's surface");
     await tv.remote(10009);
     await tv.page.locator('[data-view="home"]').waitFor();
-    hold.release();
 });
 
 detailTest("an unseeded Details frame shows Apple's placeholder bars and an empty art block", async tv => {
     await patchCard(tv, "movie:m0001", { year: undefined, genres: undefined, runtime: undefined, overview: undefined, backdrop_url: undefined });
-    await tv.page.evaluate(() => { window.browseHarness.clearResponseCache(); window.browseHarness.destroy(); window.browseHarness.mount(); });
-    const hold = tv.fake.hold("/catalog/items/movie%3Am0001");
+    await holdDetail(tv, "movie:m0001");
     await tv.page.locator(MOVIE).first().click();
     const frame = await readLive(tv, skeleton, null, value => value.focus === true, "placeholder skeleton");
     assert.deepEqual((frame.metaBars as { width: number; height: number; radius: string }[]).map(bar => [bar.width, bar.height, bar.radius]), [[390, 22, "6px"]]);
     assert.deepEqual((frame.lines as { width: number; height: number; radius: string }[]).map(bar => [bar.width, bar.height, bar.radius]), [[860, 18, "5px"], [790, 18, "5px"], [610, 18, "5px"]]);
     assert.equal(frame.artFill, "rgba(255, 255, 255, 0.035)", "no seeded backdrop: a white .035 rectangle");
-    hold.release();
-    await tv.page.locator('[data-view="item:movie:m0001"]').waitFor();
 });
 
 detailTest("a Large series route lifts its loading title 32 and shows a landscape rail", async tv => {
-    const hold = tv.fake.hold("/catalog/items/series%3As1");
+    await holdDetail(tv, "series:s1");
     await tv.page.locator(SERIES).first().click();
     const frame = await readLive(tv, skeleton, null, value => value.focus === true, "series skeleton");
     assert.equal(frame.editorial, "84px", "heroTopInset 116 less seriesHeroLift 32");
     assert.deepEqual((frame.cards as { width: number; height: number }[]).map(card => [card.width, card.height]), Array(4).fill([400, 225]));
     assert.equal(frame.cardGap, "34px");
-    hold.release();
 }, "large");
 
 detailTest("titles split on Apple's dash separators only when both halves are non-empty", async tv => {
@@ -340,13 +338,13 @@ for (const media of ["movie:m0001", "series:s1"] as const) detailTest(`returning
 
 detailTest("a focused episode shows only its own detail's ratings, never the list's copy", async tv => {
     await patchJson<{ items: Record<string, unknown>[] }>(tv, "**/api/v2/catalog/series/series%3As1/seasons/1/episodes?**", body => ({ ...body, items: body.items.map(item => ({ ...item, ratings: [{ source: "imdb", name: "IMDb", score: 90, display: "9.0" }] })) }));
+    // The episode's own detail never answers, neighbour prefetch included.
+    await tv.page.route("**/api/v2/catalog/items/episode%3As1e12?**", () => undefined);
     await tv.page.locator(SERIES).first().click();
     const card = tv.page.locator('[data-focus="episode:s1e12"]');
     await card.waitFor();
-    const hold = tv.fake.hold("/catalog/items/episode%3As1e12");
     await card.focus();
     await tv.jump(600);
     await readLive(tv, () => Array.from(document.querySelectorAll(".details-editorial .details-source")).map(node => node.textContent).join(" "), null, value => /Episode \d/.test(value), "episode facts");
     assert.equal(await tv.page.locator(".details-editorial .details-external-rating").count(), 0, "TVSeriesDetailView heroRatings: none until the episode's detail arrives");
-    hold.release();
 });

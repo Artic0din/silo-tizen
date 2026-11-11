@@ -250,7 +250,9 @@ function detailHeader(detail: ItemDetail, context: ViewContext, actions: readonl
     // TVDetailHero draws only the backdrop. Without one the page keeps TVDetailPageSurface's fallback tint.
     const backdrop = artworkUrl(detail.backdropUrl, context.baseUrl);
     const background = heroBackdrop(backdrop ?? "", detail.backdropThumbhash, detailPalette, true, true);
-    if (presentation.hideBackdrop) blurEpisodeStill(background.querySelector<HTMLElement>(".skyline-art-frame")!);
+    // Without a backdrop there is no frame, and nothing to blur.
+    const frame = background.querySelector<HTMLElement>(".skyline-art-frame");
+    if (presentation.hideBackdrop && frame !== null) blurEpisodeStill(frame);
     const wash = background.querySelector<HTMLElement>(".skyline-tint-wash")!;
     wash.classList.add("details-page-wash");
     wash.remove();

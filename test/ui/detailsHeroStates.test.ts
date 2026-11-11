@@ -351,3 +351,28 @@ detailTest("a focused episode shows only its own detail's ratings, never the lis
     await readLive(tv, () => Array.from(document.querySelectorAll(".details-editorial .details-source")).map(node => node.textContent).join(" "), null, value => /Episode \d/.test(value), "episode facts");
     assert.equal(await tv.page.locator(".details-editorial .details-external-rating").count(), 0, "TVSeriesDetailView heroRatings: none until the episode's detail arrives");
 });
+
+const ROOKIE = "Starting over isn't easy, especially for small-town guy John Nolan who, after a life-altering incident, is pursuing his dream of being an LAPD officer. As the force's oldest rookie, he's met with skepticism from some higher-ups who see him as just a walking midlife crisis.";
+detailTest("the synopsis and meta line match the Apple TV capture of The Rookie", async tv => {
+    // Apple TV, 1920x1080, The Rookie unwatched (evidence/396-action-row apple-series.png): synopsis ink tops 347/383/418,
+    // line ends 1082/1128/1005, meta ink ends at 772. These Chromium layout boxes put Inter's ink within 1px of each.
+    await patchDetail(tv, "series:s1", { title: "The Rookie", year: 2018, content_rating: "TV-14", genres: ["Crime", "Drama"], overview: ROOKIE, ratings: [{ source: "tmdb", name: "TMDB", score: 85, display: "8.5" }], logo_url: "/art/last-signal-logo.svg" });
+    await patchJson<{ items: Record<string, unknown>[] }>(tv, "**/api/v2/catalog/series/series%3As1/seasons?**", body => ({ ...body, items: Array.from({ length: 8 }, (_, index) => ({ ...body.items[0], content_id: `series:s1-S${index + 1}`, season_number: index + 1, title: `Season ${index + 1}` })) }));
+    await tv.page.locator(SERIES).first().click();
+    await tv.page.locator(".details-editorial .details-logo").waitFor();
+    await tv.page.evaluate(() => document.fonts.ready);
+    const shown = await readLive(tv, () => {
+        const overview = document.querySelector<HTMLElement>(".details-editorial .browse-overview");
+        const genres = document.querySelector(".details-editorial .details-genres");
+        const fact = document.querySelector(".details-editorial .details-fact");
+        if (overview === null || genres === null || fact === null || !overview.isConnected || !/8 Seasons/.test(overview.closest(".details-editorial")?.textContent ?? "")) return null;
+        const range = document.createRange(); range.selectNodeContents(overview);
+        const lines = Array.from(range.getClientRects()).map(rect => ({ top: rect.top, right: Math.round(rect.right * 10) / 10 }));
+        const style = getComputedStyle(overview), factStyle = getComputedStyle(fact);
+        return { lines, size: style.fontSize, line: style.lineHeight, tracking: style.letterSpacing, factSize: factStyle.fontSize, factTracking: factStyle.letterSpacing, metaEnd: Math.round(genres.getBoundingClientRect().right * 10) / 10 };
+    }, null, value => value.lines.length === 3, "The Rookie hero");
+    assert.deepEqual({ size: shown.size, line: shown.line, tracking: shown.tracking, factSize: shown.factSize, factTracking: shown.factTracking }, { size: "25.181px", line: "35.5px", tracking: "-0.235px", factSize: "23.244px", factTracking: "0.1px" });
+    assert.deepEqual(shown.lines.map(line => line.top), [342, 377.5, 413], "a 35.5px pitch, 4px below the old first line");
+    for (const [index, right] of [1085.6, 1128.8, 1005.9].entries()) assert.ok(Math.abs(shown.lines[index]!.right - right) <= 1, JSON.stringify(shown.lines));
+    assert.ok(Math.abs(shown.metaEnd - 775) <= 1, String(shown.metaEnd));
+});

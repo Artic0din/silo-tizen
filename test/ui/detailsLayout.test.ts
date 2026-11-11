@@ -1312,8 +1312,9 @@ detailTest('measured Apple movie typography and version popover geometry', async
         if (node === null || !node.isConnected) return null;
         const style = getComputedStyle(node);
         return { color: style.color, maxHeight: style.maxHeight, lineHeight: style.lineHeight };
-    }, null, value => value.color === "rgba(255, 255, 255, 0.92)" && value.maxHeight === "102px" && value.lineHeight === "34px", "overview style sample survives optional-data repaint");
-    assert.deepEqual(styles, { color: "rgba(255, 255, 255, 0.92)", maxHeight: "102px", lineHeight: "34px" });
+    }, null, value => value.color === "rgba(255, 255, 255, 0.92)" && value.maxHeight === "106.5px" && value.lineHeight === "35.5px", "overview style sample survives optional-data repaint");
+    // Three 35.5px lines: the line pitch measured on the Apple TV capture of The Rookie (#395).
+    assert.deepEqual(styles, { color: "rgba(255, 255, 255, 0.92)", maxHeight: "106.5px", lineHeight: "35.5px" });
     await tv.page.locator('[data-focus="version"]').click();
     assert.equal(await readLive(tv, () => {
         const node = document.querySelector('[data-focus="version"] .details-action-label');
@@ -1923,7 +1924,7 @@ detailTest('the metadata row leads with outlined rating and advisory chips, then
     assert.equal(row.ink, 'rgb(255, 255, 255)');
     assert.equal(row.stroke, 'rgba(255, 255, 255, 0.78)');
     assert.equal(row.divider, '"·"');
-    assert.equal(row.dividerSize, '22px');
+    assert.equal(row.dividerSize, '21.307px', 'the 22pt divider times --silo-sf-cap-scale');
     assert.equal(row.factColor, 'rgba(255, 255, 255, 0.88)');
     assert.equal(row.factWeight, '500');
     assert.equal(row.genres, 'Drama, Thriller');
@@ -1959,11 +1960,11 @@ detailTest('rating chips fit inside the clipped metadata row on movie, episode a
     assert.deepEqual(clipped, []);
     // SF Pro 18pt line height is 21.19921875. Chromium serializes the used value as 21.1992px.
     for (const frame of frames) assert.ok(Math.abs(parseFloat(frame.lineHeight) - 21.19921875) < 0.001, frame.lineHeight);
-    // The row and the item under it stay put. Measured before the line-height change.
+    // The row stays put. The synopsis under it sits 4px lower, as in the Apple TV capture of The Rookie (#395).
     assert.deepEqual(frames.map(frame => ({ media: frame.media, heroRowTop: frame.heroRowTop, belowTop: frame.belowTop })), [
-        { media: 'movie', heroRowTop: 290, belowTop: 333 },
-        { media: 'series', heroRowTop: 240, belowTop: 286 },
-        { media: 'episode', heroRowTop: 293, belowTop: 336 },
+        { media: 'movie', heroRowTop: 290, belowTop: 337 },
+        { media: 'series', heroRowTop: 240, belowTop: 290 },
+        { media: 'episode', heroRowTop: 293, belowTop: 340 },
     ]);
 });
 
@@ -2273,9 +2274,9 @@ for (const media of ['movie:m0001', 'series:s1']) {
             const node = document.querySelector('.details-editorial .browse-overview');
             if (node === null) return null;
             const style = getComputedStyle(node);
-            return { size: style.fontSize, weight: style.fontWeight, color: style.color, family: style.fontFamily, available: document.fonts.check('400 26px Inter') };
+            return { size: style.fontSize, weight: style.fontWeight, color: style.color, family: style.fontFamily, available: document.fonts.check('400 25.181px Inter') };
         }, null, value => value.available, 'loaded regular synopsis font');
-        assert.equal(font.size, '26px'); assert.equal(font.weight, '400');
+        assert.equal(font.size, '25.181px', 'Apple 26pt times --silo-sf-cap-scale'); assert.equal(font.weight, '400');
         assert.ok(font.family.includes('Inter'), JSON.stringify(font));
         assert.equal(font.color, 'rgba(255, 255, 255, 0.92)');
     });

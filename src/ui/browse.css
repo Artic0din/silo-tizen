@@ -124,7 +124,7 @@
 .details-editorial .browse-meta { font-size: 24px; line-height: 36px; margin: 0 0 14px; }
 .details-logo { display: block; max-width: 650px; max-height: 160px; object-fit: contain; object-position: left center; }
 .details-editorial .browse-overview { max-width: 1080px; font-size: 26px; line-height: 36px; max-height: 108px; margin-bottom: 14px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
-.details-editorial .browse-overview.has-translation-status { -webkit-line-clamp: 2; max-height: 72px; margin-bottom: 6px; }
+.details-editorial .browse-overview.has-translation-status { -webkit-line-clamp: 2; max-height: 72px; margin-bottom: 3px; }
 .details-editorial .browse-overview.is-translating { opacity: 0.5; }
 .description-translation-status { margin: 0 0 14px; font-size: 21px; line-height: 26px; font-weight: 500; color: var(--silo-secondary); }
 .details-editorial .browse-actions { margin-bottom: 0; }
@@ -1137,10 +1137,14 @@
 .details-editorial .browse-meta { line-height: 29px; }
 .details-hero[data-media-type="series"] .browse-meta { height: 36px; }
 .details-hero[data-media-type="series"] .details-editorial .browse-meta { color: rgb(225,227,228); }
-.details-editorial .browse-overview { font-family: var(--silo-font); font-weight: 400; line-height: 34px; max-height: 102px; color: rgba(255,255,255,.92); }
-.details-hero[data-media-type="series"] .details-editorial .browse-overview { height: 102px; max-height: 102px; }
+/* TVHeroSynopsis: 26 regular at Apple's size times --silo-sf-cap-scale. Measured against the Apple TV capture of The Rookie
+   (1920x1080): a 35.5px line pitch, ink 4px below Inter's line box, and -0.235px tracking put each line's ink within 1px.
+   SwiftUI's lineSpacing sits only between lines; CSS also pads the first and last, so the bottom margins give those 4.5px back
+   (3px for the two-line translated form) and what follows keeps its place. */
+.details-editorial .browse-overview { position: relative; top: 4px; margin-bottom: 9.5px; font-family: var(--silo-font); font-size: calc(26px * var(--silo-sf-cap-scale)); font-weight: 400; line-height: 35.5px; letter-spacing: -0.235px; max-height: 106.5px; color: rgba(255,255,255,.92); }
+.details-hero[data-media-type="series"] .details-editorial .browse-overview { height: 106.5px; max-height: 106.5px; }
 .details-editorial .browse-meta { margin-bottom: 10px; }
-.details-hero[data-media-type="movie"] .browse-overview { margin-bottom: 16px; }
+.details-hero[data-media-type="movie"] .browse-overview { margin-bottom: 11.5px; }
 .details-hero[data-media-type="movie"] .details-director { margin-bottom: 15px; }
 .details-hero[data-media-type="movie"] .details-playback-summary { margin-bottom: 19px; }
 .details-editorial .details-play:not(:focus) { background: rgba(255,255,255,.10); border-color: transparent; }
@@ -1162,7 +1166,7 @@
 .details-editorial .browse-meta:not(.box-set-facts) { display: flex; align-items: center; column-gap: 14px; overflow: hidden; white-space: nowrap; }
 .details-hero:not([data-media-type="series"]) .details-editorial .browse-meta:not(.box-set-facts) { height: 33px; }
 .details-editorial .browse-meta:not(.box-set-facts) > .details-rating-badge { margin-right: 0; }
-.details-editorial .browse-meta:not(.box-set-facts) > :not(.details-rating-badge) + :not(.details-rating-badge)::before { content: "·"; margin-right: 14px; font-size: 22px; font-weight: 600; color: rgba(255, 255, 255, 0.45); }
+.details-editorial .browse-meta:not(.box-set-facts) > :not(.details-rating-badge) + :not(.details-rating-badge)::before { content: "·"; margin-right: 14px; font-size: calc(22px * var(--silo-sf-cap-scale)); font-weight: 600; color: rgba(255, 255, 255, 0.45); }
 .details-editorial .details-fact,
 .details-editorial .details-external-rating,
 .details-editorial .details-rating-badge { flex-shrink: 0; }
@@ -1171,11 +1175,15 @@
    which makes this chip 39px and lets the 33px movie/episode row and the 36px
    series row clip its stroke. */
 .details-editorial .details-rating-badge { line-height: 21.19921875px; }
-.details-editorial .details-fact { font-size: 24px; font-weight: 500; color: rgba(255, 255, 255, 0.88); }
+/* Facts, genres and ratings: Apple's 24 times --silo-sf-cap-scale. +0.1px tracking ends The Rookie's line within 1px of the
+   Apple TV capture; SF's wider digits leave "2018" 2px narrower and the middle of the line up to 3px left. */
+.details-editorial .details-fact { font-size: calc(24px * var(--silo-sf-cap-scale)); letter-spacing: .1px; font-weight: 500; color: rgba(255, 255, 255, 0.88); }
 .details-editorial .details-genres,
-.details-editorial .details-source { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 24px; font-weight: 500; color: rgba(255, 255, 255, 0.9); }
-.details-editorial .details-external-rating span:not(.details-rating-score) { font-size: 21px; font-weight: 600; opacity: 0.72; }
-.details-editorial .details-rating-score { font-size: 24px; font-variant-numeric: tabular-nums; }
+.details-editorial .details-source { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: calc(24px * var(--silo-sf-cap-scale)); letter-spacing: .1px; font-weight: 500; color: rgba(255, 255, 255, 0.9); }
+.details-editorial .details-external-rating span:not(.details-rating-score) { font-size: calc(21px * var(--silo-sf-cap-scale)); font-weight: 600; opacity: 0.72; }
+.details-editorial .details-rating-score { font-size: calc(24px * var(--silo-sf-cap-scale)); letter-spacing: 0; font-variant-numeric: tabular-nums; }
+/* RatingEntryView spaces the TMDB logo and score by round(24 x 0.35) = 8, the row gap; Home's 7px logo margin does not apply. */
+.details-editorial .skyline-rating-logo { margin-right: 0; }
 /* TVDetailLayout.horizontalInset = 100; the surrounding section starts at 88. */
 .details-season-chips { padding: 4px calc(100px - 88px); }
 /* Swift's scrollClipDisabled paints past the mode viewport's trailing inset. */

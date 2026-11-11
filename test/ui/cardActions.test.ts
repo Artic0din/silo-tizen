@@ -251,6 +251,60 @@ for (const outcome of ["refused", "lost"] as const) test(`a ${outcome} change sh
     } finally { await tv.page.context().close(); }
 });
 
+test("a failure that lands while Settings is open waits and alerts once Settings closes", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const catalog = await start(tv);
+        await hold(tv);
+        const answer = tv.fake.hold("/favorites/movie%3Am0001", true);
+        catalog.mutationFailure = problem(400, "validation_failed", "Not applied");
+        await row(tv, "Add to Favorites").click();
+        await tv.eventually(async () => tv.fake.requests.some(r => r.path === "/favorites/movie%3Am0001"), "favorite sent");
+        await tv.page.locator('[data-focus="profiles"]').click();
+        await tv.page.locator('[data-focus="settings"]').click();
+        await tv.page.locator('[data-focus="show-audiobooks"]').waitFor();
+        answer.release();
+        await tv.jump(500);
+        assert.equal(await tv.page.getByRole("alertdialog").count(), 0, "the alert never stacks over another owner");
+        await tv.remote(10009);
+        await tv.page.locator('[data-view="home"]').waitFor();
+        const alert = tv.page.getByRole("alertdialog", { name: "Couldn’t Update Item" });
+        await alert.waitFor();
+        assert.equal(await tv.focused(), "card-alert-ok");
+        await tv.page.keyboard.press("Enter");
+        assert.equal(await alert.count(), 0);
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
+
+test("a pending Details change keeps the card menu's changes locked until it lands", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const catalog = await start(tv);
+        await origin(tv).click();
+        await tv.page.locator('[data-view="item:movie:m0001"]').waitFor();
+        const watchlist = tv.page.locator('.browse [data-focus="watchlist"]').first();
+        await watchlist.waitFor({ timeout: 1500 });
+        await tv.eventually(async () => await watchlist.getAttribute("aria-disabled") !== "true", "Details personal actions ready");
+        const first = tv.fake.hold("/watchlist/movie%3Am0001", true);
+        await watchlist.click();
+        await tv.eventually(async () => catalog.mutations.length === 1, "Details write dispatched");
+        const related = tv.page.locator('[data-detail-section="related"] [data-focus="movie:m0002"]');
+        await related.focus(); await tv.down(13); await tv.jump(650); await tv.up(13);
+        const watched = row(tv, "Mark as Watched");
+        await watched.waitFor();
+        assert.equal(await watched.getAttribute("aria-disabled"), "true", "Details' pending write disables the menu's changes");
+        await watched.dispatchEvent("click");
+        assert.deepEqual(catalog.mutations, ["PUT /watchlist/movie%3Am0001"]);
+        first.release();
+        await tv.eventually(async () => await row(tv, "Mark as Watched").getAttribute("aria-disabled") === null, "Details completion re-enables the open menu");
+        await row(tv, "Mark as Watched").click();
+        await tv.eventually(async () => catalog.mutations.length === 2, "menu write dispatched");
+        assert.equal(catalog.mutations[1], "POST /watched/movie%3Am0002");
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
+
 test("Back dismisses the failure alert too", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {

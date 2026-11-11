@@ -37,7 +37,9 @@ export interface CardActionsHost {
      * (SectionRow passes `onOpenContextDetail: nil`), so Home cards never show it.
      */
     readonly information?: (card: MenuCard) => void;
-    /** Whether an alert may take the screen now, such as not during playback. */
+    /** A personal change from Details is still on its way; the menu's changes wait for it, as they did before. */
+    readonly pendingElsewhere?: () => boolean;
+    /** Whether an alert may take the screen now: not during playback, Settings or another menu. A refused alert waits. */
     readonly canAlert?: () => boolean;
 }
 
@@ -69,6 +71,8 @@ export class CardActions {
     private rows: HTMLButtonElement[] = [];
     private pressed = false;
     private listening = false;
+    /** A failure that arrived while the alert could not show; it shows once the screen is free. */
+    private deferredAlert = false;
     private reading: AbortController | undefined;
     /** The open menu, so a change landing behind it can redraw its rows. */
     private shown: { readonly card: MenuCard; readonly options: CardMenuOptions; readonly anchor: HTMLElement | undefined } | undefined;
@@ -132,7 +136,7 @@ export class CardActions {
         const rows = this.menuRows(card, options);
         // Apple attaches no menu to a card without actions.
         if (rows.length === 0) { this.host.closed(); return; }
-        const busy = this.writes.has(card.id);
+        const busy = this.writes.has(card.id) || this.host.pendingElsewhere?.() === true;
         const scrim = el("div", "card-actions-scrim card-menu-scrim");
         const menu = el("div", "card-menu");
         menu.setAttribute("role", "menu");
@@ -163,6 +167,18 @@ export class CardActions {
         this.container.appendChild(scrim);
         place(menu, anchor);
         this.rows[0]?.focus({ preventScroll: true });
+    }
+
+    /** Something the rows depend on changed, such as a Details change finishing: redraw the open menu. */
+    refresh(): void {
+        if (this.shown !== undefined && this.panel !== undefined) this.redraw(this.shown.card);
+    }
+
+    /** Shows a failure alert that had to wait, once nothing else owns the screen. */
+    showDeferredAlert(): void {
+        if (!this.deferredAlert || this.active || this.host.canAlert?.() === false) return;
+        this.deferredAlert = false;
+        this.alert();
     }
 
     /** A change for the open menu's card landed: show its new state with the rows enabled, keeping the focused row. */
@@ -206,8 +222,8 @@ export class CardActions {
 
     /** `landed` gives the card's state after the change, or undefined when the card leaves its row. */
     private send(id: string, spec: ReturnType<typeof detailOperations.setPersonal>, landed: (card: MenuCard) => MenuCard | undefined, accepted?: () => void): void {
-        // HomeViewModel.pendingWatchedUpdates: one change per card at a time.
-        if (this.writes.has(id)) return;
+        // HomeViewModel.pendingWatchedUpdates: one change per card at a time, and none beside a pending Details change.
+        if (this.writes.has(id) || this.host.pendingElsewhere?.() === true) return;
         const controller = new AbortController();
         this.writes.set(id, controller);
         this.session.call({ ...spec, profileScoped: true, replayAfterRefresh: false, signal: controller.signal }).then(() => {
@@ -228,7 +244,7 @@ export class CardActions {
 
     /** HomeView's `.alert`: the shared centred alert over the screen, with one OK. */
     private alert(): void {
-        if (this.host.canAlert?.() === false) return;
+        if (this.host.canAlert?.() === false) { this.deferredAlert = true; return; }
         if (this.active) this.dismiss();
         const ok = el("button", "card-alert-button", "OK");
         ok.type = "button";
@@ -278,6 +294,7 @@ export class CardActions {
     }
 
     private abortAll(): void {
+        this.deferredAlert = false;
         for (const controller of this.writes.values()) controller.abort();
         this.writes.clear();
     }

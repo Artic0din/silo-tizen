@@ -311,7 +311,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             }
         },
         information: card => open({ kind: "item", id: card.id, title: card.title }),
-        canAlert: () => !torn && !playing && settingsScreen === undefined,
+        pendingElsewhere: () => detailWork?.pending === true,
+        canAlert: () => !torn && !playing && settingsScreen === undefined && !requestMenu.active,
     });
     const requestGate = new RequestActionGate();
     const requestMenu = new RequestRecordMenu();
@@ -1006,8 +1007,9 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             invalidateWatched(current, current.data.details.detail);
         }
         if (top() === current) {
-            // The card menu keeps its own rows; the screen under it rerenders when it closes.
-            if (!cardActions.active) {
+            // The card menu redraws its own rows; the screen under it rerenders when it closes.
+            if (cardActions.active) cardActions.refresh();
+            else {
                 const focus = host.focused();
                 const series = (current.kind === "item" || current.kind === "season") ? current.data?.details?.series : undefined;
                 const retry = focus?.key === "retry-episodes" && series?.failed;
@@ -2021,6 +2023,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         if (current === undefined || torn || playing || cardActions.active || requestMenu.active || settingsScreen !== undefined) {
             return;
         }
+        // A card-change failure that arrived while another owner held the screen shows once this render settles.
+        queueMicrotask(() => cardActions.showDeferredAlert());
         if (searchReturnFocus?.route === current && current.kind === "search" && current.supplement?.requests !== undefined) {
             if (current.supplement.requests.some(title => `${title.mediaType}:${title.tmdbId}` === searchReturnFocus?.target.key)) focus = searchReturnFocus.target;
             searchReturnFocus = undefined;

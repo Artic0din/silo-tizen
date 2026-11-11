@@ -1873,11 +1873,17 @@ button.watch-party-seat-invite { box-sizing: content-box; padding: 0; margin: 0;
    row and icon values of the details More menu, the other native tvOS menu this client draws. */
 .skyline-selector.card-menu { z-index: 30; display: flex; flex-direction: column; gap: 2px; box-sizing: border-box; width: 560px; max-height: none; overflow: visible; padding: 14px; border-radius: 24px; background: rgba(0,0,0,.45); -webkit-backdrop-filter: blur(30px); backdrop-filter: blur(30px); border: 1px solid rgba(255,255,255,.1); box-shadow: 0 18px 32px rgba(0,0,0,.45); }
 .skyline-selector.card-menu .browse-button.skyline-menu-item { height: 54px; min-height: 0; padding: 0 18px; gap: 12px; border-radius: 14px; font-size: 22px; line-height: 28px; }
+/* The menu and alert sit beside the browse container, so they carry its type and drop the global focus ring. */
+.card-menu, .home-card-alert { box-sizing: border-box; color: var(--silo-text); font-family: var(--silo-font); }
+.card-menu .browse-button, .home-card-alert .browse-button { font-family: inherit; }
+.card-menu .browse-button:focus, .home-card-alert .browse-button:focus { box-shadow: none; }
 .card-menu .skyline-menu-icon { width: 26px; height: 20px; }
 .card-menu .skyline-menu-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .card-menu [aria-disabled="true"] { opacity: .5; }
 /* The failed-change alert: confirmationDialog.ts "alert" over Home, with the system alert's single full-width OK. */
 .signin-alert.home-card-alert { z-index: 31; }
+/* confirmationDialog.css .dialog-behind-dimmed, kept on the container so rows redrawn under the alert stay dimmed. */
+.browse.home-card-alert-open > * { opacity: .55; }
 .home-card-alert .browse-button { flex: 1; height: 66px; margin: 0; padding: 0 32px; border: 2px solid transparent; border-radius: 40px; background: var(--silo-selected); color: #ededed; font-size: 30px; box-shadow: none; transform: none; }
 .home-card-alert .browse-button:focus { background: #ffffff; color: #000000; }
 /* HomeView's EmptyStateView: the play.rectangle.on.rectangle symbol at 44 pt and 0.3 opacity, a 28 pt semibold title and a

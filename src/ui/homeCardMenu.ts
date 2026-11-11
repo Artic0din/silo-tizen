@@ -216,7 +216,7 @@ export class HomeCardMenu {
         for (const node of nodes) node.classList.add("home-card-alert");
         // Dim the screen without the shared dialog's clean-up of the nodes it covers, which browse still owns and redraws.
         this.container.inert = true;
-        this.container.classList.add("dialog-behind-dimmed");
+        this.container.classList.add("home-card-alert-open");
         this.alert = nodes;
         this.layer.append(...nodes);
         this.listen(true);
@@ -232,7 +232,7 @@ export class HomeCardMenu {
 
     private dismissAlert(): void {
         this.container.inert = false;
-        this.container.classList.remove("dialog-behind-dimmed");
+        this.container.classList.remove("home-card-alert-open");
         this.returnFocus = undefined;
         for (const node of this.alert) node.remove();
         this.alert = [];

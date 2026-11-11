@@ -3,6 +3,7 @@
 import type { Episode, ItemDetail, Season } from "../contracts/v2/catalog.ts";
 import type { Credit, Person } from "../contracts/v2/details.ts";
 import type { Card } from "../contracts/v2/catalog.ts";
+import type { Destination } from "./browseModel.ts";
 import type { DetailsState } from "./detailsState.ts";
 import { TRANSLATE_DESCRIPTION_LABEL, type DescriptionTranslationStatus } from "./descriptionTranslation.ts";
 import type { FocusItem, View, Zone } from "./browseFocus.ts";
@@ -351,9 +352,6 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
         subtitles.element.setAttribute("aria-expanded", String(state.panel === "subtitles"));
         actions.push(subtitles);
     }
-    if (detail.type === "series" && seasonItems.length === 0) {
-        notes.push("This series has no seasons yet.");
-    }
     if (actions.length === 0 && seasonItems.length === 0) {
         actions.push(actionButton("back", "Back", back));
     }
@@ -412,12 +410,8 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
             return { ...item, key };
         });
         content.push(el("h2", "browse-section-title", "Cast & Crew"), zoneNode("browse-row details-people", people));
-        zones.push({ id: "people", layout: "row", items: people });
-    }
-    const movieRow = boxSet === undefined ? undefined : boxSetMovieRow(boxSet, detail.id, context);
-    if (movieRow !== undefined) {
-        content.push(...movieRow.content);
-        zones.push(movieRow.zone);
+        // TVDetailCastRail.swift:37-38: tvDefaultFocus lands every entry on the first person.
+        zones.push({ id: "people", layout: "row", items: people, entry: people[0]?.key });
     }
     if (state !== undefined && (detail.type === "movie" || detail.type === "series")) {
         // Show YouTube cards the way tvOS does when the YouTube app can open.
@@ -426,24 +420,31 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
         if (extras.length > 0) {
             content.push(el("h2", "browse-section-title", "Trailers & More"), zoneNode("browse-row details-extras", extras));
             // TVTrailersRail is a focus section with user-initiated default focus
-            // on the first card, so every entry lands there. Other rails keep
-            // the last visited item.
+            // on the first card, so every entry lands there, as in Cast and Related.
             zones.push({ id: "extras", layout: "row", items: extras, entry: extras[0]?.key });
             if (state.extraPending !== undefined) content.push(...lines(["Loading extra…"]));
             if (state.extraFailed !== undefined) content.push(...lines(["Could not load extra. Select its card to retry."], "error"));
         }
     }
+    // TVMovieDetailView.swift:107-119: Cast, Trailers & More, then the box set.
+    const movieRow = boxSet === undefined ? undefined : boxSetMovieRow(boxSet, detail.id, context);
+    if (movieRow !== undefined) {
+        content.push(...movieRow.content);
+        zones.push(movieRow.zone);
+    }
     if (state !== undefined) {
         // TVSimilarRail passes neither overlayData nor userState to TVMediaCard.
-        const related = titleCards((state.related ?? []).map(card => ({ ...card, played: undefined })), { ...context, overlays: undefined, cardOverlays: () => undefined });
+        // AppRouter.openRelatedTitle: a related pick replaces a page that a related pick opened.
+        const openRelated = (destination: Destination): void => context.open(destination.kind === "item" ? { ...destination, fromRelated: true } : destination);
+        const related = titleCards((state.related ?? []).map(card => ({ ...card, played: undefined })), { ...context, open: openRelated, overlays: undefined, cardOverlays: () => undefined });
         if (!(state.offline && state.related === undefined) && !state.relatedFailed && (state.related === undefined || related.length > 0)) {
             const section = zoneNode("browse-row", related);
             section.setAttribute("data-detail-section", "related");
             content.push(el("h2", "browse-section-title", detail.type === "movie" ? "Related Movies" : "Recommended Series"));
+            // TVSimilarRail.swift:96-111: four untitled 220x330 cards while it loads; every entry lands on the first card.
             if (state.related === undefined) {
-                content.push(...lines(["Loading related titles."]));
-                for (let index = 0; index < 6; index++) { const placeholder = el("div", "details-related-placeholder"); placeholder.setAttribute("aria-hidden", "true"); section.append(placeholder); }
-            } else zones.push({ id: "related", layout: "row", items: related });
+                for (let index = 0; index < 4; index++) { const placeholder = el("div", "details-related-placeholder"); placeholder.setAttribute("aria-hidden", "true"); section.append(placeholder); }
+            } else zones.push({ id: "related", layout: "row", items: related, entry: related[0]?.key });
             content.push(section);
         }
     }
@@ -454,15 +455,16 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
     const writers = creditLine(crew, ["writer", "screenplay", "story"]);
     if (writers !== undefined) facts.push({ label: writerFactLabel(crew), value: writers });
     facts.push(...detail.extra?.facts ?? []);
+    // TVDetailFactsSection: the "Details" header always shows; only the facts grid hides when empty.
+    const factsPanel = el("div", "details-facts");
+    factsPanel.setAttribute("aria-label", "Details");
+    factsPanel.appendChild(el("h2", "browse-section-title", "Details"));
+    content.push(factsPanel);
     if (facts.length > 0) {
-        const panel = el("div", "details-facts");
-        panel.setAttribute("aria-label", "Details");
-        panel.appendChild(el("h2", "browse-section-title", "Details"));
         const table = el("dl", "details-facts-table");
         for (const fact of facts) { const row = el("div", "details-fact-row"); row.append(el("dt", "", fact.label.toUpperCase()), el("dd", "", fact.value)); table.append(row); }
-        table.tabIndex = -1; table.dataset.focus = "fact:0"; panel.append(table);
+        table.tabIndex = -1; table.dataset.focus = "fact:0"; factsPanel.append(table);
         const items = [{ key: "fact:0", element: table }];
-        content.push(panel);
         zones.push({ id: "facts", layout: "column", items });
     }
     const first = focusable[0] ?? seasonItems[0];
@@ -672,13 +674,14 @@ function creditCard(credit: Credit, context: ViewContext): FocusItem {
     if (id) element.addEventListener("click", () => context.open({ kind: "person", id, title: credit.name }));
     element.appendChild(artwork("browse-art details-photo", credit.photoUrl, context.baseUrl, credit.name));
     element.appendChild(el("span", "browse-card-title", credit.name));
-    element.appendChild(el("span", "browse-card-subtitle", credit.role));
+    // TVDetailCastRail.swift:96: no character, no role line.
+    if (credit.role.trim() !== "") element.appendChild(el("span", "browse-card-subtitle", credit.role));
     return { key, element };
 }
 
 function titleCards(cards: readonly Card[], context: ViewContext): FocusItem[] {
     const items: FocusItem[] = [];
-    for (const card of cards.slice(0, 24)) {
+    for (const card of cards) {
         const { preview: _preview, ...titlesContext } = context;
         const item = cardItem(card, titlesContext);
         if (item !== undefined) items.push(item);

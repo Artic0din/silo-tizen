@@ -47,7 +47,7 @@ test("Details operations use pinned paths, bounded queries and explicit mutation
     assert.equal(filmography.searchParams.get("person_id"), "a/b");
     assert.equal(filmography.searchParams.get("type"), "video");
     assert.equal(filmography.searchParams.get("limit"), "24");
-    assert.equal(detailOperations.similar("a/b").path, "/recommendations/similar/a%2Fb?limit=24&image_size=small");
+    assert.equal(detailOperations.similar("a/b").path, "/recommendations/similar/a%2Fb?limit=12&image_size=small");
     assert.equal(detailOperations.membership("watchlist", "a/b").path, "/watchlist/a%2Fb/membership");
     assert.equal(detailOperations.setPersonal("favorites", "a/b", true).method, "PUT");
     assert.equal(detailOperations.setPersonal("watched", "a/b", true).method, "POST");

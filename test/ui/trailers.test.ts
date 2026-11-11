@@ -267,7 +267,7 @@ trailerTest("down from cast always enters Trailers & More on the first card", as
     catalog.videos = [YOUTUBE];
     await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().click();
     await tv.page.locator(".details-extras").waitFor();
-    await tv.page.getByText("Loading related titles.", { exact: true }).waitFor({ state: "hidden" });
+    await tv.page.locator(".details-related-placeholder").first().waitFor({ state: "hidden" });
     const firstCast = await tv.page.locator(".details-people [data-focus]").first().getAttribute("data-focus");
     await tv.page.locator(".details-people [data-focus]").first().focus();
     await tv.remote(40);

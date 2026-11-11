@@ -545,7 +545,7 @@ calendarTest("Calendar return revalidates mutations and preserves nearby identit
         throw new Error(JSON.stringify(state), { cause: error });
     });
     await tv.page.getByText("Loading personal actions.", { exact: true }).waitFor({ state: "hidden" });
-    await tv.page.getByText("Loading related titles.", { exact: true }).waitFor({ state: "hidden" });
+    await tv.page.locator(".details-related-placeholder").first().waitFor({ state: "hidden" });
     await activate(tv, "watched");
     await activate(tv, "more");
     await tv.eventually(async () => catalog.watched, "watched mutation");
@@ -769,7 +769,7 @@ async function homeDetails(tv: Tv, id = "movie:m0001"): Promise<void> {
     await tv.eventually(async () => await tv.page.locator(`.browse[data-view="item:${id}"]`).count() === 1
         && await tv.page.locator('[data-focus="watchlist"]').count() === 1
         && await tv.page.getByText("Loading personal actions.", { exact: true }).count() === 0
-        && await tv.page.getByText("Loading related titles.", { exact: true }).count() === 0, "Home item Details");
+        && await tv.page.locator(".details-related-placeholder").count() === 0, "Home item Details");
 }
 
 calendarTest("S-C2 Calendar re-entry refreshes watched changes made through Home", async (tv, catalog) => {

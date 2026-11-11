@@ -1868,7 +1868,7 @@ browseTest("richer Details: facts, versions, people, accumulating filmography, r
     assert.equal(await tv.page.locator('[data-focus="watchlist"]').count(), 1, "cached personal actions remain visible while refreshing");
     personal.release();
     await tv.page.locator('[data-focus="watchlist"][aria-pressed]').waitFor();
-    await tv.eventually(async () => await tv.page.locator('[data-detail-section="related"] .browse-card').count() === 24, "refreshed related titles");
+    await tv.eventually(async () => await tv.page.locator('[data-detail-section="related"] .browse-card').count() === 12, "refreshed related titles");
     await tv.page.locator(".details-people [data-focus]").first().focus();
     const castKey = await tv.focused();
     assert.ok(castKey?.startsWith("credit:"));
@@ -1882,7 +1882,7 @@ browseTest("richer Details: facts, versions, people, accumulating filmography, r
     await tv.remote(BACK);
     await showing(tv, "item:movie:m0001");
     assert.equal(await tv.focused(), castKey);
-    await tv.eventually(async () => await tv.page.locator('[data-detail-section="related"] .browse-card').count() === 24, "the bounded related rail");
+    await tv.eventually(async () => await tv.page.locator('[data-detail-section="related"] .browse-card').count() === 12, "the bounded related rail");
     assert.equal(await tv.page.getByRole("button", { name: /trailer/i }).count(), 0);
 }, { catalog: new FakeDetails() });
 
@@ -1946,7 +1946,7 @@ browseTest("S-D1 failed Related stays omitted across browse destruction", async 
     await showing(tv, "item:movie:m0001");
     related.release();
     await tv.eventually(async () => tv.fake.requests.some((request) => request.path === "/favorites/movie%3Am0001/membership"), "membership answer");
-    await tv.page.getByText("Loading related titles.", { exact: true }).waitFor({ state: "hidden" });
+    await tv.page.locator(".details-related-placeholder").first().waitFor({ state: "hidden" });
     assert.equal(await tv.page.locator('[data-detail-section="related"]').count(), 0);
     assert.equal(await tv.page.getByRole("button", { name: "Retry related titles", exact: true }).count(), 0);
     await tv.page.evaluate(() => window.browseHarness.destroy());
@@ -2101,7 +2101,7 @@ browseTest("Details portraits keep their circular geometry and retain the cast c
     await activateDetails(tv);
     await showing(tv, "item:movie:m0001");
     await tv.page.locator('[data-focus="watchlist"][aria-pressed]').waitFor();
-    await tv.eventually(async () => await tv.page.locator('[data-detail-section="related"] .browse-card').count() === 24, "related titles");
+    await tv.eventually(async () => await tv.page.locator('[data-detail-section="related"] .browse-card').count() === 12, "related titles");
     await tv.jump(240);
     assert.deepEqual(await tv.page.locator(".details-photo").first().evaluate((node) => ({ width: node.clientWidth, height: node.clientHeight })), { width: 200, height: 200 });
     assert.equal(await tv.page.locator(".details-hero").evaluate((node) => {
@@ -2121,7 +2121,7 @@ browseTest("grouped Details facts remain reachable as one passive table with the
     await activateDetails(tv);
     await showing(tv, "item:movie:m0001");
     await tv.page.locator('[data-focus="watchlist"][aria-pressed]').waitFor();
-    await tv.eventually(async () => await tv.page.locator('[data-detail-section="related"] .browse-card').count() === 24, "related titles");
+    await tv.eventually(async () => await tv.page.locator('[data-detail-section="related"] .browse-card').count() === 12, "related titles");
     const reached = new Set<string>();
     for (let index = 0; index < 45; index++) {
         await press(tv, "ArrowDown");
@@ -2179,7 +2179,7 @@ browseTest("optional Details reads load independently and omit empty Related res
     await activateDetails(tv);
     await showing(tv, "item:movie:m0001");
     assert.equal(await tv.focused(), "resume", "optional reads do not block playback");
-    await shows(tv, "Loading related titles.");
+    await tv.page.locator(".details-related-placeholder").first().waitFor();
     await shows(tv, "Loading personal actions.");
     await tv.remote(BACK);
     await showing(tv, "home");
@@ -2189,7 +2189,7 @@ browseTest("optional Details reads load independently and omit empty Related res
     catalog.empty = true;
     await activateDetails(tv);
     await showing(tv, "item:movie:m0001");
-    await tv.page.getByText("Loading related titles.", { exact: true }).waitFor({ state: "hidden" });
+    await tv.page.locator(".details-related-placeholder").first().waitFor({ state: "hidden" });
     assert.equal(await tv.page.locator('[data-detail-section="related"]').count(), 0);
     await tv.page.locator('.details-people [data-focus^="credit:7:"]').focus();
     await press(tv, "Enter");
@@ -2210,7 +2210,7 @@ browseTest("optional Details reads load independently and omit empty Related res
 browseTest("series Details render related titles from the unpaginated server collection", async (tv) => {
     await activateDetails(tv, "series:s1");
     await showing(tv, "item:series:s1");
-    await tv.eventually(async () => await tv.page.locator('[data-detail-section="related"] .browse-card').count() === 24, "series related collection");
+    await tv.eventually(async () => await tv.page.locator('[data-detail-section="related"] .browse-card').count() === 12, "series related collection");
     assert.equal(await tv.page.getByRole("button", { name: "Retry related titles", exact: true }).count(), 0);
 }, { catalog: new FakeDetails() });
 
@@ -2227,7 +2227,7 @@ browseTest("personal reads retry explicitly and omitted Related recovers on a ne
     });
     await activateDetails(tv);
     await showing(tv, "item:movie:m0001");
-    await tv.page.getByText("Loading related titles.", { exact: true }).waitFor({ state: "hidden" });
+    await tv.page.locator(".details-related-placeholder").first().waitFor({ state: "hidden" });
     assert.equal(await tv.page.locator('[data-detail-section="related"]').count(), 0);
     await shows(tv, "Could not load personal actions.");
     relatedFail = false; personalFail = false;
@@ -2241,7 +2241,7 @@ browseTest("personal reads retry explicitly and omitted Related recovers on a ne
     await showing(tv, "home");
     await activateDetails(tv);
     await showing(tv, "item:movie:m0001");
-    await tv.eventually(async () => await tv.page.locator('[data-detail-section="related"] .browse-card').count() === 24, "related new visit");
+    await tv.eventually(async () => await tv.page.locator('[data-detail-section="related"] .browse-card').count() === 12, "related new visit");
     const person = tv.fake.hold("/catalog/people/7", true);
     await tv.page.locator('.details-people [data-focus^="credit:7:"]').focus();
     await press(tv, "Enter");
@@ -2293,7 +2293,7 @@ for (const kind of ["favorites", "watchlist"]) {
         await activateDetails(tv);
         await showing(tv, "item:movie:m0001");
         await tv.page.locator('[data-focus="watchlist"][aria-pressed]').waitFor();
-        await tv.eventually(async () => await tv.page.locator('[data-detail-section="related"] .browse-card').count() === 24, "all optional reads finished");
+        await tv.eventually(async () => await tv.page.locator('[data-detail-section="related"] .browse-card').count() === 12, "all optional reads finished");
         const path = `/${kind}/movie%3Am0001`;
         const held = tv.fake.hold(path, true);
         if (kind === "favorites") await detailsMore(tv);

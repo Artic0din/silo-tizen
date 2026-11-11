@@ -498,8 +498,10 @@ for (const media of ['movie:m0001', 'series:s1']) detailTest(`${media} reveals s
 });
 
 
+// Related keeps the title on screen, as TVSimilarRail does, and picking it opens nothing (AppRouter.relatedTitleStep),
+// so the nested page is the next title; Back from it still restores the ancestor's scroll and Related focus.
 detailTest('nested presentations of one title preserve the ancestor visit', async tv => {
-    await tv.page.route('**/api/v2/recommendations/similar/**', route => route.fulfill({ json: { items: ['movie:m0001', 'movie:m0002'].map(content_id => ({ content_id, type: 'movie', title: content_id })) } }));
+    await tv.page.route('**/api/v2/recommendations/similar/**', route => route.fulfill({ json: { items: ['movie:m0002', 'movie:m0001'].map(content_id => ({ content_id, type: 'movie', title: content_id })) } }));
     await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().click();
     const related = () => tv.page.locator('[data-detail-section="related"] [data-focus]').first();
     await related().waitFor();
@@ -512,15 +514,13 @@ detailTest('nested presentations of one title preserve the ancestor visit', asyn
         return page === null ? null : { scroll: page.scrollTop, key: document.activeElement?.getAttribute('data-focus') };
     }, null, value => value.scroll > 0 && value.key === 'movie:m0002', 'ancestor Related focus');
     await tv.page.keyboard.press('Enter');
+    await tv.eventually(async () => await tv.page.locator('.browse').getAttribute('data-view') === 'item:movie:m0002', 'nested Details');
     await related().waitFor();
-    await related().click();
     await tv.page.locator('.details-play').waitFor();
     await tv.jump(500);
-    assert.equal(await tv.focused(), 'resume');
     assert.equal(await tv.page.locator('.browse').evaluate(node => node.scrollTop), 0);
     await tv.remote(40);
     await tv.jump(500);
-    await tv.remote(10009);
     await tv.remote(10009);
     const restored = await readLive(tv, () => {
         const page = document.querySelector<HTMLElement>('.browse');
@@ -1608,7 +1608,7 @@ for (const failed of [true, false]) detailTest(`Related ${failed ? 'failure' : '
     await tv.page.route('**/api/v2/recommendations/similar/movie%3Am0001?**', route => route.fulfill(failed ? { status: 500 } : { json: { items: [] } }));
     await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().click();
     await tv.page.locator('[data-focus="watchlist"][aria-pressed]').waitFor();
-    await tv.eventually(async () => await tv.page.getByText('Loading related titles.', { exact: true }).count() === 0, 'related response accepted');
+    await tv.eventually(async () => await tv.page.locator(".details-related-placeholder").count() === 0, 'related response accepted');
     assert.equal(await tv.page.getByText('Could not load related titles.', { exact: true }).count(), 0);
     assert.equal(await tv.page.locator('[data-focus="retry-related"]').count(), 0);
     assert.equal(await tv.page.getByRole('heading', { name: 'Related Movies', exact: true }).count(), 0);
@@ -2331,7 +2331,8 @@ for (const check of ['cast', 'caption', 'season', 'description', 'menu', 'metada
         assert.equal(metrics.weight, '600');
         assert.ok(metrics.content <= metrics.width, JSON.stringify(metrics));
     } else if (check === 'season') {
-        assert.equal(await tv.page.locator('[data-focus="season:1"]').evaluate(node => getComputedStyle(node).borderTopColor), 'rgba(0, 0, 0, 0)');
+        // TVSeriesModeTab draws no outline: the pill has no border at all.
+        assert.equal(await tv.page.locator('[data-focus="season:1"]').evaluate(node => getComputedStyle(node).borderTopWidth), '0px');
     } else if (check === 'description') {
         const color = await readLive(tv, () => {
             const node = document.querySelector('.details-editorial .browse-overview');

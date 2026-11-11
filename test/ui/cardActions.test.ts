@@ -494,7 +494,8 @@ for (const surface of ["library-shelf", "library-grid", "collection", "search", 
         const before = tv.fake.requests.length;
         await card.focus(); await tv.down(13); await tv.jump(650); await tv.up(13);
         await menu(tv).locator('[data-focus="watched"]').waitFor();
-        if (surface === "season") assert.equal(await menu(tv).getByRole("button").count(), 2);
+        // TVSeriesDetailView.swift:632-643: the season pill's menu is Mark Season Watched or Unwatched alone.
+        if (surface === "season") assert.deepEqual(await menu(tv).getByRole("button").allInnerTexts(), ["Mark Season Unwatched"]);
         assert.ok(tv.fake.requests.slice(before).some(r => r.path.startsWith(`/catalog/items/${encodeURIComponent(id ?? "")}`)));
         await tv.remote(10009);
         assert.equal(await menu(tv).count(), 0);

@@ -3,7 +3,7 @@ import { ApiError } from "../api/errors.ts";
 import type { Card } from "../contracts/v2/catalog.ts";
 import type { NativeSession } from "../session/session.ts";
 import { personalControls } from "./browseDetails.ts";
-import { actionButton, lines, zoneNode } from "./browseViews.ts";
+import { actionButton, lines, type QuickActionCard, zoneNode } from "./browseViews.ts";
 import type { FocusItem } from "./browseFocus.ts";
 import { DetailsState } from "./detailsState.ts";
 import { remoteKey } from "./keys.ts";
@@ -19,7 +19,7 @@ export class CardActions {
     private failed = false;
     private pressed = false;
     private play: (() => void) | undefined;
-    private card: Pick<Card, "id" | "title" | "type"> | undefined;
+    private card: QuickActionCard | undefined;
     private readonly container: HTMLElement;
     private readonly session: NativeSession;
     private readonly changed: (state: DetailsState) => void;
@@ -41,7 +41,7 @@ export class CardActions {
     get active(): boolean { return this.panel !== undefined; }
     get pending(): boolean { return this.state?.pending === true; }
 
-    open(card: Pick<Card, "id" | "title" | "type">, play?: () => void): void {
+    open(card: QuickActionCard, play?: () => void): void {
         if (this.active) return;
         this.card = card;
         this.play = play;
@@ -100,7 +100,15 @@ export class CardActions {
         content.setAttribute("aria-label", "Card actions");
         content.appendChild(el("h1", "browse-section-title", this.state?.detail.title ?? this.card?.title ?? ""));
         const controls = this.state === undefined ? undefined : personalControls(this.state);
-        this.items = [...controls?.items ?? [], ...(this.failed ? [actionButton("retry-card-actions", "Try again", () => this.load())] : []), actionButton("close-card-actions", "Close", () => this.close())];
+        // TVSeriesDetailView.swift:632-643: a season pill's menu holds only Mark Season Watched or Unwatched; Back dismisses it.
+        const season = this.card?.seasonPill === true;
+        const seasonWatched = season ? controls?.items.find(item => item.key === "watched") : undefined;
+        if (seasonWatched !== undefined && this.state !== undefined) {
+            const value = this.state.values.get("watched"), change = this.state.changes.get("watched");
+            if (!change?.pending && !change?.failed) seasonWatched.element.textContent = value ? "Mark Season Unwatched" : "Mark Season Watched";
+        }
+        const shown = season ? controls?.items.filter(item => item.key === "watched" || item.key === "retry-personal") ?? [] : controls?.items ?? [];
+        this.items = [...shown, ...(this.failed ? [actionButton("retry-card-actions", "Try again", () => this.load())] : []), ...(seasonWatched === undefined ? [actionButton("close-card-actions", "Close", () => this.close())] : [])];
         const play = this.play;
         if (play !== undefined && this.state !== undefined) this.items.unshift(actionButton("card-play", (this.state.detail.watch?.positionSeconds ?? 0) > 0 ? "Resume" : "Play", () => {
             this.close();
@@ -112,7 +120,7 @@ export class CardActions {
             this.information?.(card);
         }));
         content.append(...(controls?.notes ?? lines([this.failed ? "Could not load card actions." : "Loading card actions."], this.failed ? "error" : "info")));
-        if (this.state !== undefined && this.state.personalSupported === false) content.append(...lines(["List actions are unavailable for this title."]));
+        if (this.state !== undefined && this.state.personalSupported === false && !season) content.append(...lines(["List actions are unavailable for this title."]));
         if (this.state !== undefined && !this.state.values.has("watched")) content.append(...lines(["Watched state is unavailable."]));
         content.appendChild(zoneNode("card-actions-buttons", this.items));
         while (panel.firstChild !== null) panel.removeChild(panel.firstChild);

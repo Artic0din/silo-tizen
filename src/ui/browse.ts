@@ -1868,6 +1868,19 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         showRoute(next, focus);
     };
 
+    /** push() without keeping the top page: Back from the new page returns to the one beneath. */
+    const replaceTop = (next: Route): void => {
+        stopSearchSupplement();
+        shuffleGeneration++;
+        stopDetails();
+        loading?.abort();
+        loading = undefined;
+        cancelSearch();
+        retireRoute(stack.pop());
+        stack.push(next);
+        showRoute(next, undefined);
+    };
+
     const tabFocus = (current: Route): FocusTarget => ({ zone: "nav", key: current.kind === "library" ? (current.library.type === "music" ? "music" : current.library.type === "audiobooks" ? "audiobooks" : current.library.type === "series" ? "series" : "movies") : current.kind === "personal" ? current.anchor ?? "profiles" : current.kind === "requests" || current.kind === "watchParty" ? current.anchor ?? "home" : current.kind });
 
     const showRoute = (current: Route, focus: FocusTarget | undefined): void => {
@@ -1936,11 +1949,23 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     };
 
     const open = (destination: Destination): void => {
+        if (destination.kind === "item" && destination.fromRelated === true) {
+            // AppRouter.relatedTitleStep: the title on screen does nothing; from a page a related pick
+            // opened, the title under it goes back and any other replaces the top page.
+            const current = top(), start = stack[stack.length - 2];
+            if (current?.kind === "item" && current.id === destination.id) return;
+            if (current?.kind === "item" && current.fromRelated === true) {
+                if (start?.kind === "item" && start.id === destination.id) { pop(); return; }
+                host.forgetVisit(`item:${destination.id}`);
+                replaceTop(newRoute({ kind: "item", id: destination.id, title: destination.title, fromRelated: true, data: undefined }));
+                return;
+            }
+        }
         if (destination.kind === "item") host.forgetVisit(`item:${destination.id}`);
         if (destination.kind === "person") host.forgetVisit(`person:${destination.id}`);
         if (destination.kind === "audiobook") { push(newRoute({ kind: "audiobook", id: destination.id, title: destination.title, data: undefined })); return; }
         push(destination.kind === "item"
-            ? newRoute({ kind: "item", id: destination.id, title: destination.title, ...(destination.seriesContext === undefined ? {} : { seriesContext: destination.seriesContext }), data: undefined })
+            ? newRoute({ kind: "item", id: destination.id, title: destination.title, ...(destination.seriesContext === undefined ? {} : { seriesContext: destination.seriesContext }), ...(destination.fromRelated === true ? { fromRelated: true } : {}), data: undefined })
             : destination.kind === "person" ? newRoute({ kind: "person", id: destination.id, title: destination.title, data: undefined, filter: "video", pages: newPages(), pendingIndex: undefined })
             : newRoute({ kind: "season", ...(destination.id === undefined ? {} : { id: destination.id }), ...(destination.episodeId === undefined ? {} : { episodeId: destination.episodeId }), seriesId: destination.seriesId, seasonNumber: destination.seasonNumber, title: destination.title, data: undefined }));
     };

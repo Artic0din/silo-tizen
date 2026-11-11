@@ -289,6 +289,39 @@ test("a held Select on a disabled row cannot reach the screen when a landed Remo
     } finally { await tv.page.context().close(); }
 });
 
+for (const where of ["chosen row", "open menu"] as const) test(`losing window focus while Select is held on the ${where} leaves the next Select fresh`, async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const catalog = await start(tv);
+        await hold(tv);
+        if (where === "chosen row") {
+            await row(tv, "Mark as Watched").focus();
+            await tv.down(13);
+            assert.equal(await menu(tv).count(), 0, "the row was chosen");
+            await tv.eventually(async () => catalog.mutations.length === 1, "watched sent");
+            await tv.page.evaluate(() => window.dispatchEvent(new Event("blur")));
+            await origin(tv).focus();
+            await tv.page.keyboard.press("Enter");
+            await tv.eventually(async () => await tv.page.locator(".browse").getAttribute("data-view") === "item:movie:m0001", "the first Select after return opens Details");
+        } else {
+            const answer = tv.fake.hold("/favorites/movie%3Am0001", true);
+            await row(tv, "Add to Favorites").click();
+            await tv.eventually(async () => catalog.mutations.length === 1, "favorite sent");
+            await hold(tv);
+            await row(tv, "Add to Watchlist").focus();
+            await tv.down(13);
+            await tv.page.evaluate(() => window.dispatchEvent(new Event("blur")));
+            answer.release();
+            await row(tv, "Remove from Favorites").waitFor();
+            await row(tv, "Add to Watchlist").focus();
+            await tv.page.keyboard.press("Enter");
+            assert.equal(await menu(tv).count(), 0, "the first Select after return chooses the row");
+            await tv.eventually(async () => catalog.watchlist, "watchlist applied");
+        }
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
+
 test("a held Select that chooses a row cannot reach the card once the menu closes", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {

@@ -307,6 +307,7 @@ export class CardActions {
         this.host.opened();
         document.addEventListener("keydown", this.onKey, true);
         document.addEventListener("keyup", this.onRelease, true);
+        window.addEventListener("blur", this.onBlur);
     }
 
     private release(): void {
@@ -315,6 +316,7 @@ export class CardActions {
         this.pressed = false;
         document.removeEventListener("keydown", this.onKey, true);
         document.removeEventListener("keyup", this.onRelease, true);
+        window.removeEventListener("blur", this.onBlur);
     }
 
     private abortAll(): void {
@@ -328,6 +330,9 @@ export class CardActions {
         this.dismiss();
         this.stopAuthority();
     }
+
+    /** Losing focus loses Select's release, so the next press is a fresh one. */
+    private readonly onBlur = (): void => { this.pressed = false; };
 
     private readonly onRelease = (event: KeyboardEvent): void => {
         if (remoteKey(event) === "enter") { this.pressed = false; event.preventDefault(); event.stopImmediatePropagation(); }
@@ -377,13 +382,17 @@ function swallowSelect(): void {
         if (remoteKey(event) !== "enter") return;
         event.preventDefault();
         event.stopImmediatePropagation();
-        if (event.type === "keyup") {
-            window.removeEventListener("keydown", consume, true);
-            window.removeEventListener("keyup", consume, true);
-        }
+        if (event.type === "keyup") stop();
+    };
+    // Losing focus loses the release; the next Select after return is a fresh press.
+    const stop = (): void => {
+        window.removeEventListener("keydown", consume, true);
+        window.removeEventListener("keyup", consume, true);
+        window.removeEventListener("blur", stop);
     };
     window.addEventListener("keydown", consume, true);
     window.addEventListener("keyup", consume, true);
+    window.addEventListener("blur", stop);
 }
 
 /** The tvOS menu opens beside the focused card, inside the safe area. */

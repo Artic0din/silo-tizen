@@ -5,7 +5,7 @@ import type { Browser, Route } from "playwright";
 import { FakeDetails } from "../native/support/fakeDetails.ts";
 import { FakeSettings } from "../native/support/fakeSettings.ts";
 import { CARD_PRESENTATION_KEY } from "../../src/contracts/v2/settings.ts";
-import { launchBrowser, openTv, readLive, type Tv } from "./support/tv.ts";
+import { launchBrowser, openTv, pauseTvClock, readLive, type Tv } from "./support/tv.ts";
 
 const CAP = 0.9685;
 const px = (points: number): string => `${Math.round(points * CAP * 1e4) / 1e4}px`;
@@ -314,26 +314,27 @@ detailTest("the series season count leaves out a season numbered 0", async tv =>
 for (const media of ["movie:m0001", "series:s1"] as const) detailTest(`returning to the ${media.split(":")[0]} hero scrolls on Apple's curve`, async tv => {
     // TVDetailFocusScroll: easeInOut 0.45 s. TVSeriesDetailView animatePage: 0.55 s on (0.4, 0) (0.2, 1).
     const [duration, half] = media === "movie:m0001" ? [450, 0.5] : [550, 0.77556];
+    const scrollTop = (): Promise<number> => tv.page.evaluate(() => document.querySelector<HTMLElement>(".browse")?.scrollTop ?? 0);
     await tv.page.locator(`[data-section="recently_added"] [data-focus="${media}"]`).first().click();
-    await tv.page.locator('[data-focus^="credit:"]').first().waitFor();
     await tv.page.locator('[data-focus="more"]').waitFor();
-    for (let step = 0; step < 8 && !(await tv.focused() ?? "").startsWith("credit:"); step++) {
+    await tv.page.locator('[data-focus^="credit:"]').first().waitFor();
+    await tv.eventually(async () => {
+        if ((await tv.focused() ?? "").startsWith("credit:")) return true;
         await tv.remote(40);
-        await tv.jump(600);
-    }
+        await tv.jump(300);
+        return false;
+    }, "a cast card takes focus");
     await tv.jump(1000);
-    const start = await tv.page.evaluate(() => document.querySelector<HTMLElement>(".browse")?.scrollTop ?? 0);
-    assert.ok(start > 100, `the cast row scrolled the page (${start})`);
-    for (let step = 0; step < 6 && !(await tv.page.evaluate(() => document.activeElement?.closest(".details-editorial") !== null)); step++) {
-        await tv.remote(38);
-        await tv.jump(16);
-    }
-    const from = await tv.page.evaluate(() => document.querySelector<HTMLElement>(".browse")?.scrollTop ?? 0);
-    await tv.jump(duration / 2 - 16);
-    const middle = await tv.page.evaluate(() => document.querySelector<HTMLElement>(".browse")?.scrollTop ?? 0);
-    assert.ok(Math.abs(middle - from * (1 - half)) <= from * 0.08, JSON.stringify({ from, middle, expected: from * (1 - half) }));
+    await tv.eventually(async () => await scrollTop() > 100, "the cast row scrolled the page");
+    // A paused clock makes the sample below land exactly half-way through the move.
+    await pauseTvClock(tv);
+    const from = await scrollTop();
+    while (!(await tv.page.evaluate(() => document.activeElement?.closest(".details-editorial") !== null))) await tv.remote(38);
+    await tv.jump(duration / 2);
+    const middle = await scrollTop();
+    assert.ok(Math.abs(middle - from * (1 - half)) <= from * 0.05, JSON.stringify({ from, middle, expected: from * (1 - half) }));
     await tv.jump(duration);
-    assert.equal(await tv.page.evaluate(() => document.querySelector<HTMLElement>(".browse")?.scrollTop ?? 0), 0);
+    assert.equal(await scrollTop(), 0);
 });
 
 detailTest("a focused episode shows only its own detail's ratings, never the list's copy", async tv => {

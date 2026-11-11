@@ -161,8 +161,8 @@ railTest("a focused season pill takes Apple's shadow and an unselected one turns
     await tv.page.locator(SERIES).first().click();
     await tv.page.locator('[data-focus="episode:rail:1:0"]').waitFor();
     const style = (season: number) => tv.page.locator(`[data-focus="season:${season}"]`).evaluate(node => { const computed = getComputedStyle(node); return { shadow: computed.boxShadow, delay: computed.transitionDelay }; });
-    await tv.page.locator('[data-focus="season:2"]').focus();
-    assert.equal((await style(2)).delay, "0.07s");
+    // Read in the same task as the focus: the 70ms season activation selects the pill soon after.
+    assert.equal(await tv.page.locator('[data-focus="season:2"]').evaluate(node => { (node as HTMLElement).focus(); return node.getAttribute("aria-pressed") === "false" ? getComputedStyle(node).transitionDelay : "selected"; }), "0.07s");
     await tv.eventually(async () => (await style(2)).shadow === "rgba(0, 0, 0, 0.28) 0px 4px 20px 0px", "TVSeriesModeTabStyle focused shadow");
     await tv.page.locator('[data-focus="season:2"][aria-pressed="true"]').waitFor();
     assert.equal((await style(2)).delay, "0s", "the selected pill paints white at once");

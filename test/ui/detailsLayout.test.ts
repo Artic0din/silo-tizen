@@ -529,6 +529,39 @@ detailTest('nested presentations of one title preserve the ancestor visit', asyn
     assert.deepEqual(restored, before);
 });
 
+// The same title nested over itself, reached through Cast and the filmography (Related no longer reopens the title on screen).
+detailTest('a title nested over itself through the filmography preserves the ancestor visit', async tv => {
+    await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().click();
+    const cast = tv.page.locator('.details-people [data-focus^="credit:7:"]').first();
+    await cast.waitFor();
+    await tv.page.locator('[data-detail-section="related"] [data-focus]').first().waitFor();
+    await tv.jump(500);
+    await tv.remote(40);
+    await tv.jump(500);
+    const before = await readLive(tv, () => {
+        const page = document.querySelector<HTMLElement>('.browse');
+        return page === null ? null : { scroll: page.scrollTop, key: document.activeElement?.getAttribute('data-focus') };
+    }, null, value => value.scroll > 0 && value.key?.startsWith('credit:7:') === true, 'ancestor Cast focus');
+    await tv.page.keyboard.press('Enter');
+    await tv.page.locator('[data-view="person:7"]').waitFor();
+    const nested = tv.page.locator('[data-view="person:7"] [data-focus="movie:m0001"]').first();
+    await nested.waitFor();
+    await nested.click();
+    await tv.page.locator('.details-play').waitFor();
+    await tv.jump(500);
+    assert.equal(await tv.focused(), 'resume');
+    assert.equal(await tv.page.locator('.browse').evaluate(node => node.scrollTop), 0);
+    await tv.remote(40);
+    await tv.jump(500);
+    await tv.remote(10009);
+    await tv.remote(10009);
+    const restored = await readLive(tv, () => {
+        const page = document.querySelector<HTMLElement>('.browse');
+        return page === null ? null : { scroll: page.scrollTop, key: document.activeElement?.getAttribute('data-focus') };
+    }, null, value => value.scroll === before.scroll && value.key === before.key, 'ancestor visit restored');
+    assert.deepEqual(restored, before);
+});
+
 for (const id of ['movie:m0001', 'series:s1']) detailTest(`${id} reopening starts at the hero instead of a remembered supporting section`, async tv => {
     const open = async () => {
         await tv.page.locator(`[data-section="recently_added"] [data-focus="${id}"]`).first().click();

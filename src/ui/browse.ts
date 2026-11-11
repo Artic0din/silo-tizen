@@ -1953,8 +1953,13 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             // AppRouter.relatedTitleStep: the title on screen does nothing; from a page a related pick
             // opened, the title under it goes back and any other replaces the top page.
             // A related season or episode opens its series with a context, so the context is part of the title.
-            const shows = (route: Route | undefined): boolean => route?.kind === "item" && route.id === destination.id
-                && route.seriesContext?.seasonNumber === destination.seriesContext?.seasonNumber && route.seriesContext?.episodeId === destination.seriesContext?.episodeId;
+            // An episode id names the title on its own; the season number is optional on a card.
+            const shows = (route: Route | undefined): boolean => {
+                if (route?.kind !== "item" || route.id !== destination.id) return false;
+                const here = route.seriesContext, there = destination.seriesContext;
+                if (here?.episodeId !== undefined || there?.episodeId !== undefined) return here?.episodeId === there?.episodeId;
+                return here?.seasonNumber === there?.seasonNumber;
+            };
             const current = top(), start = stack[stack.length - 2];
             if (shows(current)) return;
             if (current?.kind === "item" && current.fromRelated === true) {

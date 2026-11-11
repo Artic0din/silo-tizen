@@ -788,14 +788,17 @@ for (const outcome of ["pending", "lost"]) journey(`Details reconciles ${outcome
     if (outcome === "lost") tv.fake.dropNextAnswer(path);
     await tv.page.getByRole("button", { name: "Add to watchlist", exact: true }).click();
     await tv.eventually(async () => catalog.mutations.length === 1, "membership write");
-    if (outcome === "lost") await tv.page.getByRole("button", { name: "Retry watchlist", exact: true }).waitFor();
+    // Apple's Watchlist keeps its label; the failure note marks the unconfirmed write.
+    if (outcome === "lost") await tv.page.getByText("Could not update watchlist.").waitFor();
     await tv.page.locator('.details-people [data-focus^="credit:7:"]').first().click();
     await grid(tv).first().waitFor();
     await all(tv);
     await next(tv, 2);
     await tv.remote(BACK);
     held?.release();
-    await tv.page.getByRole("button", { name: "Retry watchlist", exact: true }).click();
+    await tv.page.getByText("Could not update watchlist.").waitFor();
+    assert.equal(await tv.page.locator('[data-focus="watchlist"]').innerText(), "Watchlist");
+    await tv.page.locator('[data-focus="watchlist"]').click();
     await tv.page.getByRole("button", { name: "Remove from watchlist", exact: true }).waitFor();
     assert.equal(catalog.mutations.length, 1);
 });

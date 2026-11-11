@@ -18,7 +18,8 @@ export async function freshPlayPosition(session: NativeSession, request: PlayReq
         const fresh = await Promise.race([session.call({ ...detailOperations.resumePosition(request.contentId, request.fileId), profileScoped: true, signal: controller.signal }), timeout]);
         return resumeSeconds(fresh.position, fresh.duration) ?? 0;
     } catch (error) {
-        if (!signal.aborted && error instanceof ApiError && (error.failure.kind === "network" || error.failure.kind === "timeout" || error.status === 501 || error.status === 503)) return request.startSeconds ?? 0;
+        // DetailResumeState: any failed or slow read falls back to the page's snapshot and plays.
+        if (!signal.aborted) return request.startSeconds ?? 0;
         throw error;
     } finally {
         cancel();

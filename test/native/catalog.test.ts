@@ -258,6 +258,8 @@ test("resume: positive positions resume unless within 5 seconds of the end", () 
     assert.equal(resumeSeconds(10195, 10200), undefined);
     assert.equal(resumeSeconds(10194.9, 10200), 10194.9);
     assert.equal(resumeSeconds(0, 10200), undefined);
+    assert.equal(resumeSeconds(30, 10200), undefined, "PlaybackResumePoint: 30 s or less plays from the start");
+    assert.equal(resumeSeconds(30.5, 10200), 30.5);
     assert.equal(resumeSeconds(undefined, 10200), undefined);
     assert.equal(resumeSeconds(300, undefined), 300, "an unknown length still resumes");
     assert.equal(clockTime(1200.5), "20:00");

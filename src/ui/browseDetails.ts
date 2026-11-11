@@ -233,27 +233,36 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
     const notes: string[] = [];
     if (preferences?.audioPreference.pending) notes.push("Saving audio preference…");
     if (preferences?.subtitlePreference.pending) notes.push("Saving subtitle preference…");
-    if (preferences?.subtitlePreference.failed) {
-        notes.push("Subtitle preference could not be confirmed.");
-        actions.push(actionButton("retry-subtitle-preference", "Check subtitle preference", () => state?.retryPreference("subtitles", preferences)));
-    }
-    if (preferences?.audioPreference.failed) {
-        notes.push("Could not confirm the audio preference. Check before playing.");
-        actions.push(actionButton("retry-audio-preference", "Check audio preference", () => state?.retryPreference("audio", preferences)));
-    }
+    if (preferences?.subtitlePreference.failed) notes.push("Subtitle preference could not be confirmed.");
+    if (preferences?.audioPreference.failed) notes.push("Could not confirm the audio preference. Check before playing.");
+    // Apple's row has no preference-check buttons, so Play re-sends an unconfirmed save before it plays.
+    const retriedPreference = (): boolean => {
+        if (state === undefined || preferences === undefined) return false;
+        const failed = (["subtitles", "audio"] as const).filter(kind => (kind === "audio" ? preferences.audioPreference : preferences.subtitlePreference).failed);
+        for (const kind of failed) state.retryPreference(kind, preferences);
+        return failed.length > 0;
+    };
+    const savePending = [preferences, tracks].some(owner => owner?.audioPreference.pending === true || owner?.subtitlePreference.pending === true);
+    // deferPlay keeps a press that raced a shared preference save; Play starts it once the save confirms.
+    if (tracks?.failedPlay !== undefined && !savePending) notes.push("Press Play again to start playback.");
     const choices = playChoices(detail, state?.selectedFileId, state?.preferredQuality);
     const choose = (request: PlayRequest): void => {
+        if (retriedPreference()) return;
         const audioTrackId = state?.audioTrackId(true);
         const next = { ...request, ...(audioTrackId === undefined ? {} : { audioTrackId }), ...(state === undefined ? {} : { subtitle: state.subtitleIntent() }) };
         play(withStartAudioLanguage(next, detail.versions.find(file => file.fileId === next.fileId)));
     };
     if (choices?.resume !== undefined) {
         const resume = choices.resume;
-        actions.push(actionButton("resume", `Resume from ${clockTime(resume.startSeconds ?? 0)}`, () => choose(resume)));
-        actions.push(actionButton("play", "Play from start", () => choose(choices.fromStart)));
+        actions.push(actionButton("resume", `Resume ${clockTime(resume.startSeconds ?? 0)}`, () => choose(resume)));
+        actions.push(actionButton("play", "Start Over", () => choose(choices.fromStart)));
     } else if (choices !== undefined) {
         actions.push(actionButton("play", "Play", () => choose(choices.fromStart)));
     } else if (detail.type === "movie" || detail.type === "episode") {
+        // Apple keeps Play in the row; with no file to hand AVPlay it stays disabled beside this note.
+        const play = actionButton("play", "Play", () => undefined);
+        play.element.setAttribute("aria-disabled", "true");
+        actions.push(play);
         notes.push("This title has no file this TV can play.");
     }
     const next = state?.series === undefined ? state?.playbackTargetId ?? detail.playContentId : state.playbackTargetId;
@@ -262,7 +271,7 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
         const targetChoices = playbackChoices;
         const summary = state?.series?.railEpisodes?.find(episode => episode.id === next);
         const playNext = (startOver = false): void => {
-            if (state?.episodePreferencesBlocked) return;
+            if (retriedPreference() || state?.episodePreferencesBlocked) return;
             if (target === undefined) { context.playEpisode?.(next, summary?.title ?? detail.title, startOver); return; }
             if (targetChoices === undefined) return;
             const audioTrackId = tracks?.audioTrackId(true);
@@ -271,14 +280,14 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
         };
         const labelTarget = summary ?? target;
         const canResume = targetChoices?.resume !== undefined || target === undefined && summary?.inProgress === true;
-        const label = labelTarget === undefined ? "Loading episode…" : `${canResume ? "Resume" : "Play"} ${episodeLabel(labelTarget.seasonNumber, labelTarget.episodeNumber) ?? labelTarget.title}`;
-        const primary = actionButton("next-episode", state?.nextEpisodeFailed === true ? (state.offline ? "Episode unavailable" : "Retry episode") : target !== undefined && targetChoices === undefined ? "Episode unavailable" : label, () => {
-            if (state?.nextEpisodeFailed === true) state.loadNextEpisode();
-            else playNext();
-        });
         const failed = state?.nextEpisodeFailed === true;
-        const awaitingFile = targetChoices === undefined && (state?.offline === true || labelTarget === undefined && !failed || target !== undefined && !failed);
-        primary.element.setAttribute("aria-disabled", String(state?.episodePreferencesBlocked || awaitingFile));
+        // TVDetailActionRow: "Loading episodes…" while the list loads, else "Play" with no episode to name.
+        const label = labelTarget === undefined ? failed ? "Play" : "Loading episodes…" : `${canResume ? "Resume" : "Play"} ${episodeLabel(labelTarget.seasonNumber, labelTarget.episodeNumber) ?? labelTarget.title}`;
+        // A failed episode read still plays through the episode route, which loads its own detail.
+        const primary = actionButton("next-episode", label, () => { if (primary.element.getAttribute("aria-disabled") !== "true") playNext(); });
+        // After a failed read, Play still knows the episode id, so it plays through the episode route.
+        const unplayable = labelTarget === undefined && !failed || targetChoices === undefined && (state?.offline === true || target !== undefined);
+        primary.element.setAttribute("aria-disabled", String(savePending || unplayable));
         actions.push(primary);
         if (canResume) actions.push(actionButton("start-over-episode", "Start Over", () => playNext(true)));
         if (target !== undefined && targetChoices === undefined) notes.push("This episode has no file this TV can play.");
@@ -324,16 +333,20 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
         return meaningful ?? languageName(track?.language) ?? `Track ${index + 1}`;
     };
     const audioLabel = (index: number): string => [languageName(audio[index]?.language), audioDetails(index)].filter(Boolean).join(' · ') || audioTitle(index);
-    const seriesSelectors = detail.type === "series";
-    if ((playbackChoices !== undefined || seriesSelectors) && state !== undefined) {
+    // TVPlaybackActionSelectors stay mounted and disable until a version is known.
+    if (state !== undefined) {
         const ordinal = audio.findIndex((_track, index) => selectedAudio === `file:${file?.fileId}:audio:${index}`);
+        const version = actionButton("version", `Version: ${versionValue}`, () => state.showPanel("version"));
+        version.element.setAttribute("aria-disabled", String(playbackChoices === undefined || playbackDetail.versions.length === 0));
+        version.element.setAttribute("aria-haspopup", "dialog");
+        actions.push(version);
         const trigger = actionButton("audio", `Audio: ${ordinal === -1 ? "Auto" : audioLabel(ordinal)}`, () => state.showPanel("audio"));
-        trigger.element.setAttribute("aria-disabled", String(playbackChoices === undefined && (!seriesSelectors || state.nextEpisode !== undefined || state.nextEpisodeFailed)));
+        trigger.element.setAttribute("aria-disabled", String(playbackChoices === undefined || audio.length === 0));
         trigger.element.setAttribute("aria-haspopup", "dialog");
         trigger.element.setAttribute("aria-expanded", String(state.audioOpen));
         actions.push(trigger);
         const subtitles = actionButton("subtitles", `Subtitles: ${selectedSubtitleLabel}`, () => state.showPanel("subtitles"));
-        subtitles.element.setAttribute("aria-disabled", String(playbackChoices === undefined && (!seriesSelectors || state.nextEpisode !== undefined || state.nextEpisodeFailed)));
+        subtitles.element.setAttribute("aria-disabled", String(playbackChoices === undefined));
         subtitles.element.setAttribute("aria-haspopup", "dialog");
         subtitles.element.setAttribute("aria-expanded", String(state.panel === "subtitles"));
         actions.push(subtitles);
@@ -344,21 +357,10 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
     if (actions.length === 0 && seasonItems.length === 0) {
         actions.push(actionButton("back", "Back", back));
     }
-    if (state?.titleArtPolicy === "failed" && !state.offline) actions.push(actionButton("retry-title-art", "Retry title art", () => state.loadTitleArt()));
-    if (tracks?.failedPlay !== undefined) {
-        const request = tracks.failedPlay;
-        actions.push(actionButton("retry-play", "Try again", () => play(request)));
-    }
     const personal = state === undefined ? undefined : personalControls(state);
-    const watchlist = personal?.items.find(item => item.key === "watchlist");
-    if (watchlist !== undefined) actions.push(watchlist);
     if (state !== undefined) {
-        if (playbackDetail.versions.length > 0 || seriesSelectors) {
-            const version = actionButton("version", `Version: ${versionValue}`, () => state.showPanel("version"));
-            version.element.setAttribute("aria-disabled", String(playbackChoices === undefined && (!seriesSelectors || state.nextEpisode !== undefined || state.nextEpisodeFailed)));
-            version.element.setAttribute("aria-haspopup", "dialog");
-            actions.splice(actions.findIndex(item => item.key === "audio"), 0, version);
-        }
+        // Watchlist shows while membership loads or fails; only a server or item that has no lists drops it.
+        if (state.personalSupported !== false) actions.push(watchlistButton(state));
         const more = actionButton("more", "More", () => state.showPanel("more"));
         more.element.setAttribute("aria-haspopup", "dialog");
         actions.push(more);
@@ -368,16 +370,17 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
     // Keep the summary absent until the focused episode's full versions arrive.
     const summary = playbackChoices === undefined ? undefined : `Version: ${versionValue} | Audio: ${ordinal === -1 ? "Auto · " : ""}${resolvedAudio} | Subtitles: ${subtitleSummary}`;
     const content = [...detailHeader(detail, context, actions.map(detailAction), state, summary), ...lines(notes), ...personal?.notes ?? []];
-    if (tracks?.preparingPlay) {
-        const status = el("p", "browse-text", "Checking resume position…");
-        status.setAttribute("role", "status");
-        content.push(status);
+    // A save in flight holds Play; a failed one leaves Play live so pressing it re-sends the save.
+    for (const action of actions.filter(action => ["play", "resume", "next-episode", "start-over-episode"].includes(action.key))) {
+        if (playbackChoices !== undefined) action.element.setAttribute("aria-disabled", String(savePending));
     }
-    for (const action of actions.filter(action => ["play", "resume", "next-episode", "start-over-episode", "retry-play"].includes(action.key))) {
-        if (playbackChoices !== undefined) action.element.setAttribute("aria-disabled", String(state?.episodePreferencesBlocked || tracks?.preparingPlay || tracks?.audioPreference.pending || tracks?.audioPreference.failed || tracks?.subtitlePreference.pending || tracks?.subtitlePreference.failed));
-    }
-    if (tracks?.failedPlay !== undefined) {
-        content.push(...lines(["Could not prepare playback."], "error"));
+    // Disabled controls stay in the row but take no focus (TVDisabledDetailActionsKey). One that disables under
+    // focus keeps it until the viewer moves, so a repaint never moves focus by itself.
+    const held = document.activeElement?.closest(".details-editorial .browse-actions") ? document.activeElement.getAttribute("data-focus") : null;
+    const focusable = actions.filter(action => action.element.getAttribute("aria-disabled") !== "true" || action.key === held);
+    for (const action of focusable) {
+        if (action.element.getAttribute("aria-disabled") !== "true") continue;
+        action.element.addEventListener("focusout", () => { const index = focusable.indexOf(action); if (index >= 0) focusable.splice(index, 1); }, { once: true });
     }
     if (state?.nextEpisodeFailed === true && !state.offline) content.push(...lines(["Could not load the next episode."], "error"));
     if (state?.titleArtPolicy === "failed" && !state.offline) content.push(...lines(["Could not load title-art settings."], "error"));
@@ -386,7 +389,7 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
         content.push(el("h2", "browse-section-title", "Seasons"), zoneNode("browse-row", seasonItems));
     }
     const zones: Zone[] = [
-        { id: "actions", layout: "row", items: actions, restoreEntry: actions.find(action => ["resume", "play", "next-episode"].includes(action.key))?.key ?? "watchlist" },
+        { id: "actions", layout: "row", items: focusable, restoreEntry: focusable.find(action => ["resume", "play", "next-episode"].includes(action.key))?.key ?? "watchlist" },
         ...series?.zones ?? [{ id: "seasons", layout: "row" as const, items: seasonItems }],
     ];
     const credits = detail.extra?.cast ?? [];
@@ -462,8 +465,8 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
         content.push(panel);
         zones.push({ id: "facts", layout: "column", items });
     }
-    const first = actions[0] ?? seasonItems[0];
-    const view: View = { name: `item:${detail.id}`, content, zones, focus: first === undefined ? undefined : { zone: actions[0] === undefined ? "seasons" : "actions", key: first.key }, back };
+    const first = focusable[0] ?? seasonItems[0];
+    const view: View = { name: `item:${detail.id}`, content, zones, focus: first === undefined ? undefined : { zone: focusable[0] === undefined ? "seasons" : "actions", key: first.key }, back };
     if (state?.panel === "audio") {
         const options = [undefined, ...audio.map((_track, index) => index)].map(ordinal => {
             const item = actionButton(`audio:${ordinal ?? "auto"}`, ordinal === undefined ? "Auto" : audioTitle(ordinal), () => { if (tracks !== undefined) state.noteEpisodePreference(tracks.detail.id); tracks?.selectAudio(ordinal); if (tracks !== state) state.closePanel(); });
@@ -623,6 +626,20 @@ function playMark(): HTMLElement {
     icon.appendChild(shape);
     badge.appendChild(icon);
     return badge;
+}
+
+/** TVCircleActionButton for Watchlist: always "Watchlist"; the icon fill and spoken label carry the state. */
+function watchlistButton(state: DetailsState): FocusItem {
+    const value = state.values.get("watchlist");
+    const change = state.changes.get("watchlist");
+    const item = actionButton("watchlist", value ? "Remove from watchlist" : "Add to watchlist", () => {
+        if (value === undefined) { if (state.personalFailed && !state.busy) state.loadPersonal(); return; }
+        state.change("watchlist", change?.failed ? change.target : !value, change?.failed);
+    });
+    // aria-pressed stays off until membership is known.
+    const pressed = change?.pending ? change.target : value;
+    if (pressed !== undefined) item.element.setAttribute("aria-pressed", String(pressed));
+    return item;
 }
 
 export function personalControls(state: DetailsState): { items: FocusItem[]; notes: HTMLElement[] } {

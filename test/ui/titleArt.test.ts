@@ -142,20 +142,19 @@ for (const mode of ["logo", "broken", "default-false"] as const) test(`Details s
     } finally { await tv.page.context().close(); }
 });
 
-test("failed supported title-art read keeps playback and reachable Retry, then recovers", async () => {
+test("failed supported title-art read keeps the text title and Play with no row Retry, then recovers on reopen", async () => {
     const { tv, catalog } = await setup();
     try {
         tv.fake.script(`/settings/values/effective?keys=${TITLE}`, problem(429, "rate_limited", "Wait"));
         await details(tv, catalog);
-        const retry = tv.page.getByRole("button", { name: "Retry title art", exact: true });
-        await retry.waitFor();
+        await tv.page.getByText("Could not load title-art settings.").waitFor();
+        assert.equal(await tv.page.getByRole("button", { name: "Retry title art", exact: true }).count(), 0, "Apple's row has no title-art button");
         assert.equal(await tv.page.locator(".details-editorial h1").textContent(), "The Last Signal");
         assert.equal(await tv.page.locator(".details-logo").count(), 0);
         assert.ok(await tv.page.locator('[data-focus="play"]').isVisible());
-        await retry.focus();
-        await tv.page.keyboard.press("Enter");
+        await tv.remote(10009);
+        await details(tv, catalog);
         await tv.page.locator(".details-logo").waitFor();
-        assert.equal(await retry.count(), 0);
     } finally { await tv.page.context().close(); }
 });
 

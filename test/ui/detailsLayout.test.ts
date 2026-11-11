@@ -103,10 +103,8 @@ detailTest("season Details automatically recovers an offline next episode", asyn
     await tv.jump(0);
     const beforeRetry = failures;
     await primary.dispatchEvent("click");
-    await tv.eventually(async () => failures > beforeRetry, "visible episode owner remains active after failed recovery");
     await tv.jump(1000);
-    await tv.eventually(async () => failures >= beforeRetry + 2, "manual episode transport retry exhausted");
-    await tv.jump(0);
+    assert.equal(failures, beforeRetry, "a disabled offline Play starts nothing");
     const catalog = tv.fake.catalog;
     assert.ok(catalog instanceof FakeDetails);
     catalog.mutationFailure = problem(422, "validation_failed", "Unavailable action");
@@ -225,6 +223,9 @@ async function settledEpisodePrefetch(tv: Tv): Promise<void> {
 }
 
 for (const media of ['movie:m0001', 'series:s1']) detailTest(`${media} hero Up restores every last action and More return`, async tv => {
+    // Every selector must be live to take focus; Apple disables Audio for a file with no audio tracks.
+    const catalog = tv.fake.catalog; assert.ok(catalog instanceof FakeDetails);
+    catalog.fileIds.set('episode:s1e11', '42');
     await tv.page.locator(`[data-section="recently_added"] [data-focus="${media}"]`).first().click();
     await tv.page.locator('[data-focus="version"][aria-disabled="false"]').waitFor();
     const primary = media.startsWith('movie') ? 'resume' : 'next-episode';
@@ -567,7 +568,7 @@ for (const id of ['movie:m0001', 'series:s1']) detailTest(`${id} reopening start
 
 for (const id of ['movie:m0001', 'series:s1']) detailTest(`${id} Details omits controls absent from tvOS and keeps focus at the last section`, async tv => {
     await tv.page.locator(`[data-section="recently_added"] [data-focus="${id}"]`).first().click();
-    await tv.page.locator('[data-focus="watchlist"]').waitFor();
+    await tv.page.locator('[data-focus="watchlist"][aria-pressed]').waitFor();
     if (id === 'series:s1') await tv.page.locator('[data-focus="episode:s1e11"]').waitFor();
     assert.equal(await tv.page.getByRole('button', { name: /Read synopsis|Rate title|Season .* details/ }).count(), 0);
     const lastKey = id === 'movie:m0001' ? 'fact:0' : 'series:s1-S1';
@@ -593,7 +594,7 @@ for (const media of ['movie:m0001', 'series:s1']) for (const count of [20, 25]) 
 
 detailTest('275 More glass obscures the page with blur and pinned Swift tint stroke shadow', async tv => {
     await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
-    await tv.page.locator('[data-focus="watchlist"]').waitFor();
+    await tv.page.locator('[data-focus="watchlist"][aria-pressed]').waitFor();
     await tv.page.locator('[data-focus="more"]').click();
     const glass = await tv.page.locator('.details-more-popover').evaluate(node => {
         const style = getComputedStyle(node);
@@ -633,7 +634,7 @@ detailTest('More is an anchored popover with Apple ordering and immediate Back f
 
 detailTest('More ellipsis has three round six-pixel dots at rest and focus', async tv => {
     await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().click();
-    await tv.page.locator('[data-focus="watchlist"]').waitFor();
+    await tv.page.locator('[data-focus="watchlist"][aria-pressed]').waitFor();
     for (const focused of [false, true]) {
         await tv.page.locator(`[data-focus="${focused ? 'more' : 'watchlist'}"]`).focus();
         const dots = await readLive(tv, () => {
@@ -650,7 +651,7 @@ detailTest('More ellipsis has three round six-pixel dots at rest and focus', asy
 
 detailTest('More uses available space below then above then bottom-pinned and clamps x', async tv => {
     await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
-    await tv.page.locator('[data-focus="watchlist"]').waitFor();
+    await tv.page.locator('[data-focus="watchlist"][aria-pressed]').waitFor();
     for (const [top, left, height] of [[250, 0, 0], [850, 1800, 0], [500, 800, 900]]) {
         const style = await tv.page.addStyleTag({ content: `[data-focus="more"] { position: fixed !important; top: ${top}px !important; left: ${left}px !important; } ${height ? `.details-more-popover { height: ${height}px !important; }` : ''}` });
         await tv.page.locator('[data-focus="more"]').focus();
@@ -704,7 +705,7 @@ detailTest('Shuffle Series leads More, reports failure, and reuses shuffle playb
         else await route.fulfill({ status: 201, json: { id: 'series-shuffle', current: { content_id: 'episode:s1e11' }, next: { content_id: 'episode:s1e12' } } });
     });
     await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
-    await tv.page.locator('[data-focus="watchlist"]').waitFor();
+    await tv.page.locator('[data-focus="watchlist"][aria-pressed]').waitFor();
     await tv.page.locator('[data-focus="more"]').click();
     const shuffle = tv.page.getByRole('button', { name: 'Shuffle Series', exact: true });
     await shuffle.waitFor();
@@ -731,7 +732,7 @@ detailTest('Shuffle Series waits for a Resolution cap reread and starts the file
     await tv.page.locator('[data-view="home"]').waitFor();
     await tv.eventually(async () => qualityReads(tv) === 2, 'cap reread after Settings');
     await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
-    await tv.page.locator('[data-focus="watchlist"]').waitFor();
+    await tv.page.locator('[data-focus="watchlist"][aria-pressed]').waitFor();
     await tv.page.locator('[data-focus="more"]').click();
     await tv.page.getByRole('button', { name: 'Shuffle Series', exact: true }).click();
     await tv.jump(1000);
@@ -746,7 +747,7 @@ detailTest('Shuffle Series starts a pick with saved progress from zero, like App
     await tv.page.route('**/api/v2/shuffles', route => route.fulfill({ status: 201, json: { id: 'series-shuffle', current: { content_id: 'episode:s1e11' }, next: { content_id: 'episode:s1e12' } } }));
     await tv.page.route('**/api/v2/watch/episode%3As1e11', route => route.fulfill({ json: { content_id: 'episode:s1e11', type: 'episode', title: 'Episode 11', season_number: 1, episode_number: 11, versions: [{ file_id: 'f11', duration_seconds: 3000 }], user_data: { played: false, position_seconds: 900, last_file_id: 'f11' } } }));
     await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
-    await tv.page.locator('[data-focus="watchlist"]').waitFor();
+    await tv.page.locator('[data-focus="watchlist"][aria-pressed]').waitFor();
     await tv.page.locator('[data-focus="more"]').click();
     await tv.page.getByRole('button', { name: 'Shuffle Series', exact: true }).click();
     await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.plays.length === 1), 'shuffle playback dispatched');
@@ -811,7 +812,7 @@ detailTest('Series More keeps series and season watched writes separate and reco
     catalog.progress.set('episode:s1e12', 120);
     await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
     await tv.page.locator('[data-focus="start-over-episode"]').waitFor();
-    await tv.page.locator('[data-focus="watchlist"]').waitFor();
+    await tv.page.locator('[data-focus="watchlist"][aria-pressed]').waitFor();
     await tv.page.locator('[data-focus="more"]').click();
     const panel = tv.page.getByRole('dialog', { name: 'More', exact: true });
     assert.deepEqual(await panel.locator('button').allTextContents(), ['Add to Favorites', 'Mark Series Watched', 'Mark Season Watched', 'Find Trailers']);
@@ -1606,7 +1607,7 @@ detailTest('Movie never reserves a next-episode error and exposes a facts table'
 for (const failed of [true, false]) detailTest(`Related ${failed ? 'failure' : 'empty result'} omits the rail and its focus stops`, async tv => {
     await tv.page.route('**/api/v2/recommendations/similar/movie%3Am0001?**', route => route.fulfill(failed ? { status: 500 } : { json: { items: [] } }));
     await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().click();
-    await tv.page.locator('[data-focus="watchlist"]').waitFor();
+    await tv.page.locator('[data-focus="watchlist"][aria-pressed]').waitFor();
     await tv.eventually(async () => await tv.page.getByText('Loading related titles.', { exact: true }).count() === 0, 'related response accepted');
     assert.equal(await tv.page.getByText('Could not load related titles.', { exact: true }).count(), 0);
     assert.equal(await tv.page.locator('[data-focus="retry-related"]').count(), 0);
@@ -1715,6 +1716,8 @@ detailTest('Season primary playback refreshes a shared Auto change from another 
 
 for (const [kind, id] of [['Movie', 'movie:m0001'], ['Episode', 'episode:s1e11'], ['Season', 'series:s1-S1']] as const) detailTest(`Long ${kind} titles keep every playback action inside a revealable hero`, async tv => {
     const catalog = tv.fake.catalog; assert.ok(catalog instanceof FakeDetails);
+    // Apple disables Audio for a file with no audio tracks; give the episode the movie's tracked file.
+    catalog.fileIds.set('episode:s1e11', '42');
     const body = catalog.route('GET', `/catalog/items/${encodeURIComponent(id)}`, 'p-owner')?.body as Record<string, unknown>;
     await tv.page.route(`**/api/v2/catalog/items/${encodeURIComponent(id)}?**`, route => route.fulfill({ json: { ...body,
         title: `${'A Very Long Movie Title That Wraps Across Multiple Lines '.repeat(4)}: ${'The Complete Extended Story '.repeat(4)}`, logo_url: undefined,
@@ -1794,7 +1797,7 @@ detailTest('a Details repaint during the return to Play finishes at the hero anc
     const held = tv.fake.hold('/recommendations/similar/movie%3Am0001', true);
     await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().click();
     await tv.page.locator('.details-people').waitFor();
-    await tv.page.locator('[data-focus="watchlist"]').waitFor();
+    await tv.page.locator('[data-focus="watchlist"][aria-pressed]').waitFor();
     await tv.page.evaluate(() => document.fonts.ready);
     await pauseTvClock(tv);
     await tv.remote(40);
@@ -2120,7 +2123,7 @@ for (const media of ['movie:m0001', 'episode:s1e11']) detailTest(`ordinary Play 
     assert.equal(await tv.page.evaluate(() => window.browseHarness.plays.at(-1)?.audioTrackId), undefined);
 });
 
-detailTest("a failed explicitly requested episode only retries on Select, never on focus", async tv => {
+detailTest("a failed episode read disables its selectors, never retries on focus, and Play still plays it", async tv => {
     const catalog = tv.fake.catalog;
     assert.ok(catalog instanceof FakeDetails);
     const reply = catalog.route('GET', '/catalog/items/episode%3As1e12', 'p-owner');
@@ -2131,9 +2134,9 @@ detailTest("a failed explicitly requested episode only retries on Select, never 
     await tv.page.getByRole('button', { name: /Play S1:E1|Resume S1:E1/ }).waitFor();
     await pauseTvClock(tv);
     await tv.page.locator('[data-focus="episode:s1e12"]').focus();
-    await tv.page.locator('[data-focus="subtitles"]').click();
     await tv.page.clock.resume();
-    await tv.page.getByRole('button', { name: 'Retry episode', exact: true }).waitFor();
+    await tv.page.getByText('Could not load the next episode.').waitFor();
+    assert.equal(await tv.page.getByRole('button', { name: 'Retry episode', exact: true }).count(), 0, "Apple's row has no Retry episode button");
     for (const key of ['version', 'audio', 'subtitles']) assert.equal(await tv.page.locator(`[data-focus="${key}"]`).getAttribute('aria-disabled'), 'true', `${key} keeps its disabled slot`);
     const reads = (): number => tv.fake.requests.filter(request => request.path.startsWith('/catalog/items/episode%3As1e12')).length;
     const before = reads();
@@ -2143,8 +2146,11 @@ detailTest("a failed explicitly requested episode only retries on Select, never 
     await tv.page.locator('[data-focus="episode:s1e12"]').focus();
     assert.equal(reads(), before);
     failed = false;
-    await tv.page.getByRole('button', { name: 'Retry episode', exact: true }).click();
-    await tv.page.getByRole('button', { name: /Play S1:E2|Resume S1:E2/ }).waitFor();
+    const primary = tv.page.getByRole('button', { name: /Play S1:E2|Resume S1:E2/ });
+    assert.equal(await primary.getAttribute('aria-disabled'), 'false', 'Play names the episode and stays live');
+    const plays = await tv.page.evaluate(() => window.browseHarness.plays.length);
+    await primary.click();
+    await tv.eventually(async () => await tv.page.evaluate(() => window.browseHarness.plays.length) === plays + 1, 'Select plays the episode through its own route');
 });
 
 detailTest("episode rail Select carries its cached subtitle Off choice", async tv => {
@@ -2548,7 +2554,7 @@ for (const size of ['compact', 'standard', 'large'] as const) detailTest(`Pinned
 
 detailTest("movie Details keeps playback and personal controls in one row with cast visible on entry", async tv => {
         await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().click();
-        await tv.page.locator('[data-focus="watchlist"]').waitFor();
+        await tv.page.locator('[data-focus="watchlist"][aria-pressed]').waitFor();
         const row = tv.page.locator(".details-editorial .browse-actions");
         assert.equal(await row.locator('[data-focus="watchlist"]').count(), 1);
         assert.equal(await row.locator('[data-focus="version"]').count(), 1);
@@ -2683,7 +2689,7 @@ detailTest('A Resolution cap that lands while Details is open re-ranks its defau
     await tv.eventually(async () => qualityReads(tv) === 2, 'cap reread after Settings');
     await openMovie(tv);
     assert.equal(await versionSummary(tv), 'Auto · 1080p', 'the last answer ranks Details while the reread is out');
-    await tv.page.locator('[data-focus="watchlist"]').waitFor();
+    await tv.page.locator('[data-focus="watchlist"][aria-pressed]').waitFor();
     await tv.jump(1000);
     assert.equal(await versionSummary(tv), 'Auto · 1080p', 'nothing else repaints Details before the cap lands');
     held.release();
@@ -2742,7 +2748,7 @@ detailTest("More owns accessible personal-action loading and failure announcemen
 
 for (const kind of ["favorites", "watchlist"] as const) detailTest(`online Details preserves unresolved ${kind} through automatic recovery`, async tv => {
     await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().click();
-    await tv.page.locator('[data-focus="watchlist"]').waitFor();
+    await tv.page.locator('[data-focus="watchlist"][aria-pressed]').waitFor();
     if (kind === "favorites") await tv.page.locator('[data-focus="more"]').click();
     const source = kind;
     let failures = 0;
@@ -2754,7 +2760,9 @@ for (const kind of ["favorites", "watchlist"] as const) detailTest(`online Detai
     await tv.eventually(async () => failures >= 2, "membership retry exhausted");
     await tv.jump(0);
     if (kind === "favorites") await tv.page.locator('[data-focus="more"]').click();
-    const retry = tv.page.getByRole("button", { name: `Retry ${kind}`, exact: true });
+    // Apple's Watchlist circle keeps its label, so its failure note carries the unconfirmed write.
+    const retry = kind === "watchlist" ? tv.page.getByText("Could not update watchlist.") : tv.page.getByRole("button", { name: `Retry ${kind}`, exact: true });
+    const control = kind === "watchlist" ? tv.page.locator('[data-focus="watchlist"]') : retry;
     await retry.waitFor();
     const reads = () => tv.fake.requests.filter(request => request.path.startsWith("/catalog/items/movie%3Am0001")).length;
     const before = reads();
@@ -2763,9 +2771,9 @@ for (const kind of ["favorites", "watchlist"] as const) detailTest(`online Detai
     await tv.eventually(async () => reads() > before, "automatic recovery refreshed initially online Details");
     await tv.jump(1000);
     if (kind === "favorites") await tv.page.locator('[data-focus="more"]').click();
-    assert.equal(await retry.count(), 1, "unconfirmed write retains its Retry control");
+    assert.equal(await retry.count(), 1, "unconfirmed write retains its failure state");
     await tv.page.unroute(`**/api/v2/${source}/movie%3Am0001/membership`);
-    await retry.click();
+    await control.click();
     await tv.eventually(async () => !await retry.count(), "fresh membership reconciles the accepted write");
 });
 
@@ -2783,7 +2791,7 @@ detailTest("cached Details recovery restores failed personal controls", async tv
     await tv.page.locator('[data-focus="more"]').waitFor();
     await tv.page.unroute("**/api/v2/**");
     await tv.jump(35000);
-    await tv.page.locator('[data-focus="watchlist"]').waitFor();
+    await tv.page.locator('[data-focus="watchlist"][aria-pressed]').waitFor();
     assert.equal(await tv.page.locator('[data-focus="watchlist"]').count(), 1);
     assert.doesNotMatch(await tv.page.locator(".browse").innerText(), /Can't reach server/);
 });

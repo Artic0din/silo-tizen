@@ -540,7 +540,10 @@ export class FocusHost {
             return;
         }
         const visit = visitKey(view);
-        if (this.playClaim === undefined || this.playClaim.visit !== visit) {
+        // A Details popover (`item:<id>:<panel>`) is part of its page's visit, so opening and closing one keeps the claim.
+        const sameVisit = this.playClaim !== undefined && (this.playClaim.visit === visit || visit.startsWith(`${this.playClaim.visit}:`) || this.playClaim.visit.startsWith(`${visit}:`));
+        if (this.playClaim !== undefined && sameVisit) this.playClaim.visit = visit;
+        if (this.playClaim === undefined || !sameVisit) {
             this.cancelPlayClaim();
             this.playClaim = { visit, attempts: 0, waits: 0, finished: false, timer: undefined, moved: false, awaitingPrimary: false };
         }
@@ -562,7 +565,8 @@ export class FocusHost {
             this.clearPlayClaimTimer();
             return;
         }
-        if (!claim.awaitingPrimary && active !== undefined && active.item.key !== primary.item.key) {
+        // A late Play replaces only its row's stand-in, never an opening focus outside the row (a season context).
+        if (active !== undefined && active.item.key !== primary.item.key && (!claim.awaitingPrimary || active.zone.id !== primary.zone.id)) {
             claim.finished = true;
             this.clearPlayClaimTimer();
             return;

@@ -375,6 +375,7 @@ export interface ItemDetail {
     readonly posterUrl: string | undefined;
     readonly posterIsEpisodeStill?: boolean;
     readonly backdropUrl: string | undefined;
+    readonly backdropThumbhash?: string | undefined;
     readonly backdropIsEpisodeStill?: boolean;
     readonly durationSeconds: number | undefined;
     readonly seriesId: string | undefined;
@@ -475,6 +476,7 @@ export function decodeItemDetail(value: unknown): ItemDetail {
         posterUrl: optionalString(obj, "poster_url", path),
         ...(obj.poster_is_episode_still === undefined ? {} : { posterIsEpisodeStill: boolean(obj, "poster_is_episode_still", path) }),
         backdropUrl: optionalString(obj, "backdrop_url", path),
+        backdropThumbhash: optionalString(obj, "backdrop_thumbhash", path),
         ...(obj.backdrop_is_episode_still === undefined ? {} : { backdropIsEpisodeStill: boolean(obj, "backdrop_is_episode_still", path) }),
         durationSeconds: optionalNumber(obj, "duration_seconds", path),
         seriesId: optionalString(obj, "series_id", path),

@@ -50,7 +50,7 @@ test("item videos keep the contract fields and a missing official flag does not 
     assert.deepEqual(decodeItemDetail(fixture("get_catalog_item_ok")).videos, []);
     assert.throws(() => decodeItemDetail({ ...fixture("get_catalog_item_ok"), videos: [{ kind: "trailer", site: "youtube", site_key: "k", is_official: "yes" }] }), WireError);
 });
-import { artworkUrl, clockTime, destinationOf, playChoices, resumeSeconds, browseCardDestination, seriesPlayback, visibleLibraries } from "../../src/ui/browseModel.ts";
+import { type Destination, artworkUrl, clockTime, destinationOf, playChoices, resumeSeconds, browseCardDestination, seriesPlayback, visibleLibraries } from "../../src/ui/browseModel.ts";
 import { moveWithin } from "../../src/ui/browseFocus.ts";
 import { fixture } from "./support/fakeSilo.ts";
 
@@ -203,29 +203,48 @@ test("episode-inclusive text search uses the existing GET operation with opaque 
 
 test("Home keeps movies, series, seasons and episodes, and leaves other media out", () => {
     const card = { id: "x", title: "X", year: undefined, posterUrl: undefined, seriesId: undefined, seriesTitle: undefined, seasonNumber: undefined, episodeNumber: undefined };
-    assert.deepEqual(destinationOf({ ...card, type: "movie" }), { kind: "item", id: "x", title: "X" });
-    assert.deepEqual(destinationOf({ ...card, type: "episode" }), { kind: "item", id: "x", title: "X" });
-    assert.deepEqual(destinationOf({ ...card, type: "season", seriesId: "s", seasonNumber: 0 }), { kind: "season", id: "x", seriesId: "s", seasonNumber: 0, title: "X" });
-    assert.equal(destinationOf({ ...card, type: "season" }), undefined, "a season without its series cannot open");
-    assert.equal(destinationOf({ ...card, type: "unknown" }), undefined);
+    assert.deepEqual(route(destinationOf({ ...card, type: "movie" })), { kind: "item", id: "x", title: "X" });
+    assert.deepEqual(route(destinationOf({ ...card, type: "episode" })), { kind: "item", id: "x", title: "X" });
+    assert.deepEqual(route(destinationOf({ ...card, type: "season", seriesId: "s", seasonNumber: 0 })), { kind: "season", id: "x", seriesId: "s", seasonNumber: 0, title: "X" });
+    assert.equal(route(destinationOf({ ...card, type: "season" })), undefined, "a season without its series cannot open");
+    assert.equal(route(destinationOf({ ...card, type: "unknown" })), undefined);
 });
 
 test("Search Select opens an episode or season on its series and leaves movies and series on themselves", () => {
     const card = { id: "episode:s1e12", title: "Pilot", year: undefined, posterUrl: undefined, seriesId: "series:s1", seriesTitle: "Harbor Lights", seasonNumber: 1, episodeNumber: 2 };
-    assert.deepEqual(browseCardDestination({ ...card, type: "episode" }), {
+    assert.deepEqual(route(browseCardDestination({ ...card, type: "episode" })), {
         kind: "item", id: "series:s1", title: "Harbor Lights", seriesContext: { seasonNumber: 1, episodeId: "episode:s1e12" },
     });
-    assert.deepEqual(browseCardDestination({ ...card, type: "episode", seriesTitle: "  " }), {
+    assert.deepEqual(route(browseCardDestination({ ...card, type: "episode", seriesTitle: "  " })), {
         kind: "item", id: "series:s1", title: "Pilot", seriesContext: { seasonNumber: 1, episodeId: "episode:s1e12" },
     });
-    assert.deepEqual(browseCardDestination({ ...card, type: "episode", seriesId: " episode:s1e12 " }), { kind: "item", id: "episode:s1e12", title: "Pilot" });
-    assert.deepEqual(browseCardDestination({ ...card, id: "season:s1", type: "season", episodeNumber: undefined, title: "Season 1" }), {
+    assert.deepEqual(route(browseCardDestination({ ...card, type: "episode", seriesId: " episode:s1e12 " })), { kind: "item", id: "episode:s1e12", title: "Pilot" });
+    assert.deepEqual(route(browseCardDestination({ ...card, id: "season:s1", type: "season", episodeNumber: undefined, title: "Season 1" })), {
         kind: "item", id: "series:s1", title: "Harbor Lights", seriesContext: { seasonNumber: 1, episodeId: undefined },
     });
-    assert.deepEqual(browseCardDestination({ ...card, id: "movie:heat", type: "movie", seriesId: undefined, title: "Heat" }), { kind: "item", id: "movie:heat", title: "Heat" });
-    assert.deepEqual(browseCardDestination({ ...card, id: "series:s1", type: "series", seriesId: undefined, title: "Harbor Lights" }), { kind: "item", id: "series:s1", title: "Harbor Lights" });
-    assert.equal(browseCardDestination({ ...card, type: "unknown" }), undefined);
+    assert.deepEqual(route(browseCardDestination({ ...card, id: "movie:heat", type: "movie", seriesId: undefined, title: "Heat" })), { kind: "item", id: "movie:heat", title: "Heat" });
+    assert.deepEqual(route(browseCardDestination({ ...card, id: "series:s1", type: "series", seriesId: undefined, title: "Harbor Lights" })), { kind: "item", id: "series:s1", title: "Harbor Lights" });
+    assert.equal(route(browseCardDestination({ ...card, type: "unknown" })), undefined);
 });
+
+/** The routing fields of a destination; the loading seed is checked on its own. */
+function route(destination: Destination | undefined): Destination | undefined {
+    if (destination === undefined || destination.kind !== "item") return destination;
+    const { seed: _seed, ...rest } = destination;
+    return rest;
+}
+
+test("a card opens its Details page seeded with what Apple's loading frame paints", () => {
+    const card = { id: "episode:s1e12", title: "Pilot", year: 2024, posterUrl: undefined, seriesId: "series:s1", seriesTitle: "Harbor Lights", seasonNumber: 1, episodeNumber: 2, overview: "A storm.", runtimeMinutes: 52, contentRating: "TV-14", genres: ["Drama", "Mystery"], logoUrl: "/logo", backdropUrl: "/still", backdropThumbhash: "hash", seriesBackdropUrl: "/series-art", played: false, positionSeconds: 30 };
+    const movie = destinationOf({ ...card, id: "movie:heat", type: "movie" });
+    assert.deepEqual(movie?.kind === "item" ? movie.seed : undefined, { type: "movie", title: "Pilot", year: 2024, overview: "A storm.", runtimeMinutes: 52, contentRating: "TV-14", genre: "Drama", backdropUrl: "/still", backdropThumbhash: "hash", backdropIsEpisodeStill: undefined }, "only an episode card swaps in the series backdrop");
+    const episode = destinationOf({ ...card, type: "episode" });
+    assert.deepEqual(episode?.kind === "item" ? { backdrop: episode.seed?.backdropUrl, hash: episode.seed?.backdropThumbhash, still: episode.seed?.backdropIsEpisodeStill, watch: episode.seed?.episodeWatch } : undefined,
+        { backdrop: "/series-art", hash: undefined, still: false, watch: { played: false, isInProgress: true, positionSeconds: 30 } }, "an episode card shows its series backdrop");
+    const parent = browseCardDestination({ ...card, type: "episode" });
+    assert.deepEqual(parent?.kind === "item" ? parent.seed : undefined, { type: "series", title: "Harbor Lights", backdropUrl: "/series-art", backdropIsEpisodeStill: false }, "the parent Series frame keeps only the series title and backdrop");
+});
+
 
 test("libraries: supported kinds, audiobooks included, in server order, minus the profile's own hidden list", () => {
     const libraries = [

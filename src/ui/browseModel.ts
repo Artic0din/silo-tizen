@@ -36,8 +36,42 @@ export type EpisodeSelection = Partial<Pick<PlayRequest, "fileId" | "audioTrackI
 export type Destination =
     | { readonly kind: "person"; readonly id: string; readonly title: string }
     | { readonly kind: "audiobook"; readonly id: string; readonly title: string }
-    | { readonly kind: "item"; readonly id: string; readonly title: string; readonly seriesContext?: SeriesContext }
+    | { readonly kind: "item"; readonly id: string; readonly title: string; readonly seriesContext?: SeriesContext; readonly seed?: DetailSeed }
     | { readonly kind: "season"; readonly seriesId: string; readonly seasonNumber: number; readonly title: string; readonly id?: string; readonly episodeId?: string };
+
+/** Apple TVItemDetailRouteSeed: what the opening card already knows, painted in the loading frame. */
+export interface DetailSeed {
+    readonly type: string;
+    readonly title: string;
+    readonly year?: number | undefined;
+    readonly overview?: string | undefined;
+    readonly runtimeMinutes?: number | undefined;
+    readonly contentRating?: string | undefined;
+    readonly genre?: string | undefined;
+    readonly backdropUrl?: string | undefined;
+    readonly backdropThumbhash?: string | undefined;
+    readonly backdropIsEpisodeStill?: boolean | undefined;
+    /** Set only for episode seeds. */
+    readonly episodeWatch?: { readonly played: boolean; readonly isInProgress: boolean; readonly positionSeconds?: number };
+}
+
+/** TVItemDetailRouteSeed(SectionItem): an episode card shows its series backdrop when it carries one (Apple's episodeSeriesBackdrop). */
+export function detailSeed(card: Card): DetailSeed {
+    const series = card.type === "episode" && card.seriesBackdropUrl !== undefined && card.seriesBackdropUrl !== "";
+    return {
+        type: card.type, title: card.title, year: card.year, overview: card.overview, runtimeMinutes: card.runtimeMinutes,
+        contentRating: card.contentRating, genre: card.genres?.[0],
+        backdropUrl: series ? card.seriesBackdropUrl : card.backdropUrl, backdropThumbhash: series ? undefined : card.backdropThumbhash,
+        backdropIsEpisodeStill: series ? false : card.backdropIsEpisodeStill,
+        ...(card.type === "episode" ? { episodeWatch: { played: card.played === true, isInProgress: card.played !== true && (card.positionSeconds ?? 0) > 0, ...(card.positionSeconds === undefined ? {} : { positionSeconds: card.positionSeconds }) } } : {}),
+    };
+}
+
+/** TVItemDetailRouteSeed(parentSeriesFrom:): the series title and backdrop only, never the episode's metadata. */
+function parentSeriesSeed(card: Card): DetailSeed {
+    const backdrop = card.seriesBackdropUrl !== undefined && card.seriesBackdropUrl !== "" ? card.seriesBackdropUrl : undefined;
+    return { type: "series", title: seriesCardTitle(card), backdropUrl: backdrop, ...(backdrop === undefined ? {} : { backdropIsEpisodeStill: false }) };
+}
 
 export interface SeriesContext {
     readonly seasonNumber: number | undefined;
@@ -55,7 +89,7 @@ export function destinationOf(card: Card): Destination | undefined {
         case "movie":
         case "series":
         case "episode":
-            return { kind: "item", id: card.id, title: card.title };
+            return { kind: "item", id: card.id, title: card.title, seed: detailSeed(card) };
         case "audiobook":
             return { kind: "audiobook", id: card.id, title: card.title };
         case "season":
@@ -88,10 +122,10 @@ export function browseCardDestination(card: Card): Destination | undefined {
     const seriesId = parentSeriesId(card);
     // Unknown media stays omitted. An episode number on a season still names the parent series.
     if (card.type !== "unknown" && card.type !== "audiobook" && seriesId !== undefined && (card.type === "episode" || card.episodeNumber !== undefined)) {
-        return { kind: "item", id: seriesId, title: seriesCardTitle(card), seriesContext: { seasonNumber: card.seasonNumber, episodeId: card.id } };
+        return { kind: "item", id: seriesId, title: seriesCardTitle(card), seriesContext: { seasonNumber: card.seasonNumber, episodeId: card.id }, seed: parentSeriesSeed(card) };
     }
     if (card.type === "season" && seriesId !== undefined && card.seasonNumber !== undefined) {
-        return { kind: "item", id: seriesId, title: seriesCardTitle(card), seriesContext: { seasonNumber: card.seasonNumber, episodeId: undefined } };
+        return { kind: "item", id: seriesId, title: seriesCardTitle(card), seriesContext: { seasonNumber: card.seasonNumber, episodeId: undefined }, seed: parentSeriesSeed(card) };
     }
     return destinationOf(card);
 }

@@ -4027,10 +4027,11 @@ browseTest("loading, slow, offline, removed, empty and missing-artwork states al
     const hold = tv.fake.hold("/catalog/items/movie%3Am0001");
     await activateDetails(tv);
     await showing(tv, "item:loading");
-    assert.equal(await tv.focused(), "back");
+    // TVItemDetailLoadingView is a passive skeleton with no buttons; the remote's Back leaves it.
+    assert.equal(await tv.focused(), "loading");
     await tv.jump(5000);
-    await shows(tv, "Still waiting for the server.");
-    await press(tv, "Enter");
+    assert.equal(await tv.page.getByText("Still waiting for the server.").count(), 0, "Apple's skeleton has no slow note");
+    await tv.remote(BACK);
     await showing(tv, "home");
     hold.release();
     await tv.jump(0);

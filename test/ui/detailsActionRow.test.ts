@@ -41,7 +41,7 @@ async function openMovie(setup: (catalog: FakeDetails) => void, body: (tv: Tv) =
         await beforeOpen?.(tv);
         await tv.page.locator(MOVIE).first().click();
         await tv.page.locator('[data-view="item:movie:m0001"]').waitFor();
-        await tv.eventually(async () => (await row(tv)).some(control => control.key === "watchlist" && control.spoken !== ""), "personal state");
+        await tv.page.locator('[data-focus="watchlist"][aria-pressed]').waitFor();
         await body(tv);
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }
@@ -60,7 +60,7 @@ test("a movie with no progress shows Apple's six controls, focuses Play and keep
     const watchlist = tv.page.locator('[data-focus="watchlist"]');
     assert.equal(await watchlist.getAttribute("aria-label"), "Add to watchlist");
     await watchlist.focus();
-    await tv.eventually(async () => await watchlist.getAttribute("aria-pressed") === "false", "watchlist state");
+    assert.equal(await watchlist.getAttribute("aria-pressed"), "false");
     await watchlist.click();
     await tv.eventually(async () => await watchlist.getAttribute("aria-label") === "Remove from watchlist", "watchlist added");
     assert.equal(await watchlist.innerText(), "Watchlist", "the focused label never changes");
@@ -106,7 +106,12 @@ test("a movie with no playable file keeps Play and the selectors in place, disab
 }));
 
 test("focused controls cast Apple's black shadows, never a halo", () => openMovie(catalog => { catalog.progress.delete("movie:m0001"); }, async tv => {
-    const shadow = (key: string): Promise<string> => tv.page.locator(`[data-focus="${key}"]`).evaluate(node => getComputedStyle(node).boxShadow);
+    // Read from the live node: a repaint can replace the button between lookup and style read.
+    const shadow = async (key: string): Promise<string> => {
+        let value = "";
+        await tv.eventually(async () => { value = await tv.page.evaluate(focus => { const node = document.querySelector(`[data-focus="${focus}"]`); return node?.isConnected ? getComputedStyle(node).boxShadow : ""; }, key); return value !== ""; }, `${key} style`);
+        return value;
+    };
     assert.equal(await shadow("play"), "rgba(0, 0, 0, 0.24) 0px 4px 10px 0px");
     assert.equal(await shadow("watchlist"), "none");
     await tv.remote(RIGHT);

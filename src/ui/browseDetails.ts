@@ -380,7 +380,7 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
     const focusable = actions.filter(action => action.element.getAttribute("aria-disabled") !== "true" || action.key === held);
     for (const action of focusable) {
         if (action.element.getAttribute("aria-disabled") !== "true") continue;
-        action.element.addEventListener("focusout", () => { focusable.splice(focusable.indexOf(action), 1); }, { once: true });
+        action.element.addEventListener("focusout", () => { const index = focusable.indexOf(action); if (index >= 0) focusable.splice(index, 1); }, { once: true });
     }
     if (state?.nextEpisodeFailed === true && !state.offline) content.push(...lines(["Could not load the next episode."], "error"));
     if (state?.titleArtPolicy === "failed" && !state.offline) content.push(...lines(["Could not load title-art settings."], "error"));
@@ -636,7 +636,9 @@ function watchlistButton(state: DetailsState): FocusItem {
         if (value === undefined) { if (state.personalFailed && !state.busy) state.loadPersonal(); return; }
         state.change("watchlist", change?.failed ? change.target : !value, change?.failed);
     });
-    item.element.setAttribute("aria-pressed", String((change?.pending ? change.target : value) === true));
+    // aria-pressed stays off until membership is known.
+    const pressed = change?.pending ? change.target : value;
+    if (pressed !== undefined) item.element.setAttribute("aria-pressed", String(pressed));
     return item;
 }
 

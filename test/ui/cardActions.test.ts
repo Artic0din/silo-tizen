@@ -29,7 +29,7 @@ test("card menu reuses visited Details personal actions offline", async () => {
     try {
         const catalog = await start(tv);
         await origin(tv).click();
-        await tv.page.locator('[data-focus="watchlist"]').waitFor();
+        await tv.page.locator('[data-focus="watchlist"][aria-pressed]').waitFor();
         await tv.remote(10009);
         await tv.page.route("**/api/v2/**", route => route.abort("connectionrefused"));
         await hold(tv);
@@ -52,7 +52,7 @@ test("a card-menu write invalidates visited personal display fallback", async ()
     try {
         await start(tv);
         await origin(tv).click();
-        await tv.page.locator('[data-focus="watchlist"]').waitFor();
+        await tv.page.locator('[data-focus="watchlist"][aria-pressed]').waitFor();
         await tv.remote(10009);
         await hold(tv);
         await menu(tv).getByRole("button", { name: "Mark watched", exact: true }).click();
@@ -71,7 +71,7 @@ for (const source of ["menu", "Details"]) for (const status of [403, 404]) test(
     try {
         await start(tv);
         await origin(tv).click();
-        await tv.page.locator('[data-focus="watchlist"]').waitFor();
+        await tv.page.locator('[data-focus="watchlist"][aria-pressed]').waitFor();
         await tv.remote(10009);
         await tv.page.route("**/api/v2/catalog/items/movie%3Am0001?**", route => route.fulfill({ status, json: problem(status, "permission_denied", "Item refused") }));
         if (source === "menu") {
@@ -135,7 +135,7 @@ test("a card menu network failure keeps cached Details and the signed-in session
         const beforeDevices = deviceReads();
         await origin(tv).click();
         await tv.page.locator('[data-view="item:movie:m0001"] [data-focus="play"]').waitFor();
-        await tv.page.locator('[data-focus="watchlist"]').waitFor();
+        await tv.page.locator('[data-focus="watchlist"][aria-pressed]').waitFor();
         await tv.remote(10009);
         await tv.page.route("**/api/v2/**", route => route.abort("connectionrefused"));
         await hold(tv);
@@ -417,7 +417,7 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
             await tv.down(13);
             await tv.jump(400);
             personal.release();
-            await tv.page.locator('[data-focus="watchlist"]').waitFor();
+            await tv.page.locator('[data-focus="watchlist"][aria-pressed]').waitFor();
             await tv.jump(249);
             assert.equal(await menu(tv).count(), 0);
             await tv.jump(1);

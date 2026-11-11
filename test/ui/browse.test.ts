@@ -24,7 +24,7 @@ for (const outage of ["all", "supporting"] as const) browseTest(`offline Details
     await card.click();
     await showing(tv, "item:movie:m0002");
     await tv.page.locator('[data-detail-section="related"] .browse-card').first().waitFor();
-    await tv.page.locator('[data-focus="watchlist"]').waitFor();
+    await tv.page.locator('[data-focus="watchlist"][aria-pressed]').waitFor();
     await tv.remote(BACK);
     const blocked = outage === "all" ? "**/api/v2/**" : "**/api/v2/recommendations/similar/**";
     await tv.page.route(blocked, route => route.abort("connectionrefused"));
@@ -1867,7 +1867,7 @@ browseTest("richer Details: facts, versions, people, accumulating filmography, r
     await tv.eventually(async () => tv.fake.requests.filter(request => request.path === "/capabilities/personal-lists").length > personalReads, "personal refresh started");
     assert.equal(await tv.page.locator('[data-focus="watchlist"]').count(), 1, "cached personal actions remain visible while refreshing");
     personal.release();
-    await tv.page.locator('[data-focus="watchlist"]').waitFor();
+    await tv.page.locator('[data-focus="watchlist"][aria-pressed]').waitFor();
     await tv.eventually(async () => await tv.page.locator('[data-detail-section="related"] .browse-card').count() === 24, "refreshed related titles");
     await tv.page.locator(".details-people [data-focus]").first().focus();
     const castKey = await tv.focused();
@@ -2100,7 +2100,7 @@ browseTest("S-D3 unknown or mismatched watched postconditions remain errors", as
 browseTest("Details portraits keep their circular geometry and retain the cast character", async (tv) => {
     await activateDetails(tv);
     await showing(tv, "item:movie:m0001");
-    await tv.page.locator('[data-focus="watchlist"]').waitFor();
+    await tv.page.locator('[data-focus="watchlist"][aria-pressed]').waitFor();
     await tv.eventually(async () => await tv.page.locator('[data-detail-section="related"] .browse-card').count() === 24, "related titles");
     await tv.jump(240);
     assert.deepEqual(await tv.page.locator(".details-photo").first().evaluate((node) => ({ width: node.clientWidth, height: node.clientHeight })), { width: 200, height: 200 });
@@ -2120,7 +2120,7 @@ browseTest("grouped Details facts remain reachable as one passive table with the
     });
     await activateDetails(tv);
     await showing(tv, "item:movie:m0001");
-    await tv.page.locator('[data-focus="watchlist"]').waitFor();
+    await tv.page.locator('[data-focus="watchlist"][aria-pressed]').waitFor();
     await tv.eventually(async () => await tv.page.locator('[data-detail-section="related"] .browse-card').count() === 24, "related titles");
     const reached = new Set<string>();
     for (let index = 0; index < 45; index++) {
@@ -2292,7 +2292,7 @@ for (const kind of ["favorites", "watchlist"]) {
         assert.ok(catalog instanceof FakeDetails);
         await activateDetails(tv);
         await showing(tv, "item:movie:m0001");
-        await tv.page.locator('[data-focus="watchlist"]').waitFor();
+        await tv.page.locator('[data-focus="watchlist"][aria-pressed]').waitFor();
         await tv.eventually(async () => await tv.page.locator('[data-detail-section="related"] .browse-card').count() === 24, "all optional reads finished");
         const path = `/${kind}/movie%3Am0001`;
         const held = tv.fake.hold(path, true);

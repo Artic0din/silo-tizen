@@ -329,7 +329,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             home.focus = target;
             showRoute(home, target);
         }
-    }, () => host.focused(), () => top() === home && !torn && !playing);
+    }, () => host.focused(), () => top() === home && !torn && !playing && settingsScreen === undefined);
     const requestGate = new RequestActionGate();
     const requestMenu = new RequestRecordMenu();
     let clearRequestNotice = (): void => undefined;

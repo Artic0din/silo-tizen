@@ -368,6 +368,26 @@ test("the Select that chooses a row, held until it repeats, does not open the ca
     } finally { await tv.page.context().close(); }
 });
 
+test("a change that fails after Settings opens shows no alert over Settings", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const catalog = await start(tv);
+        catalog.mutationFailure = problem(500, "internal_error", "Failed");
+        const answer = tv.fake.hold("/favorites/movie%3Am0002");
+        await hold(tv, "recently_added", "movie:m0002");
+        await menu(tv).getByRole("menuitem", { name: "Add to Favorites" }).click();
+        await tv.page.locator('[data-focus="profiles"]').focus();
+        await tv.page.keyboard.press("Enter");
+        await tv.page.getByRole("menuitem", { name: "Settings", exact: true }).click();
+        await tv.eventually(async () => await tv.page.locator('.browse[data-view="home"]').evaluate(node => (node as HTMLElement).hidden === true), "Settings covers browse");
+        answer.release();
+        await jumpUntil(tv, 100, async () => catalog.mutations.includes("PUT /favorites/movie%3Am0002"), "favorite write");
+        await tv.jump(500);
+        assert.equal(await tv.page.getByRole("alertdialog").count(), 0);
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
+
 test("a Home refresh shows only the rows, with no status line or Try again, while it runs or after it fails", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {

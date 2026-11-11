@@ -306,9 +306,11 @@ All are Bearer plus Profile.
 | remove from watchlist or favorites | `DELETE /watchlist/{id}`, `DELETE /favorites/{id}` | never |
 | mark watched | `POST /watched/{id}` | never |
 | mark unwatched | `DELETE /watched/{id}` | never |
+| remove from Continue Watching or Next Up | `PUT /home/dismissals/continue_watching/{id}` with the card's `progress_updated_at`, or `PUT /home/dismissals/next_up/{id}` with its `series_id` (`dismissHomeItem`) | never |
 
 Gating: `decodePersonalCapability` is true only when `state === "available"`, `allowed` and `membership_supported` are all true (`src/contracts/v2/details.ts`).
 Mutations are sent once, with refresh replay off, and repeat only when the person presses again (comment in `detailOperations.ts`).
+The card menu reads watched, Favorites and Watchlist from the card's own `user_state` (`is_favorite`, `in_watchlist`), as Apple's MediaCard does; it reads the item only for a card that carries none.
 The list screens decode the same capability with a second decoder in `src/ui/personalLists.ts`, which requires a `revision` string.
 
 ### Recommendations

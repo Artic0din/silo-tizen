@@ -8,6 +8,12 @@ import { decodeTrailerRefresh } from "../contracts/v2/trailers.ts";
 
 export type PersonalAction = "watchlist" | "favorites" | "watched";
 
+/**
+ * Apple HomeDismissal: an in-progress card is dismissed against its exact `progress_updated_at`, so playing it again
+ * brings it back; a Next Up episode has no progress row and is dismissed on `next_up` by its series.
+ */
+export type HomeDismissal = { readonly surface: "continue_watching"; readonly progressUpdatedAt: string } | { readonly surface: "next_up"; readonly seriesId: string };
+
 export const detailOperations = {
     refreshTrailers: (id: string): RequestSpec<ReturnType<typeof decodeTrailerRefresh>> => ({ method: "POST", path: `/catalog/items/${encodeURIComponent(id)}/trailers/refresh`, retry: "never", decode: decodeTrailerRefresh }),
     people: (query: string, scope: BrowseScope | TextSearchScope | "audiobook" | undefined): RequestSpec<ReturnType<typeof decodePeople>> => ({ method: "GET", path: `/catalog/people?q=${encodeURIComponent(query)}${scope === undefined ? "" : `&media_scope=${scope}`}&limit=20`, retry: "safe", decode: decodePeople }),
@@ -31,5 +37,13 @@ export const detailOperations = {
     personalCapability: (): RequestSpec<boolean> => ({ method: "GET", path: "/capabilities/personal-lists", retry: "safe", decode: decodePersonalCapability }),
     membership: (kind: "watchlist" | "favorites", id: string): RequestSpec<ReturnType<typeof decodeMembership>> => ({ method: "GET", path: `/${kind}/${encodeURIComponent(id)}/membership`, retry: "safe", decode: decodeMembership }),
     // Watched is non_retryable; list PUT/DELETE are natural_idempotent but UI repeats only on press.
+    // dismissHomeItem is natural_idempotent; the card menu sends it only on press.
+    dismissHomeItem: (id: string, dismissal: HomeDismissal): RequestSpec<undefined> => ({
+        method: "PUT",
+        path: `/home/dismissals/${dismissal.surface}/${encodeURIComponent(id)}`,
+        body: dismissal.surface === "continue_watching" ? { progress_updated_at: dismissal.progressUpdatedAt } : { series_id: dismissal.seriesId },
+        retry: "never",
+        decode: () => undefined,
+    }),
     setPersonal: (kind: PersonalAction, id: string, enabled: boolean): RequestSpec<undefined> => ({ method: enabled ? kind === "watched" ? "POST" : "PUT" : "DELETE", path: `/${kind}/${encodeURIComponent(id)}`, retry: "never", decode: () => undefined }),
 };

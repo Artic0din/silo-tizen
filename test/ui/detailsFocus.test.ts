@@ -117,7 +117,7 @@ test("a card-actions dialog keeps focus while the Play claim is still retrying",
         const related = tv.page.locator('[data-detail-section="related"] [data-focus]').first();
         await related.waitFor();
         await related.click({ button: "right" });
-        await tv.page.locator(".card-actions-panel").waitFor();
+        await tv.page.locator(".card-menu").waitFor();
         const dialog = await owner(tv);
         await tv.jump(200);
         const settled = await owner(tv);

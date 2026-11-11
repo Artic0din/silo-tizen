@@ -201,11 +201,9 @@ journey("card quick-actions refresh full Filmography's committed page and retain
 
     await grid(tv).nth(5).focus();
     await tv.down(13); await tv.jump(650); await tv.up(13);
-    const panel = tv.page.getByRole("dialog", { name: "Card actions" });
-    await panel.getByRole("button", { name: "Add favorite", exact: true }).click();
-    await panel.getByRole("button", { name: "Remove favorite", exact: true }).waitFor();
+    // The person grid reads the card's item before its menu opens; the removal lands before the change's reread.
     catalog.removed.add(id);
-    await tv.remote(BACK);
+    await tv.page.getByRole("menu").getByRole("menuitem", { name: "Add to Favorites", exact: true }).click();
     await tv.eventually(async () => await tv.focused() === nearby, "nearby Filmography focus");
     assert.equal(queries(tv).slice(-2)[0]?.body?.cursor, undefined, "refresh starts at page one and retains loaded depth");
     assert.equal(lastQuery(tv)?.body?.person_id, "7");

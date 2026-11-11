@@ -36,7 +36,7 @@ import { decodeImageCapabilities, type ImageCapabilities, homeArtworkQuery } fro
 import { FocusHost, type FocusTarget } from "./browseFocus.ts";
 import { type Destination, type PlayRequest, type SearchFilter, applySeriesLine, artworkUrl, destinationOf, searchScope, seriesLineFor, playChoices, visibleLibraries, withStartAudioLanguage } from "./browseModel.ts";
 import { errorState, unconfirmedWriteMessage, writeFailureMessage, writeMayHaveApplied, failureText, hasData, newPages, newRoute, PAGE_SIZE, SEARCH_PAGE_SIZE, type Pages, type Route, routeView } from "./browseRoutes.ts";
-import { homeRows, type ViewContext } from "./browseViews.ts";
+import { homeRows, removingDismissed, type ViewContext } from "./browseViews.ts";
 import { HomeEnrichment } from "./homeEnrichment.ts";
 import { el } from "./screen.ts";
 import { discoveryState, genreGroups, libraryScope, librarySectionQuery, readDiscovery, type LibraryMode } from "./libraryDiscovery.ts";
@@ -224,7 +224,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             const seriesLine = current === undefined ? undefined : seriesLineFor(stack, current, id);
             push(newRoute({ kind: "resume", id, title, episode: true, startOver: startOver === true, ...(selection === undefined ? {} : { selection }), ...(seriesLine === undefined ? {} : { seriesLine }) }));
         }
-    }, quickActions: (card, play) => {
+    }, quickActions: (card, options) => {
         const current = top();
         if (current === undefined || torn || playing || cardActions.active) return;
         shuffleGeneration++;
@@ -236,7 +236,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         cancelSlow();
         if (current.kind === "homeSection" || current.kind === "person" || current.kind === "personal") current.pendingIndex = undefined;
         menuOrigin = { route: current, focus: host.focused() };
-        cardActions.open(card, play);
+        cardActions.open(card, options);
     } };
     const input = el("input", "browse-input");
     input.id = "browse-search";
@@ -281,21 +281,38 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         return visitedDetails.delete(id);
     };
     const personalPending = (): boolean => detailWork?.pending === true || cardActions.pending;
-    const cardActions = new CardActions(container, session, state => {
-        if (state.changes.size === 0) return;
-        visitedDetails.delete(state.detail.id);
-        cache.invalidate();
-        // Delivery may be uncertain; retained roots must reread even after a dismissed write.
-        for (const entry of new Set([...roots.values(), ...stack])) entry.stale = true;
-    }, () => {
-        const origin = menuOrigin;
-        menuOrigin = undefined;
-        if (!torn && origin !== undefined && top() === origin.route) {
-            origin.route.focus = origin.focus;
-            showRoute(origin.route, origin.focus);
-            render(origin.focus);
-        }
-    }, personalPending, card => open({ kind: "item", id: card.id, title: card.title }), { get: id => visitedDetails.get(id), delete: discardVisitedDetails });
+    const cardActions = new CardActions(container, session, {
+        applied: id => {
+            visitedDetails.delete(id);
+            cache.invalidate();
+            // Delivery may be uncertain; retained roots must reread even after a failed change.
+            for (const entry of new Set([...roots.values(), ...stack])) entry.stale = true;
+            // HomeViewModel reloads its rows after each change; a menu or alert still open rereads when it closes.
+            const current = top();
+            if (!torn && !playing && !cardActions.active && settingsScreen === undefined && current !== undefined) showRoute(current, host.focused());
+        },
+        dismissed: card => {
+            for (const entry of new Set([...roots.values(), ...stack])) {
+                if (entry.kind === "home" && entry.data !== undefined) entry.data.sections = removingDismissed(entry.data.sections, { id: card.id, type: card.type, seriesId: card.seriesId });
+            }
+        },
+        opened: () => {
+            const current = top();
+            if (current === undefined) return;
+            menuOrigin ??= { route: current, focus: host.focused() };
+        },
+        closed: () => {
+            const origin = menuOrigin;
+            menuOrigin = undefined;
+            if (!torn && origin !== undefined && top() === origin.route) {
+                origin.route.focus = origin.focus;
+                showRoute(origin.route, origin.focus);
+                render(origin.focus);
+            }
+        },
+        information: card => open({ kind: "item", id: card.id, title: card.title }),
+        canAlert: () => !torn && !playing && settingsScreen === undefined,
+    });
     const requestGate = new RequestActionGate();
     const requestMenu = new RequestRecordMenu();
     let clearRequestNotice = (): void => undefined;
@@ -989,8 +1006,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             invalidateWatched(current, current.data.details.detail);
         }
         if (top() === current) {
-            if (cardActions.active) cardActions.render();
-            else {
+            // The card menu keeps its own rows; the screen under it rerenders when it closes.
+            if (!cardActions.active) {
                 const focus = host.focused();
                 const series = (current.kind === "item" || current.kind === "season") ? current.data?.details?.series : undefined;
                 const retry = focus?.key === "retry-episodes" && series?.failed;

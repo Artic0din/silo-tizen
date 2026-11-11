@@ -1838,3 +1838,26 @@ button.watch-party-seat-invite { box-sizing: content-box; padding: 0; margin: 0;
 .watch-party-episode:focus .watch-party-episode-number { background: #fff; color: #000; }
 .watch-party-episode-title { max-width: 400px; overflow: hidden; font-size: 24px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .watch-party-episode-meta { font-size: 20px; color: var(--silo-secondary); }
+/* Apple EmptyStateView on Home: a 44 pt symbol at 0.3 opacity, 28 pt semibold title and 22 pt secondary body, 12 pt apart, centred on the page. */
+.home-empty { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; margin: 0; padding: 0 60px; outline: none; }
+.home-empty .search-state-icon { width: 54px; height: 44px; margin: 0; color: rgba(237,237,237,.3); }
+.home-empty .search-state-icon svg { display: block; width: 54px; height: 44px; }
+.home-empty .search-state-title { margin: 0; font-size: calc(28px * var(--silo-sf-cap-scale)); line-height: 34px; font-weight: 600; color: var(--silo-text); }
+.home-empty .search-state-description { margin: 0; font-size: calc(22px * var(--silo-sf-cap-scale)); line-height: 27px; color: var(--silo-secondary); text-align: center; }
+/* cardActions.ts: the tvOS `.contextMenu` platter beside the focused card. No title; each row is a label with its SF Symbol
+   trailing, in the 29 pt body size; the focused row takes the white focus fill; Remove is the system destructive red. */
+.card-menu-scrim { display: block; background: rgba(0,0,0,.35); }
+.card-menu { position: fixed; display: flex; flex-direction: column; gap: 2px; box-sizing: border-box; min-width: 480px; max-width: 640px; padding: 12px; border-radius: 32px; background: rgba(48,48,52,.82); backdrop-filter: blur(40px); box-shadow: 0 24px 60px rgba(0,0,0,.5); animation: skyline-appear 150ms ease-out; }
+.card-menu-row { display: flex; align-items: center; justify-content: space-between; gap: 32px; height: 70px; margin: 0; padding: 0 28px; border: 0; border-radius: 20px; outline: none; background: transparent; color: #ededed; font: inherit; font-size: calc(29px * var(--silo-sf-cap-scale)); line-height: 35px; font-weight: 500; text-align: left; white-space: nowrap; }
+.card-menu-icon { display: flex; flex: none; width: 32px; height: 32px; }
+.card-menu-icon svg { width: 32px; height: 32px; }
+.card-menu-row:focus { background: #ededed; color: #000; transform: scale(1.02); box-shadow: 0 8px 18px rgba(0,0,0,.4); }
+.card-menu-destructive { color: #ff453a; }
+.card-menu-destructive:focus { color: #d22f3f; }
+.card-menu-row[aria-disabled="true"] { opacity: .4; }
+/* The card menu's failure alert: the shared centred alert with its single OK across the button row. */
+.card-alert-scrim { display: block; background: rgba(0,0,0,.45); }
+.card-alert-scrim .signin-actions { justify-content: center; }
+.card-alert-button { width: 100%; height: 66px; margin: 0; padding: 0 32px; border: 0; border-radius: 40px; outline: none; background: var(--silo-selected); color: #ededed; font: inherit; font-size: 30px; }
+.card-alert-button:focus { background: #fff; color: #000; }
+.card-menu-loading { display: block; background: transparent; outline: none; }

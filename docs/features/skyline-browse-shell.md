@@ -444,6 +444,9 @@ It hands off once through the existing app/player owner without showing Details.
 Back or account/profile authority changes cancel resolution; unavailable files and unreadable or failed reads retain Retry and Back.
 Playback return restores the originating row rather than replaying the resolution route.
 Select on all Home rows opens Details; Continue Watching hold Select also offers Play or Resume in Card actions.
+Card actions is the tvOS context menu beside the card: no title, one column of rows with their symbols, in MediaStateMenuItems order (Play or Resume, Mark as Watched or Unwatched, Add to or Remove from Favorites, Add to or Remove from Watchlist), then the destructive Remove from Continue Watching or Remove from Next Up on those Home rows.
+It opens at once from the row's data; choosing a row closes it, the change runs behind it and Home rereads its rows, and a failure shows Couldn’t Update Item with OK.
+Home with no rows shows Apple's EmptyStateView, "Nothing to watch yet", under a page focus owner; while Home has rows, a refresh that runs or fails shows only the feed.
 This is a scoped Home journey delivery against canonical Apple `f33479404712737499b22365430db1885cf6c6ab` and the guide hash `2d42d292e01ab6ee539278b63c286756fc432edf876a9286a33c9e853672cac2`.
 The Select and Play behavior follows Apple `7baff3ef657757cc0a69202e86dd4bd5c7fcb585`; native same-state acceptance remains pending.
 It does not complete whole-Home parity, issue #28, preplay controls, next-up behaviour or hardware acceptance.

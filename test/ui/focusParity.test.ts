@@ -646,7 +646,7 @@ test("settings, audio, calendar, filmography, personal and card actions keep vis
         await tv.down(ENTER);
         await tv.jump(650);
         await tv.up(ENTER);
-        await tv.page.getByRole("dialog", { name: "Card actions" }).waitFor();
+        await tv.page.getByRole("menu").waitFor();
         await tv.remote(BACK);
         assert.equal(await tv.focused(), "movie:m0001");
         assert.equal(await visibleFocus(tv), true, "card actions return focus to the visible card");

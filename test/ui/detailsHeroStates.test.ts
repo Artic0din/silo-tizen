@@ -329,7 +329,9 @@ for (const media of ["movie:m0001", "series:s1"] as const) detailTest(`returning
     // A paused clock makes the sample below land exactly half-way through the move.
     await pauseTvClock(tv);
     const from = await scrollTop();
-    while (!(await tv.page.evaluate(() => document.activeElement?.closest(".details-editorial") !== null))) await tv.remote(38);
+    const inHero = (): Promise<boolean> => tv.page.evaluate(() => document.activeElement?.closest(".details-editorial") !== null);
+    for (let step = 0; step < 6 && !(await inHero()); step++) await tv.remote(38);
+    assert.ok(await inHero(), "Up reaches the hero actions");
     await tv.jump(duration / 2);
     const middle = await scrollTop();
     assert.ok(Math.abs(middle - from * (1 - half)) <= from * 0.05, JSON.stringify({ from, middle, expected: from * (1 - half) }));

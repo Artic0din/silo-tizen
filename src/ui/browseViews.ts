@@ -41,7 +41,7 @@ export interface ViewContext {
     readonly savedFileOverlay?: (card: Card) => CardOverlay | undefined;
     readonly resume?: (id: string, title: string, line?: SeriesLine) => void;
     readonly playEpisode?: (id: string, title: string, startOver?: boolean, selection?: EpisodeSelection) => void;
-    readonly quickActions?: (card: Pick<Card, "id" | "title" | "type">, play?: () => void) => void;
+    readonly quickActions?: (card: QuickActionCard, play?: () => void) => void;
     readonly cardDestination?: (card: Card) => Destination | undefined;
     /** Profile spoiler switches. Absent reads as both off. */
     readonly spoilers?: () => EpisodeSpoilerSettings;
@@ -51,8 +51,11 @@ function spoilerSettings(context: ViewContext): EpisodeSpoilerSettings {
     return context.spoilers?.() ?? { hidesImages: false, hidesOverviews: false };
 }
 
+/** A held card. `seasonPill` marks a Details season pill, whose menu is Apple's season-only context menu. */
+export type QuickActionCard = Pick<Card, "id" | "title" | "type"> & { readonly seasonPill?: boolean };
+
 /** Only catalog media receives hold/right-click actions; navigation tiles keep their clicks. */
-export function mediaItem(item: FocusItem, card: Pick<Card, "id" | "title" | "type">, context: ViewContext, contextPlay?: () => void): FocusItem {
+export function mediaItem(item: FocusItem, card: QuickActionCard, context: ViewContext, contextPlay?: () => void): FocusItem {
     if (context.quickActions === undefined || !["movie", "series", "episode", "season"].includes(card.type)) return item;
     const quickAction = (): void => context.quickActions?.(card, contextPlay);
     item.element.addEventListener("contextmenu", event => { event.preventDefault(); item.element.focus({ preventScroll: true }); quickAction(); });

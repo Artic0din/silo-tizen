@@ -36,7 +36,7 @@ export type EpisodeSelection = Partial<Pick<PlayRequest, "fileId" | "audioTrackI
 export type Destination =
     | { readonly kind: "person"; readonly id: string; readonly title: string }
     | { readonly kind: "audiobook"; readonly id: string; readonly title: string }
-    | { readonly kind: "item"; readonly id: string; readonly title: string; readonly seriesContext?: SeriesContext; readonly seed?: DetailSeed }
+    | { readonly kind: "item"; readonly id: string; readonly title: string; readonly seriesContext?: SeriesContext; readonly seed?: DetailSeed; readonly fromRelated?: boolean }
     | { readonly kind: "season"; readonly seriesId: string; readonly seasonNumber: number; readonly title: string; readonly id?: string; readonly episodeId?: string };
 
 /** Apple TVItemDetailRouteSeed: what the opening card already knows, painted in the loading frame. */

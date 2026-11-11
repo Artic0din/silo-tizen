@@ -6,6 +6,9 @@ import type { BrowseScope, TextSearchScope } from "./operations.ts";
 import { object, string, WireError } from "../contracts/v2/wire.ts";
 import { decodeTrailerRefresh } from "../contracts/v2/trailers.ts";
 
+/** TVSimilarRail's `limit: 12`. */
+export const RELATED_LIMIT = 12;
+
 export type PersonalAction = "watchlist" | "favorites" | "watched";
 
 export const detailOperations = {
@@ -27,7 +30,7 @@ export const detailOperations = {
     } }),
     // Unused by the app. Person works call personQuery() through queryCatalogItems.
     filmography: (id: string): RequestSpec<ReturnType<typeof decodeCatalogPage>> => ({ method: "GET", path: `/catalog?source=person&person_id=${encodeURIComponent(id)}&type=video&sort=-year&limit=24&image_size=small`, retry: "safe", decode: decodeCatalogPage }),
-    similar: (id: string): RequestSpec<ReturnType<typeof decodeCatalogCollection>> => ({ method: "GET", path: `/recommendations/similar/${encodeURIComponent(id)}?limit=24&image_size=small`, retry: "safe", decode: decodeCatalogCollection }),
+    similar: (id: string): RequestSpec<ReturnType<typeof decodeCatalogCollection>> => ({ method: "GET", path: `/recommendations/similar/${encodeURIComponent(id)}?limit=${RELATED_LIMIT}&image_size=small`, retry: "safe", decode: decodeCatalogCollection }),
     personalCapability: (): RequestSpec<boolean> => ({ method: "GET", path: "/capabilities/personal-lists", retry: "safe", decode: decodePersonalCapability }),
     membership: (kind: "watchlist" | "favorites", id: string): RequestSpec<ReturnType<typeof decodeMembership>> => ({ method: "GET", path: `/${kind}/${encodeURIComponent(id)}/membership`, retry: "safe", decode: decodeMembership }),
     // Watched is non_retryable; list PUT/DELETE are natural_idempotent but UI repeats only on press.

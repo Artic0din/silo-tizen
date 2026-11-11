@@ -2,7 +2,7 @@
 import { ApiError } from "../api/errors.ts";
 import { shufflePick } from "../player/nextShuffle.ts";
 import type { RequestSpec } from "../api/http.ts";
-import { detailOperations, type PersonalAction } from "../api/detailOperations.ts";
+import { detailOperations, RELATED_LIMIT, type PersonalAction } from "../api/detailOperations.ts";
 import { operations } from "../api/operations.ts";
 import type { Card, ItemDetail, LocalExtra } from "../contracts/v2/catalog.ts";
 import { TITLE_ART_KEY } from "../contracts/v2/settings.ts";
@@ -778,7 +778,8 @@ export class DetailsState {
         this.changed();
         this.read(detailOperations.similar(this.detail.id), controller).then((page) => {
             if (!this.current(controller)) return;
-            this.related = page.items.filter((card) => card.id !== this.detail.id).slice(0, 24);
+            // TVSimilarRail.swift:158-161 asks for 12 and shows them as sent.
+            this.related = page.items.slice(0, RELATED_LIMIT);
             this.changed();
         }, () => {
             if (!this.current(controller)) return;

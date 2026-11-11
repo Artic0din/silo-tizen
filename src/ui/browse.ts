@@ -1868,6 +1868,19 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         showRoute(next, focus);
     };
 
+    /** push() without keeping the top page: Back from the new page returns to the one beneath. */
+    const replaceTop = (next: Route): void => {
+        stopSearchSupplement();
+        shuffleGeneration++;
+        stopDetails();
+        loading?.abort();
+        loading = undefined;
+        cancelSearch();
+        retireRoute(stack.pop());
+        stack.push(next);
+        showRoute(next, undefined);
+    };
+
     const tabFocus = (current: Route): FocusTarget => ({ zone: "nav", key: current.kind === "library" ? (current.library.type === "music" ? "music" : current.library.type === "audiobooks" ? "audiobooks" : current.library.type === "series" ? "series" : "movies") : current.kind === "personal" ? current.anchor ?? "profiles" : current.kind === "requests" || current.kind === "watchParty" ? current.anchor ?? "home" : current.kind });
 
     const showRoute = (current: Route, focus: FocusTarget | undefined): void => {
@@ -1936,11 +1949,31 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     };
 
     const open = (destination: Destination): void => {
+        if (destination.kind === "item" && destination.fromRelated === true) {
+            // AppRouter.relatedTitleStep: the title on screen does nothing; from a page a related pick
+            // opened, the title under it goes back and any other replaces the top page.
+            // A related season or episode opens its series with a context, so the context is part of the title.
+            // An episode id names the title on its own; the season number is optional on a card.
+            const shows = (route: Route | undefined): boolean => {
+                if (route?.kind !== "item" || route.id !== destination.id) return false;
+                const here = route.seriesContext, there = destination.seriesContext;
+                if (here?.episodeId !== undefined || there?.episodeId !== undefined) return here?.episodeId === there?.episodeId;
+                return here?.seasonNumber === there?.seasonNumber;
+            };
+            const current = top(), start = stack[stack.length - 2];
+            if (shows(current)) return;
+            if (current?.kind === "item" && current.fromRelated === true) {
+                if (shows(start)) { pop(); return; }
+                host.forgetVisit(`item:${destination.id}`);
+                replaceTop(newRoute({ kind: "item", id: destination.id, title: destination.title, ...(destination.seriesContext === undefined ? {} : { seriesContext: destination.seriesContext }), ...(destination.seed === undefined ? {} : { seed: destination.seed }), fromRelated: true, data: undefined }));
+                return;
+            }
+        }
         if (destination.kind === "item") host.forgetVisit(`item:${destination.id}`);
         if (destination.kind === "person") host.forgetVisit(`person:${destination.id}`);
         if (destination.kind === "audiobook") { push(newRoute({ kind: "audiobook", id: destination.id, title: destination.title, data: undefined })); return; }
         push(destination.kind === "item"
-            ? newRoute({ kind: "item", id: destination.id, title: destination.title, ...(destination.seriesContext === undefined ? {} : { seriesContext: destination.seriesContext }), ...(destination.seed === undefined ? {} : { seed: destination.seed }), data: undefined })
+            ? newRoute({ kind: "item", id: destination.id, title: destination.title, ...(destination.seriesContext === undefined ? {} : { seriesContext: destination.seriesContext }), ...(destination.seed === undefined ? {} : { seed: destination.seed }), ...(destination.fromRelated === true ? { fromRelated: true } : {}), data: undefined })
             : destination.kind === "person" ? newRoute({ kind: "person", id: destination.id, title: destination.title, data: undefined, filter: "video", pages: newPages(), pendingIndex: undefined })
             : newRoute({ kind: "season", ...(destination.id === undefined ? {} : { id: destination.id }), ...(destination.episodeId === undefined ? {} : { episodeId: destination.episodeId }), seriesId: destination.seriesId, seasonNumber: destination.seasonNumber, title: destination.title, data: undefined }));
     };

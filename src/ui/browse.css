@@ -177,7 +177,8 @@
 .details-external-rating img { width: 54px; height: 20px; }
 .details-rating-divider { height: 22px; border-left: 1px solid rgba(255,255,255,.45); }
 .details-genres { margin-left: 14px; }
-.details-related-placeholder { display: inline-block; width: calc(220px * var(--poster-scale, 1)); height: calc(330px * var(--poster-scale, 1)); margin-right: 44px; border-radius: 12px; background: rgba(255,255,255,.1); }
+/* TVSimilarRail.loadingPlaceholder: 220x330 at every card size, SiloTheme.cornerRadius, siloSurfaceElevated. */
+.details-related-placeholder { display: inline-block; width: 220px; height: 330px; margin-right: 44px; border-radius: 12px; background: var(--silo-elevated); }
 .details-versions { margin-bottom: 28px; padding-bottom: 12px; }
 .details-versions .browse-button[aria-pressed="true"] { background: rgba(255,255,255,.14); border-color: rgba(255,255,255,.4); }
 .details-versions .browse-button:focus { background: #fff; color: #000; }
@@ -290,6 +291,9 @@
 .box-set-grid.browse-grid { grid-template-columns: repeat(6, 220px); grid-column-gap: 40px; grid-row-gap: 60px; width: auto; padding-top: 0; }
 .box-set-grid .browse-card, .box-set-row.browse-row .browse-card { box-sizing: content-box; width: 220px; padding: 0; border: 0; }
 .box-set-grid .browse-art, .box-set-row.browse-row .browse-art { width: 220px; height: 330px; border-radius: 16px; }
+/* TVBoxSetRow: TVMediaCard.artworkSize scales 220 by the card size; TVMediaCard and SectionExploreAllCard round by 12. */
+.box-set-row.browse-row .browse-card, .box-set-row.browse-row .browse-art { width: calc(220px * var(--poster-scale, 1)); }
+.box-set-row.browse-row .browse-art { height: calc(330px * var(--poster-scale, 1)); border-radius: 12px; }
 .box-set-row.browse-row .browse-card { margin-right: 44px; }
 .box-set-current-outline { position: absolute; inset: 0; border: 4px solid rgba(255,255,255,.8); border-radius: inherit; pointer-events: none; }
 .box-set-row .browse-card:focus .box-set-current-outline { border-color: transparent; }
@@ -1033,7 +1037,7 @@
 .home-section .browse-card-title { width: calc(100% + 2px); margin: 22px -2px 0 0; font-size: 24px; font-weight: 500; color: rgba(237,237,237,.45); }
 .home-section .browse-card-subtitle { margin: 4px 0 0; font-size: 20px; font-weight: 400; color: rgba(237,237,237,.32); }
 .home-section .skyline-continue .browse-card-title { margin-top: 14px; }
-.home-section .skyline-explore .skyline-explore-tile { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0 8px; border: 1px solid rgba(255,255,255,.08); background: #15171c; color: #ededed; }
+.home-section .skyline-explore .skyline-explore-tile, .box-set-row .skyline-explore .skyline-explore-tile { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0 8px; border: 1px solid rgba(255,255,255,.08); background: #15171c; color: #ededed; }
 .skyline-explore-icon { display: flex; align-items: center; justify-content: center; width: 66px; height: 66px; margin-bottom: 18px; border-radius: 50%; background: rgba(237,237,237,.12); }
 .skyline-explore-icon svg { width: 30px; height: 30px; }
 .skyline-explore-label { font-size: 24px; font-weight: 500; white-space: nowrap; }
@@ -1294,7 +1298,34 @@
 .browse .details-series-rail .browse-card .browse-card-subtitle { padding: 0; line-height: 24px; }
 .details-facts-table { position: relative; margin-left: 12px; }
 .details-facts-table:focus { background: transparent; }
-.details-facts-table:focus::before { content: ""; position: absolute; inset: -14px -28px; border-radius: 12px; background: rgba(255,255,255,.06); pointer-events: none; }
+/* TVDetailFactsSection rounds its focus fill by SiloTheme.smallCornerRadius 8. */
+.details-facts-table:focus::before { content: ""; position: absolute; inset: -14px -28px; border-radius: 8px; background: rgba(255,255,255,.06); pointer-events: none; }
+/* TVSeriesModeTab: 22pt, medium or semibold when selected, 24pt sides, 52pt tall capsule, 12pt apart, white text.
+   Text is 22 times --silo-sf-cap-scale with tracking tuned so Season 1 to 8 spans x100-1297 as in the Apple TV capture. */
+.browse .details-season-chips .browse-button { box-sizing: border-box; height: 52px; padding: 0 24px; margin-right: 12px; border: 0; border-radius: 26px; color: #fff; font-size: calc(22px * var(--silo-sf-cap-scale)); letter-spacing: -.06px; transition: background-color var(--silo-fast) ease-out, color var(--silo-fast) ease-out, box-shadow var(--silo-fast) ease-out; }
+/* TVSeriesModeTabStyle's focused shadow (.28, radius 10, y 4); an unselected tab paints white after a 70ms dwell. */
+.browse .details-season-chips .browse-button:focus { background: #fff; color: #000; box-shadow: 0 4px 20px rgba(0,0,0,.28); transition-delay: 70ms; }
+.browse .details-season-chips .browse-button[aria-pressed="true"]:focus { transition-delay: 0ms; }
+/* TVSeriesDetailView.swift:578-589: while seasons load, four 170x48 pills hold a 60pt row; the row stays when they hide. */
+.details-season-placeholders { display: flex; gap: 12px; align-items: center; height: 60px; margin: 0 0 14px; padding: 0 12px; }
+.details-season-placeholders-hidden { visibility: hidden; }
+.details-season-placeholder { flex: none; width: 170px; height: 48px; border-radius: 10px; background: rgba(255,255,255,.1); }
+/* TVEpisodeRailPlaceholder inside the anchored rail's reserved height: still + 74pt caption + 24pt padding. */
+.details-series-rail .details-episodes-placeholder { box-sizing: border-box; display: flex; gap: 40px; height: calc(200px * var(--poster-scale, 1) + 98px); margin: 0 -88px 0 0; padding: 12px 0 12px 12px; overflow: hidden; clip-path: none; }
+.details-episode-placeholder { flex: none; display: flex; flex-direction: column; width: calc(360px * var(--poster-scale, 1)); }
+.details-episode-placeholder-still { height: calc(200px * var(--poster-scale, 1)); border-radius: 18px; background: var(--silo-elevated); }
+.details-episode-placeholder-title { width: 112px; height: 15px; margin-top: 18px; border-radius: 4px; background: rgba(255,255,255,.22); }
+.details-episode-placeholder-meta { width: 84px; height: 13px; margin-top: 13px; border-radius: 4px; background: rgba(255,255,255,.16); }
+/* "No episodes available": 22pt siloSecondaryText, top-leading in the reserved rail height. */
+.details-episodes-empty { box-sizing: border-box; min-height: calc(200px * var(--poster-scale, 1) + 98px); margin: 0; padding: 0 12px; font-size: calc(22px * var(--silo-sf-cap-scale)); color: var(--silo-secondary); }
+/* TVEpisodeRail still: corner radius 18 and no shadow at rest; watched dims under black .35 with the badge 12 in. */
+.browse .details-episodes .skyline-continue .browse-art { border-radius: 18px; }
+.details-episodes .skyline-continue:not(:focus) .browse-art { box-shadow: none; }
+.details-episode-dim { position: absolute; inset: 0; background: rgba(0,0,0,.35); pointer-events: none; }
+.details-episodes .skyline-continue .browse-watched { top: 12px; right: 12px; }
+/* EpisodeCardCaption.railMetadata: 17pt medium, two spaces each side of the dot. Tracking is tuned so
+   "16 Oct 2018  ·  43m" inks 151px wide, as in the Apple TV capture (150-152). */
+.browse .details-series-rail .browse-card .details-episode-meta { font-size: calc(17px * var(--silo-sf-cap-scale)); font-weight: 500; letter-spacing: .17px; white-space: pre; }
 /* Calendar events keep their own metadata and are never paged or capped.
    The shared content box is full width, like Home: Apple's shelves use scrollClipDisabled
    and run to the screen edge. The 80pt safe padding stays inside, so headings and the

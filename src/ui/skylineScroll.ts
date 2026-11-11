@@ -31,6 +31,35 @@ function settingsRevealBottom(element: HTMLElement, rowBottom: number): number {
     return bottom;
 }
 
+/** CSS cubic-bezier(x1, y1, x2, y2) as an easing of progress, solved for x by Newton steps then bisection. */
+export function cubicBezier(x1: number, y1: number, x2: number, y2: number): (t: number) => number {
+    const at = (a: number, b: number, t: number): number => 3 * a * t * (1 - t) ** 2 + 3 * b * t * t * (1 - t) + t ** 3;
+    const slope = (a: number, b: number, t: number): number => 3 * a * (1 - t) ** 2 + 6 * (b - a) * t * (1 - t) + 3 * (1 - b) * t * t;
+    return (x: number): number => {
+        if (x <= 0 || x >= 1) return Math.min(1, Math.max(0, x));
+        let t = x;
+        for (let step = 0; step < 8; step++) {
+            const error = at(x1, x2, t) - x, d = slope(x1, x2, t);
+            if (Math.abs(error) < 1e-6) return at(y1, y2, t);
+            if (Math.abs(d) < 1e-6) break;
+            t -= error / d;
+        }
+        let low = 0, high = 1;
+        t = x;
+        while (high - low > 1e-6) {
+            if (at(x1, x2, t) < x) low = t; else high = t;
+            t = (low + high) / 2;
+        }
+        return at(y1, y2, t);
+    };
+}
+
+const easeOutCubic = (progress: number): number => 1 - Math.pow(1 - progress, 3);
+/** TVDetailFocusScroll.scrollAnimation: easeInOut(duration: 0.45), SwiftUI's (0.42, 0, 0.58, 1). */
+const MOVIE_HERO_SCROLL = { duration: 450, ease: cubicBezier(0.42, 0, 0.58, 1) };
+/** TVSeriesDetailView animatePage: 0.55 s on UICubicTimingParameters (0.4, 0) (0.2, 1). */
+const SERIES_HERO_SCROLL = { duration: 550, ease: cubicBezier(0.4, 0, 0.2, 1) };
+
 export class SkylineScroll {
     /** TVSeriesDetailView.swift:653-674 centers the selected mode. */
     static seasonOffset(row: HTMLElement, element: HTMLElement): number {
@@ -45,7 +74,7 @@ export class SkylineScroll {
         // TVDetailFocusScroll pins actions; TVSeriesDetailView pins the primary episode viewport.
         if (element.closest(".details-editorial, .details-season-chips, .details-episodes") === null) return false;
         if (immediate) {
-            // Repaints must not restart a 200 ms move from an intermediate scrollTop.
+            // Repaints must not restart the hero move from an intermediate scrollTop.
             const previous = this.frames.get(viewport);
             if (previous !== undefined) cancelAnimationFrame(previous);
             this.frames.delete(viewport);
@@ -53,7 +82,8 @@ export class SkylineScroll {
             viewport.scrollTop = 0;
             return true;
         }
-        this.move(viewport, 0, 0);
+        const motion = viewport.querySelector('.details-hero[data-media-type="series"]') === null ? MOVIE_HERO_SCROLL : SERIES_HERO_SCROLL;
+        this.move(viewport, 0, 0, motion.duration, motion.ease);
         return true;
     }
 
@@ -85,7 +115,7 @@ export class SkylineScroll {
         return first === null ? 0 : Math.min(maximum, Math.max(0, element.offsetLeft - first.offsetLeft));
     }
 
-    move(node: HTMLElement, left: number, top: number): void {
+    move(node: HTMLElement, left: number, top: number, duration = 200, ease: (progress: number) => number = easeOutCubic): void {
         const previous = this.frames.get(node);
         const target = this.targets.get(node);
         const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -106,8 +136,8 @@ export class SkylineScroll {
                 this.frames.delete(node);
                 return;
             }
-            const progress = Math.min(1, (now - start) / 200);
-            const eased = 1 - Math.pow(1 - progress, 3);
+            const progress = Math.min(1, (now - start) / duration);
+            const eased = ease(progress);
             node.scrollLeft = fromLeft + (left - fromLeft) * eased;
             node.scrollTop = fromTop + (top - fromTop) * eased;
             if (progress < 1) this.frames.set(node, requestAnimationFrame(frame));

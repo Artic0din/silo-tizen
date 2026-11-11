@@ -24,7 +24,9 @@ import { TMDB_LOGO_PATH } from "./acknowledgements.ts";
 import { spinner } from "./marquee.ts";
 import { defaultArtwork } from "./defaultArtwork.ts";
 
-const detailPalette = new Map<string, Tints>();
+export const detailPalette = new Map<string, Tints>();
+/** TVDecodedLogoTitle's easeInOut(duration: 0.2). */
+const LOGO_CROSSFADE_MS = 200;
 /** Logo URLs that have decoded on a visible Details page. Later paints of the same visit seed that image, as TVDecodedLogoTitle does from the pipeline cache (silo-apple e28300c61f044a9322f588203c8819d6f06e6197, TVDetailHero.swift). */
 const decodedTitleLogos = new Set<string>();
 
@@ -57,7 +59,7 @@ function factTokens(detail: ItemDetail, state: DetailsState | undefined, episode
         const minutes = file?.durationSeconds ? Math.round(file.durationSeconds / 60) : detail.runtimeMinutes;
         tokens.push(runtimeToken(minutes));
     }
-    const count = state?.series?.seasons.filter(season => !season.isSpecials).length;
+    const count = state?.series?.seasons.filter(season => !season.isSpecials && season.seasonNumber !== 0).length;
     if (detail.type === "series" && count) tokens.push(`${count} Season${count === 1 ? "" : "s"}`);
     return tokens;
 }
@@ -83,7 +85,7 @@ function metadataRow(detail: ItemDetail, state: DetailsState | undefined, episod
         if (advisory !== undefined) chips.push({ text: advisory, advisory: true });
     }
     const facts = factTokens(detail, state, episode);
-    const ratings = (episode === undefined ? detail.extra?.ratings : state?.nextEpisodeState?.detail.extra?.ratings ?? episode.ratings) ?? [];
+    const ratings = (episode === undefined ? detail.extra?.ratings : state?.nextEpisodeState?.detail.extra?.ratings) ?? [];
     const sources = sourceTokens(detail, episode);
     if (chips.length === 0 && facts.length === 0 && ratings.length === 0 && sources.length === 0) return undefined;
     const row = el("p", "browse-meta");
@@ -100,6 +102,8 @@ function metadataRow(detail: ItemDetail, state: DetailsState | undefined, episod
             const logo = el("img", "skyline-rating-logo");
             logo.src = TMDB_LOGO_PATH;
             logo.alt = "TMDB";
+            // The logo has no width until it loads, so the row is measured again then.
+            logo.addEventListener("load", () => fitRatings(row));
             badge.append(logo);
         } else badge.append(el("span", "", rating.name));
         badge.append(el("span", "details-rating-score", rating.display));
@@ -118,12 +122,82 @@ function overviewText(overview: string, status: DescriptionTranslationStatus | u
 }
 
 function translationStatus(status: DescriptionTranslationStatus): HTMLElement {
-    const line = el("p", "description-translation-status", status.text);
+    const line = el("p", "description-translation-status");
     line.dataset.translationStatus = status.kind;
+    // SF Symbol "translate", drawn as the More menu's Translate Description icon.
+    line.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M2 5H14M8 2V5M5 5C5 11 10 14 14 15M12 5C12 11 7 14 3 15M13 22 18 10 23 22M15 18H21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    line.append(el("span", "", status.text));
     return line;
 }
 
-function detailHeader(detail: ItemDetail, context: ViewContext, actions: readonly FocusItem[], state?: DetailsState, summary?: string): HTMLElement[] {
+/** TVHeroTitle.split: the first of ": ", " — ", " – " or " - " whose trimmed halves are both non-empty. */
+export function titleParts(raw: string): { primary: string; subtitle: string | undefined } {
+    for (const separator of [": ", " \u2014 ", " \u2013 ", " - "]) {
+        const at = raw.indexOf(separator);
+        if (at < 0) continue;
+        const head = raw.slice(0, at).trim(), tail = raw.slice(at + separator.length).trim();
+        if (head !== "" && tail !== "") return { primary: head, subtitle: tail };
+    }
+    return { primary: raw, subtitle: undefined };
+}
+
+/**
+ * TVDecodedLogoTitle: the text title stays until the logo has decoded, then the logo cross-fades in over 0.2 s.
+ * A logo already decoded this visit, or Reduce Motion, swaps at once.
+ */
+export function decodedLogoTitle(holder: HTMLElement, logo: string | undefined, alt: string, allowed: () => boolean, showText: () => void, logoClass: string): void {
+    showText();
+    if (logo === undefined || !allowed()) return;
+    const image = el("img", logoClass);
+    image.alt = alt;
+    image.referrerPolicy = "no-referrer";
+    const cached = decodedTitleLogos.has(logo);
+    image.addEventListener("load", () => {
+        if (!allowed() || !holder.isConnected || holder.closest("[hidden]") !== null) return;
+        decodedTitleLogos.add(logo);
+        if (image.parentElement === holder) return;
+        const outgoing = Array.from(holder.childNodes);
+        holder.replaceChildren(image);
+        if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+        image.classList.add("details-logo-enter");
+        const exit = el("span", "details-title-exit");
+        exit.setAttribute("aria-hidden", "true");
+        exit.append(...outgoing);
+        holder.append(exit);
+        setTimeout(() => exit.remove(), LOGO_CROSSFADE_MS);
+    });
+    image.addEventListener("error", () => {
+        if (image.parentElement !== holder) return;
+        decodedTitleLogos.delete(logo);
+        showText();
+    });
+    image.src = logo;
+    // A logo that already decoded this visit is in the title before the repaint connects, so the text fallback does not paint again.
+    if (cached) holder.replaceChildren(image);
+}
+
+/** TVPlaybackSelectionSummaryView: a long value tightens, then shrinks to 0.75 of its size before it truncates. */
+const READOUT_MIN_SCALE = 0.75;
+function fitReadout(readout: HTMLElement): void {
+    for (const value of Array.from(readout.querySelectorAll<HTMLElement>("span"))) {
+        if (value.textContent === "" || value.scrollWidth <= value.clientWidth) continue;
+        const size = parseFloat(getComputedStyle(value).fontSize);
+        value.style.letterSpacing = "-0.5px";
+        if (value.scrollWidth <= value.clientWidth) continue;
+        value.style.fontSize = `${size * Math.max(READOUT_MIN_SCALE, value.clientWidth / value.scrollWidth)}px`;
+    }
+}
+
+/** TVDetailHero factsRow's ViewThatFits: whole ratings drop from the end once genres have given way. */
+function fitRatings(row: HTMLElement): void {
+    while (row.scrollWidth > row.clientWidth + 0.5) {
+        const last = Array.from(row.querySelectorAll(".details-external-rating")).at(-1);
+        if (last === undefined) return;
+        last.remove();
+    }
+}
+
+function detailHeader(detail: ItemDetail, context: ViewContext, actions: readonly FocusItem[], state?: DetailsState, summary?: string, showsSummary = true): HTMLElement[] {
     const nodes: HTMLElement[] = [];
     const label = episodeLabel(detail.seasonNumber, detail.episodeNumber);
     if (detail.type === "episode" && (detail.seriesTitle !== undefined || label !== undefined)) {
@@ -131,36 +205,15 @@ function detailHeader(detail: ItemDetail, context: ViewContext, actions: readonl
     }
     const title = heading(detail.title);
     title.classList.add("requests-detail-title");
-    const split = detail.title.indexOf(": ");
-    const primary = el("span", "requests-title-primary", split < 0 ? detail.title : detail.title.slice(0, split));
-    const secondary = split >= 0 ? el("span", "requests-title-secondary", detail.title.slice(split + 2)) : undefined;
+    const parts = titleParts(detail.title);
+    const primary = el("span", "requests-title-primary", parts.primary);
+    const secondary = parts.subtitle === undefined ? undefined : el("span", "requests-title-secondary", parts.subtitle);
     const showText = (): void => {
         title.replaceChildren(primary);
         if (secondary !== undefined) title.appendChild(secondary);
     };
-    showText();
-    const logo = artworkUrl(detail.extra?.logoUrl, context.baseUrl);
     const allowed = state?.titleArtGuard();
-    if (logo !== undefined && allowed?.()) {
-        const image = el("img", "details-logo");
-        image.alt = detail.title;
-        image.referrerPolicy = "no-referrer";
-        const showLogo = (): void => {
-            if (!allowed() || !title.isConnected || title.closest("[hidden]") !== null) return;
-            decodedTitleLogos.add(logo);
-            if (image.parentElement === title) return;
-            title.replaceChildren(image);
-        };
-        image.addEventListener("load", showLogo);
-        image.addEventListener("error", () => {
-            if (image.parentElement !== title) return;
-            decodedTitleLogos.delete(logo);
-            showText();
-        });
-        image.src = logo;
-        // A logo that already decoded this visit is in the title before the repaint connects, so the 110px fallback does not paint again.
-        if (decodedTitleLogos.has(logo)) title.replaceChildren(image);
-    }
+    decodedLogoTitle(title, artworkUrl(detail.extra?.logoUrl, context.baseUrl), detail.title, () => allowed?.() ?? false, showText, "details-logo");
     nodes.push(title);
     const episode = state?.series?.episodes?.find(item => item.id === state.heroEpisodeId);
     const playback = state?.nextEpisodeState;
@@ -170,27 +223,33 @@ function detailHeader(detail: ItemDetail, context: ViewContext, actions: readonl
     const episodeOverview = episode === undefined ? undefined : episodeDetailPresentation({ type: "episode", overview: episode.overview || playback?.detail.overview, watch: { played: episode.played, isInProgress: episode.isInProgress, positionSeconds: episode.positionSeconds } }, context.spoilers?.() ?? { hidesImages: false, hidesOverviews: false }).overview;
     const overview = episode === undefined ? presentation.overview : [playback?.detail.title ?? episode.title, episodeOverview].filter(Boolean).join(" · ");
     const translation = state?.descriptions?.status(episode, playback?.detail);
-    if ((overview !== undefined && overview !== "") || translation !== undefined) {
-        if (overview !== undefined && overview !== "") nodes.push(overviewText(overview, translation));
+    if (overview !== undefined && overview !== "") {
+        nodes.push(overviewText(overview, translation));
         if (translation !== undefined) nodes.push(translationStatus(translation));
     }
     const directors = detail.extra?.crew.filter(credit => credit.role.toLowerCase() === "director").map(credit => credit.name);
     const credit = detail.type === "movie" ? directors?.length ? `Directed by ${directors.slice(0, 2).join(", ")}` : undefined : detail.extra?.cast.length ? `Starring ${detail.extra.cast.slice(0, 3).map(person => person.name).join(", ")}` : undefined;
     if (credit !== undefined) nodes.push(el("p", "details-director", credit));
-    if (summary !== undefined) {
-        const readout = el("div", "details-playback-summary");
-        for (const part of summary.split(" | ")) {
-            const at = part.indexOf(": ");
-            const field = el("div", ""); field.dataset.trackSummary = part.slice(0, at).toLowerCase();
-            field.append(el("strong", "", part.slice(0, at).toUpperCase()), el("span", "", part.slice(at + 2)));
-            readout.appendChild(field);
-        }
-        nodes.push(readout);
+    // TVPlaybackSelectionSummaryView always keeps its labels; a value it does not know yet is a quiet bar.
+    const readout = el("div", "details-playback-summary");
+    const values = new Map((summary?.split(" | ") ?? []).map(part => [part.slice(0, part.indexOf(": ")), part.slice(part.indexOf(": ") + 2)] as const));
+    for (const label of ["Version", "Audio", "Subtitles"]) {
+        const field = el("div", ""); field.dataset.trackSummary = label.toLowerCase();
+        field.append(el("strong", "", label.toUpperCase()), el("span", "", values.get(label) ?? ""));
+        readout.appendChild(field);
     }
+    if (!showsSummary) { readout.style.opacity = "0"; readout.setAttribute("aria-hidden", "true"); }
+    nodes.push(readout);
+    // FocusHost places the view synchronously, so both are laid out by the next microtask.
+    queueMicrotask(() => {
+        if (row !== undefined) fitRatings(row);
+        fitReadout(readout);
+    });
     const layout = el("div", "details-hero");
     layout.dataset.mediaType = detail.type;
-    const backdrop = artworkUrl(detail.backdropUrl ?? detail.posterUrl, context.baseUrl);
-    const background = heroBackdrop(backdrop ?? "", undefined, detailPalette, true);
+    // TVDetailHero draws only the backdrop. Without one the page keeps TVDetailPageSurface's fallback tint.
+    const backdrop = artworkUrl(detail.backdropUrl, context.baseUrl);
+    const background = heroBackdrop(backdrop ?? "", detail.backdropThumbhash, detailPalette, true, true);
     if (presentation.hideBackdrop) blurEpisodeStill(background.querySelector<HTMLElement>(".skyline-art-frame")!);
     const wash = background.querySelector<HTMLElement>(".skyline-tint-wash")!;
     wash.classList.add("details-page-wash");
@@ -205,7 +264,7 @@ function detailHeader(detail: ItemDetail, context: ViewContext, actions: readonl
         const primary = el("div", "details-series-primary");
         const disclosure = el("div", "details-series-disclosure");
         primary.append(...nodes.filter(node => !node.matches(".details-director, .details-playback-summary")));
-        disclosure.append(nodes.find(node => node.matches(".details-director")) ?? el("div", "details-director"), nodes.find(node => node.matches(".details-playback-summary")) ?? el("div", "details-playback-summary"));
+        disclosure.append(nodes.find(node => node.matches(".details-director")) ?? el("div", "details-director"), readout);
         editorial.append(primary, disclosure);
         info.appendChild(editorial);
     } else info.append(...nodes);
@@ -365,9 +424,12 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
     }
     const ordinal = audio.findIndex((_track, index) => selectedAudio === `file:${file?.fileId}:audio:${index}`);
     const resolvedAudio = audio[effectiveAudio] === undefined ? audio.length ? audioLabel(0) : "Unknown" : audioLabel(effectiveAudio);
-    // Keep the summary absent until the focused episode's full versions arrive.
+    // Values stay empty until the focused episode's full versions arrive.
     const summary = playbackChoices === undefined ? undefined : `Version: ${versionValue} | Audio: ${ordinal === -1 ? "Auto · " : ""}${resolvedAudio} | Subtitles: ${subtitleSummary}`;
-    const content = [...detailHeader(detail, context, actions.map(detailAction), state, summary), ...lines(notes), ...personal?.notes ?? []];
+    // TVSeriesDetailView shows the readout while episodes load or while it has a target episode. Tizen reads a target's
+    // playback detail only for the next-up episode, so the readout also hides once nothing is loading and no values came.
+    const showsSummary = (detail.type !== "series" && detail.type !== "season") || state?.series === undefined || state.series.loading || state.nextEpisodeLoading || summary !== undefined;
+    const content = [...detailHeader(detail, context, actions.map(detailAction), state, summary, showsSummary), ...lines(notes), ...personal?.notes ?? []];
     if (tracks?.preparingPlay) {
         const status = el("p", "browse-text", "Checking resume position…");
         status.setAttribute("role", "status");

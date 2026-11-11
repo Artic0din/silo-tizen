@@ -321,7 +321,7 @@ detailTest('loaded season hero uses cached values or omits unavailable playback 
     const reads = tv.fake.requests.length;
     for (const season of [2, 1]) {
         await tv.page.locator(`[data-focus="season:${season}"]`).focus(); await tv.jump(3100);
-        assert.equal(await tv.page.locator('.details-playback-summary span:empty').count(), 0);
+        assert.equal(await tv.page.locator('.details-playback-summary:not([aria-hidden="true"]) span:empty').count(), 0);
     }
     assert.equal(tv.fake.requests.length, reads);
     assert.equal(await tv.page.locator('.details-playback-summary').textContent(), original);
@@ -356,7 +356,7 @@ detailTest("failed episode Retry retains focus without unresolved hero readout b
     await retry.waitFor(); await retry.focus(); await tv.page.keyboard.press('Enter');
     await retry.waitFor(); await tv.jump(500);
     assert.equal(await tv.focused(), 'retry-episodes');
-    assert.equal(await tv.page.locator('.details-playback-summary span:empty').count(), 0);
+    assert.equal(await tv.page.locator('.details-playback-summary:not([aria-hidden="true"]) span:empty').count(), 0);
 });
 
 detailTest("season focus centers the selected pill and Down uses its E01 without Select", async tv => {
@@ -1278,7 +1278,7 @@ detailTest('Hero uses measured series colours and genres only at rest', async tv
         const node = document.querySelector(".details-playback-summary strong");
         if (node === null || !node.isConnected) return null;
         return getComputedStyle(node).color;
-    }, null, value => value === "rgba(237, 237, 237, 0.5)", "playback summary label"), "rgba(237, 237, 237, 0.5)");
+    }, null, value => value === "rgba(255, 255, 255, 0.48)", "playback summary label"), "rgba(255, 255, 255, 0.48)");
 });
 
 detailTest('track picker truncates a long version title within its 76px row', async tv => {
@@ -1816,6 +1816,11 @@ detailTest('a Details repaint during the return to Play finishes at the hero anc
 });
 
 for (const media of ['movie:m0001', 'series:s1']) detailTest(`${media} artwork stays inside Apple's shared top-right frame`, async tv => {
+    // The series fixture has a poster only, and TVDetailHero draws only a backdrop.
+    const catalog = tv.fake.catalog; assert.ok(catalog instanceof FakeDetails);
+    const body = catalog.route("GET", `/catalog/items/${encodeURIComponent(media)}`, "p-owner")?.body;
+    assert.ok(body && typeof body === "object");
+    await tv.page.route(`**/api/v2/catalog/items/${encodeURIComponent(media)}?**`, route => route.fulfill({ json: { ...body, backdrop_url: "/art/harbor.svg" } }));
     await tv.page.locator(`[data-section="recently_added"] [data-focus="${media}"]`).first().click();
     await tv.page.locator(".details-hero .skyline-backdrop").waitFor();
     const bounds = await readLive(tv, () => {

@@ -306,3 +306,22 @@ railTest("holding Select on a season pill offers only Mark Season Watched or Unw
     await tv.remote(10009);
     await tv.eventually(async () => await menu.count() === 0, "Back dismisses the menu");
 });
+
+railTest("a related episode keeps its season when it replaces a related page, and is not the series on screen", async (tv) => {
+    const episode = { content_id: "episode:s1e21", type: "episode", series_id: "series:s1", season_number: 2, episode_number: 1, title: "Harbor Lights chapter 2.1" };
+    const similar: Record<string, Record<string, unknown>[]> = { "movie%3Am0001": [{ content_id: "series:s1", type: "series", title: "Harbor Lights" }], "series%3As1": [episode] };
+    await tv.page.route("**/api/v2/recommendations/similar/**", route => route.fulfill({ json: { items: similar[/similar\/([^?]+)/.exec(route.request().url())?.[1] ?? ""] ?? [] } }));
+    const view = () => tv.page.evaluate(() => document.querySelector(".browse")?.getAttribute("data-view") ?? null);
+    await tv.page.locator(MOVIE).first().click();
+    const series = tv.page.locator('[data-detail-section="related"] [data-focus="series:s1"]');
+    await series.waitFor();
+    await series.click();
+    await tv.eventually(async () => await view() === "item:series:s1", "series from Related");
+    const related = tv.page.locator('[data-detail-section="related"] .browse-card').first();
+    await related.waitFor();
+    await related.click();
+    // An episode of the series on screen opens that series in its season: a different title, so it replaces the page.
+    await tv.page.locator('[data-focus="season:2"][aria-pressed="true"]').waitFor();
+    await tv.remote(10009);
+    await tv.eventually(async () => await view() === "item:movie:m0001", "Back returns to the movie the rail started from");
+});

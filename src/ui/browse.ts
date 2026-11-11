@@ -1952,12 +1952,15 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         if (destination.kind === "item" && destination.fromRelated === true) {
             // AppRouter.relatedTitleStep: the title on screen does nothing; from a page a related pick
             // opened, the title under it goes back and any other replaces the top page.
+            // A related season or episode opens its series with a context, so the context is part of the title.
+            const shows = (route: Route | undefined): boolean => route?.kind === "item" && route.id === destination.id
+                && route.seriesContext?.seasonNumber === destination.seriesContext?.seasonNumber && route.seriesContext?.episodeId === destination.seriesContext?.episodeId;
             const current = top(), start = stack[stack.length - 2];
-            if (current?.kind === "item" && current.id === destination.id) return;
+            if (shows(current)) return;
             if (current?.kind === "item" && current.fromRelated === true) {
-                if (start?.kind === "item" && start.id === destination.id) { pop(); return; }
+                if (shows(start)) { pop(); return; }
                 host.forgetVisit(`item:${destination.id}`);
-                replaceTop(newRoute({ kind: "item", id: destination.id, title: destination.title, fromRelated: true, data: undefined }));
+                replaceTop(newRoute({ kind: "item", id: destination.id, title: destination.title, ...(destination.seriesContext === undefined ? {} : { seriesContext: destination.seriesContext }), fromRelated: true, data: undefined }));
                 return;
             }
         }

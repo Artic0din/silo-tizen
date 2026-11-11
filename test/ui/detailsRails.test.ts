@@ -245,8 +245,10 @@ railTest("Related loads behind four 220x330 placeholders and then shows twelve t
     const placeholders = tv.page.locator(".details-related-placeholder");
     await placeholders.first().waitFor();
     assert.equal(await tv.page.getByText("Loading related titles.", { exact: true }).count(), 0, "no loading sentence");
-    assert.deepEqual(await placeholders.evaluateAll(nodes => nodes.map(node => { const box = node.getBoundingClientRect(), style = getComputedStyle(node); return [box.width, box.height, style.borderTopLeftRadius, style.backgroundColor]; })),
-        Array.from({ length: 4 }, () => [220, 330, "12px", "rgb(21, 23, 28)"]));
+    // One read in the page: a repaint can replace the placeholders between a locator query and its evaluation.
+    const read = () => tv.page.evaluate(() => [...document.querySelectorAll(".details-related-placeholder")].map(node => { const box = node.getBoundingClientRect(), style = getComputedStyle(node); return [box.width, box.height, style.borderTopLeftRadius, style.backgroundColor]; }));
+    await tv.eventually(async () => (await read()).length === 4 && (await read()).every(([width]) => width === 220), "four laid-out placeholders");
+    assert.deepEqual(await read(), Array.from({ length: 4 }, () => [220, 330, "12px", "rgb(21, 23, 28)"]));
     assert.equal(limit, "12", "TVSimilarRail asks for 12");
     await release?.();
     await tv.page.locator('[data-detail-section="related"] .browse-card').first().waitFor();

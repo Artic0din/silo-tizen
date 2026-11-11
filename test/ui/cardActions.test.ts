@@ -225,6 +225,42 @@ test("a menu reopened while its card's change is pending updates and re-enables 
     } finally { await tv.page.context().close(); }
 });
 
+test("reopening a card before Home rereads shows the change the server accepted", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const catalog = await start(tv);
+        await hold(tv);
+        const reread = tv.fake.hold("/home/sections", true);
+        await row(tv, "Add to Favorites").click();
+        await tv.eventually(async () => catalog.favorite, "favorite applied");
+        await tv.jump(300);
+        await hold(tv);
+        assert.deepEqual(await rowLabels(tv), ["Mark as Watched", "Remove from Favorites", "Add to Watchlist"], "the row's stale state does not offer the same change again");
+        await tv.remote(10009);
+        reread.release();
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
+
+test("a held Select that chooses a row cannot reach the card once the menu closes", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const catalog = await start(tv);
+        await hold(tv);
+        await row(tv, "Mark as Watched").waitFor();
+        await tv.down(13);
+        assert.equal(await menu(tv).count(), 0, "the row was chosen");
+        for (let repeat = 0; repeat < 4; repeat++) { await tv.jump(200); await tv.down(13, true); }
+        await tv.up(13);
+        await tv.jump(700);
+        assert.equal(await tv.page.locator(".browse").getAttribute("data-view"), "home", "the release did not open Details");
+        assert.equal(await menu(tv).count(), 0, "the held repeats did not reopen the menu");
+        await tv.eventually(async () => catalog.mutations.length === 1, "watched sent");
+        assert.deepEqual(catalog.mutations, ["POST /watched/movie%3Am0001"]);
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
+
 for (const outcome of ["refused", "lost"] as const) test(`a ${outcome} change shows Apple's Couldn't Update Item alert and OK returns to the card`, async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {

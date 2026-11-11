@@ -75,7 +75,12 @@ export class CardActions {
     private deferredAlert = false;
     private reading: AbortController | undefined;
     /** The open menu, so a change landing behind it can redraw its rows. */
-    private shown: { readonly card: MenuCard; readonly options: CardMenuOptions; readonly anchor: HTMLElement | undefined } | undefined;
+    private shown: { readonly card: MenuCard; readonly options: CardMenuOptions; readonly anchor: HTMLElement | undefined; readonly source: MenuCard } | undefined;
+    /**
+     * Changes the server accepted, keyed by the row's own card object. Until a reread replaces that object, reopening
+     * its menu shows the accepted state rather than the row's stale one; fresh rows bring the server's state instead.
+     */
+    private readonly accepted = new WeakMap<MenuCard, Pick<MenuCard, "played" | "favorite" | "watchlist">>();
     private readonly writes = new Map<string, AbortController>();
     private readonly container: HTMLElement;
     private readonly session: NativeSession;
@@ -101,7 +106,9 @@ export class CardActions {
         if (this.active) return;
         const anchor = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
         const known = card.played !== undefined && card.favorite !== undefined && card.watchlist !== undefined;
-        if (known || options.home === true) { this.show(card, options, anchor); return; }
+        const source = card;
+        card = { ...card, ...this.accepted.get(source) };
+        if (known || options.home === true) { this.show(card, options, anchor, source); return; }
         // Seasons, episode rails and the calendar hold no list membership; read it once, then open complete.
         const controller = new AbortController();
         this.reading = controller;
@@ -124,7 +131,7 @@ export class CardActions {
             if (this.reading !== controller) return;
             settle();
             if (detail.id !== card.id || detail.type !== card.type) { this.alert(); return; }
-            this.show({ ...card, played: detail.played, favorite: detail.favorite, watchlist: detail.watchlist }, options, anchor);
+            this.show({ ...card, played: detail.played, favorite: detail.favorite, watchlist: detail.watchlist }, options, anchor, source);
         }, () => {
             if (this.reading !== controller) return;
             settle();
@@ -132,8 +139,8 @@ export class CardActions {
         });
     }
 
-    private show(card: MenuCard, options: CardMenuOptions, anchor: HTMLElement | undefined): void {
-        const rows = this.menuRows(card, options);
+    private show(card: MenuCard, options: CardMenuOptions, anchor: HTMLElement | undefined, source: MenuCard): void {
+        const rows = this.menuRows(card, options, source);
         // Apple attaches no menu to a card without actions.
         if (rows.length === 0) { this.host.closed(); return; }
         const busy = this.writes.has(card.id) || this.host.pendingElsewhere?.() === true;
@@ -163,7 +170,7 @@ export class CardActions {
         scrim.append(menu);
         if (this.panel === undefined) this.capture();
         this.panel = scrim;
-        this.shown = { card, options, anchor };
+        this.shown = { card, options, anchor, source };
         this.container.appendChild(scrim);
         place(menu, anchor);
         this.rows[0]?.focus({ preventScroll: true });
@@ -189,11 +196,11 @@ export class CardActions {
         const focused = document.activeElement?.getAttribute("data-focus");
         this.panel?.remove();
         this.panel = undefined;
-        this.show(next, shown.options, shown.anchor);
+        this.show(next, shown.options, shown.anchor, shown.source);
         this.rows.find(row => row.getAttribute("data-focus") === focused)?.focus({ preventScroll: true });
     }
 
-    private menuRows(card: MenuCard, options: CardMenuOptions): Row[] {
+    private menuRows(card: MenuCard, options: CardMenuOptions, source: MenuCard): Row[] {
         const rows: Row[] = [];
         const play = options.play;
         if (play !== undefined) rows.push({ key: "card-play", label: (card.positionSeconds ?? 0) > 0 ? "Resume" : "Play", icon: "play.fill", run: play });
@@ -203,25 +210,25 @@ export class CardActions {
         // MediaCard.canSetWatched: Home's handler, or a card with user state that is not a square audiobook cover.
         if (options.home === true || (card.played !== undefined && card.type !== "audiobook")) {
             const watched = card.played === true;
-            rows.push({ change: true, key: "watched", label: watched ? "Mark as Unwatched" : "Mark as Watched", icon: watched ? "circle" : "checkmark.circle", run: () => this.send(card.id, detailOperations.setPersonal("watched", card.id, !watched), menu => ({ ...menu, played: !watched })) });
+            rows.push({ change: true, key: "watched", label: watched ? "Mark as Unwatched" : "Mark as Watched", icon: watched ? "circle" : "checkmark.circle", run: () => this.send(card.id, detailOperations.setPersonal("watched", card.id, !watched), menu => ({ ...menu, played: !watched }), source) });
         }
         if (card.favorite !== undefined) {
             const favorite = card.favorite;
-            rows.push({ change: true, key: "favorites", label: favorite ? "Remove from Favorites" : "Add to Favorites", icon: favorite ? "heart.slash" : "heart", run: () => this.send(card.id, detailOperations.setPersonal("favorites", card.id, !favorite), menu => ({ ...menu, favorite: !favorite })) });
+            rows.push({ change: true, key: "favorites", label: favorite ? "Remove from Favorites" : "Add to Favorites", icon: favorite ? "heart.slash" : "heart", run: () => this.send(card.id, detailOperations.setPersonal("favorites", card.id, !favorite), menu => ({ ...menu, favorite: !favorite }), source) });
         }
         if (card.watchlist !== undefined) {
             const watchlist = card.watchlist;
-            rows.push({ change: true, key: "watchlist", label: watchlist ? "Remove from Watchlist" : "Add to Watchlist", icon: watchlist ? "bookmark.slash" : "bookmark", run: () => this.send(card.id, detailOperations.setPersonal("watchlist", card.id, !watchlist), menu => ({ ...menu, watchlist: !watchlist })) });
+            rows.push({ change: true, key: "watchlist", label: watchlist ? "Remove from Watchlist" : "Add to Watchlist", icon: watchlist ? "bookmark.slash" : "bookmark", run: () => this.send(card.id, detailOperations.setPersonal("watchlist", card.id, !watchlist), menu => ({ ...menu, watchlist: !watchlist }), source) });
         }
         const dismissal = options.dismissal;
         if (dismissal !== undefined) {
-            rows.push({ change: true, key: "remove", label: dismissal.surface === "next_up" ? "Remove from Next Up" : "Remove from Continue Watching", icon: "xmark.circle", destructive: true, run: () => this.send(card.id, detailOperations.dismissHomeItem(card.id, dismissal), () => undefined, () => this.host.dismissed?.(card)) });
+            rows.push({ change: true, key: "remove", label: dismissal.surface === "next_up" ? "Remove from Next Up" : "Remove from Continue Watching", icon: "xmark.circle", destructive: true, run: () => this.send(card.id, detailOperations.dismissHomeItem(card.id, dismissal), () => undefined, source, () => this.host.dismissed?.(card)) });
         }
         return rows;
     }
 
     /** `landed` gives the card's state after the change, or undefined when the card leaves its row. */
-    private send(id: string, spec: ReturnType<typeof detailOperations.setPersonal>, landed: (card: MenuCard) => MenuCard | undefined, accepted?: () => void): void {
+    private send(id: string, spec: ReturnType<typeof detailOperations.setPersonal>, landed: (card: MenuCard) => MenuCard | undefined, source: MenuCard, accepted?: () => void): void {
         // HomeViewModel.pendingWatchedUpdates: one change per card at a time, and none beside a pending Details change.
         if (this.writes.has(id) || this.host.pendingElsewhere?.() === true) return;
         const controller = new AbortController();
@@ -230,6 +237,8 @@ export class CardActions {
             if (this.writes.get(id) !== controller) return;
             this.writes.delete(id);
             accepted?.();
+            const now = landed({ ...source, ...this.accepted.get(source) });
+            if (now !== undefined) this.accepted.set(source, { played: now.played, favorite: now.favorite, watchlist: now.watchlist });
             const shown = this.shown;
             if (shown !== undefined && shown.card.id === id) this.redraw(landed(shown.card));
             this.host.applied(id);
@@ -325,9 +334,28 @@ export class CardActions {
             // Select is still held from the long press that opened the menu; only a fresh press chooses a row.
             if (this.pressed || event.repeat) return;
             this.pressed = true;
-            this.rows.find(row => row === document.activeElement)?.click();
+            const chosen = this.rows.find(row => row === document.activeElement);
+            if (chosen === undefined) return;
+            // Choosing closes the menu while Select is still down; its repeats and release must not reach the card.
+            swallowSelect();
+            chosen.click();
         }
     };
+}
+
+/** Consumes the rest of a Select press: window capture runs ahead of the screen's document listeners. */
+function swallowSelect(): void {
+    const consume = (event: KeyboardEvent): void => {
+        if (remoteKey(event) !== "enter") return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        if (event.type === "keyup") {
+            window.removeEventListener("keydown", consume, true);
+            window.removeEventListener("keyup", consume, true);
+        }
+    };
+    window.addEventListener("keydown", consume, true);
+    window.addEventListener("keyup", consume, true);
 }
 
 /** The tvOS menu opens beside the focused card, inside the safe area. */

@@ -378,21 +378,25 @@ function menuLabel(text: string): HTMLElement {
 
 /** Consumes the rest of a Select press: window capture runs ahead of the screen's document listeners. */
 function swallowSelect(): void {
+    // Losing focus can lose the release. Repeats and a late release still belong to the old press,
+    // but a fresh, non-repeat Select after focus returns is a new press and goes through.
+    let blurred = false;
     const consume = (event: KeyboardEvent): void => {
         if (remoteKey(event) !== "enter") return;
+        if (event.type === "keydown" && blurred && !event.repeat) { stop(); return; }
         event.preventDefault();
         event.stopImmediatePropagation();
         if (event.type === "keyup") stop();
     };
-    // Losing focus loses the release; the next Select after return is a fresh press.
+    const lost = (): void => { blurred = true; };
     const stop = (): void => {
         window.removeEventListener("keydown", consume, true);
         window.removeEventListener("keyup", consume, true);
-        window.removeEventListener("blur", stop);
+        window.removeEventListener("blur", lost);
     };
     window.addEventListener("keydown", consume, true);
     window.addEventListener("keyup", consume, true);
-    window.addEventListener("blur", stop);
+    window.addEventListener("blur", lost);
 }
 
 /** The tvOS menu opens beside the focused card, inside the safe area. */

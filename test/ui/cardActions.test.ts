@@ -301,6 +301,12 @@ for (const where of ["chosen row", "open menu"] as const) test(`losing window fo
             await tv.eventually(async () => catalog.mutations.length === 1, "watched sent");
             await tv.page.evaluate(() => window.dispatchEvent(new Event("blur")));
             await origin(tv).focus();
+            // Focus came back while Select is still held: its repeats and release stay with the old press.
+            for (let repeat = 0; repeat < 4; repeat++) { await tv.jump(200); await tv.down(13, true); }
+            await tv.up(13);
+            await tv.jump(700);
+            assert.equal(await tv.page.locator(".browse").getAttribute("data-view"), "home", "held repeats after focus returns did not open Details");
+            assert.equal(await menu(tv).count(), 0, "held repeats after focus returns did not reopen the menu");
             await tv.page.keyboard.press("Enter");
             await tv.eventually(async () => await tv.page.locator(".browse").getAttribute("data-view") === "item:movie:m0001", "the first Select after return opens Details");
         } else {

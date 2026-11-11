@@ -267,7 +267,7 @@ detailTest('hero Up falls back from vanished Start Over and disabled selectors t
     assert.equal(await tv.focused(), 'start-over-episode');
     await tv.page.locator('[data-focus="episode:s1e12"]').focus();
     await tv.page.locator('[data-focus="start-over-episode"]').waitFor({ state: 'hidden' });
-    await tv.page.locator('.details-playback-summary').waitFor();
+    await tv.page.locator('[data-track-summary="version"] span:not(:empty)').waitFor();
     await settledEpisodePrefetch(tv);
     await pauseTvClock(tv);
     await tv.remote(38);
@@ -316,7 +316,8 @@ for (const season of [1, 2, 30]) detailTest(`fresh season ${season} has no retai
 
 detailTest('loaded season hero uses cached values or omits unavailable playback details without reads', async tv => {
     await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
-    await tv.page.locator('[data-track-summary="version"] span').waitFor();
+    // The readout labels paint at once; wait for a value so the read baseline follows the first load.
+    await tv.page.locator('[data-track-summary="version"] span:not(:empty)').waitFor();
     const original = await tv.page.locator('.details-playback-summary').textContent();
     const reads = tv.fake.requests.length;
     for (const season of [2, 1]) {
@@ -356,7 +357,9 @@ detailTest("failed episode Retry retains focus without unresolved hero readout b
     await retry.waitFor(); await retry.focus(); await tv.page.keyboard.press('Enter');
     await retry.waitFor(); await tv.jump(500);
     assert.equal(await tv.focused(), 'retry-episodes');
-    assert.equal(await tv.page.locator('.details-playback-summary:not([aria-hidden="true"]) span:empty').count(), 0);
+    // Bars show while the retried read is out, as Apple's isLoadingEpisodes does; once it fails again none remain.
+    await tv.eventually(async () => await tv.page.locator('.details-playback-summary:not([aria-hidden="true"]) span:empty').count() === 0, 'no unresolved readout bars after the failed retry');
+    assert.equal(await tv.focused(), 'retry-episodes');
 });
 
 detailTest("season focus centers the selected pill and Down uses its E01 without Select", async tv => {
@@ -1768,14 +1771,14 @@ detailTest("episode focus swaps cached hero and selectors without starting a rea
     assert.equal(await tv.page.locator('[data-focus="episode:s1e11"] .browse-card-title').textContent(), "S01E01 · Harbor Lights chapter 1.1");
     assert.equal(await tv.page.locator('[data-focus="episode:s1e11"] .browse-card-subtitle').textContent(), "Feb 18, 2022  ·  57m");
     await tv.page.getByRole('button', { name: /Play S1:E1|Resume S1:E1/ }).waitFor();
-    await tv.page.locator('.details-playback-summary').waitFor();
+    await tv.page.locator('[data-track-summary="version"] span:not(:empty)').waitFor();
     await settledEpisodePrefetch(tv);
     await pauseTvClock(tv);
     await tv.page.locator('[data-focus="episode:s1e12"]').focus();
     await tv.jump(120);
     await tv.page.getByRole('button', { name: /Play S1:E2|Resume S1:E2/ }).waitFor();
     assert.match(await tv.page.locator('.details-editorial .browse-overview').textContent() ?? '', /Harbor Lights chapter 1\.2/);
-    await tv.page.locator('.details-playback-summary').waitFor();
+    await tv.page.locator('[data-track-summary="version"] span:not(:empty)').waitFor();
     await settledEpisodePrefetch(tv);
     const before = tv.fake.requests.length;
     await tv.page.locator('[data-focus="episode:s1e11"]').focus();

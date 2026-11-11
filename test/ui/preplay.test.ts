@@ -82,27 +82,26 @@ preplay("switching episodes cannot bypass a held series subtitle save", async (t
     held.release();
 });
 
-preplay("a playback retry cannot bypass another episode's pending series preference", async (tv, catalog, playback) => {
+preplay("Play cannot bypass another episode's pending series preference", async (tv, catalog, playback) => {
     for (const id of ['episode:s1e11', 'episode:s1e12']) { catalog.fileIds.set(id, '42'); playback.items.set(id, ['42']); }
     catalog.progress.set('episode:s1e11', 630);
     await series(tv);
     const watch = '/watch/episode%3As1e11?file_id=42';
-    tv.fake.script(watch, { status: 500 });
-    await tv.page.locator('[data-focus="next-episode"]').click();
-    await tv.page.locator('[data-focus="retry-play"]').waitFor();
     await tv.page.locator('[data-focus="episode:s1e12"]').focus();
     await tv.page.locator('[data-focus="subtitles"]').waitFor();
     const held = tv.fake.hold('/subtitle-prefs/series%3As1', true);
     await tv.page.locator('[data-focus="subtitles"]').click();
     await tv.page.locator('[data-focus="subtitle:off"]').click();
     await tv.page.locator('[data-focus="episode:s1e11"]').focus();
-    const retry = tv.page.locator('[data-focus="retry-play"]');
-    await retry.waitFor();
-    assert.equal(await retry.getAttribute('aria-disabled'), 'true');
+    const primary = tv.page.locator('[data-focus="next-episode"]');
+    await tv.eventually(async () => /S1:E1/.test(await primary.innerText()), 'S1:E1 primary');
+    assert.equal(await primary.getAttribute('aria-disabled'), 'true');
+    assert.equal(await tv.page.locator('[data-focus="retry-play"]').count(), 0);
     const before = tv.fake.requests.filter(request => request.path === watch).length;
-    await retry.evaluate(node => { if (node instanceof HTMLElement) node.click(); });
+    await primary.evaluate(node => { if (node instanceof HTMLElement) node.click(); });
     await tv.jump(100);
     assert.equal(tv.fake.requests.filter(request => request.path === watch).length, before);
+    assert.equal(starts(tv).length, 0);
     held.release();
 });
 
@@ -119,11 +118,13 @@ preplay("an in-flight resume lookup defers handoff if another episode starts a s
     await tv.page.locator('[data-focus="subtitle:off"]').click();
     watch.release();
     await tv.page.locator('[data-focus="episode:s1e11"]').focus();
-    await tv.page.locator('[data-focus="retry-play"]').waitFor({ timeout: 3000 });
+    await tv.jump(3000);
     assert.equal(tv.fake.requests.filter(request => request.path === '/playback/start').length, 0);
+    assert.equal(await tv.page.locator('[data-focus="retry-play"]').count(), 0, "Apple's row has no Try again button");
     preference.release();
-    await tv.eventually(async () => await tv.page.locator('[data-focus="retry-play"]').getAttribute('aria-disabled') === 'false', 'deferred playback remains retryable after confirmation');
-    await tv.page.locator('[data-focus="retry-play"]').click();
+    const primary = tv.page.locator('[data-focus="next-episode"]');
+    await tv.eventually(async () => await primary.getAttribute('aria-disabled') === 'false', 'Play is live again after confirmation');
+    await primary.click();
     await prepare(tv);
     assert.equal(tv.fake.requests.filter(request => request.path === '/playback/start').length, 1);
 });
@@ -137,15 +138,19 @@ preplay("switching episodes keeps a failed shared subtitle save blocked until co
     tv.fake.script('/subtitle-prefs/series%3As1', { status: 500 });
     await tv.page.locator('[data-focus="subtitles"]').click();
     await tv.page.locator('[data-focus="subtitle:off"]').click();
-    await tv.page.locator('[data-focus="retry-subtitle-preference"]').waitFor();
+    const failure = tv.page.getByText('Subtitle preference could not be confirmed.');
+    await failure.waitFor();
+    assert.equal(await tv.page.locator('[data-focus="retry-subtitle-preference"]').count(), 0, "Apple's row has no preference-check button");
     await tv.page.locator('[data-focus="episode:s1e12"]').focus();
     await tv.page.getByRole('button', { name: /Play S1:E2|Resume S1:E2/ }).waitFor();
-    assert.equal(await tv.page.locator('[data-focus="next-episode"]').getAttribute('aria-disabled'), 'true');
-    await tv.page.locator('[data-focus="next-episode"]').evaluate(node => { if (node instanceof HTMLElement) node.click(); });
+    assert.equal(await tv.page.locator('[data-focus="next-episode"]').getAttribute('aria-disabled'), 'false', 'a failed save leaves Play live');
+    const saves = (): number => tv.fake.requests.filter(request => request.method === 'PUT' && request.path === '/subtitle-prefs/series%3As1').length;
+    const sent = saves();
+    await tv.page.locator('[data-focus="next-episode"]').click();
     await tv.jump(100);
-    assert.equal(tv.fake.requests.filter(request => request.path === '/playback/start').length, 0);
-    await tv.page.locator('[data-focus="retry-subtitle-preference"]').click();
-    await tv.eventually(async () => await tv.page.locator('[data-focus="next-episode"]').getAttribute('aria-disabled') === 'false', 'shared preference confirmed and refreshed');
+    assert.equal(tv.fake.requests.filter(request => request.path === '/playback/start').length, 0, 'Play re-sends the unconfirmed save instead of playing');
+    await tv.eventually(async () => saves() === sent + 1, 'Play re-sent the shared save');
+    await failure.waitFor({ state: 'hidden' });
 });
 
 preplay("a confirmed series preference refresh clears other episodes' stale track intents but retains versions", async (tv, catalog) => {
@@ -394,18 +399,15 @@ for (const phase of ["catalog", "watch"] as const) {
     });
 }
 
-preplay("direct episode malformed watch offers Retry for the same target without an information page", async (tv, catalog, playback) => {
+preplay("direct episode malformed watch plays the same target from its cached position without an information page", async (tv, catalog, playback) => {
     catalog.fileIds.set("episode:s1e12", "42");
     playback.items.set("episode:s1e12", ["42"]);
     await series(tv);
     tv.fake.script("/watch/episode%3As1e12?file_id=42", { status: 200, body: { content_id: "episode:s1e12", type: "episode", versions: [] } });
     await tv.page.locator('.details-episodes [data-focus="episode:s1e12"]').click();
-    const retry = tv.page.getByRole("button", { name: "Try again", exact: true });
-    await retry.waitFor();
-    assert.equal(starts(tv).length, 0);
-    assert.equal(await tv.page.locator('[data-view="item:episode:s1e12"]').count(), 0);
-    await retry.click();
     await prepare(tv);
+    assert.equal(await tv.page.getByRole("button", { name: "Try again", exact: true }).count(), 0);
+    assert.equal(await tv.page.locator('[data-view="item:episode:s1e12"]').count(), 0);
     assert.equal(starts(tv).length, 1);
     assert.equal(starts(tv)[0]?.body?.file_id, "42");
 });
@@ -414,6 +416,8 @@ preplay("series Resume and Start Over keep the series line when the episode item
     const path = "/catalog/items/episode%3As1e11?image_size=large";
     catalog.fileIds.set("episode:s1e11", "42");
     catalog.progress.set("episode:s1e11", 630);
+    // The fake player stops within seconds, under the 30 s resume floor; keep 630 so Start Over returns.
+    catalog.persistStops = false;
     playback.items.set("episode:s1e11", ["42"]);
     const reply = catalog.route("GET", path, "p-owner");
     assert.ok(reply?.status === 200 && reply.body !== undefined && typeof reply.body === "object");
@@ -578,7 +582,9 @@ for (const reduced of [false, true]) {
         const held = tv.fake.hold(WATCH, true);
         await tv.page.locator('[data-focus="resume"]').focus();
         await tv.page.keyboard.press("Enter");
-        await tv.page.getByRole("status").filter({ hasText: "Checking resume position" }).waitFor();
+        await tv.eventually(async () => tv.fake.requests.some(request => request.path === WATCH), "resume lookup started");
+        assert.equal(await tv.page.getByRole("status").filter({ hasText: "Checking resume position" }).count(), 0, "Apple shows no preparing status");
+        assert.equal(await tv.focused(), "resume", "Resume stays focused while the lookup runs");
         await tv.page.keyboard.press("Enter");
         await tv.page.locator('[data-focus="version"]').click();
         await tv.page.locator('[data-focus="version:43"]').click();
@@ -681,7 +687,7 @@ preplay("Resume remains usable while the playback-return Details refresh is pend
     const fresh = tv.fake.hold(WATCH, true);
     await tv.page.locator('[data-focus="resume"]').click();
     try {
-        await tv.page.getByRole("status").filter({ hasText: "Checking resume position" }).waitFor({ timeout: 1000 });
+        await tv.eventually(async () => tv.fake.requests.some(request => request.path === WATCH), "resume lookup started");
         fresh.release();
         await prepare(tv);
         assert.equal(starts(tv).length, 2);
@@ -736,17 +742,13 @@ preplay("Back during a pending watch read prevents every start, including its la
     assert.equal(await tv.page.locator(".player").count(), 0);
 });
 
-preplay("malformed watch offers a reachable retry without fabricating playback", async (tv, catalog) => {
+preplay("malformed watch plays the cached position with no Try again button", async (tv) => {
     tv.fake.script(WATCH, { status: 200, body: { content_id: "movie:m0001", type: "movie", versions: [] } });
     await tv.page.locator('[data-focus="resume"]').click();
-    await tv.page.getByRole("button", { name: "Try again", exact: true }).waitFor();
-    assert.equal(starts(tv).length, 0);
-    await tv.page.locator('[data-focus="retry-play"]').focus();
-    catalog.progress.set("movie:m0001", 1300);
-    await tv.page.keyboard.press("Enter");
     await prepare(tv);
+    assert.equal(await tv.page.locator('[data-focus="retry-play"]').count(), 0);
     assert.equal(starts(tv).length, 1);
-    assert.equal(starts(tv)[0]?.body?.start_position, 1300);
+    assert.equal(starts(tv)[0]?.body?.start_position, 1200.5);
 });
 
 preplay("bounded unavailable watch uses cached progress once and ignores a late success", async (tv) => {
@@ -812,14 +814,11 @@ for (const reduced of [false, true]) {
     }, true, reduced);
 }
 
-preplay("missing watch duration shows Retry without a start and a valid retry retains the end margin", async (tv, catalog) => {
+preplay("missing watch duration is unavailable, so the cached position plays and never the near-end one", async (tv, catalog) => {
     catalog.progress.set("movie:m0001", 5398);
     tv.fake.script(WATCH, { status: 200, body: { content_id: "movie:m0001", type: "movie", versions: [{ file_id: "42" }], user_data: { played: false, position_seconds: 5398 } } });
     await tv.page.locator('[data-focus="resume"]').click();
-    await tv.page.getByRole("button", { name: "Try again", exact: true }).waitFor();
-    assert.equal(starts(tv).length, 0);
-    await tv.page.locator('[data-focus="retry-play"]').click();
     await prepare(tv);
     assert.equal(starts(tv).length, 1);
-    assert.equal(starts(tv)[0]?.body?.start_position, 0);
+    assert.equal(starts(tv)[0]?.body?.start_position, 1200.5);
 });

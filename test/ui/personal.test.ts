@@ -798,7 +798,9 @@ for (const source of ["watchlist", "favorites"]) test(`integrated Details remove
         await remove.click();
         if (source === "favorites") await tv.page.locator('[data-focus="more"]').click();
         await tv.eventually(async () => catalog.mutations.length === 1, "Details removal committed");
-        assert.equal(await tv.page.locator(`[data-focus="${source}"]`).getAttribute("aria-disabled"), "true");
+        // Apple's Watchlist circle never disables; its icon shows the requested state while the change is in flight.
+        if (source === "watchlist") assert.equal(await tv.page.locator('[data-focus="watchlist"]').getAttribute("aria-pressed"), "false");
+        else assert.equal(await tv.page.locator('[data-focus="favorites"]').getAttribute("aria-disabled"), "true");
         held.release();
         await tv.page.getByRole("button", { name: source === "favorites" ? "Add to Favorites" : "Add to watchlist", exact: true }).waitFor();
         if (source === "favorites") await tv.remote(10009);

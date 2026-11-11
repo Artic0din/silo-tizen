@@ -2159,7 +2159,8 @@ browseTest("personal writes require confirmed state and discard late replies aft
     const held = tv.fake.hold("/watchlist/movie%3Am0001", true);
     await tv.remote(BACK);
     await tv.page.getByRole("button", { name: "Add to watchlist", exact: true }).click();
-    await shows(tv, "Updating watchlist…");
+    // Apple's Watchlist keeps its label; the filled icon shows the requested state while it saves.
+    await tv.eventually(async () => await tv.page.locator('[data-focus="watchlist"]').getAttribute("aria-pressed") === "true", "watchlist shows the requested state");
     await tv.page.evaluate(() => window.browseHarness.clearProfile());
     held.release();
     await tv.jump(30000);
@@ -2307,10 +2308,12 @@ for (const kind of ["favorites", "watchlist"]) {
         held.release();
         await showing(tv, "item:movie:m0001");
         if (kind === "favorites") await detailsMore(tv);
-        await tv.eventually(async () => await tv.page.getByRole("button", { name: `Retry ${kind}`, exact: true }).count() === 1, "cancelled action becomes visibly retryable");
-        assert.equal(await tv.page.locator(`[data-focus="${kind}"]`).getAttribute("aria-disabled"), "false");
+        // Apple's Watchlist circle keeps its label and never disables; its failure note marks the cancelled write.
+        const retryable = kind === "watchlist" ? tv.page.getByText("Could not update watchlist.") : tv.page.getByRole("button", { name: `Retry ${kind}`, exact: true });
+        await tv.eventually(async () => await retryable.count() === 1, "cancelled action becomes visibly retryable");
+        assert.equal(await tv.page.locator(`[data-focus="${kind}"]`).getAttribute("aria-disabled"), kind === "watchlist" ? null : "false");
         assert.equal(tv.fake.requests.filter(request => request.path === `${path}/membership`).length, 1);
-        await tv.page.getByRole("button", { name: `Retry ${kind}`, exact: true }).click();
+        await tv.page.locator(`[data-focus="${kind}"]`).click();
         if (kind === "favorites") await detailsMore(tv);
         await tv.page.getByRole("button", { name: kind === "favorites" ? "Remove from Favorites" : "Remove from watchlist", exact: true }).waitFor();
         assert.equal(tv.fake.requests.filter(request => request.path === `${path}/membership`).length, 2);
@@ -2405,7 +2408,8 @@ browseTest("personal failure never repeats a write automatically and explicit re
     await shows(tv, "Could not update watchlist.");
     await tv.jump(30000);
     assert.equal(catalog.mutations.length, 1);
-    await tv.page.getByRole("button", { name: "Retry watchlist", exact: true }).click();
+    assert.equal(await tv.page.locator('[data-focus="watchlist"]').innerText(), "Watchlist");
+    await tv.page.locator('[data-focus="watchlist"]').click();
     await tv.page.getByRole("button", { name: "Remove from watchlist", exact: true }).waitFor();
     assert.equal(catalog.mutations.length, 2);
     await detailsMore(tv);
@@ -3629,7 +3633,7 @@ browseTest("details hand the player the file and resume point; returning restore
     await activateDetails(tv);
     await showing(tv, "item:movie:m0001");
     assert.equal(await tv.focused(), "resume");
-    await shows(tv, "Resume from 20:00");
+    await shows(tv, "Resume 20:00");
     await press(tv, "Enter");
     await tv.eventually(async () => (await tv.page.evaluate(() => window.browseHarness.plays.length)) === 1, "fresh Resume handoff");
     assert.deepEqual(await tv.page.evaluate(() => window.browseHarness.plays), [
@@ -3643,7 +3647,7 @@ browseTest("details hand the player the file and resume point; returning restore
 
     catalog.progress.set("movie:m0001", 1300);
     await tv.page.evaluate(() => window.browseHarness.resume());
-    await shows(tv, "Resume from 21:40");
+    await shows(tv, "Resume 21:40");
     assert.equal(await tv.focused(), "resume", "focus returns to the button that started playback");
     await press(tv, "ArrowRight", "Enter");
     const fromStart = (await tv.page.evaluate(() => window.browseHarness.plays))[1];

@@ -525,7 +525,7 @@ calendarTest("Calendar metadata-only and missing targets retain safe Details and
     catalog.failNext("/catalog/items/movie%3Am0002", { status: 200, body: { ...fixture("get_catalog_item_ok"), content_id: "movie:m0002", versions: [] } });
     await tv.page.locator('.calendar-event[data-content-id="movie:m0002"]').first().focus(); await tv.page.keyboard.press("Enter");
     await tv.page.getByText("This title has no file this TV can play.").waitFor();
-    assert.equal(await tv.page.locator('[data-focus="play"]').count(), 0);
+    assert.equal(await tv.page.locator('[data-focus="play"]').getAttribute("aria-disabled"), "true", "Play stays in the row, disabled");
     await tv.remote(10009); await ready(tv, 33);
     catalog.removed.add("movie:m0003");
     await tv.page.locator('.calendar-event[data-content-id="movie:m0003"]').focus(); await tv.page.keyboard.press("Enter");

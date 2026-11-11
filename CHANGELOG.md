@@ -50,6 +50,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Who's watching now matches Apple TV: the tile says Add, the remembered profile reads TV user, a focused name no longer shifts the picker, the lock badge draws its padlock, the focus ring sits behind the KIDS and lock badges, and Change account shows Apple's two-person icon instead of a server stack. Sign out on Who's watching, in Settings and in Settings › Accounts now asks in Apple TV's centred confirmation over the screen, with Cancel focused, instead of a full page. The remember prompt is now a centred alert over Who's watching that asks "Open <name> automatically?" with Ask Every Time or Remember, and an emoji avatar now shows in the top bar and Settings instead of the initial.
 - Title, season, box set, audiobook and Explore all pages that fail to load now show Apple TV's error screen: a warning icon, the headline and message, and Try Again. A missing or blocked title offers Go Back first with Try Again below it, and the remote's Back still leaves, so the extra Back button and the title above a failed Explore all page are gone.
 - The Home row headings, such as Continue Watching, now match Apple TV's text size, letter spacing and play icon size and spacing.
 - The Home hero's meta line, synopsis, air date and cast line, and badges now match Apple TV's text size, spacing and line width: the synopsis has Apple's taller line spacing and wraps at the same word, and the badges are Apple's size.

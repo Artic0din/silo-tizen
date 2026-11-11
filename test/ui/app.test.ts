@@ -728,6 +728,73 @@ appTest("the top bar shows a preset's flat PNG when the server's avatar URL is a
     assert.equal(new URL(source).searchParams.get("backgroundType"), null);
 });
 
+appTest("an emoji avatar shows in the top bar, the profile menu and Settings instead of the initial", async tv => {
+    const items = (tv.fake.profiles.items as Record<string, unknown>[]).map(item => item.id === "p-owner" ? { ...item, avatar: "\u{1F98A}", avatar_url: undefined } : item);
+    tv.fake.profiles = { ...tv.fake.profiles, items };
+    await signIn(tv);
+    const avatar = tv.page.locator('[data-focus="profiles"] .navigation-avatar');
+    assert.equal(await avatar.locator(".navigation-avatar-fallback").textContent(), "\u{1F98A}");
+    assert.equal(await avatar.locator(".navigation-avatar-fallback").evaluate(node => getComputedStyle(node).fontSize), "26.1px", "ProfileAvatarView draws text at 45% of the 58 px avatar");
+    await tv.page.locator('[data-focus="profiles"]').click();
+    assert.equal(await tv.page.locator(".skyline-profile-header .navigation-avatar-fallback").textContent(), "\u{1F98A}");
+    assert.equal(await tv.focused(), "switch-profile", "opening the menu keeps focus on its first row");
+});
+
+appTest("a 200-character server name keeps every sign-out dialog's buttons on screen and focusable", async tv => {
+    await signIn(tv);
+    // One unbroken word: the worst case for wrapping.
+    const serverName = "Livingroommedialibrary".repeat(10).slice(0, 200);
+    await tv.page.evaluate(name => window.appHarness.storage.setItem("silo.native.serverBranding.v1", JSON.stringify({ "https://silo.example.test": { serverName: name } })), serverName);
+    const assertReachable = async (where: string): Promise<void> => {
+        const dialog = tv.page.getByRole("alertdialog").filter({ hasText: serverName.slice(0, 40) });
+        await dialog.waitFor();
+        const placed = await dialog.evaluate(node => {
+            const inside = (box: DOMRect, frame: { left: number; top: number; right: number; bottom: number }): boolean =>
+                box.width > 0 && box.height > 0 && box.left >= frame.left - 0.5 && box.right <= frame.right + 0.5 && box.top >= frame.top - 0.5 && box.bottom <= frame.bottom + 0.5;
+            const viewport = { left: 0, top: 0, right: innerWidth, bottom: innerHeight };
+            const card = node.getBoundingClientRect();
+            const title = node.querySelector<HTMLElement>("h2");
+            const message = node.querySelector<HTMLElement>("p");
+            return {
+                card: inside(card, viewport),
+                // Two 46 px lines at most, with the rest elided; the message is never cut.
+                titleClamped: title !== null && title.scrollHeight > title.clientHeight && Math.round(title.getBoundingClientRect().height) <= 92 && getComputedStyle(title).webkitLineClamp === "2",
+                message: message !== null && inside(message.getBoundingClientRect(), viewport) && inside(message.getBoundingClientRect(), card) && message.scrollHeight <= message.clientHeight,
+                buttons: [...node.querySelectorAll("button")].map(button => {
+                    const box = button.getBoundingClientRect();
+                    return inside(box, viewport) && inside(box, card) && document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2)?.closest("button") === button;
+                }),
+            };
+        });
+        assert.deepEqual(placed, { card: true, titleClamped: true, message: true, buttons: [true, true] }, `${where}: the title stops at two lines, and the message, card and both buttons stay inside the screen`);
+        assert.match(await tv.focused() ?? "", /^cancel/, `${where}: Cancel takes focus`);
+        await tv.page.keyboard.press("ArrowRight");
+        assert.match(await tv.focused() ?? "", /^confirm/, `${where}: the remote reaches the destructive button`);
+        await tv.page.keyboard.press("ArrowLeft");
+        assert.match(await tv.focused() ?? "", /^cancel/, `${where}: and comes back to Cancel`);
+        await tv.remote(10009);
+        await tv.eventually(async () => await tv.page.getByRole("alertdialog").count() === 0, `${where}: Back closes the dialog`);
+    };
+
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.locator('[data-focus="signout"]').click();
+    await assertReachable("top bar");
+
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.locator('[data-focus="switch-profile"]').click();
+    await tv.page.locator('[data-screen="profiles"]').waitFor();
+    await tv.page.locator('[data-focus="signout"]').click();
+    await assertReachable("Who's watching");
+    await tv.page.locator('[data-focus="profile:p-owner"]').click();
+    await tv.page.locator('[data-view="home"]').waitFor();
+
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.locator('[data-focus="settings"]').click();
+    await tv.page.locator('[data-focus="settings-signout"]').click();
+    await assertReachable("Settings");
+    assert.equal(tv.fake.revokedSessions.size, 0, "nothing signed out");
+});
+
 appTest("Sign Out confirmation traps focus and cancellation preserves the session", async tv => {
     await signIn(tv);
     await tv.page.evaluate(() => window.appHarness.storage.setItem("silo.native.serverBranding.v1", JSON.stringify({ "https://silo.example.test": { serverName: "Living room library" } })));
@@ -744,9 +811,10 @@ appTest("Sign Out confirmation traps focus and cancellation preserves the sessio
     const dialogGeometry = await tv.page.getByRole("alertdialog", { name: "Sign Out" }).evaluate(node => {
         const style = getComputedStyle(node);
         const buttons = [...node.querySelectorAll("button")].map(button => button.getBoundingClientRect());
-        return { width: style.width, topPadding: style.paddingTop, sidePadding: style.paddingLeft, titleSize: getComputedStyle(node.querySelector("h2") as HTMLElement).fontSize, row: Math.abs((buttons[0]?.y ?? 0) - (buttons[1]?.y ?? 1)) < 1 };
+        return { width: `${Math.round(node.getBoundingClientRect().width)}px`, topPadding: style.paddingTop, sidePadding: style.paddingLeft, titleSize: getComputedStyle(node.querySelector("h2") as HTMLElement).fontSize, row: Math.abs((buttons[0]?.y ?? 0) - (buttons[1]?.y ?? 1)) < 1 };
     });
-    assert.deepEqual(dialogGeometry, { width: "632px", topPadding: "42px", sidePadding: "48px", titleSize: "38px", row: true });
+    // The long sign-out message wraps at 820, so the shared TVSettingsConfirmationOverlay card is 916 wide, as on Apple TV.
+    assert.deepEqual(dialogGeometry, { width: "916px", topPadding: "42px", sidePadding: "48px", titleSize: "38px", row: true });
     assert.equal(await tv.page.locator(".browse-nav").evaluate(node => (node as HTMLElement).inert), true);
     assert.equal(await tv.page.locator(".browse-nav").getAttribute("aria-hidden"), "true");
     const destination = tv.page.locator('.browse-nav [data-focus="movies"]');
@@ -856,7 +924,8 @@ appTest("Remove Server confirmation matches the settings alert and dismissal ret
             title: node.querySelector("h2")?.textContent,
             message: node.querySelector("p")?.textContent,
             confirmation: node.getAttribute("data-confirmation"),
-            width: style.width,
+            // The card's outer box: TVSettingsConfirmationOverlay sizes to the 536 px button row plus 2 × 48 padding.
+            width: `${Math.round(bounds.width)}px`,
             topPadding: style.paddingTop,
             sidePadding: style.paddingLeft,
             titleSize: getComputedStyle(node.querySelector("h2") as HTMLElement).fontSize,
@@ -1811,7 +1880,7 @@ appTest("a profile-proof refusal stops playback and leaves the PIN successor int
     await signIn(tv);
     await tv.page.locator('[data-focus="profiles"]').click();
     await tv.page.locator('[data-focus="switch-profile"]').click();
-    await tv.page.getByRole("button", { name: "Kid, PIN protected", exact: true }).waitFor();
+    await tv.page.getByRole("button", { name: "Kid, PIN protected, Kids profile", exact: true }).waitFor();
     await tv.page.locator('[data-focus="profile:p-kid"]').click();
     await pressPin(tv.page, "2468");
     await tv.page.locator('[data-view="home"] [data-focus="movie:k1"]').waitFor();

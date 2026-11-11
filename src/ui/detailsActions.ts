@@ -17,12 +17,12 @@ const ICONS: Readonly<Record<string, string>> = {
 };
 
 export function detailAction(item: FocusItem): FocusItem {
-    const startOver = item.key === "start-over-episode" || item.key === "play" && item.element.textContent === "Play from start";
+    const startOver = item.key === "start-over-episode" || item.key === "play" && item.element.textContent === "Start Over";
     const path = startOver ? "M5 4V20M19 4 7 12 19 20Z" : ICONS[item.key];
     if (path === undefined) return item;
     const button = item.element;
     const accessibleLabel = startOver ? "Start Over" : button.textContent ?? "";
-    const label = item.key === "version" ? "Versions" : item.key === "audio" ? "Audio Tracks" : item.key === "subtitles" ? "Subtitles" : accessibleLabel;
+    const label = item.key === "version" ? "Versions" : item.key === "audio" ? "Audio Tracks" : item.key === "subtitles" ? "Subtitles" : item.key === "watchlist" ? "Watchlist" : accessibleLabel;
     button.textContent = "";
     button.setAttribute("aria-label", accessibleLabel);
     button.classList.add("details-action", !startOver && (item.key === "play" || item.key === "resume" || item.key === "next-episode") ? "details-play" : "details-circle");

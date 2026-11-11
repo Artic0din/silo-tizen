@@ -80,6 +80,8 @@ export interface SeriesContext {
 
 /** Within this many seconds of the end, a stored position is treated as finished. */
 export const RESUME_END_MARGIN_SECONDS = 5;
+/** PlaybackResumePoint.position: a position of 30 s or less plays from the start. */
+export const RESUME_MIN_SECONDS = 30;
 
 /** Movies, series, seasons, episodes and audiobooks; other media on Home (podcasts, anything new) is left out. */
 export function destinationOf(card: Card): Destination | undefined {
@@ -181,7 +183,7 @@ export function requestPosterUrl(path: string | undefined): string | undefined {
 }
 
 export function resumeSeconds(positionSeconds: number | undefined, durationSeconds: number | undefined): number | undefined {
-    if (positionSeconds === undefined || positionSeconds <= 0) {
+    if (positionSeconds === undefined || positionSeconds <= RESUME_MIN_SECONDS) {
         return undefined;
     }
     if (durationSeconds !== undefined && durationSeconds > 0 && positionSeconds >= durationSeconds - RESUME_END_MARGIN_SECONDS) {

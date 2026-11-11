@@ -558,7 +558,7 @@ test("three-second watch bound uses confirmed cached progress once and ignores a
     } finally { r.state.stop(); }
 });
 
-test("unavailable watch falls back; auth, not-found, protocol and malformed answers show retry without a handoff", async () => {
+test("every failed watch read falls back to the cached position and plays, as DetailResumeState does", async () => {
     for (const status of [501, 503, 401, 403, 404, 409, 422, 200]) {
         const r = await rig();
         try {
@@ -566,8 +566,8 @@ test("unavailable watch falls back; auth, not-found, protocol and malformed answ
             r.h.fake.script(WATCH, reply, reply, reply);
             r.state.preparePlay(r.request, r.h.clock, r.handoff);
             await r.h.clock.advance(3000);
-            if (status === 501 || status === 503) assert.deepEqual(r.plays, [r.request]);
-            else { assert.deepEqual(r.plays, []); assert.deepEqual(r.state.failedPlay, r.request); }
+            assert.deepEqual(r.plays, [r.request], `status ${status}`);
+            assert.equal(r.state.failedPlay, undefined);
         } finally { r.state.stop(); }
     }
 });
@@ -621,17 +621,17 @@ test("fresh watch requires a nonnegative integer duration and accepts zero as un
     assert.deepEqual(decodeResumePosition(raw(0), ID, "42"), { position: 5398, duration: 0 });
 });
 
-test("missing watch duration refuses near-end progress until a valid explicit retry", async () => {
+test("a malformed watch answer plays the cached position; a valid one enforces the end margin", async () => {
     const r = await rig();
     try {
         r.h.fake.script(WATCH, { status: 200, body: { content_id: ID, type: "movie", versions: [{ file_id: "42" }], user_data: { played: false, position_seconds: 5398 } } });
         r.state.preparePlay(r.request, r.h.clock, r.handoff);
         await r.h.clock.advance(3000);
-        assert.deepEqual(r.plays, [], "malformed duration cannot bypass the end margin or use cached fallback");
-        assert.deepEqual(r.state.failedPlay, r.request);
+        assert.deepEqual(r.plays, [r.request], "a malformed answer is unavailable, so the page snapshot plays");
+        assert.equal(r.state.failedPlay, undefined);
         r.catalog.progress.set(ID, 5398);
         r.state.preparePlay(r.request, r.h.clock, r.handoff);
         await settle();
-        assert.deepEqual(r.plays, [{ ...r.request, startSeconds: 0 }], "valid duration enforces the five-second end margin");
+        assert.deepEqual(r.plays, [r.request, { ...r.request, startSeconds: 0 }], "valid duration enforces the five-second end margin");
     } finally { r.state.stop(); }
 });

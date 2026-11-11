@@ -12,7 +12,10 @@ import { remoteKey } from "./keys.ts";
 import { el } from "./screen.ts";
 
 /** What the opener knows about the card. A field it does not know is read from the item before the menu opens. */
-export type MenuCard = Pick<Card, "id" | "title" | "type"> & Partial<Pick<Card, "played" | "favorite" | "watchlist" | "positionSeconds" | "seriesId">>;
+export type MenuCard = Pick<Card, "id" | "title" | "type"> & Partial<Pick<Card, "played" | "favorite" | "watchlist" | "positionSeconds" | "seriesId">> & {
+    /** A Details season pill, whose menu is Apple's season-only Mark Season Watched or Unwatched. */
+    readonly seasonPill?: boolean;
+};
 
 export interface CardMenuOptions {
     /** Continue Watching's Play or Resume row (MediaRow.showsPlayInContextMenu). */
@@ -202,6 +205,13 @@ export class CardActions {
 
     private menuRows(card: MenuCard, options: CardMenuOptions, source: MenuCard): Row[] {
         const rows: Row[] = [];
+        // TVSeriesDetailView.swift:632-643: a season pill's menu holds only Mark Season Watched or Unwatched.
+        if (card.seasonPill === true) {
+            if (card.played === undefined) return rows;
+            const watched = card.played;
+            rows.push({ change: true, key: "watched", label: watched ? "Mark Season Unwatched" : "Mark Season Watched", icon: watched ? "circle" : "checkmark.circle", run: () => this.send(card.id, detailOperations.setPersonal("watched", card.id, !watched), menu => ({ ...menu, played: !watched }), source) });
+            return rows;
+        }
         const play = options.play;
         if (play !== undefined) rows.push({ key: "card-play", label: (card.positionSeconds ?? 0) > 0 ? "Resume" : "Play", icon: "play.fill", run: play });
         // MediaCard's contextDetail slot, after Play.

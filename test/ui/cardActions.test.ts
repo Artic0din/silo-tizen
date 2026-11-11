@@ -495,7 +495,8 @@ for (const surface of ["library-shelf", "library-grid", "collection", "search", 
         } else {
             // A card the opener knows no list membership for reads its item once, then opens complete.
             assert.ok(read);
-            if (surface === "season") assert.deepEqual(await rowLabels(tv), ["Mark as Unwatched"], "a watched season without list membership shows only watched");
+            // TVSeriesDetailView.swift:632-643: the season pill's menu is Mark Season Watched or Unwatched alone.
+            if (surface === "season") assert.deepEqual(await rowLabels(tv), ["Mark Season Unwatched"]);
             else if (surface === "episode") assert.deepEqual(await rowLabels(tv), ["Episode information", "Mark as Unwatched", "Add to Favorites", "Add to Watchlist"], "an episode rail keeps its only route to episode Details");
             else assert.equal(await menu(tv).getByRole("menuitem").count(), 3);
         }

@@ -25,7 +25,7 @@ class HomeMenuFake extends FakeDetails {
         home.sections = [
             { id: "continue_watching", title: "Continue Watching", items: ["movie:m0001", "episode:s1e12"] },
             { id: "next_up", title: "Next Up", items: ["episode:s2e11"] },
-            { id: "recently_added", title: "Recently Added", items: ["movie:m0002", "movie:m0004", "series:s2"] },
+            { id: "recently_added", title: "Recently Added", items: ["movie:m0002", "movie:m0004", "series:s2", ...Array.from({ length: 8 }, (_, index) => `movie:m${String(index + 5).padStart(4, "0")}`)] },
             { id: "audiobooks", sectionType: "recently_added_audiobooks", title: "Recently Added Audiobooks", items: ["audiobook:tide"] },
         ];
     }
@@ -211,6 +211,7 @@ for (const failure of ["watched", "remove", "favorites"] as const) test(`a faile
             if (failure === "remove") catalog.dismissalFailure = problem(500, "internal_error", "Failed to save dismissal");
             else catalog.mutationFailure = problem(500, "internal_error", "Failed");
             await hold(tv, "continue_watching", "movie:m0001");
+            const reads = tv.fake.requests.filter(request => request.path.startsWith("/home/sections?")).length;
             await menu(tv).getByRole("menuitem", { name: failure === "watched" ? "Mark as Watched" : failure === "remove" ? "Remove from Continue Watching" : "Add to Favorites" }).click();
             const alert = tv.page.getByRole("alertdialog");
             await alert.waitFor();
@@ -225,6 +226,8 @@ for (const failure of ["watched", "remove", "favorites"] as const) test(`a faile
             if (close === "enter") await tv.page.keyboard.press("Enter");
             else await tv.remote(10009);
             assert.equal(await alert.count(), 0);
+            // The change may have landed before its answer was lost, so Home reads again by the time the alert closes.
+            await jumpUntil(tv, 250, async () => tv.fake.requests.filter(request => request.path.startsWith("/home/sections?")).length > reads, "Home read after an unconfirmed change");
             assert.equal(await tv.focused(), "movie:m0001");
             assert.equal(await card(tv, "continue_watching", "movie:m0001").count(), 1, "a failed change keeps the card");
         }
@@ -276,6 +279,48 @@ test("Resume in the Continue Watching menu starts playback from the row", async 
         await menu(tv).getByRole("menuitem", { name: "Resume" }).click();
         assert.equal(await menu(tv).count(), 0);
         await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.plays.length === 1), "Resume hands off to playback");
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
+
+for (const reducedMotion of ["no-preference", "reduce"] as const) test(`closing the menu in ${reducedMotion} restores the shelf scroll, and a late Home answer cannot reclaim focus`, async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        await tv.page.emulateMedia({ reducedMotion });
+        await start(tv);
+        const far = card(tv, "recently_added", "movie:m0011");
+        await far.focus(); await tv.jump(300);
+        const position = () => tv.page.locator(".browse").evaluate(node => ({ top: node.querySelector(".skyline-content")?.scrollTop, left: node.querySelector('[data-section="recently_added"] .browse-row')?.scrollLeft }));
+        const saved = await position();
+        assert.ok((saved.left ?? 0) > 0, "the shelf is scrolled");
+        const held = tv.fake.hold("/home/sections", true);
+        await hold(tv, "recently_added", "movie:m0011");
+        await menu(tv).getByRole("menuitem", { name: "Add to Favorites" }).click();
+        await tv.jump(300);
+        assert.equal(await tv.focused(), "movie:m0011");
+        assert.deepEqual(await position(), saved);
+        await tv.page.locator('[data-focus="search"]').focus();
+        held.release();
+        await jumpUntil(tv, 250, async () => tv.fake.requests.filter(request => request.path.startsWith("/home/sections?")).length > 1, "Home read again");
+        await tv.jump(300);
+        assert.equal(await tv.focused(), "search", "the late Home answer cannot reclaim card focus");
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
+
+test("an open menu re-enables its state rows when the card's change finishes", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        await start(tv);
+        const answer = tv.fake.hold("/favorites/movie%3Am0002");
+        await hold(tv, "recently_added", "movie:m0002");
+        await menu(tv).getByRole("menuitem", { name: "Add to Favorites" }).click();
+        await hold(tv, "recently_added", "movie:m0002");
+        const rowStates = () => menu(tv).getByRole("menuitem").evaluateAll(nodes => nodes.map(node => node.getAttribute("aria-disabled")));
+        assert.deepEqual(await rowStates(), ["true", "true", "true"], "MediaStateMenuItems.isUpdating disables the state rows");
+        answer.release();
+        await jumpUntil(tv, 100, async () => (await rowStates()).every(value => value === null), "rows enabled again");
+        assert.equal(await menu(tv).count(), 1);
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }
 });

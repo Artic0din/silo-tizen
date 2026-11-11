@@ -314,7 +314,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         visitedDetails.delete(change.card.id);
         cache.invalidate();
         for (const entry of new Set([...roots.values(), ...stack])) entry.stale = true;
-        if (home.kind !== "home" || home.data === undefined) return;
+        // An unconfirmed change only marks Home stale; closing its alert reads Home again.
+        if (home.kind !== "home" || home.data === undefined || change.kind === "unconfirmed") return;
         if (change.kind === "dismissed" || (change.kind === "watched" && change.value)) {
             home.data = { ...home.data, sections: withoutPlaybackCards(home.data.sections, change.card, change.kind === "dismissed") };
         }
@@ -1419,6 +1420,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     const focus = host.focused();
                     const libraries = pendingHomeLibraries ?? (current.kind === "home" ? current.data?.libraries : undefined) ?? [];
                     current.data = { libraries, sections };
+                    homeMenu.refreshed();
                     homeArtworkAttempt = artworkQuery;
                     shell.update(libraries);
                     presentEnrichment(sections, false);

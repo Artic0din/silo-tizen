@@ -26,7 +26,9 @@ export interface HomeCardMenuRequest {
 
 export type HomeCardChange =
     | { readonly kind: PersonalAction; readonly card: Card; readonly value: boolean }
-    | { readonly kind: "dismissed"; readonly card: Card };
+    | { readonly kind: "dismissed"; readonly card: Card }
+    /** A failed write may still have landed; Home reads again instead of trusting its rows. */
+    | { readonly kind: "unconfirmed"; readonly card: Card };
 
 interface Failure { readonly title: string; readonly message: string }
 
@@ -52,9 +54,7 @@ export function withoutPlaybackCards(sections: readonly HomeSection[], card: Pic
         .filter(section => section.items.length > 0);
 }
 
-type Field = "played" | "favorite" | "inWatchlist";
-/** The value shown while a change is on its way, and the row value it replaced. */
-type Override = { -readonly [K in Field]?: { readonly value: boolean; readonly base: boolean | undefined } };
+type Override = { -readonly [K in "played" | "favorite" | "inWatchlist"]?: boolean };
 
 export class HomeCardMenu {
     private panel: HTMLElement | undefined;
@@ -65,11 +65,13 @@ export class HomeCardMenu {
     private queued: Failure | undefined;
     private items: FocusItem[] = [];
     private pressed = false;
-    /** Apple MediaCardPersonalState: overrides last until the row's server value changes. */
+    /** Apple MediaCardPersonalState: the value shown for a change until Home's rows are read again. */
     private readonly overrides = new Map<string, Override>();
     /** MediaStateMenuItems.isUpdating disables the state rows; Remove has its own guard. */
     private readonly writing = new Set<string>();
     private readonly dismissing = new Set<string>();
+    /** The card the open menu belongs to. */
+    private menuCard: string | undefined;
     private torn = false;
 
     /** Browse's FocusHost replaces its container's children on every render, so the menu and alert sit beside it. */
@@ -98,8 +100,9 @@ export class HomeCardMenu {
 
     open(request: HomeCardMenuRequest): void {
         if (this.active || this.torn) return;
+        this.menuCard = request.card.id;
         const items = this.rows(request);
-        if (items.length === 0) return;
+        if (items.length === 0) { this.menuCard = undefined; return; }
         this.items = items;
         const panel = el("div", "skyline-selector card-menu");
         panel.setAttribute("role", "menu");
@@ -110,6 +113,11 @@ export class HomeCardMenu {
         this.place(panel, request.anchor);
         this.listen(true);
         items[0]?.element.focus({ preventScroll: true });
+    }
+
+    /** Home's rows were read again: server values replace every settled override. */
+    refreshed(): void {
+        for (const id of [...this.overrides.keys()]) if (!this.writing.has(id)) this.overrides.delete(id);
     }
 
     destroy(): void {
@@ -123,32 +131,32 @@ export class HomeCardMenu {
     private rows(request: HomeCardMenuRequest): FocusItem[] {
         const { card } = request;
         const state = this.state(card);
-        const busy = this.writing.has(card.id);
         const items: FocusItem[] = [];
         const play = request.play;
         if (play !== undefined) items.push(this.row("card-play", (card.positionSeconds ?? 0) > 0 ? "Resume" : "Play", "play.fill", () => play()));
         // Home passes its watched handler to every card, square audiobooks included (MediaCard.canSetWatched).
-        items.push(this.row("watched", state.played ? "Mark as Unwatched" : "Mark as Watched", state.played ? "circle" : "checkmark.circle", () => this.write(card, "watched", !state.played), busy));
+        items.push(this.row("watched", state.played ? "Mark as Unwatched" : "Mark as Watched", state.played ? "circle" : "checkmark.circle", () => this.write(card, "watched", !state.played), "state"));
         // Favorites and watchlist need the server's user state for the card (MediaCard.hasPersonalActions).
         if (state.favorite !== undefined && state.inWatchlist !== undefined) {
             const favorite = state.favorite;
             const inWatchlist = state.inWatchlist;
-            items.push(this.row("favorites", favorite ? "Remove from Favorites" : "Add to Favorites", favorite ? "heart.slash" : "heart", () => this.write(card, "favorites", !favorite), busy));
-            items.push(this.row("watchlist", inWatchlist ? "Remove from Watchlist" : "Add to Watchlist", inWatchlist ? "bookmark.slash" : "bookmark", () => this.write(card, "watchlist", !inWatchlist), busy));
+            items.push(this.row("favorites", favorite ? "Remove from Favorites" : "Add to Favorites", favorite ? "heart.slash" : "heart", () => this.write(card, "favorites", !favorite), "state"));
+            items.push(this.row("watchlist", inWatchlist ? "Remove from Watchlist" : "Add to Watchlist", inWatchlist ? "bookmark.slash" : "bookmark", () => this.write(card, "watchlist", !inWatchlist), "state"));
         }
         const dismissal = request.dismissal;
         if (dismissal !== undefined) {
             // HomeDismissal.menuTitle: the label names the list the card leaves.
-            const remove = this.row("remove", dismissal.surface === "next_up" ? "Remove from Next Up" : "Remove from Continue Watching", "xmark.circle", () => this.dismissCard(card, dismissal), this.dismissing.has(card.id));
+            const remove = this.row("remove", dismissal.surface === "next_up" ? "Remove from Next Up" : "Remove from Continue Watching", "xmark.circle", () => this.dismissCard(card, dismissal), "remove");
             remove.element.classList.add("skyline-destructive");
             items.push(remove);
         }
         return items;
     }
 
-    private row(key: string, label: string, icon: string, action: () => void, disabled = false): FocusItem {
+    /** `guard` names the in-flight set that disables the row; it is read live, so a finished change re-enables an open menu. */
+    private row(key: string, label: string, icon: string, action: () => void, guard?: "state" | "remove"): FocusItem {
         const item = actionButton(key, label, () => {
-            if (disabled) return;
+            if (item.element.getAttribute("aria-disabled") === "true") return;
             this.choose();
             action();
         });
@@ -156,19 +164,25 @@ export class HomeCardMenu {
         item.element.setAttribute("role", "menuitem");
         item.element.replaceChildren(navigationIcon(icon), el("span", "skyline-menu-label", label));
         item.element.dataset.symbol = icon;
-        if (disabled) item.element.setAttribute("aria-disabled", "true");
+        if (guard !== undefined) item.element.dataset.guard = guard;
+        this.guard(item.element);
         return item;
     }
 
+    private guard(element: HTMLElement): void {
+        const id = this.menuCard;
+        const busy = id !== undefined && (element.dataset.guard === "state" ? this.writing.has(id) : element.dataset.guard === "remove" ? this.dismissing.has(id) : false);
+        if (busy) element.setAttribute("aria-disabled", "true");
+        else element.removeAttribute("aria-disabled");
+    }
+
+    private settle(): void {
+        if (this.panel !== undefined) for (const item of this.items) this.guard(item.element);
+    }
+
     private state(card: Card): { played: boolean; favorite: boolean | undefined; inWatchlist: boolean | undefined } {
-        const override = this.overrides.get(card.id);
-        if (override !== undefined && !this.writing.has(card.id)) {
-            // MediaCardPersonalState.reset: a new server value, ours or another device's, replaces the override.
-            for (const field of ["played", "favorite", "inWatchlist"] as const) if (override[field] !== undefined && override[field].base !== card[field]) delete override[field];
-            if (Object.keys(override).length === 0) this.overrides.delete(card.id);
-        }
         const current = this.overrides.get(card.id);
-        return { played: current?.played?.value ?? card.played ?? false, favorite: current?.favorite?.value ?? card.favorite, inWatchlist: current?.inWatchlist?.value ?? card.inWatchlist };
+        return { played: current?.played ?? card.played ?? false, favorite: current?.favorite ?? card.favorite, inWatchlist: current?.inWatchlist ?? card.inWatchlist };
     }
 
     private write(card: Card, kind: PersonalAction, value: boolean): void {
@@ -176,16 +190,19 @@ export class HomeCardMenu {
         const field = kind === "watched" ? "played" : kind === "favorites" ? "favorite" : "inWatchlist";
         const override = this.overrides.get(card.id) ?? {};
         const previous = override[field];
-        override[field] = { value, base: card[field] };
+        override[field] = value;
         this.overrides.set(card.id, override);
         this.writing.add(card.id);
         this.session.call({ ...detailOperations.setPersonal(kind, card.id, value), profileScoped: true, replayAfterRefresh: false }).then(() => {
             this.writing.delete(card.id);
+            this.settle();
             if (!this.torn) this.applied({ kind, card, value });
         }, () => {
             this.writing.delete(card.id);
+            this.settle();
             if (previous === undefined) delete override[field];
             else override[field] = previous;
+            if (!this.torn) this.applied({ kind: "unconfirmed", card });
             this.fail(kind === "watched" ? HOME_FAILURE : PERSONAL_FAILURE);
         });
     }
@@ -195,9 +212,12 @@ export class HomeCardMenu {
         this.dismissing.add(card.id);
         this.session.call({ ...operations.dismissHomeItem(dismissal, card.id), profileScoped: true, replayAfterRefresh: false }).then(() => {
             this.dismissing.delete(card.id);
+            this.settle();
             if (!this.torn) this.applied({ kind: "dismissed", card });
         }, () => {
             this.dismissing.delete(card.id);
+            this.settle();
+            if (!this.torn) this.applied({ kind: "unconfirmed", card });
             this.fail(HOME_FAILURE);
         });
     }
@@ -255,6 +275,7 @@ export class HomeCardMenu {
     private dismiss(): void {
         this.panel?.remove();
         this.panel = undefined;
+        this.menuCard = undefined;
         if (this.alert.length === 0) this.release();
     }
 

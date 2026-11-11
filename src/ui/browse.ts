@@ -1965,7 +1965,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             if (current?.kind === "item" && current.fromRelated === true) {
                 if (shows(start)) { pop(); return; }
                 host.forgetVisit(`item:${destination.id}`);
-                replaceTop(newRoute({ kind: "item", id: destination.id, title: destination.title, ...(destination.seriesContext === undefined ? {} : { seriesContext: destination.seriesContext }), fromRelated: true, data: undefined }));
+                replaceTop(newRoute({ kind: "item", id: destination.id, title: destination.title, ...(destination.seriesContext === undefined ? {} : { seriesContext: destination.seriesContext }), ...(destination.seed === undefined ? {} : { seed: destination.seed }), fromRelated: true, data: undefined }));
                 return;
             }
         }
@@ -1973,7 +1973,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         if (destination.kind === "person") host.forgetVisit(`person:${destination.id}`);
         if (destination.kind === "audiobook") { push(newRoute({ kind: "audiobook", id: destination.id, title: destination.title, data: undefined })); return; }
         push(destination.kind === "item"
-            ? newRoute({ kind: "item", id: destination.id, title: destination.title, ...(destination.seriesContext === undefined ? {} : { seriesContext: destination.seriesContext }), ...(destination.fromRelated === true ? { fromRelated: true } : {}), data: undefined })
+            ? newRoute({ kind: "item", id: destination.id, title: destination.title, ...(destination.seriesContext === undefined ? {} : { seriesContext: destination.seriesContext }), ...(destination.seed === undefined ? {} : { seed: destination.seed }), ...(destination.fromRelated === true ? { fromRelated: true } : {}), data: undefined })
             : destination.kind === "person" ? newRoute({ kind: "person", id: destination.id, title: destination.title, data: undefined, filter: "video", pages: newPages(), pendingIndex: undefined })
             : newRoute({ kind: "season", ...(destination.id === undefined ? {} : { id: destination.id }), ...(destination.episodeId === undefined ? {} : { episodeId: destination.episodeId }), seriesId: destination.seriesId, seasonNumber: destination.seasonNumber, title: destination.title, data: undefined }));
     };

@@ -124,7 +124,7 @@
 .details-editorial .browse-meta { font-size: 24px; line-height: 36px; margin: 0 0 14px; }
 .details-logo { display: block; max-width: 650px; max-height: 160px; object-fit: contain; object-position: left center; }
 .details-editorial .browse-overview { max-width: 1080px; font-size: 26px; line-height: 36px; max-height: 108px; margin-bottom: 14px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
-.details-editorial .browse-overview.has-translation-status { -webkit-line-clamp: 2; max-height: 72px; margin-bottom: 6px; }
+.details-editorial .browse-overview.has-translation-status { -webkit-line-clamp: 2; max-height: 72px; margin-bottom: 3px; }
 .details-editorial .browse-overview.is-translating { opacity: 0.5; }
 .description-translation-status { margin: 0 0 14px; font-size: 21px; line-height: 26px; font-weight: 500; color: var(--silo-secondary); }
 .details-editorial .browse-actions { margin-bottom: 0; }
@@ -648,7 +648,8 @@
 
 /* Apple EpisodeSpoilerBlur.radius is 24. The image grows by that radius on every side (48px) so the blur fringe falls outside the clip, matching SwiftUI blur(radius:opaque: true). */
 .episode-spoiler-blur > .browse-art-image,
-.details-hero .episode-spoiler-blur > .skyline-backdrop {
+.details-hero .episode-spoiler-blur > .skyline-backdrop,
+.details-hero .episode-spoiler-blur > .hero-art-thumbhash {
     filter: blur(24px);
     width: calc(100% + 48px);
     height: calc(100% + 48px);
@@ -1140,14 +1141,16 @@
 .details-editorial .browse-meta { line-height: 29px; }
 .details-hero[data-media-type="series"] .browse-meta { height: 36px; }
 .details-hero[data-media-type="series"] .details-editorial .browse-meta { color: rgb(225,227,228); }
-.details-editorial .browse-overview { font-family: var(--silo-font); font-weight: 400; line-height: 34px; max-height: 102px; color: rgba(255,255,255,.92); }
-.details-hero[data-media-type="series"] .details-editorial .browse-overview { height: 102px; max-height: 102px; }
+/* TVHeroSynopsis: 26 regular at Apple's size times --silo-sf-cap-scale. Measured against the Apple TV capture of The Rookie
+   (1920x1080): a 35.5px line pitch, ink 4px below Inter's line box, and -0.235px tracking put each line's ink within 1px.
+   SwiftUI's lineSpacing sits only between lines; CSS also pads the first and last, so the bottom margins give those 4.5px back
+   (3px for the two-line translated form) and what follows keeps its place. */
+.details-editorial .browse-overview { position: relative; top: 4px; margin-bottom: 9.5px; font-family: var(--silo-font); font-size: calc(26px * var(--silo-sf-cap-scale)); font-weight: 400; line-height: 35.5px; letter-spacing: -0.235px; max-height: 106.5px; color: rgba(255,255,255,.92); }
+.details-hero[data-media-type="series"] .details-editorial .browse-overview { height: 106.5px; max-height: 106.5px; }
 .details-editorial .browse-meta { margin-bottom: 10px; }
-.details-hero[data-media-type="movie"] .browse-overview { margin-bottom: 16px; }
+.details-hero[data-media-type="movie"] .browse-overview { margin-bottom: 11.5px; }
 .details-hero[data-media-type="movie"] .details-director { margin-bottom: 15px; }
 .details-hero[data-media-type="movie"] .details-playback-summary { margin-bottom: 19px; }
-.details-editorial .details-playback-summary strong { font-weight: 600; color: rgba(237,237,237,.5); }
-.details-editorial .details-playback-summary span { color: rgba(255,255,255,.9); }
 .details-editorial .details-play:not(:focus) { background: rgba(255,255,255,.10); border-color: transparent; }
 .details-hero .browse-meta, .details-director { color: rgba(237,237,237,.75); }
 .details-episodes .browse-watched { background: #fff; }
@@ -1167,7 +1170,7 @@
 .details-editorial .browse-meta:not(.box-set-facts) { display: flex; align-items: center; column-gap: 14px; overflow: hidden; white-space: nowrap; }
 .details-hero:not([data-media-type="series"]) .details-editorial .browse-meta:not(.box-set-facts) { height: 33px; }
 .details-editorial .browse-meta:not(.box-set-facts) > .details-rating-badge { margin-right: 0; }
-.details-editorial .browse-meta:not(.box-set-facts) > :not(.details-rating-badge) + :not(.details-rating-badge)::before { content: "·"; margin-right: 14px; font-size: 22px; font-weight: 600; color: rgba(255, 255, 255, 0.45); }
+.details-editorial .browse-meta:not(.box-set-facts) > :not(.details-rating-badge) + :not(.details-rating-badge)::before { content: "·"; margin-right: 14px; font-size: calc(22px * var(--silo-sf-cap-scale)); font-weight: 600; color: rgba(255, 255, 255, 0.45); }
 .details-editorial .details-fact,
 .details-editorial .details-external-rating,
 .details-editorial .details-rating-badge { flex-shrink: 0; }
@@ -1176,11 +1179,15 @@
    which makes this chip 39px and lets the 33px movie/episode row and the 36px
    series row clip its stroke. */
 .details-editorial .details-rating-badge { line-height: 21.19921875px; }
-.details-editorial .details-fact { font-size: 24px; font-weight: 500; color: rgba(255, 255, 255, 0.88); }
+/* Facts, genres and ratings: Apple's 24 times --silo-sf-cap-scale. +0.1px tracking ends The Rookie's line within 1px of the
+   Apple TV capture; SF's wider digits leave "2018" 2px narrower and the middle of the line up to 3px left. */
+.details-editorial .details-fact { font-size: calc(24px * var(--silo-sf-cap-scale)); letter-spacing: .1px; font-weight: 500; color: rgba(255, 255, 255, 0.88); }
 .details-editorial .details-genres,
-.details-editorial .details-source { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 24px; font-weight: 500; color: rgba(255, 255, 255, 0.9); }
-.details-editorial .details-external-rating span:not(.details-rating-score) { font-size: 21px; font-weight: 600; opacity: 0.72; }
-.details-editorial .details-rating-score { font-size: 24px; font-variant-numeric: tabular-nums; }
+.details-editorial .details-source { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: calc(24px * var(--silo-sf-cap-scale)); letter-spacing: .1px; font-weight: 500; color: rgba(255, 255, 255, 0.9); }
+.details-editorial .details-external-rating span:not(.details-rating-score) { font-size: calc(21px * var(--silo-sf-cap-scale)); font-weight: 600; opacity: 0.72; }
+.details-editorial .details-rating-score { font-size: calc(24px * var(--silo-sf-cap-scale)); letter-spacing: 0; font-variant-numeric: tabular-nums; }
+/* RatingEntryView spaces the TMDB logo and score by round(24 x 0.35) = 8, the row gap; Home's 7px logo margin does not apply. */
+.details-editorial .skyline-rating-logo { margin-right: 0; }
 /* TVDetailLayout.horizontalInset = 100; the surrounding section starts at 88. */
 .details-season-chips { padding: 4px calc(100px - 88px); }
 /* Swift's scrollClipDisabled paints past the mode viewport's trailing inset. */
@@ -1201,6 +1208,61 @@
 .details-playback-summary span:empty { align-self: center; width: 128px; height: 16px; border-radius: 4px; background: rgba(255,255,255,.1); }
 .details-playback-summary [data-track-summary="audio"] span:empty { width: 166px; }
 .details-playback-summary [data-track-summary="subtitles"] span:empty { width: 77px; }
+/* #395, silo-apple 85679e7 TVDetailHero.swift. Restyled text is Apple's points times --silo-sf-cap-scale; line boxes keep
+   SF Pro's 1.1777em at Apple's size so the slots do not move. */
+.details-editorial .requests-title-secondary { color: rgba(255,255,255,.95); }
+/* heroCredit: 23 regular, white .70, one line. */
+.details-editorial .details-director { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: calc(23px * var(--silo-sf-cap-scale)); font-weight: 400; color: rgba(255,255,255,.7); }
+/* TVPlaybackSelectionSummaryView: label 23 bold, tracking 0.9, white .48; value 23 medium, white .82. */
+.details-editorial .details-playback-summary strong { flex-shrink: 0; font-size: calc(23px * var(--silo-sf-cap-scale)); font-weight: 700; letter-spacing: .9px; color: rgba(255,255,255,.48); }
+.details-editorial .details-playback-summary span { font-size: calc(23px * var(--silo-sf-cap-scale)); font-weight: 500; color: rgba(255,255,255,.82); }
+.details-editorial .details-playback-summary span:empty { height: 18px; background: rgba(255,255,255,.14); }
+/* RatingEntryView draws in white; only its text mark dims to .72. */
+.details-editorial .details-external-rating { color: #fff; }
+/* The rating is an 8px-gap flex row, so its divider keeps 6 of Apple's 14 after the dot. */
+.details-editorial .browse-meta:not(.box-set-facts) > :not(.details-rating-badge).details-external-rating::before { margin-right: 6px; }
+/* DescriptionTranslationStatusLabel: the translate symbol and text 6 apart, 21 medium, pulsing while translating. */
+.details-editorial .description-translation-status { display: flex; align-items: center; gap: 6px; font-size: calc(21px * var(--silo-sf-cap-scale)); }
+.description-translation-status svg { width: 1.1em; height: 1.1em; flex-shrink: 0; }
+.description-translation-status[data-translation-status="translating"] svg { animation: details-symbol-pulse 1.6s ease-in-out infinite; }
+@keyframes details-symbol-pulse { 50% { opacity: .3; } }
+/* TVDecodedLogoTitle: the logo cross-fades over the text in 0.2 s. */
+.details-editorial .requests-detail-title { position: relative; }
+.details-logo-enter { animation: details-fade-in 200ms ease-in-out both; }
+.details-title-exit { position: absolute; top: 0; left: 0; width: 100%; pointer-events: none; animation: details-fade-in 200ms ease-in-out reverse both; }
+@keyframes details-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .details-logo-enter, .details-title-exit { animation: none; } }
+/* AsyncImageView .surface: ThumbHash or #0E0F12 while loading, a film mark at .3 on failure, a 0.12 s fade-in.
+   Each layer takes the art's leading fade, as Apple masks the whole image view. */
+.hero-art-surface::before, .hero-art-thumbhash, .hero-art-missing { position: absolute; inset: 0; width: 100%; height: 100%; mask-image: linear-gradient(to left, #000 0%, #000 32%, transparent 100%); }
+.hero-art-surface::before { content: ""; z-index: -1; background: #0e0f12; }
+.hero-art-thumbhash { z-index: -1; object-fit: cover; }
+.hero-art-missing { display: flex; align-items: center; justify-content: center; }
+/* The body-size (29pt) SF Symbol film is 34.8 x 25.8. */
+.hero-art-glyph { width: 34.8px; height: auto; color: rgba(237,237,237,.3); }
+.hero-art-surface .skyline-backdrop { opacity: 0; }
+.hero-art-surface[data-art="loaded"] .skyline-backdrop { opacity: 1; transition: opacity var(--silo-fast) ease-out; }
+.hero-art-surface[data-art="cached"] .skyline-backdrop { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .hero-art-surface[data-art="loaded"] .skyline-backdrop { transition: none; } }
+/* TVItemDetailLoadingView cinematic layout: placeholders are white .10; nothing in it takes focus on Apple. */
+.details-loading-page { outline: none; }
+.details-hero.details-loading { height: 690px; min-height: 0; }
+.details-loading-art { background: rgba(255,255,255,.035); }
+.details-loading-bar { display: block; flex-shrink: 0; background: rgba(255,255,255,.1); }
+.details-loading-editorial { position: relative; margin-left: 100px; display: flex; flex-direction: column; align-items: flex-start; gap: 14px; }
+.details-loading-title { display: flex; align-items: flex-end; width: 700px; height: 132px; }
+.details-loading-title-text { max-width: 700px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; font-size: calc(64px * var(--silo-sf-cap-scale)); font-weight: 700; line-height: 75.37px; letter-spacing: -.8px; color: #fff; }
+.details-loading-meta { display: flex; align-items: center; height: 36px; max-width: 1720px; overflow: hidden; white-space: pre; text-overflow: ellipsis; font-size: calc(24px * var(--silo-sf-cap-scale)); font-weight: 600; color: rgba(255,255,255,.76); }
+.details-loading-synopsis { width: 920px; height: 104px; overflow: hidden; }
+/* lineSpacing(5) on SF Pro's 30.62 line is a 35.62 pitch; CSS splits the extra 5 around each line, so the margin takes back the first half. */
+.details-loading-overview { margin: -2.5px 0 0; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; font-size: calc(26px * var(--silo-sf-cap-scale)); font-weight: 400; line-height: 35.62px; color: rgba(255,255,255,.72); }
+.details-loading-lines { display: flex; flex-direction: column; gap: 13px; padding-top: 4px; }
+.details-loading-readout { display: flex; align-items: flex-start; gap: 8px; width: 810px; height: 44px; }
+.details-loading-readout > div { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; }
+.details-loading-label { font-size: calc(12px * var(--silo-sf-cap-scale)); font-weight: 700; line-height: 14.13px; letter-spacing: 1.1px; color: rgba(255,255,255,.42); }
+.details-loading-actions { display: flex; gap: 14px; margin-top: 6px; }
+.details-loading-rail { display: flex; flex-direction: column; gap: 14px; margin-left: 12px; overflow: hidden; }
+.details-loading-cards { display: flex; }
 .details-episodes .skyline-progress { height: 5px; border-radius: 0; background: rgba(0,0,0,.6); }
 .details-episodes .skyline-progress-fill { border-radius: 0; background: #fff; }
 .browse:has(.details-hero) > .browse-row:has(+ .browse-section-title) { margin-bottom: 35px; }

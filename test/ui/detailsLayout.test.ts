@@ -268,7 +268,7 @@ detailTest('hero Up falls back from vanished Start Over and disabled selectors t
     assert.equal(await tv.focused(), 'start-over-episode');
     await tv.page.locator('[data-focus="episode:s1e12"]').focus();
     await tv.page.locator('[data-focus="start-over-episode"]').waitFor({ state: 'hidden' });
-    await tv.page.locator('.details-playback-summary').waitFor();
+    await tv.page.locator('[data-track-summary="version"] span:not(:empty)').waitFor();
     await settledEpisodePrefetch(tv);
     await pauseTvClock(tv);
     await tv.remote(38);
@@ -317,12 +317,13 @@ for (const season of [1, 2, 30]) detailTest(`fresh season ${season} has no retai
 
 detailTest('loaded season hero uses cached values or omits unavailable playback details without reads', async tv => {
     await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
-    await tv.page.locator('[data-track-summary="version"] span').waitFor();
+    // The readout labels paint at once; wait for a value so the read baseline follows the first load.
+    await tv.page.locator('[data-track-summary="version"] span:not(:empty)').waitFor();
     const original = await tv.page.locator('.details-playback-summary').textContent();
     const reads = tv.fake.requests.length;
     for (const season of [2, 1]) {
         await tv.page.locator(`[data-focus="season:${season}"]`).focus(); await tv.jump(3100);
-        assert.equal(await tv.page.locator('.details-playback-summary span:empty').count(), 0);
+        assert.equal(await tv.page.locator('.details-playback-summary:not([aria-hidden="true"]) span:empty').count(), 0);
     }
     assert.equal(tv.fake.requests.length, reads);
     assert.equal(await tv.page.locator('.details-playback-summary').textContent(), original);
@@ -357,7 +358,9 @@ detailTest("failed episode Retry retains focus without unresolved hero readout b
     await retry.waitFor(); await retry.focus(); await tv.page.keyboard.press('Enter');
     await retry.waitFor(); await tv.jump(500);
     assert.equal(await tv.focused(), 'retry-episodes');
-    assert.equal(await tv.page.locator('.details-playback-summary span:empty').count(), 0);
+    // Bars show while the retried read is out, as Apple's isLoadingEpisodes does; once it fails again none remain.
+    await tv.eventually(async () => await tv.page.locator('.details-playback-summary:not([aria-hidden="true"]) span:empty').count() === 0, 'no unresolved readout bars after the failed retry');
+    assert.equal(await tv.focused(), 'retry-episodes');
 });
 
 detailTest("season focus centers the selected pill and Down uses its E01 without Select", async tv => {
@@ -1312,7 +1315,7 @@ detailTest('Hero uses measured series colours and genres only at rest', async tv
         const node = document.querySelector(".details-playback-summary strong");
         if (node === null || !node.isConnected) return null;
         return getComputedStyle(node).color;
-    }, null, value => value === "rgba(237, 237, 237, 0.5)", "playback summary label"), "rgba(237, 237, 237, 0.5)");
+    }, null, value => value === "rgba(255, 255, 255, 0.48)", "playback summary label"), "rgba(255, 255, 255, 0.48)");
 });
 
 detailTest('track picker truncates a long version title within its 76px row', async tv => {
@@ -1342,8 +1345,9 @@ detailTest('measured Apple movie typography and version popover geometry', async
         if (node === null || !node.isConnected) return null;
         const style = getComputedStyle(node);
         return { color: style.color, maxHeight: style.maxHeight, lineHeight: style.lineHeight };
-    }, null, value => value.color === "rgba(255, 255, 255, 0.92)" && value.maxHeight === "102px" && value.lineHeight === "34px", "overview style sample survives optional-data repaint");
-    assert.deepEqual(styles, { color: "rgba(255, 255, 255, 0.92)", maxHeight: "102px", lineHeight: "34px" });
+    }, null, value => value.color === "rgba(255, 255, 255, 0.92)" && value.maxHeight === "106.5px" && value.lineHeight === "35.5px", "overview style sample survives optional-data repaint");
+    // Three 35.5px lines: the line pitch measured on the Apple TV capture of The Rookie (#395).
+    assert.deepEqual(styles, { color: "rgba(255, 255, 255, 0.92)", maxHeight: "106.5px", lineHeight: "35.5px" });
     await tv.page.locator('[data-focus="version"]').click();
     assert.equal(await readLive(tv, () => {
         const node = document.querySelector('[data-focus="version"] .details-action-label');
@@ -1804,14 +1808,14 @@ detailTest("episode focus swaps cached hero and selectors without starting a rea
     assert.equal(await tv.page.locator('[data-focus="episode:s1e11"] .browse-card-title').textContent(), "S01E01 · Harbor Lights chapter 1.1");
     assert.equal(await tv.page.locator('[data-focus="episode:s1e11"] .browse-card-subtitle').textContent(), "Feb 18, 2022  ·  57m");
     await tv.page.getByRole('button', { name: /Play S1:E1|Resume S1:E1/ }).waitFor();
-    await tv.page.locator('.details-playback-summary').waitFor();
+    await tv.page.locator('[data-track-summary="version"] span:not(:empty)').waitFor();
     await settledEpisodePrefetch(tv);
     await pauseTvClock(tv);
     await tv.page.locator('[data-focus="episode:s1e12"]').focus();
     await tv.jump(120);
     await tv.page.getByRole('button', { name: /Play S1:E2|Resume S1:E2/ }).waitFor();
     assert.match(await tv.page.locator('.details-editorial .browse-overview').textContent() ?? '', /Harbor Lights chapter 1\.2/);
-    await tv.page.locator('.details-playback-summary').waitFor();
+    await tv.page.locator('[data-track-summary="version"] span:not(:empty)').waitFor();
     await settledEpisodePrefetch(tv);
     const before = tv.fake.requests.length;
     await tv.page.locator('[data-focus="episode:s1e11"]').focus();
@@ -1852,6 +1856,11 @@ detailTest('a Details repaint during the return to Play finishes at the hero anc
 });
 
 for (const media of ['movie:m0001', 'series:s1']) detailTest(`${media} artwork stays inside Apple's shared top-right frame`, async tv => {
+    // The series fixture has a poster only, and TVDetailHero draws only a backdrop.
+    const catalog = tv.fake.catalog; assert.ok(catalog instanceof FakeDetails);
+    const body = catalog.route("GET", `/catalog/items/${encodeURIComponent(media)}`, "p-owner")?.body;
+    assert.ok(body && typeof body === "object");
+    await tv.page.route(`**/api/v2/catalog/items/${encodeURIComponent(media)}?**`, route => route.fulfill({ json: { ...body, backdrop_url: "/art/harbor.svg" } }));
     await tv.page.locator(`[data-section="recently_added"] [data-focus="${media}"]`).first().click();
     await tv.page.locator(".details-hero .skyline-backdrop").waitFor();
     const bounds = await readLive(tv, () => {
@@ -1948,7 +1957,7 @@ detailTest('the metadata row leads with outlined rating and advisory chips, then
     assert.equal(row.ink, 'rgb(255, 255, 255)');
     assert.equal(row.stroke, 'rgba(255, 255, 255, 0.78)');
     assert.equal(row.divider, '"·"');
-    assert.equal(row.dividerSize, '22px');
+    assert.equal(row.dividerSize, '21.307px', 'the 22pt divider times --silo-sf-cap-scale');
     assert.equal(row.factColor, 'rgba(255, 255, 255, 0.88)');
     assert.equal(row.factWeight, '500');
     assert.equal(row.genres, 'Drama, Thriller');
@@ -1984,11 +1993,11 @@ detailTest('rating chips fit inside the clipped metadata row on movie, episode a
     assert.deepEqual(clipped, []);
     // SF Pro 18pt line height is 21.19921875. Chromium serializes the used value as 21.1992px.
     for (const frame of frames) assert.ok(Math.abs(parseFloat(frame.lineHeight) - 21.19921875) < 0.001, frame.lineHeight);
-    // The row and the item under it stay put. Measured before the line-height change.
+    // The row stays put. The synopsis under it sits 4px lower, as in the Apple TV capture of The Rookie (#395).
     assert.deepEqual(frames.map(frame => ({ media: frame.media, heroRowTop: frame.heroRowTop, belowTop: frame.belowTop })), [
-        { media: 'movie', heroRowTop: 290, belowTop: 333 },
-        { media: 'series', heroRowTop: 240, belowTop: 286 },
-        { media: 'episode', heroRowTop: 293, belowTop: 336 },
+        { media: 'movie', heroRowTop: 290, belowTop: 337 },
+        { media: 'series', heroRowTop: 240, belowTop: 290 },
+        { media: 'episode', heroRowTop: 293, belowTop: 340 },
     ]);
 });
 
@@ -2298,9 +2307,9 @@ for (const media of ['movie:m0001', 'series:s1']) {
             const node = document.querySelector('.details-editorial .browse-overview');
             if (node === null) return null;
             const style = getComputedStyle(node);
-            return { size: style.fontSize, weight: style.fontWeight, color: style.color, family: style.fontFamily, available: document.fonts.check('400 26px Inter') };
+            return { size: style.fontSize, weight: style.fontWeight, color: style.color, family: style.fontFamily, available: document.fonts.check('400 25.181px Inter') };
         }, null, value => value.available, 'loaded regular synopsis font');
-        assert.equal(font.size, '26px'); assert.equal(font.weight, '400');
+        assert.equal(font.size, '25.181px', 'Apple 26pt times --silo-sf-cap-scale'); assert.equal(font.weight, '400');
         assert.ok(font.family.includes('Inter'), JSON.stringify(font));
         assert.equal(font.color, 'rgba(255, 255, 255, 0.92)');
     });

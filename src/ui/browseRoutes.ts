@@ -13,7 +13,8 @@ import type { DetailsState } from "./detailsState.ts";
 import { SessionError, SessionRefreshError } from "../session/session.ts";
 import type { FocusTarget, View } from "./browseFocus.ts";
 import { itemView, seasonView } from "./browseDetails.ts";
-import { browseCardDestination, type SearchFilter, type EpisodeSelection, type PlayRequest, type SeriesContext, type SeriesLine } from "./browseModel.ts";
+import { detailsLoadingView } from "./detailsLoading.ts";
+import { browseCardDestination, type SearchFilter, type EpisodeSelection, type PlayRequest, type SeriesContext, type SeriesLine, type DetailSeed } from "./browseModel.ts";
 import type { CalendarState } from "./calendarState.ts";
 import { calendarView, type CalendarHandlers } from "./calendarView.ts";
 import { actionButton, homeView, lines, errorView, failureError, pagedGrid, type SearchResults, searchView, statusView, type ViewContext, zoneNode } from "./browseViews.ts";
@@ -59,7 +60,7 @@ export type RouteData =
     | { readonly kind: "search"; query: string; pages: Pages | undefined; resultsFor: string; searchType?: TextSearchScope; filter?: SearchFilter | undefined; peopleSupported?: boolean; boxSetsSupported?: boolean; supplement?: SearchSupplement }
     | { readonly kind: "audiobook"; readonly id: string; readonly title: string; data: Audiobook | undefined; /** The chapter picker covers the page. */ picker?: boolean }
     | { readonly kind: "boxSet"; readonly id: string; readonly libraryId: string; readonly title: string; data: CatalogBoxSetDetail | undefined }
-    | { readonly kind: "item"; readonly id: string; readonly title: string; readonly seriesContext?: SeriesContext; readonly fromRelated?: boolean; error?: ErrorState; data: { detail: ItemDetail; seasons: Season[]; details?: DetailsState; boxSet?: BoxSetRowState } | undefined }
+    | { readonly kind: "item"; readonly id: string; readonly title: string; readonly seriesContext?: SeriesContext; readonly seed?: DetailSeed; readonly fromRelated?: boolean; error?: ErrorState; data: { detail: ItemDetail; seasons: Season[]; details?: DetailsState; boxSet?: BoxSetRowState } | undefined }
     | { readonly kind: "person"; readonly id: string; readonly title: string; data: { person: Person } | undefined; metadataLoading?: boolean; metadataRefresh?: PersonMetadataRefresh; metadataFailure?: string | undefined; availabilityLoading?: boolean; availableFilters?: MediaScope[]; filter: MediaScope; pages: Pages; pendingIndex: number | undefined }
     | { readonly kind: "season"; readonly seriesId: string; readonly seasonNumber: number; readonly title: string; readonly id?: string; readonly episodeId?: string; data: { episodes: Episode[]; detail: ItemDetail | undefined; details?: DetailsState } | undefined };
 
@@ -230,6 +231,7 @@ export function routeView(current: Route, handlers: RouteHandlers): View {
                 return withNote(seasonView(`season:${current.seriesId}:${current.seasonNumber}`, current.title, current.data.episodes, context, pop, handlers.play, current.data.details?.detail ?? current.data.detail, current.data.details), current.failure);
             }
     }
+    if (current.kind === "item") return detailsLoadingView(current, context, pop);
     // Other routes keep the slow note. Home returned above: an empty page labelled "Loading home".
     const waiting = current.slow ? ["Still waiting for the server."] : [];
     return statusView(`${current.kind}:loading`, "Loading", waiting, [escape], back);

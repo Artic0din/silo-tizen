@@ -9,6 +9,7 @@
 
 import { decodeThumbhash } from "./thumbhash.ts";
 import { el } from "./screen.ts";
+import { artworkMark } from "./defaultArtwork.ts";
 
 export interface RGB { readonly r: number; readonly g: number; readonly b: number }
 export interface Tints { readonly base: RGB; readonly accent: RGB; readonly shadow: RGB }
@@ -118,6 +119,20 @@ export function sampleThumbhash(encoded: string | undefined): Tints | undefined 
     return decoded === undefined ? undefined : samplePalette(rgbaPixels(decoded.rgba));
 }
 
+/** A ThumbHash preview drawn at its decoded size; CSS stretches it. */
+export function thumbhashCanvas(encoded: string | undefined, className: string): HTMLCanvasElement | undefined {
+    const decoded = decodeThumbhash(encoded);
+    if (decoded === undefined) return undefined;
+    const canvas = el("canvas", className);
+    canvas.width = decoded.width;
+    canvas.height = decoded.height;
+    canvas.setAttribute("aria-hidden", "true");
+    const context = canvas.getContext("2d");
+    if (context === null) return undefined;
+    context.putImageData(new ImageData(new Uint8ClampedArray(decoded.rgba), decoded.width, decoded.height), 0, 0);
+    return canvas;
+}
+
 /** Details keep TVDetailPageSurface's uniform base; root pages carry the diagonal tint beneath the same accent and shadow. */
 export function washBackground(tints: Tints | undefined, detail = false): string {
     if (tints === undefined) {
@@ -137,8 +152,10 @@ export function washBackground(tints: Tints | undefined, detail = false): string
 /**
  * The backdrop for one marquee selection: the tint wash, the masked art block and the top scrim. Tints
  * already sampled for the URL apply at once; otherwise they follow the image's load.
+ * `surface` is AsyncImageView's .surface placeholder (Details): the ThumbHash, else #0E0F12, while loading;
+ * that surface with a film mark at .3 after a failure; and a 0.12 s fade-in unless the image was cached.
  */
-export function heroBackdrop(url: string, thumbhash: string | undefined, cache: Map<string, Tints>, detail = false): HTMLElement {
+export function heroBackdrop(url: string, thumbhash: string | undefined, cache: Map<string, Tints>, detail = false, surface = false): HTMLElement {
     const root = el("div", "skyline-hero-backdrop");
     const wash = el("div", "skyline-tint-wash");
     const paint = (tints: Tints | undefined): void => { wash.style.background = washBackground(tints, detail); };
@@ -165,8 +182,17 @@ export function heroBackdrop(url: string, thumbhash: string | undefined, cache: 
         sample.addEventListener("load", () => apply(sampleImage(sample)));
         sample.src = url;
     });
-    image.addEventListener("error", () => { image.remove(); frame.remove(); root.querySelector(".skyline-top-scrim")?.remove(); });
+    if (surface) {
+        frame.classList.add("hero-art-surface");
+        const preview = thumbhashCanvas(thumbhash, "hero-art-thumbhash");
+        if (preview !== undefined) frame.appendChild(preview);
+        frame.dataset.art = "loading";
+        image.addEventListener("load", () => { frame.dataset.art = "loaded"; });
+        image.addEventListener("error", () => { frame.dataset.art = "failed"; image.remove(); const missing = el("div", "hero-art-missing"); missing.appendChild(artworkMark("film", "hero-art-glyph")); frame.appendChild(missing); });
+    } else image.addEventListener("error", () => { image.remove(); frame.remove(); root.querySelector(".skyline-top-scrim")?.remove(); });
     image.src = url;
+    // A decoded image paints at once, as AsyncImageView's cached path does.
+    if (surface && image.complete && image.naturalWidth > 0) frame.dataset.art = "cached";
     frame.appendChild(image);
     root.appendChild(frame);
     if (!detail) root.appendChild(el("div", "skyline-top-scrim"));

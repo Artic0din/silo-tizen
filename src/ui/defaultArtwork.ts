@@ -70,14 +70,20 @@ function buildDefaultArtwork(symbol: ArtworkSymbol): HTMLElement {
     art.setAttribute("aria-hidden", "true");
     const glow = document.createElement("div");
     glow.className = "default-artwork-glow";
+    art.append(glow, artworkMark(symbol, "default-artwork-mark"));
+    return art;
+}
+
+/** The drawn stand-in for one SF Symbol, filled with currentColor. */
+export function artworkMark(symbol: ArtworkSymbol, className: string): SVGSVGElement {
     const mark = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    mark.setAttribute("class", "default-artwork-mark");
+    mark.setAttribute("class", className);
     mark.setAttribute("viewBox", MARKS[symbol].viewBox);
     mark.setAttribute("focusable", "false");
+    mark.setAttribute("aria-hidden", "true");
     mark.setAttribute("fill", "currentColor");
     mark.innerHTML = MARKS[symbol].markup;
-    art.append(glow, mark);
-    return art;
+    return mark;
 }
 
 /**

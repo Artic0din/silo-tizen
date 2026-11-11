@@ -86,7 +86,9 @@ journey("Details reopens cached metadata while unreachable", async tv => {
     assert.doesNotMatch(await tv.page.locator(".browse").innerText(), /Can't reach server|showing cached content/);
     assert.equal(await tv.page.locator(".details-editorial h1").textContent(), "Movie 0004");
     assert.doesNotMatch(await tv.page.locator(".browse").innerText(), /Could not load|Retry personal|Retry title|Retry related/);
-    assert.ok(await tv.page.locator('.details-hero .skyline-backdrop').count() > 0);
+    // Movie 0004 has a poster and no backdrop; TVDetailHero leaves the art out and keeps the page tint.
+    assert.ok(await tv.page.locator('.details-page-wash').count() > 0);
+    assert.equal(await tv.page.locator('.details-hero .skyline-backdrop').count(), 0);
 });
 
 journey("Home resumes cached recovery after a hidden retry deadline", async tv => {

@@ -242,6 +242,28 @@ test("reopening a card before Home rereads shows the change the server accepted"
     } finally { await tv.page.context().close(); }
 });
 
+test("Select on a disabled row leaves the menu answering later presses once it re-enables", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const catalog = await start(tv);
+        await hold(tv);
+        const answer = tv.fake.hold("/favorites/movie%3Am0001", true);
+        await row(tv, "Add to Favorites").click();
+        await tv.eventually(async () => catalog.mutations.length === 1, "favorite sent");
+        await hold(tv);
+        await row(tv, "Add to Watchlist").focus();
+        await tv.page.keyboard.press("Enter");
+        assert.equal(await menu(tv).count(), 1, "a disabled row does not close the menu");
+        answer.release();
+        await row(tv, "Remove from Favorites").waitFor();
+        await row(tv, "Add to Watchlist").focus();
+        await tv.page.keyboard.press("Enter");
+        assert.equal(await menu(tv).count(), 0, "a fresh Select chooses the re-enabled row");
+        await tv.eventually(async () => catalog.watchlist, "watchlist applied");
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
+
 test("a held Select that chooses a row cannot reach the card once the menu closes", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {

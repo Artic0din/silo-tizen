@@ -345,7 +345,8 @@ export class CardActions {
             if (this.pressed || event.repeat) return;
             this.pressed = true;
             const chosen = this.rows.find(row => row === document.activeElement);
-            if (chosen === undefined) return;
+            // A disabled row stays open and keeps its own release handling.
+            if (chosen === undefined || chosen.getAttribute("aria-disabled") === "true") return;
             // Choosing closes the menu while Select is still down; its repeats and release must not reach the card.
             swallowSelect();
             chosen.click();

@@ -11,7 +11,7 @@ export function recommendationsView(current: RecommendationRoute, handlers: Rout
     if (current.kind === "recommendationSection") {
         let grid = grids.get(current.pages);
         if (grid === undefined) { grid = new SectionCatalog(); grids.set(current.pages, grid); }
-        const view = grid.view({ ...current, kind: "homeSection", id: JSON.stringify(current.locator), continuing: false, pendingIndex: undefined }, handlers.context, handlers.busy, handlers.pop, () => handlers.retry(current), () => undefined);
+        const view = grid.view({ ...current, kind: "homeSection", id: JSON.stringify(current.locator), continuing: false, pendingIndex: undefined }, handlers.context, handlers.busy, handlers.pop, () => handlers.retry(current), () => undefined, handlers.signIn);
         return { ...view, name: `recommendationSection:${JSON.stringify(current.locator)}` };
     }
     const rows = current.data?.filter(row => row.items.some(card => destinationOf(card) !== undefined));

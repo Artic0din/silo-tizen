@@ -50,6 +50,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Title, season, box set, audiobook and Explore all pages that fail to load now show Apple TV's error screen: a warning icon, the headline and message, and Try Again. A missing or blocked title offers Go Back first with Try Again below it, and the remote's Back still leaves, so the extra Back button and the title above a failed Explore all page are gone.
 - The Home row headings, such as Continue Watching, now match Apple TV's text size, letter spacing and play icon size and spacing.
 - The Home hero's meta line, synopsis, air date and cast line, and badges now match Apple TV's text size, spacing and line width: the synopsis has Apple's taller line spacing and wraps at the same word, and the badges are Apple's size.
 - Played every part of a multi-part Shuffle pick in order before the Shuffle moves on, as on Apple TV. Each part starts from its beginning, prefers the resolution of the part before it and otherwise takes the first candidate, and a missing part moves the Shuffle on. Between parts the screen shows the loading spinner instead of the Playback ended screen.

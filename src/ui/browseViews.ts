@@ -76,6 +76,32 @@ export function recoveryActions(error: { readonly headline: string; readonly sig
     return items;
 }
 
+/**
+ * Apple ErrorView: icon, headline, message, then the recovery plan's buttons in a column. Manage Servers leads the
+ * secondary buttons; Go Back appears only for Not found or Not allowed, since the remote's Back already leaves.
+ */
+type ShownError = { readonly headline: string; readonly message: string; readonly signIn: boolean };
+
+/** Apple ErrorState: a 401, 403 or 404 keeps Apple's headline and copy; any other failure keeps the route's own message. */
+export function failureError(failure: string, stored: ShownError | undefined): ShownError {
+    return stored !== undefined && stored.headline !== "Something went wrong" ? stored : { headline: "Something went wrong", message: failure, signIn: false };
+}
+
+export function errorView(name: string, error: ShownError, retry: () => void, back?: () => void, signIn?: () => void, manageServers?: () => void): View {
+    const [primary, ...secondary] = recoveryActions(
+        error,
+        actionButton("retry", "Try Again", retry),
+        back === undefined ? undefined : actionButton("go-back", "Go Back", back),
+        signIn === undefined ? undefined : actionButton("sign-in", "Sign In Again", signIn),
+    );
+    const manage = manageServers === undefined ? [] : [actionButton("manage-servers", "Manage Servers", manageServers)];
+    const items = primary === undefined ? manage : [primary, ...manage, ...secondary];
+    const page = searchState(error.headline, error.message, "details-failure", FAILURE_ICON);
+    page.setAttribute("role", "alert");
+    page.appendChild(zoneNode("browse-actions", items));
+    return { name, content: [page], zones: [{ id: "status", layout: "column", items }], focus: { zone: "status", key: items[0]?.key ?? "retry" }, back };
+}
+
 /** SectionExploreAllCard keeps the current marquee while its row's trailing tile owns focus. */
 export function exploreAllCard(rowTitle: string, key: string, wide: boolean, onPress: () => void): FocusItem {
     const element = el("button", "browse-card skyline-explore");

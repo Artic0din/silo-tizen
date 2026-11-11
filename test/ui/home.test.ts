@@ -1651,7 +1651,7 @@ for (const mode of ["missing", "restricted", "unreadable", "mismatch"] as const)
         assert.equal(await tv.page.evaluate(() => window.browseHarness.plays.length), 0);
         assert.equal(await tv.page.locator('[data-view^="item:"]').count(), 0);
         catalog.detailMode = "normal";
-        await tv.page.getByRole("button", { name: "Try again", exact: true }).click();
+        await tv.page.getByRole("button", { name: "Try Again", exact: true }).click();
         await tv.eventually(async () => await tv.page.evaluate(() => window.browseHarness.plays.length) === 1, "explicit retry resolves");
     });
 }
@@ -1683,7 +1683,7 @@ journey("Continue network failure never sends playback and Retry resolves only o
     tv.offline = false;
     await tv.jump(30000);
     assert.equal(await tv.page.evaluate(() => window.browseHarness.plays.length), 0);
-    await tv.page.getByRole("button", { name: "Try again", exact: true }).click();
+    await tv.page.getByRole("button", { name: "Try Again", exact: true }).click();
     await tv.eventually(async () => await tv.page.evaluate(() => window.browseHarness.plays.length) === 1, "explicit network retry");
 });
 

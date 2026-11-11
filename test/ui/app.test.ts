@@ -201,6 +201,7 @@ for (const cached of [true, false]) appTest(`cold offline saved session opens Ho
         await tv.page.locator('[data-view="home:failed"]').waitFor();
         await tv.page.getByRole("button", { name: "Try Again", exact: true }).waitFor();
         await tv.page.getByRole("button", { name: "Manage Servers", exact: true }).waitFor();
+        assert.deepEqual(await tv.page.locator(".details-failure .browse-button").allInnerTexts(), ["Try Again", "Manage Servers"], "Apple ErrorView: Manage Servers leads the secondary buttons");
     }
     assert.equal(tv.fake.devices.size, codes);
     tv.offline = false;

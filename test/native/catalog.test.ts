@@ -84,6 +84,8 @@ test("browse fixtures decode with the production decoders", () => {
         genres: ["Crime"],
         overlay: { resolution: "4K", hdr: "Dolby Vision", audio: undefined, audioChannels: undefined, videoCodec: undefined, container: undefined, aspectRatio: undefined, releaseType: undefined, edition: undefined, multiAudio: undefined, multiSub: undefined },
         played: false,
+        favorite: false,
+        inWatchlist: true,
         logoUrl: undefined,
         ratingImdb: 8.3,
         ratingTmdb: undefined,

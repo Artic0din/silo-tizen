@@ -126,6 +126,8 @@ export interface RouteHandlers {
     readonly morePersonal: (route: Extract<Route, { kind: "personal" }>) => void;
     readonly signIn: (() => void) | undefined;
     readonly context: ViewContext;
+    /** Apple's card menu on Home cards; Home alone passes the watched and Remove handlers. */
+    readonly homeCardMenu: NonNullable<ViewContext["homeCardMenu"]>;
     readonly focusDefault: () => void;
     /** A read is in flight. */
     readonly busy: boolean;
@@ -167,21 +169,20 @@ export function routeView(current: Route, handlers: RouteHandlers): View {
     if (current.kind === "search") {
         return globalSearchView(searchView(handlers.searchHead, handlers.input, searchResults(current, handlers), pop), current, handlers);
     }
-    if (current.failure !== undefined && !hasData(current)) {
+    // HomeView on tvOS: rows first, then the error, then the empty state.
+    if (current.failure !== undefined && (!hasData(current) || (current.kind === "home" && current.data?.sections.every(section => section.items.length === 0) === true))) {
         return errorView(`${current.kind}:failed`, failureError(current.failure, current.error), () => handlers.retry(current), back, handlers.signIn, current.kind === "home" ? handlers.manageServers : undefined);
     }
     switch (current.kind) {
         case "home": {
             if (current.data === undefined) return homeLoadingView();
-            const view = homeView(current.data.libraries, current.data.sections, context, {
+            // HomeView on tvOS shows only the feed while a refresh runs or fails with rows on screen.
+            return homeView(current.data.libraries, current.data.sections, { ...context, homeCardMenu: handlers.homeCardMenu }, {
                 expand: section => handlers.push(newRoute({ kind: "homeSection", id: section.id, title: section.title, continuing: section.sectionType === "continue_watching", pages: newPages(), pendingIndex: undefined })),
                 search: () => handlers.push(newRoute({ kind: "search", query: "", pages: undefined, resultsFor: "" })),
                 library: (library) => handlers.push(newRoute({ kind: "library", library, pages: newPages() })),
                 chooseProfile: handlers.chooseProfile,
             });
-            if (current.failure === undefined && !handlers.busy) return view;
-            const retry = current.failure === undefined ? [] : [actionButton("retry", "Try again", () => handlers.retry(current))];
-            return { ...view, content: [...view.content, ...lines([current.failure ?? "Refreshing titles."], current.failure === undefined ? "info" : "error"), zoneNode("browse-actions", retry)], zones: [...view.zones, { id: "status", layout: "row", items: retry }] };
         }
         case "homeSection":
             if (current.pages.page !== undefined) {

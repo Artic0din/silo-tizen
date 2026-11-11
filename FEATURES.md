@@ -63,7 +63,7 @@ File pointers are repository-relative.
 | Home rows in server order, Continue Watching resume, Explore all, 20-card cap | ✅ | ✅ | ✅ | Resume goes straight to the player. First-load wait tracked in #78. Android: `TvHomeScreen` |
 | Home marquee (logo, meta chips, scores, aired date, cast) | ✅ | ✅ | ✅ | Apple: `TVFocusMarquee`. Sharper backdrops open (#88). Android: `TvFocusMarquee` |
 | Poster badges, watched checks, poster size (Compact/Standard/Large) | ✅ | ✅ | ✅ | Size is read-only on Tizen; see Settings. Android: `TvMediaCard` overlays and watched badge, Poster Size setting |
-| Card actions on Select-hold (watched, favourites, watchlist) | ✅ | ✅ | ✅ | Desktop tests only; real Samsung Select repeat/release is unverified. Android: `TvMediaCardActions`. Apple: `TVMediaCard` context menu (`MediaStateMenuItems`) |
+| Card actions on Select-hold (watched, favourites, watchlist) | ✅ | ✅ | ✅ | Home cards use Apple's context menu rows, Remove from Continue Watching or Next Up, and the Couldn't Update Item alert (#402); other cards keep the earlier menu. Desktop tests only; real Samsung Select repeat/release is unverified. Android: `TvMediaCardActions`. Apple: `TVMediaCard` context menu (`MediaStateMenuItems`) |
 | Live home refresh (events socket) | ➖ | ➖ | ✅ | Android: `HomeRealtimeCoordinator`. Apple: draft spec only (`docs/realtime-updates-spec.md`); no events subscriber |
 | Row headings non-focusable | ✅ | ✅ | ✅ | Tizen and Apple end a row with an Explore all tile. Apple: `MediaRow` header is plain text on tvOS. Android: `TvSectionHeader` title is plain text; only its See all link takes focus |
 

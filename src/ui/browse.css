@@ -1869,3 +1869,22 @@ button.watch-party-seat-invite { box-sizing: content-box; padding: 0; margin: 0;
 .watch-party-episode:focus .watch-party-episode-number { background: #fff; color: #000; }
 .watch-party-episode-title { max-width: 400px; overflow: hidden; font-size: 24px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .watch-party-episode-meta { font-size: 20px; color: var(--silo-secondary); }
+/* homeCardMenu.ts: Apple TV's `.contextMenu` on a Home card, drawn beside the card with no title. It uses the platter,
+   row and icon values of the details More menu, the other native tvOS menu this client draws. */
+.skyline-selector.card-menu { z-index: 30; display: flex; flex-direction: column; gap: 2px; box-sizing: border-box; width: 560px; max-height: none; overflow: visible; padding: 14px; border-radius: 24px; background: rgba(0,0,0,.45); -webkit-backdrop-filter: blur(30px); backdrop-filter: blur(30px); border: 1px solid rgba(255,255,255,.1); box-shadow: 0 18px 32px rgba(0,0,0,.45); }
+.skyline-selector.card-menu .browse-button.skyline-menu-item { height: 54px; min-height: 0; padding: 0 18px; gap: 12px; border-radius: 14px; font-size: 22px; line-height: 28px; }
+.card-menu .skyline-menu-icon { width: 26px; height: 20px; }
+.card-menu .skyline-menu-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card-menu [aria-disabled="true"] { opacity: .5; }
+/* The failed-change alert: confirmationDialog.ts "alert" over Home, with the system alert's single full-width OK. */
+.signin-alert.home-card-alert { z-index: 31; }
+.home-card-alert .browse-button { flex: 1; height: 66px; margin: 0; padding: 0 32px; border: 2px solid transparent; border-radius: 40px; background: var(--silo-selected); color: #ededed; font-size: 30px; box-shadow: none; transform: none; }
+.home-card-alert .browse-button:focus { background: #ffffff; color: #000000; }
+/* HomeView's EmptyStateView: the play.rectangle.on.rectangle symbol at 44 pt and 0.3 opacity, a 28 pt semibold title and a
+   22 pt secondary line, 12 pt apart and centred on the page. Text is Apple's points times --silo-sf-cap-scale. */
+.home-empty { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; margin: 0; text-align: center; outline: none; pointer-events: none; }
+.home-empty:focus { outline: none; }
+.home-empty .search-state-icon { width: 44px; height: 44px; margin: 0; color: rgba(237,237,237,.3); }
+.home-empty .search-state-icon svg { width: 100%; height: 100%; }
+.home-empty .search-state-title { margin: 0; font-size: calc(28px * var(--silo-sf-cap-scale)); line-height: 34px; font-weight: 600; color: #ededed; }
+.home-empty .search-state-description { margin: 0; padding: 0 60px; font-size: calc(22px * var(--silo-sf-cap-scale)); line-height: 27px; color: rgba(237,237,237,.6); }

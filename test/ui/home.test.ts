@@ -1241,24 +1241,23 @@ journey("a named artwork size still refetches Home and keeps the row cap", async
 }, catalog => namedArtworkCapabilities(catalog, true), (_settings, tv) => { heldNamedArtwork = tv.fake.hold("/images/capabilities", true); }, { whileReading: true });
 
 let heldImageProbe: { release(): void };
-journey("a late artwork probe defers to Card actions and preserves watched invalidation", async (tv, catalog) => {
+journey("a late artwork probe defers to the card menu and preserves watched invalidation", async (tv, catalog) => {
     const reads = tv.fake.requests.filter(request => request.path.startsWith("/home/sections")).length;
     await tv.down(13); await tv.jump(650); await tv.up(13);
-    const panel = tv.page.getByRole("dialog", { name: "Card actions" });
-    await panel.getByRole("button", { name: "Mark watched", exact: true }).waitFor();
+    const panel = tv.page.getByRole("menu");
+    await panel.getByRole("menuitem", { name: "Mark as Watched", exact: true }).waitFor();
     const capability = tv.page.waitForResponse(reply => new URL(reply.url()).pathname === "/api/v2/images/capabilities");
     heldImageProbe.release();
     assert.equal(await (await capability).finished(), null);
-    await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.hasImageCapabilityCache()), "image probe applied during Card actions");
+    await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.hasImageCapabilityCache()), "image probe applied while the card menu is open");
     await tv.page.clock.runFor(0);
-    assert.equal(tv.fake.requests.filter(request => request.path.startsWith("/home/sections")).length, reads, "artwork waits for Card actions to close");
-    await panel.getByRole("button", { name: "Mark watched", exact: true }).click();
-    await panel.getByRole("button", { name: "Mark unwatched", exact: true }).waitFor();
+    assert.equal(tv.fake.requests.filter(request => request.path.startsWith("/home/sections")).length, reads, "artwork waits for the card menu to close");
     catalog.removed.add("movie:m0004");
-    await tv.remote(10009);
+    await panel.getByRole("menuitem", { name: "Mark as Watched", exact: true }).click();
     await tv.eventually(async () => !(await homeTitles(tv)).includes("movie:m0004"), "watched membership refresh retained");
-    assert.equal(tv.fake.requests.filter(request => request.path.startsWith("/home/sections")).length, reads + 1);
-    assert.equal(tv.fake.requests.filter(request => request.path.startsWith("/home/sections"))[reads]?.path, "/home/sections?image_size=medium&logo_width=880&backdrop_width=1344");
+    const after = tv.fake.requests.filter(request => request.path.startsWith("/home/sections")).slice(reads);
+    assert.ok(after.length >= 1);
+    assert.equal(after.at(-1)?.path, "/home/sections?image_size=medium&logo_width=880&backdrop_width=1344");
 }, catalog => {
     imageCapabilities(catalog, true);
     const details = new FakeDetails();

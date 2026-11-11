@@ -255,6 +255,7 @@ Defined in `src/api/operations.ts` unless noted.
 | --- | --- | --- |
 | listUserLibraries | `GET /user/libraries[?include_hidden=true]` | safe |
 | listHomeSections | `GET /home/sections?image_size=small[&slot widths]` | safe |
+| dismissHomeItem | `PUT /home/dismissals/{continue_watching\|next_up}/{id}`, body `progress_updated_at` (Continue Watching) or `series_id` (Next Up); the Home card menu's Remove row | safe |
 | listCatalogItems | `GET /catalog?library_id&q&type&limit&cursor&image_size` | safe |
 | getCatalogItem | `GET /catalog/items/{id}?image_size=large` (Details overrides with the negotiated hero slots when known) | safe |
 | listCatalogItemVersions | `GET /catalog/items/{id}/versions` | safe |

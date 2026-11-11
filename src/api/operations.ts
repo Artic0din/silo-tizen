@@ -89,6 +89,9 @@ export type BrowseScope = "movie" | "series" | "video";
 
 export type TextSearchScope = "video" | "video_with_episodes";
 
+/** The Home list a card leaves, and what the server anchors the dismissal to. */
+export interface HomeDismissal { readonly surface: "continue_watching" | "next_up"; readonly anchor: string }
+
 export type CatalogPageRequest = {
     readonly limit: number;
     readonly cursor: string | undefined;
@@ -302,6 +305,17 @@ export const operations = {
         path: `/home/sections${query({ image_size: LIST_IMAGES, ...slotWidths, ...(itemLimit === undefined ? {} : { item_limit: itemLimit }) })}`,
         retry: "safe",
         decode: decodeHomeSections,
+    }),
+    /**
+     * dismissHomeItem: natural_idempotent. Continue Watching is anchored to the card's
+     * `progress_updated_at`, Next Up to its series (silo-apple `HomeDismissal`).
+     */
+    dismissHomeItem: (dismissal: HomeDismissal, id: string): Spec<undefined> => ({
+        method: "PUT",
+        path: `/home/dismissals/${dismissal.surface}/${encodeURIComponent(id)}`,
+        retry: "safe",
+        body: dismissal.surface === "continue_watching" ? { progress_updated_at: dismissal.anchor } : { series_id: dismissal.anchor },
+        decode: noContent,
     }),
     /** listCatalogItems: one page of a library or a search, continued with page.next_cursor. */
     listCatalogItems: (request: CatalogPageRequest): Spec<CatalogPage> => ({

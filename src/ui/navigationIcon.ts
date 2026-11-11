@@ -25,6 +25,16 @@ const PATHS = {
     "switch-server": "M3 3H21V10H3ZM3 14H21V21H3ZM7 6H8M7 17H8",
     signout: "M10 3H3V21H10M8 12H22M17 7 22 12 17 17",
     reset: "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8M3 3v5h5",
+    // The card menu's SF Symbols (silo-apple MediaStateMenuItems, MediaCard.contextActions).
+    "play.fill": "M7 4 20 12 7 20Z",
+    "checkmark.circle": "M7.5 12 10.5 15 16.5 9M21 12A9 9 0 1 1 3 12 9 9 0 0 1 21 12",
+    circle: "M21 12A9 9 0 1 1 3 12 9 9 0 0 1 21 12",
+    heart: "M12 20 4 12C0 7 7 1 12 7 17 1 24 7 20 12Z",
+    "heart.slash": "M12 20 4 12C0 7 7 1 12 7 17 1 24 7 20 12ZM3 3 21 21",
+    bookmark: "M6 3H18V21L12 17 6 21Z",
+    "bookmark.slash": "M6 3H18V21L12 17 6 21ZM3 3 21 21",
+    "xmark.circle": "M9 9 15 15M15 9 9 15M21 12A9 9 0 1 1 3 12 9 9 0 0 1 21 12",
+    "play.rectangle.on.rectangle": "M7 3H22V15M2 7H18V21H2ZM8 11 13 14 8 17Z",
 } as const;
 
 /** Original line drawings substitute for platform-owned SF Symbols. */

@@ -9,6 +9,8 @@ import { type CardOverlayPrefs, overlayLayer } from "./cardOverlays.ts";
 import { homeCaption } from "./cardPresentation.ts";
 import { artworkSymbol, defaultArtwork, type DefaultArtworkFactory } from "./defaultArtwork.ts";
 import { blurEpisodeStill, hidesCardImage, type EpisodeSpoilerSettings } from "./episodeSpoilers.ts";
+import type { HomeCardMenuRequest } from "./homeCardMenu.ts";
+import { navigationIcon } from "./navigationIcon.ts";
 import { el } from "./screen.ts";
 
 /** Home artwork widths in browse.css (Apple SiloTheme poster and EpisodeThumbCard widths); badges scale from them. */
@@ -42,6 +44,9 @@ export interface ViewContext {
     readonly resume?: (id: string, title: string, line?: SeriesLine) => void;
     readonly playEpisode?: (id: string, title: string, startOver?: boolean, selection?: EpisodeSelection) => void;
     readonly quickActions?: (card: QuickActionCard, play?: () => void) => void;
+    /** Home rows: the server's section type, and Apple's card menu opened from the row's data. */
+    readonly homeSectionType?: string;
+    readonly homeCardMenu?: (request: HomeCardMenuRequest) => void;
     readonly cardDestination?: (card: Card) => Destination | undefined;
     /** Profile spoiler switches. Absent reads as both off. */
     readonly spoilers?: () => EpisodeSpoilerSettings;
@@ -227,7 +232,23 @@ export function cardItem(card: Card, context: ViewContext): FocusItem | undefine
     element.addEventListener("focus", () => context.preview?.(card, "Browse"));
     const line = episodeLine(card);
     const play = card.type === "movie" || card.type === "episode" ? () => context.resume?.(card.id, card.title, line) : undefined;
+    if (context.homeSectionType !== undefined && context.homeCardMenu !== undefined) return homeMenuItem({ key: card.id, element, ...(play === undefined ? {} : { play }) }, card, context.homeSectionType, context.homeCardMenu, continuing ? play : undefined);
     return mediaItem({ key: card.id, element, ...(play === undefined ? {} : { play }) }, card, context, continuing ? play : undefined);
+}
+
+/**
+ * Apple `SectionRow` on tvOS: Continue Watching offers Play or Resume, and Continue Watching and Next Up
+ * offer Remove when `HomeDismissal` can anchor the card. Every Home card, audiobooks included, gets the menu.
+ */
+function homeMenuItem(item: FocusItem, card: Card, sectionType: string, menu: (request: HomeCardMenuRequest) => void, play: (() => void) | undefined): FocusItem {
+    const type = sectionType.toLowerCase();
+    const offersDismissal = isContinueWatching(type) || type === "next_up";
+    const dismissal = !offersDismissal ? undefined
+        : card.progressUpdatedAt !== undefined && card.progressUpdatedAt !== "" ? { surface: "continue_watching" as const, anchor: card.progressUpdatedAt }
+        : card.seriesId !== undefined && card.seriesId !== "" ? { surface: "next_up" as const, anchor: card.seriesId } : undefined;
+    const quickAction = (): void => menu({ card, anchor: item.element, ...(play === undefined ? {} : { play }), ...(dismissal === undefined ? {} : { dismissal }) });
+    item.element.addEventListener("contextmenu", event => { event.preventDefault(); item.element.focus({ preventScroll: true }); quickAction(); });
+    return { ...item, quickAction };
 }
 
 export function cardItems(cards: readonly Card[], context: ViewContext): FocusItem[] {
@@ -333,7 +354,7 @@ export function homeView(libraries: readonly UserLibrary[], sections: readonly H
     const content: HTMLElement[] = [];
     // Server order is the profile's order; featured rows render as ordinary rows (Apple HomeViewModel).
     for (const { section, continuing, layout, cards: titles } of homeRows(sections)) {
-        const cards = cardItems(titles, { ...context, continueWatching: continuing, cardLayout: layout, homeCaptions: true, overlays: context.cardOverlays?.(), preview: (card) => context.preview?.(card, section.title, continuing, section.featured === true) });
+        const cards = cardItems(titles, { ...context, continueWatching: continuing, cardLayout: layout, homeCaptions: true, homeSectionType: section.sectionType, overlays: context.cardOverlays?.(), preview: (card) => context.preview?.(card, section.title, continuing, section.featured === true) });
         // A row of only books, podcasts or other media this client does not browse is left out.
         if (cards.length === 0) {
             continue;
@@ -355,7 +376,14 @@ export function homeView(libraries: readonly UserLibrary[], sections: readonly H
         content.push(block);
     }
     if (zones.length === 0) {
-        content.push(...lines(["There is nothing to watch on this profile yet."]));
+        // HomeView on tvOS: EmptyStateView under a page focus owner (`tvPageFocusOwner`) whose Up reaches the top bar.
+        const page = searchState("Nothing to watch yet", "Add media to your libraries or start watching to see it here.", "home-empty", navigationIcon("play.rectangle.on.rectangle").outerHTML);
+        page.tabIndex = 0;
+        page.setAttribute("data-focus", "home-empty");
+        page.setAttribute("role", "group");
+        page.setAttribute("aria-label", "Nothing to watch yet");
+        content.push(page);
+        zones.push({ id: "empty", layout: "row", items: [{ key: "home-empty", element: page }] });
     }
     const first = zones[0]?.items[0];
     return { name: "home", content, zones, focus: first === undefined ? { zone: "nav", key: "home" } : { zone: zones[0]?.id ?? "nav", key: first.key }, back: undefined };

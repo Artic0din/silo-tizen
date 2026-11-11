@@ -357,23 +357,21 @@ calendarTest("card quick-actions target Calendar episode and season content IDs,
     assert.deepEqual(tv.fake.requests.slice(before).filter(r => /membership|catalog\/items/.test(r.path)).map(r => r.path.split("?")[0]), ["/catalog/items/season%3As1%3A2"]);
 });
 
-for (const [kind, label, confirmed] of [["watched", "Mark watched", "Mark unwatched"], ["favorites", "Remove favorite", "Add favorite"], ["watchlist", "Add to watchlist", "Remove from watchlist"]] as const) {
-    calendarTest(`card ${kind} invalidates retained Calendar Following through a Home origin`, async tv => {
-        await activate(tv, "calendar"); await ready(tv, 3);
-        const count = reads(tv).length;
-        await activate(tv, "home");
-        await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').focus();
-        await tv.down(13); await tv.jump(650); await tv.up(13);
-        const panel = tv.page.getByRole("dialog", { name: "Card actions" });
-        await panel.getByRole("button", { name: label, exact: true }).click();
-        await panel.getByRole("button", { name: confirmed, exact: true }).waitFor();
-        await tv.remote(10009);
-        await activate(tv, "calendar");
-        await tv.eventually(async () => reads(tv).length === count + 1, "stale retained Calendar read");
-        await ready(tv);
-        assert.equal(new URL(reads(tv).slice(-1)[0]?.path ?? "", "https://fake.invalid").searchParams.get("filter"), "following");
-    });
-}
+// Home cards here carry no user_state, so Apple's menu offers only the watched row; every Home change marks routes stale alike.
+calendarTest("card watched invalidates retained Calendar Following through a Home origin", async tv => {
+    await activate(tv, "calendar"); await ready(tv, 3);
+    const count = reads(tv).length;
+    await activate(tv, "home");
+    await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').focus();
+    await tv.down(13); await tv.jump(650); await tv.up(13);
+    const before = tv.fake.requests.length;
+    await tv.page.getByRole("menu").getByRole("menuitem", { name: "Mark as Watched", exact: true }).click();
+    await tv.eventually(async () => tv.fake.requests.slice(before).some(r => r.path.startsWith("/home/sections")), "Home read after the change");
+    await activate(tv, "calendar");
+    await tv.eventually(async () => reads(tv).length === count + 1, "stale retained Calendar read");
+    await ready(tv);
+    assert.equal(new URL(reads(tv).slice(-1)[0]?.path ?? "", "https://fake.invalid").searchParams.get("filter"), "following");
+});
 
 calendarTest("Calendar complete remote journey retains every event and restores exact scroll and context", async (tv) => {
     if (process.env.CALENDAR_CAPTURE) await tv.page.screenshot({ path: `${process.env.CALENDAR_CAPTURE}/after-home.png` });

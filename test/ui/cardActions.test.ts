@@ -9,7 +9,7 @@ import { homeDetailsRead, launchBrowser, openTv, type Tv } from "./support/tv.ts
 let browser: Browser;
 before(async () => { browser = await launchBrowser(); });
 after(async () => { await browser.close(); });
-async function start(tv: Tv, catalog = new FakeDetails()): Promise<FakeDetails> {
+async function start(tv: Tv, catalog = new FakeDetails(), toGrid = true): Promise<FakeDetails> {
     tv.fake.catalog = catalog;
     await tv.page.evaluate(() => window.browseHarness.connect());
     await tv.eventually(async () => tv.fake.devices.size > 0, "device code");
@@ -20,9 +20,17 @@ async function start(tv: Tv, catalog = new FakeDetails()): Promise<FakeDetails> 
     await tv.page.evaluate(() => window.browseHarness.mount());
     await tv.page.locator('[data-section="recently_added"] .browse-card').first().waitFor();
     await homeDetailsRead(tv);
+    if (toGrid) await grid(tv);
     return catalog;
 }
-const origin = (tv: Tv, continuing = false) => tv.page.locator(`[data-section="${continuing ? "continue_watching" : "recently_added"}"] [data-focus="movie:m0001"]`);
+/** Home rows open Apple's card menu (homeCardMenu.test.ts); these cover the menu on a search results grid. */
+async function grid(tv: Tv, _continuing = false): Promise<void> {
+    if (await origin(tv).count() > 0) return;
+    await tv.page.locator('[data-focus="search"]').click();
+    await tv.page.fill("#browse-search", "Movie 0001");
+    await origin(tv).waitFor();
+}
+const origin = (tv: Tv, _continuing = false) => tv.page.locator('.browse .browse-grid [data-focus="movie:m0001"]');
 const menu = (tv: Tv) => tv.page.getByRole("dialog", { name: "Card actions" });
 test("card menu reuses visited Details personal actions offline", async () => {
     const tv = await openTv(browser, { app: "browse" });
@@ -112,7 +120,7 @@ for (const status of [403, 404]) test(`card menu refusal evicts cached Details p
         await tv.page.route("**/api/v2/**", route => route.abort("connectionrefused"));
         await tv.page.evaluate(() => { window.browseHarness.destroy(); window.browseHarness.mount(); });
         await tv.page.locator('[data-section="recently_added"] .browse-card').first().waitFor();
-        await origin(tv).click();
+        await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').click();
         await tv.jump(35000);
         const failed = tv.page.locator('[data-view="item:failed"]');
         await failed.locator(".search-state-title", { hasText: "Something went wrong" }).waitFor();
@@ -157,10 +165,12 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
         try {
             await tv.page.emulateMedia({ reducedMotion });
             await start(tv);
+            if (continuing) await grid(tv, true);
             await origin(tv, continuing).focus();
             const before = tv.fake.requests.length;
+            const view = await tv.page.locator('.browse').getAttribute("data-view");
             await tv.page.keyboard.down("Enter");
-            assert.equal(await tv.page.locator('.browse').getAttribute("data-view"), "home", "first Enter default must be prevented");
+            assert.equal(await tv.page.locator('.browse').getAttribute("data-view"), view, "first Enter default must be prevented");
             await tv.jump(400);
             await tv.down(13, false);
             await tv.jump(250);
@@ -183,7 +193,7 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
     });
 }
 
-test("card actions confirm watched, refresh the Home origin and lock every action while pending", async () => {
+test("card actions confirm watched, refresh the grid origin and lock every action while pending", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {
         const catalog = await start(tv);
@@ -196,9 +206,10 @@ test("card actions confirm watched, refresh the Home origin and lock every actio
         assert.deepEqual(catalog.mutations, ["POST /watched/movie%3Am0001"]);
         answer.release();
         await menu(tv).getByRole("button", { name: "Mark unwatched", exact: true }).waitFor();
-        const homeReads = tv.fake.requests.filter(r => r.path.startsWith("/home/sections?")).length;
+        const originReads = (): number => tv.fake.requests.filter(r => r.path.startsWith("/catalog?") || r.path.startsWith("/catalog/query")).length;
+        const homeReads = originReads();
         await tv.remote(10009);
-        await tv.eventually(async () => tv.fake.requests.filter(r => r.path.startsWith("/home/sections?")).length === homeReads + 1, "actual Home refresh");
+        await tv.eventually(async () => originReads() > homeReads, "actual origin refresh");
         assert.equal(await tv.focused(), "movie:m0001");
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }
@@ -409,9 +420,9 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
         const tv = await openTv(browser, { app: "browse" });
         try {
             await tv.page.emulateMedia({ reducedMotion });
-            await start(tv);
+            await start(tv, new FakeDetails(), false);
             const personal = tv.fake.hold("/favorites/series%3As1/membership");
-            await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').click();
+            await tv.page.locator('.browse [data-focus="series:s1"]').click();
             await tv.page.locator('[data-focus="season:1"]').focus();
             await tv.page.clock.pauseAt(await tv.page.evaluate(() => Date.now() + 1000));
             await tv.down(13);
@@ -457,7 +468,7 @@ test("card actions pending close/reopen retains target, suppresses repeat-false 
 for (const surface of ["library-shelf", "library-grid", "collection", "search", "related", "person-preview", "season", "episode"] as const) test(`card quick-actions reach ${surface} and exclude navigation/input`, async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {
-        await start(tv);
+        await start(tv, new FakeDetails(), false);
         if (surface === "library-shelf" || surface === "library-grid" || surface === "collection") {
             await tv.page.locator('[data-focus="movies"]').click();
             await tv.page.locator('.browse[data-view="library:12"] .browse-card:not(.discovery-collection)').first().waitFor();
@@ -480,7 +491,7 @@ for (const surface of ["library-shelf", "library-grid", "collection", "search", 
             assert.equal(await menu(tv).count(), 0);
             await tv.page.locator('.browse .browse-grid .browse-card').first().waitFor();
         } else {
-            await tv.page.locator(`[data-section="recently_added"] [data-focus="${surface === "season" || surface === "episode" ? "series:s1" : "movie:m0001"}"]`).click();
+            await tv.page.locator(`.browse [data-section="recently_added"] [data-focus="${surface === "season" || surface === "episode" ? "series:s1" : "movie:m0001"}"]`).click();
             if (surface === "season" || surface === "episode") await tv.eventually(async () => await tv.focused() === "next-episode", "Series Play entry focus settles before targeting a chip or card");
             if (surface === "person-preview") {
                 await tv.page.locator('.details-people [data-focus^="credit:7:"]').first().click();
@@ -500,58 +511,6 @@ for (const surface of ["library-shelf", "library-grid", "collection", "search", 
         await tv.remote(10009);
         assert.equal(await menu(tv).count(), 0);
         assert.equal(await tv.focused(), await card.getAttribute("data-focus"));
-        assert.deepEqual(tv.console, []);
-    } finally { await tv.page.context().close(); }
-});
-
-for (const reducedMotion of ["no-preference", "reduce"] as const) test(`card actions ${reducedMotion} restore origin scroll and preserve navigation during late refresh`, async () => {
-    const tv = await openTv(browser, { app: "browse" });
-    try {
-        await tv.page.emulateMedia({ reducedMotion });
-        await start(tv);
-        const card = tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0011"]');
-        await card.focus(); await tv.jump(300);
-        const position = () => tv.page.locator('.browse').evaluate(node => ({ top: node.querySelector('.skyline-content')?.scrollTop, left: node.querySelector('[data-section="recently_added"] .browse-row')?.scrollLeft }));
-        const saved = await position();
-        assert.ok((saved.left ?? 0) > 0);
-        await tv.down(13); await tv.jump(650); await tv.up(13);
-        await menu(tv).getByRole("button", { name: "Add favorite", exact: true }).click();
-        await menu(tv).getByRole("button", { name: "Remove favorite", exact: true }).waitFor();
-        const held = tv.fake.hold("/home/sections", true);
-        await tv.remote(10009); await tv.jump(300);
-        assert.equal(await tv.focused(), "movie:m0011");
-        assert.deepEqual(await position(), saved);
-        await tv.page.locator('[data-focus="search"]').focus();
-        held.release();
-        await tv.eventually(async () => await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0011"]').count() === 1, "refreshed Home");
-        await tv.jump(300);
-        assert.equal(await tv.focused(), "search", "late Home answer cannot reclaim card focus");
-        assert.deepEqual(tv.console, []);
-    } finally { await tv.page.context().close(); }
-});
-
-for (const outcome of ["failed", "empty"] as const) test(`card actions ${outcome} origin refresh retains recovery/navigation`, async () => {
-    const tv = await openTv(browser, { app: "browse" });
-    try {
-        const catalog = await start(tv);
-        await hold(tv);
-        await menu(tv).getByRole("button", { name: "Add favorite", exact: true }).click();
-        await menu(tv).getByRole("button", { name: "Remove favorite", exact: true }).waitFor();
-        if (outcome === "failed") catalog.failNext("/home/sections", problem(400, "validation_failed", "Unavailable"));
-        else {
-            const household = catalog.households.get("p-owner");
-            assert.ok(household);
-            household.sections = [];
-        }
-        await tv.remote(10009);
-        if (outcome === "failed") {
-            await tv.page.locator('.browse [data-focus="retry"]').waitFor();
-            await tv.page.locator('.browse [data-focus="retry"]').click();
-            await origin(tv).waitFor();
-        } else {
-            await tv.page.getByText("There is nothing to watch on this profile yet.").waitFor();
-            assert.ok(["home", "profiles"].includes(await tv.focused() ?? ""));
-        }
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }
 });

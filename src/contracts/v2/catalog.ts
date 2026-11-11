@@ -138,6 +138,9 @@ export interface Card {
     readonly overlay?: CardOverlay | undefined;
     /** `user_state.played`; absent without a profile. */
     readonly played?: boolean | undefined;
+    /** `user_state.is_favorite` and `in_watchlist`; absent without a profile. */
+    readonly favorite?: boolean | undefined;
+    readonly inWatchlist?: boolean | undefined;
     /** Title logo art (`logo_url`); shown only where the profile's title-art setting allows. */
     readonly logoUrl?: string | undefined;
     /** True when the poster is an episode still. Absent means unknown. */
@@ -207,6 +210,8 @@ export function decodeCard(value: unknown, path: string): Card {
         genres: obj.genres === undefined ? undefined : stringArray(obj, "genres", path),
         overlay: decodeCardOverlay(obj.overlay_summary, `${path}.overlay_summary`),
         played: obj.user_state === undefined ? undefined : boolean(object(obj.user_state, `${path}.user_state`), "played", `${path}.user_state`),
+        favorite: obj.user_state === undefined ? undefined : optionalBoolean(object(obj.user_state, `${path}.user_state`), "is_favorite", `${path}.user_state`),
+        inWatchlist: obj.user_state === undefined ? undefined : optionalBoolean(object(obj.user_state, `${path}.user_state`), "in_watchlist", `${path}.user_state`),
         logoUrl: optionalString(obj, "logo_url", path),
         ratingImdb: optionalNumber(obj, "rating_imdb", path),
         ratingTmdb: optionalNumber(obj, "rating_tmdb", path),

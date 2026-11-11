@@ -1821,7 +1821,13 @@ async function activateDetails(tv: Tv, id = "movie:m0001", information = false):
         await tv.page.locator(`[data-section="recently_added"] [data-focus="${id}"]`).focus();
     }
     if (information) {
-        await tv.page.locator(`[data-section="recently_added"] [data-focus="${id}"]`).click({ button: "right" });
+        // Apple's Home menu has no episode row; Search's card menu still opens the episode itself.
+        const episode = /^episode:s\d+e(\d)(\d)$/.exec(id);
+        assert.ok(episode);
+        await tv.page.locator('[data-focus="search"]').click();
+        await tv.page.fill("#browse-search", `chapter ${episode[1]}.${episode[2]}`);
+        await tv.remote(IME_DONE);
+        await tv.page.locator(`.browse-grid [data-focus="${id}"]`).click({ button: "right" });
         await tv.page.locator('[data-focus="episode-information"]').click();
     } else await press(tv, "Enter");
 }
@@ -3727,15 +3733,15 @@ browseTest("Continue movie Select opens its Details without playback", async tv 
     assert.equal(await tv.page.evaluate(() => window.browseHarness.plays.length), 0);
 });
 
-browseTest("Continue context menu offers Resume without activating Select", async (tv, catalog) => {
-    catalog.progress.set("episode:s1e12", 420);
+browseTest("Continue context menu offers Resume without activating Select", async tv => {
+    // Apple's menu reads the row's resume point, so it is in place before Home loads.
     await tv.page.locator('[data-section="continue_watching"] [data-focus="episode:s1e12"]').click({ button: "right" });
     await tv.page.locator('[data-focus="card-play"]').waitFor();
     assert.equal(await tv.page.locator('[data-focus="card-play"]').innerText(), "Resume");
     assert.equal(await tv.page.evaluate(() => window.browseHarness.plays.length), 0);
     await tv.page.locator('[data-focus="card-play"]').click();
     await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.plays.length === 1), "context Resume handoff");
-}, { catalog: new FakeDetails() });
+}, { catalog: (() => { const catalog = new FakeDetails(); catalog.progress.set("episode:s1e12", 420); return catalog; })() });
 
 browseTest("episode-aware Search opens the series and preserves explicit information, query and Back focus", async (tv, catalog) => {
     catalog.progress.set("episode:s1e12", 420);

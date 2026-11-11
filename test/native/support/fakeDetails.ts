@@ -29,7 +29,7 @@ export class FakeDetails extends FakeCatalog {
     private readonly personCursors = new Map<string, { scope: string; offset: number }>();
     get watchedEpisodes(): Set<string> { return this.personalMembers("p-owner", "episodes"); }
 
-    private personalMembers(profile: string | undefined, kind: string): Set<string> {
+    protected personalMembers(profile: string | undefined, kind: string): Set<string> {
         const key = JSON.stringify([profile, kind]);
         let values = this.personalByProfile.get(key);
         if (values === undefined) {

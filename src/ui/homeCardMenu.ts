@@ -70,8 +70,13 @@ export class HomeCardMenu {
     /** MediaStateMenuItems.isUpdating disables the state rows; Remove has its own guard. */
     private readonly writing = new Set<string>();
     private readonly dismissing = new Set<string>();
-    /** The card the open menu belongs to. */
-    private menuCard: string | undefined;
+    /** The open menu's request, rebuilt when its card's change finishes. */
+    private request: HomeCardMenuRequest | undefined;
+    /** Counts settled changes, so a Home read that began before one cannot retire its override. */
+    private epoch = 0;
+    private readonly settledAt = new Map<string, number>();
+    /** Swallows a chosen row's Select until it is released, ahead of FocusHost's hold detection. */
+    private latch: (() => void) | undefined;
     private torn = false;
 
     /** Browse's FocusHost replaces its container's children on every render, so the menu and alert sit beside it. */
@@ -95,14 +100,17 @@ export class HomeCardMenu {
 
     get active(): boolean { return this.panel !== undefined || this.alert.length > 0; }
     get pending(): boolean { return this.writing.size > 0 || this.dismissing.size > 0; }
+    /** Pass to `refreshed` from a Home read that starts now. */
+    get readEpoch(): number { return this.epoch; }
+    private get menuCard(): string | undefined { return this.request?.card.id; }
 
     private get layer(): HTMLElement { return this.container.parentElement ?? this.container; }
 
     open(request: HomeCardMenuRequest): void {
         if (this.active || this.torn) return;
-        this.menuCard = request.card.id;
+        this.request = request;
         const items = this.rows(request);
-        if (items.length === 0) { this.menuCard = undefined; return; }
+        if (items.length === 0) { this.request = undefined; return; }
         this.items = items;
         const panel = el("div", "skyline-selector card-menu");
         panel.setAttribute("role", "menu");
@@ -115,13 +123,19 @@ export class HomeCardMenu {
         items[0]?.element.focus({ preventScroll: true });
     }
 
-    /** Home's rows were read again: server values replace every settled override. */
-    refreshed(): void {
-        for (const id of [...this.overrides.keys()]) if (!this.writing.has(id)) this.overrides.delete(id);
+    /** Home's rows were read again: server values replace every override settled before that read began. */
+    refreshed(readEpoch: number): void {
+        for (const id of [...this.overrides.keys()]) {
+            const settled = this.settledAt.get(id);
+            if (this.writing.has(id) || settled === undefined || settled > readEpoch) continue;
+            this.overrides.delete(id);
+            this.settledAt.delete(id);
+        }
     }
 
     destroy(): void {
         this.torn = true;
+        this.latch?.();
         this.queued = undefined;
         this.dismiss();
         this.dismissAlert();
@@ -176,8 +190,16 @@ export class HomeCardMenu {
         else element.removeAttribute("aria-disabled");
     }
 
-    private settle(): void {
-        if (this.panel !== undefined) for (const item of this.items) this.guard(item.element);
+    /** A change finished: an open menu on that card is rebuilt from the settled values, keeping its focused row. */
+    private settle(id: string): void {
+        const panel = this.panel;
+        const request = this.request;
+        if (panel === undefined || request === undefined) return;
+        if (request.card.id !== id) { for (const item of this.items) this.guard(item.element); return; }
+        const focused = this.items.find(item => item.element === document.activeElement)?.key;
+        this.items = this.rows(request);
+        panel.replaceChildren(...this.items.map(item => item.element));
+        (this.items.find(item => item.key === focused) ?? this.items[0])?.element.focus({ preventScroll: true });
     }
 
     private state(card: Card): { played: boolean; favorite: boolean | undefined; inWatchlist: boolean | undefined } {
@@ -195,13 +217,14 @@ export class HomeCardMenu {
         this.writing.add(card.id);
         this.session.call({ ...detailOperations.setPersonal(kind, card.id, value), profileScoped: true, replayAfterRefresh: false }).then(() => {
             this.writing.delete(card.id);
-            this.settle();
+            this.settledAt.set(card.id, ++this.epoch);
+            this.settle(card.id);
             if (!this.torn) this.applied({ kind, card, value });
         }, () => {
             this.writing.delete(card.id);
-            this.settle();
             if (previous === undefined) delete override[field];
             else override[field] = previous;
+            this.settle(card.id);
             if (!this.torn) this.applied({ kind: "unconfirmed", card });
             this.fail(kind === "watched" ? HOME_FAILURE : PERSONAL_FAILURE);
         });
@@ -212,11 +235,11 @@ export class HomeCardMenu {
         this.dismissing.add(card.id);
         this.session.call({ ...operations.dismissHomeItem(dismissal, card.id), profileScoped: true, replayAfterRefresh: false }).then(() => {
             this.dismissing.delete(card.id);
-            this.settle();
+            this.settle(card.id);
             if (!this.torn) this.applied({ kind: "dismissed", card });
         }, () => {
             this.dismissing.delete(card.id);
-            this.settle();
+            this.settle(card.id);
             if (!this.torn) this.applied({ kind: "unconfirmed", card });
             this.fail(HOME_FAILURE);
         });
@@ -275,14 +298,33 @@ export class HomeCardMenu {
     private dismiss(): void {
         this.panel?.remove();
         this.panel = undefined;
-        this.menuCard = undefined;
+        this.request = undefined;
         if (this.alert.length === 0) this.release();
     }
 
     private release(): void {
+        if (this.pressed) this.hold();
         this.items = [];
         this.pressed = false;
         this.listen(false);
+    }
+
+    /** The Select that chose a row is still down: its repeats and release must not reach the card underneath. */
+    private hold(): void {
+        this.latch?.();
+        const swallow = (event: KeyboardEvent): void => {
+            if (remoteKey(event) !== "enter") return;
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            if (event.type === "keyup") this.latch?.();
+        };
+        window.addEventListener("keydown", swallow, true);
+        window.addEventListener("keyup", swallow, true);
+        this.latch = () => {
+            window.removeEventListener("keydown", swallow, true);
+            window.removeEventListener("keyup", swallow, true);
+            this.latch = undefined;
+        };
     }
 
     private listen(on: boolean): void {

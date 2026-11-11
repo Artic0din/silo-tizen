@@ -325,6 +325,49 @@ test("an open menu re-enables its state rows when the card's change finishes", a
     } finally { await tv.page.context().close(); }
 });
 
+test("a menu reopened while its card's change is out shows the real state when that change fails", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const catalog = await start(tv);
+        catalog.mutationFailure = problem(500, "internal_error", "Failed");
+        const answer = tv.fake.hold("/favorites/movie%3Am0002");
+        await hold(tv, "recently_added", "movie:m0002");
+        await menu(tv).getByRole("menuitem", { name: "Add to Favorites" }).click();
+        await hold(tv, "recently_added", "movie:m0002");
+        await menu(tv).getByRole("menuitem", { name: "Remove from Favorites" }).waitFor();
+        answer.release();
+        await jumpUntil(tv, 100, async () => await menu(tv).getByRole("menuitem", { name: "Add to Favorites" }).count() === 1, "the open menu shows the failed change rolled back");
+        assert.deepEqual(await menu(tv).getByRole("menuitem").evaluateAll(nodes => nodes.map(node => node.getAttribute("aria-disabled"))), [null, null, null]);
+        assert.equal(await tv.focused(), "watched");
+        await tv.remote(10009);
+        await tv.page.getByRole("alertdialog").waitFor();
+        assert.deepEqual(catalog.mutations, ["PUT /favorites/movie%3Am0002"]);
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
+
+test("the Select that chooses a row, held until it repeats, does not open the card underneath", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const catalog = await start(tv);
+        await hold(tv, "recently_added", "movie:m0002");
+        await tv.remote(40);
+        assert.equal(await tv.focused(), "favorites");
+        await tv.down(13);
+        assert.equal(await menu(tv).count(), 0, "the row runs on press");
+        for (let repeat = 0; repeat < 4; repeat++) { await tv.down(13, true); await tv.jump(200); }
+        await tv.up(13);
+        await tv.jump(500);
+        assert.equal(await tv.page.locator(".browse").getAttribute("data-view"), "home", "no Details from the held press");
+        assert.equal(await menu(tv).count(), 0, "no second menu from the held press");
+        assert.equal(await tv.focused(), "movie:m0002");
+        await tv.eventually(async () => catalog.mutations.includes("PUT /favorites/movie%3Am0002"), "favorite write");
+        await tv.page.keyboard.press("Enter");
+        await tv.eventually(async () => await tv.page.locator(".browse").getAttribute("data-view") === "item:movie:m0002", "a fresh Select still opens Details");
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
+
 test("a Home refresh shows only the rows, with no status line or Try again, while it runs or after it fails", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {

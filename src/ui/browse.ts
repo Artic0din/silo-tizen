@@ -1406,6 +1406,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 presentation.ensure();
                 const artworkQuery = homeArtworkQuery(imageCapability, window.devicePixelRatio);
                 if (current.kind === "home") readHomeLibraries(current);
+                const menuEpoch = homeMenu.readEpoch;
                 load(current, async (signal) => {
                     await probeHomeLimit(signal);
                     const limit = homeItemLimit();
@@ -1420,7 +1421,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     const focus = host.focused();
                     const libraries = pendingHomeLibraries ?? (current.kind === "home" ? current.data?.libraries : undefined) ?? [];
                     current.data = { libraries, sections };
-                    homeMenu.refreshed();
+                    homeMenu.refreshed(menuEpoch);
                     homeArtworkAttempt = artworkQuery;
                     shell.update(libraries);
                     presentEnrichment(sections, false);

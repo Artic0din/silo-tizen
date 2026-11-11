@@ -195,7 +195,12 @@ export class CardActions {
     private redraw(next: MenuCard | undefined): void {
         const shown = this.shown;
         if (shown === undefined) return;
-        if (next === undefined) { this.close(); return; }
+        if (next === undefined) {
+            // Select may still be down on a disabled row; its repeats and release must not reach what takes focus next.
+            if (this.pressed) swallowSelect();
+            this.close();
+            return;
+        }
         const focused = document.activeElement?.getAttribute("data-focus");
         this.panel?.remove();
         this.panel = undefined;

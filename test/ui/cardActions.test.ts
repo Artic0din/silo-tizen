@@ -264,6 +264,31 @@ test("Select on a disabled row leaves the menu answering later presses once it r
     } finally { await tv.page.context().close(); }
 });
 
+test("a held Select on a disabled row cannot reach the screen when a landed Remove closes the menu", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const catalog = await start(tv);
+        await hold(tv, true);
+        const answer = tv.fake.hold("/home/dismissals/continue_watching/movie%3Am0001", true);
+        await row(tv, "Remove from Continue Watching").click();
+        await tv.eventually(async () => catalog.mutations.length === 1, "dismissal sent");
+        await hold(tv, true);
+        await row(tv, "Remove from Continue Watching").focus();
+        await tv.down(13);
+        assert.equal(await menu(tv).count(), 1, "the disabled row keeps the menu open");
+        answer.release();
+        await tv.eventually(async () => await menu(tv).count() === 0, "the landed Remove closes the menu");
+        for (let repeat = 0; repeat < 4; repeat++) { await tv.jump(200); await tv.down(13, true); }
+        await tv.up(13);
+        await tv.jump(700);
+        assert.equal(await tv.page.locator(".browse").getAttribute("data-view"), "home", "the release did not open Details");
+        assert.equal(await menu(tv).count(), 0, "the held repeats did not reopen a menu");
+        assert.deepEqual(await tv.page.evaluate(() => window.browseHarness.plays), []);
+        assert.equal(catalog.mutations.length, 1);
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
+
 test("a held Select that chooses a row cannot reach the card once the menu closes", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {

@@ -2115,7 +2115,10 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         } else offlineRefreshAt = undefined;
         if (rootRoute) {
             const selected = tabFocus(current).key;
-            const preview = (current.kind === "home" && current.data !== undefined) || (current.kind === "for_you" && (current.data?.some(row => row.items.some(card => destinationOf(card) !== undefined)) ?? false)) || (current.kind === "library" && current.library.type !== "music" && (current.discovery?.mode ?? "Recommended") === "Recommended");
+            // Apple's HomeView with no sections shows only EmptyStateView: no marquee, and no remembered card replayed into it.
+            const preview = (current.kind === "home" && current.data !== undefined && !view.zones.some(zone => zone.id === "empty")) || (current.kind === "for_you" && (current.data?.some(row => row.items.some(card => destinationOf(card) !== undefined)) ?? false)) || (current.kind === "library" && current.library.type !== "music" && (current.discovery?.mode ?? "Recommended") === "Recommended");
+            // A marquee rest armed on remembered rows must not read their card once Home is empty.
+            if (current.kind === "home" && !preview) homeDetails.suspend();
             const modal = browsing && (current.discovery?.panel !== undefined || shuffleFailure?.route === current);
             const decorated = shell.decorate(view, selected, preview, modal ? () => { view.back?.(); } : current.kind === "personal" || isHubRoot(current) || current.kind === "watchParty" ? () => {
                 if (host.focused()?.zone === "nav") pop();

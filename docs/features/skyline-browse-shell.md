@@ -298,6 +298,7 @@ Sign Out requires confirmation; Cancel and Back preserve the session and restore
 Its two-action layout follows `TVSettingsConfirmationOverlay`: centered surface, 48/42 px padding, 38 px title, 22 px message, horizontal 260 px buttons with 16 px spacing and a 0.62 black backdrop.
 The existing focus host owns that row; Up/Down stay inside it, Left/Right select an action, and tapping the backdrop cancels without activating the covered page.
 Back dismisses either anchored menu until focus leaves its anchor or the viewer presses it again.
+A menu the dwell opened, and not yet entered, closes when focus moves from the bar into the page, as when a late load hands the page focus (`enterContentFromBar`).
 Up from the first dropdown row returns to its anchor, and Down from the last For You action returns to content.
 
 For You reuses Home's Skyline artwork, marquee and shelf renderers.

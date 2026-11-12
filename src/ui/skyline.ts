@@ -755,6 +755,15 @@ export class Skyline {
         if (item === undefined) {
             this.cancelDwell();
             this.dismissedAnchor = undefined;
+            // enterContentFromBar (TVMainTabView.swift:955-958): focus leaving the bar for the page closes a passive panel
+            // (`!panelHasFocus`), so a dwell that opened just before a late load cannot stay over the content. A panel the
+            // viewer entered, or one rebuilding its rows, never loses focus from the bar, so it stays.
+            const from = event.relatedTarget instanceof Node ? event.relatedTarget : null;
+            if (!this.selector.hidden && !this.confirmation && this.nav.contains(from)) {
+                this.close();
+                // FocusHost keeps the focused card; this only drops the closed panel's zones, outside the render that moved focus.
+                queueMicrotask(() => { if (this.visible && this.selector.hidden) this.refresh(); });
+            }
             return;
         }
         for (const tab of this.items) tab.element.removeAttribute("data-selection-motion");

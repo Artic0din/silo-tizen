@@ -720,3 +720,21 @@ test("profile and For You menus draw Apple's filled glyphs at Apple's ink size i
         }
     } finally { await tv.page.context().close(); }
 });
+
+for (const anchor of ["movies", "profiles"]) test(`a ${anchor} menu the dwell opened closes when focus is handed to the page`, async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        await start(tv);
+        await tv.page.locator(`[data-focus="${anchor}"]`).focus();
+        await tv.jump(250);
+        assert.equal(await tv.page.locator(`[data-focus="${anchor}"]`).getAttribute("aria-expanded"), "true", "the dwell opens the menu without entering it");
+        // A late load hands focus to the page the way FocusHost.focusDefault does.
+        await tv.page.locator('[data-section="continue_watching"] .browse-card').first().evaluate(card => (card as HTMLElement).focus());
+        // enterContentFromBar: closePanelForContentHandoff (TVMainTabView.swift:955-958).
+        await tv.eventually(async () => !(await tv.page.locator(".skyline-selector:not(.skyline-flyout)").isVisible()), "the menu closes");
+        assert.equal(await tv.page.locator(`[data-focus="${anchor}"]`).getAttribute("aria-expanded"), "false");
+        assert.equal(await tv.page.evaluate(() => document.activeElement?.closest("[data-section]")?.getAttribute("data-section")), "continue_watching", "focus stays on the card");
+        await tv.jump(500);
+        assert.equal(await tv.page.locator(".skyline-selector:not(.skyline-flyout)").isVisible(), false, "the menu does not reopen");
+    } finally { await tv.page.context().close(); }
+});

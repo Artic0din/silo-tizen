@@ -823,7 +823,7 @@ export function seasonView(name: string, title: string, episodes: readonly Episo
         }
         element.appendChild(info);
         element.addEventListener("click", () => context.playEpisode === undefined ? context.open({ kind: "item", id: episode.id, title: episode.title }) : context.playEpisode(episode.id, episode.title));
-        return mediaItem({ key: episode.id, element }, { id: episode.id, title: episode.title, type: "episode" }, context);
+        return mediaItem({ key: episode.id, element }, { id: episode.id, title: episode.title, type: "episode", played: episode.played }, context);
     });
     const header = detail === undefined ? undefined : itemView(detail, [], context, play, back, state);
     const heroEnd = (header?.content.findIndex(node => node.classList.contains("details-hero")) ?? -1) + 1;

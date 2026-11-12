@@ -138,6 +138,9 @@ export interface Card {
     readonly overlay?: CardOverlay | undefined;
     /** `user_state.played`; absent without a profile. */
     readonly played?: boolean | undefined;
+    /** `user_state.is_favorite` and `user_state.in_watchlist`; absent without a profile or on an older server. */
+    readonly favorite?: boolean | undefined;
+    readonly watchlist?: boolean | undefined;
     /** Title logo art (`logo_url`); shown only where the profile's title-art setting allows. */
     readonly logoUrl?: string | undefined;
     /** True when the poster is an episode still. Absent means unknown. */
@@ -184,6 +187,15 @@ export interface CardOverlay {
     readonly multiSub?: boolean | undefined;
 }
 
+/** The card's Favorites and Watchlist membership, which Apple's card menu reads from the row (MediaCardPersonalState). */
+function listMembership(obj: WireObject, path: string): { favorite?: boolean; watchlist?: boolean } {
+    if (obj.user_state === undefined) return {};
+    const state = object(obj.user_state, `${path}.user_state`);
+    const favorite = optionalBoolean(state, "is_favorite", `${path}.user_state`);
+    const watchlist = optionalBoolean(state, "in_watchlist", `${path}.user_state`);
+    return { ...(favorite === undefined ? {} : { favorite }), ...(watchlist === undefined ? {} : { watchlist }) };
+}
+
 function optionalBoolean(obj: WireObject, key: string, path: string): boolean | undefined {
     return obj[key] === undefined ? undefined : boolean(obj, key, path);
 }
@@ -207,6 +219,7 @@ export function decodeCard(value: unknown, path: string): Card {
         genres: obj.genres === undefined ? undefined : stringArray(obj, "genres", path),
         overlay: decodeCardOverlay(obj.overlay_summary, `${path}.overlay_summary`),
         played: obj.user_state === undefined ? undefined : boolean(object(obj.user_state, `${path}.user_state`), "played", `${path}.user_state`),
+        ...listMembership(obj, path),
         logoUrl: optionalString(obj, "logo_url", path),
         ratingImdb: optionalNumber(obj, "rating_imdb", path),
         ratingTmdb: optionalNumber(obj, "rating_tmdb", path),
@@ -362,6 +375,8 @@ export interface ItemDetail {
     /** Remote provider videos. Absent on the wire decodes as an empty list. */
     readonly videos: readonly ItemVideo[];
     readonly played: boolean | undefined;
+    readonly favorite?: boolean | undefined;
+    readonly watchlist?: boolean | undefined;
     readonly extra?: DetailExtras;
     readonly id: string;
     readonly type: CardType;
@@ -460,6 +475,7 @@ export function decodeItemDetail(value: unknown): ItemDetail {
         advisoryAge: optionalInteger(obj, "advisory_age", path),
         advisorySource: optionalString(obj, "advisory_source", path),
         played: obj.user_state === undefined ? watch?.played : boolean(object(obj.user_state, `${path}.user_state`), "played", `${path}.user_state`),
+        ...listMembership(obj, path),
         extra: decodeDetailExtras(value),
         extras: decodeExtras(obj),
         videos: decodeVideos(obj),

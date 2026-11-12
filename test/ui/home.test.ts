@@ -1244,21 +1244,20 @@ let heldImageProbe: { release(): void };
 journey("a late artwork probe defers to Card actions and preserves watched invalidation", async (tv, catalog) => {
     const reads = tv.fake.requests.filter(request => request.path.startsWith("/home/sections")).length;
     await tv.down(13); await tv.jump(650); await tv.up(13);
-    const panel = tv.page.getByRole("dialog", { name: "Card actions" });
-    await panel.getByRole("button", { name: "Mark watched", exact: true }).waitFor();
+    const panel = tv.page.getByRole("menu");
+    await panel.getByRole("menuitem", { name: "Mark as Watched", exact: true }).waitFor();
     const capability = tv.page.waitForResponse(reply => new URL(reply.url()).pathname === "/api/v2/images/capabilities");
     heldImageProbe.release();
     assert.equal(await (await capability).finished(), null);
     await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.hasImageCapabilityCache()), "image probe applied during Card actions");
     await tv.page.clock.runFor(0);
     assert.equal(tv.fake.requests.filter(request => request.path.startsWith("/home/sections")).length, reads, "artwork waits for Card actions to close");
-    await panel.getByRole("button", { name: "Mark watched", exact: true }).click();
-    await panel.getByRole("button", { name: "Mark unwatched", exact: true }).waitFor();
     catalog.removed.add("movie:m0004");
-    await tv.remote(10009);
+    await panel.getByRole("menuitem", { name: "Mark as Watched", exact: true }).click();
     await tv.eventually(async () => !(await homeTitles(tv)).includes("movie:m0004"), "watched membership refresh retained");
-    assert.equal(tv.fake.requests.filter(request => request.path.startsWith("/home/sections")).length, reads + 1);
-    assert.equal(tv.fake.requests.filter(request => request.path.startsWith("/home/sections"))[reads]?.path, "/home/sections?image_size=medium&logo_width=880&backdrop_width=1344");
+    // Closing resumes the deferred reload; the landed change then rereads, as HomeViewModel never applies a read begun before it.
+    await tv.eventually(async () => tv.fake.requests.filter(request => request.path.startsWith("/home/sections")).length === reads + 2, "reread after the change");
+    for (const request of tv.fake.requests.filter(request => request.path.startsWith("/home/sections")).slice(reads)) assert.equal(request.path, "/home/sections?image_size=medium&logo_width=880&backdrop_width=1344");
 }, catalog => {
     imageCapabilities(catalog, true);
     const details = new FakeDetails();
@@ -1458,11 +1457,8 @@ journey("card quick-actions abandon a pending Home turn and refresh the committe
     await tv.eventually(async () => catalog.queries.length === 2, "pending append");
     await tv.page.locator('.browse [data-focus="movie:m0030"]').focus();
     await tv.down(13); await tv.jump(650); await tv.up(13);
-    const panel = tv.page.getByRole("dialog", { name: "Card actions" });
-    await panel.getByRole("button", { name: "Mark watched", exact: true }).click();
-    await panel.getByRole("button", { name: "Mark unwatched", exact: true }).waitFor();
     catalog.removed.add("movie:m0030");
-    await tv.remote(10009);
+    await tv.page.getByRole("menu").getByRole("menuitem", { name: "Mark as Watched", exact: true }).click();
     await tv.eventually(async () => await tv.focused() === "movie:m0031", "nearby Home page focus");
     assert.equal(catalog.queries.slice(-1)[0]?.cursor, undefined);
     pending.release(); await tv.jump(0);

@@ -101,7 +101,8 @@ railTest("a loading season holds the rail with Apple TV's four skeleton cards", 
     await tv.page.route("**/api/v2/catalog/series/series%3As1/seasons/1/episodes?**", route => { release = () => route.fallback(); });
     await tv.page.locator(SERIES).first().click();
     await tv.page.locator(".details-episodes-placeholder").waitFor();
-    assert.equal(await tv.page.getByText("Loading episodes…", { exact: true }).count(), 0, "no loading sentence under the pills");
+    // The removed sentence was a status line; the Play button may still read "Loading episodes…" until its target lands.
+    assert.equal(await tv.page.locator(".browse-text", { hasText: "Loading episodes…" }).count(), 0, "no loading sentence under the pills");
     const skeleton = await tv.page.locator(".details-episodes-placeholder").evaluate(row => {
         const box = (node: Element | null) => { const rect = node?.getBoundingClientRect(); return rect === undefined ? null : [rect.width, rect.height]; };
         const card = row.querySelector(".details-episode-placeholder"), still = card?.querySelector(".details-episode-placeholder-still");
@@ -298,15 +299,17 @@ railTest("holding Select on a season pill offers only Mark Season Watched or Unw
     await tv.down(13, false);
     await tv.jump(250);
     await tv.page.keyboard.up("Enter");
-    const menu = tv.page.locator(".card-actions-panel");
-    await menu.getByRole("button", { name: "Mark Season Unwatched", exact: true }).waitFor();
-    assert.deepEqual(await menu.locator(".card-actions-buttons .browse-button").allInnerTexts(), ["Mark Season Unwatched"]);
-    assert.equal(await menu.getByText("List actions are unavailable for this title.", { exact: true }).count(), 0);
-    const before = details.mutations.length;
-    await menu.getByRole("button", { name: "Mark Season Unwatched", exact: true }).click();
-    await tv.eventually(async () => details.mutations.length > before, "season watched change sent");
+    const menu = tv.page.getByRole("menu");
+    await menu.getByRole("menuitem", { name: "Mark Season Unwatched", exact: true }).waitFor();
+    assert.deepEqual(await menu.locator(".card-menu-label").allInnerTexts(), ["Mark Season Unwatched"]);
     await tv.remote(10009);
     await tv.eventually(async () => await menu.count() === 0, "Back dismisses the menu");
+    assert.equal(await tv.focused(), "season:1");
+    await pill.focus(); await tv.down(13); await tv.jump(650); await tv.up(13);
+    const before = details.mutations.length;
+    await menu.getByRole("menuitem", { name: "Mark Season Unwatched", exact: true }).click();
+    await tv.eventually(async () => await menu.count() === 0, "choosing the row closes the menu");
+    await tv.eventually(async () => details.mutations.length > before, "season watched change sent");
 });
 
 railTest("a related episode keeps its season when it replaces a related page, and is not the series on screen", async (tv) => {

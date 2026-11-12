@@ -27,6 +27,8 @@ type VideoTab = "movies" | "series" | "music" | "audiobooks";
 const MARQUEE_CROSSFADE_MILLISECONDS = 240;
 /** `SiloTheme.Skyline.marqueeBackdropHoldCapMilliseconds` (`Theme/SiloTheme.swift:309`). */
 const MARQUEE_BACKDROP_HOLD_CAP_MILLISECONDS = 320;
+/** The longest close fade: the sign-out confirmation's easeOut(0.2) (`Components/AccountRemovalConfirmation.swift:34`). */
+const PANEL_LEAVE_MILLISECONDS = 200;
 
 interface ProfileMenu {
     readonly requests?: () => void;
@@ -111,11 +113,16 @@ export class Skyline {
     private avatarReference: string | undefined;
     private avatarText: string | undefined;
     private readonly tools = el("div", "skyline-tools");
-    private readonly selector = el("div", "skyline-selector");
+    private readonly selector = el("div", "skyline-selector skyline-panel");
     private readonly marquee = el("div", "skyline-marquee");
     private readonly body = el("div", "skyline-content");
     private readonly scrim = el("div", "skyline-dropdown-scrim");
-    private readonly flyout = el("div", "skyline-selector skyline-flyout");
+    private readonly flyout = el("div", "skyline-selector skyline-panel skyline-flyout");
+    /** Copies of a closed panel fading out, as Apple's persistent panels do; never focusable or announced. */
+    private readonly leaving = el("div", "skyline-leaving");
+    private clearLeaving = (): void => undefined;
+    /** Where, in the open panel, its scale is anchored: under the tab or avatar centre. */
+    private panelOrigin = 0;
     private flyoutItem: FocusItem | undefined;
     private flyoutItems: FocusItem[] = [];
     private libraryModes: readonly LibraryMode[] = ["Recommended", "Collections", "Browse"];
@@ -203,6 +210,8 @@ export class Skyline {
         this.scrim.addEventListener("click", () => { if (this.confirmation) this.back(); });
         this.flyout.hidden = true;
         this.flyout.setAttribute("role", "menu");
+        this.leaving.setAttribute("aria-hidden", "true");
+        this.leaving.inert = true;
         this.marquee.setAttribute("aria-live", "polite");
         this.marquee.setAttribute("aria-atomic", "true");
         container.addEventListener("focusin", this.onFocus);
@@ -324,7 +333,11 @@ export class Skyline {
         this.sharedScene = preview && (libraryRoot || selected === "home" || selected === "for_you");
         if (preview && libraryRoot && view.focus === undefined) view = { ...view, focus: { zone: "nav", key: selected } };
         for (const item of this.items) {
-            item.element.setAttribute("aria-current", item.key === selected ? "page" : "false");
+            const current = item.key === selected ? "page" : "false";
+            const previous = item.element.getAttribute("aria-current");
+            // TVTopMenuCapsuleChrome: a selection change eases over 0.18 s; a focus change springs. Focusing a tab ends it.
+            if (previous !== null && previous !== current && item.element !== document.activeElement) item.element.setAttribute("data-selection-motion", "");
+            item.element.setAttribute("aria-current", current);
             if (item.element.getAttribute("role") === "tab") item.element.setAttribute("aria-selected", String(item.key === selected));
         }
         const zones: Zone[] = [{ id: "nav", layout: "row", items: this.items, entry: selected }];
@@ -349,7 +362,7 @@ export class Skyline {
         if (this.confirmation) { this.nav.setAttribute("aria-hidden", "true"); this.body.setAttribute("aria-hidden", "true"); }
         else { this.nav.removeAttribute("aria-hidden"); this.body.removeAttribute("aria-hidden"); }
         if (preview && !this.translationArmed) this.armTranslation();
-        return { ...view, prepare, transition: { key: libraryKey ?? selected, group: selected }, content: [this.scrim, this.nav, this.selector, this.flyout, ...(preview ? [this.marquee] : []), this.body], zones: this.confirmation ? zones.filter(zone => zone.id === "selector") : [...zones, ...view.zones], back: selected === "search" ? view.back : () => this.back() };
+        return { ...view, prepare, transition: { key: libraryKey ?? selected, group: selected }, content: [this.scrim, this.nav, this.selector, this.flyout, this.leaving, ...(preview ? [this.marquee] : []), this.body], zones: this.confirmation ? zones.filter(zone => zone.id === "selector") : [...zones, ...view.zones], back: selected === "search" ? view.back : () => this.back() };
     }
 
     hide(): void {
@@ -357,6 +370,7 @@ export class Skyline {
         this.visible = false;
         this.marqueeShown = false;
         this.close();
+        this.clearLeaving();
         this.suspendBackdrop();
         this.cancelTranslation();
         this.container.classList.remove("skyline-root", "skyline-preview", "skyline-library", "skyline-home");
@@ -631,7 +645,54 @@ export class Skyline {
         }
     }
 
-    private close(): void {
+    /**
+     * TVMainTabView.anchoredPanel (silo-apple 7e478b2 `tvOS/Navigation/TVMainTabView.swift:622-633`): a closing panel
+     * fades and shrinks to 0.96 toward its anchor over easeOut(0.12); the sign-out confirmation fades over easeOut(0.2)
+     * (`Components/AccountRemovalConfirmation.swift:31,34`). Reduce Motion snaps it away.
+     */
+    private leave(): void {
+        if (!this.visible || this.selector.hidden || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+        const panel = this.selector.getBoundingClientRect();
+        // The live order, scrim first: copies share z-index 6, so their order is their stacking.
+        const live = [this.scrim, this.selector, this.flyout].filter(node => !node.hidden);
+        const ghosts = live.map(node => {
+            const ghost = node.cloneNode(true) as HTMLElement;
+            // The copy keeps its look but answers to none of the live panel's names, ids or focus keys.
+            for (const part of [ghost, ...Array.from(ghost.querySelectorAll<HTMLElement>("*"))]) {
+                part.removeAttribute("id");
+                part.removeAttribute("data-focus");
+            }
+            ghost.classList.replace("skyline-selector", "skyline-selector-leaving");
+            ghost.classList.replace("skyline-flyout", "skyline-flyout-leaving");
+            ghost.classList.replace("skyline-dropdown-scrim", "skyline-dropdown-scrim-leaving");
+            ghost.classList.add("skyline-panel-leaving");
+            if (node === this.flyout) {
+                // One scale for the whole cascade: the flyout shrinks toward the same anchor point as level 1.
+                const flyout = node.getBoundingClientRect();
+                ghost.style.transformOrigin = `${panel.left + this.panelOrigin - flyout.left}px ${panel.top - flyout.top}px`;
+            }
+            return ghost;
+        });
+        this.leaving.append(...ghosts);
+        // cloneNode drops scroll state: a scrolled library list fades from the rows on screen.
+        ghosts.forEach((ghost, index) => { ghost.scrollTop = live[index]?.scrollTop ?? 0; });
+        const timer = window.setTimeout(() => { for (const ghost of ghosts) ghost.remove(); }, PANEL_LEAVE_MILLISECONDS);
+        this.clearLeaving = () => {
+            window.clearTimeout(timer);
+            this.leaving.replaceChildren();
+        };
+    }
+
+    /** `panelTransitionAnchorX` (TVMainTabView.swift:683-694): the panel grows from under its anchor's centre, at its top edge. */
+    private anchorOrigin(anchor: HTMLElement): void {
+        const rect = anchor.getBoundingClientRect();
+        // offsetLeft is the untransformed position, so the 0.96 start frame does not skew it.
+        this.panelOrigin = Math.min(Math.max(rect.left + rect.width / 2 - this.selector.offsetLeft, 0), this.selector.offsetWidth);
+        this.selector.style.transformOrigin = `${this.panelOrigin}px 0px`;
+    }
+
+    private close(fade = true): void {
+        if (fade) this.leave();
         this.cancelDwell();
         this.cancelFlyout();
         this.flyout.hidden = true;
@@ -646,6 +707,7 @@ export class Skyline {
         this.selector.removeAttribute("data-menu-kind");
         this.selector.setAttribute("role", "menu");
         this.selector.style.top = "";
+        this.selector.style.transformOrigin = "";
         this.profileOpen = false;
         this.selector.hidden = true;
         this.scrim.hidden = true;
@@ -663,6 +725,8 @@ export class Skyline {
         } else if (!this.nav.contains(document.activeElement)) {
             this.items.find((item) => item.key === this.selected)?.element.focus({ preventScroll: true });
         } else if (this.selected !== "home") this.commit("home");
+        // handleExitPress (TVTopMenuBar.swift:643-656): on Home, Back from any other bar element returns to the Home tab first.
+        else if (document.activeElement !== this.items.find(item => item.key === "home")?.element) this.items.find(item => item.key === "home")?.element.focus({ preventScroll: true });
         else return false;
         return true;
     }
@@ -693,6 +757,7 @@ export class Skyline {
             this.dismissedAnchor = undefined;
             return;
         }
+        for (const tab of this.items) tab.element.removeAttribute("data-selection-motion");
         const dismissed = !this.selector.hidden;
         this.close();
         if (dismissed) {
@@ -762,6 +827,7 @@ export class Skyline {
         const anchor = item.element.getBoundingClientRect();
         this.selector.style.left = `${Math.max(88, Math.min(1372, anchor.left + anchor.width / 2 - 230))}px`;
         this.selector.style.right = "auto";
+        this.anchorOrigin(item.element);
         this.updateChrome();
         this.refresh();
     }
@@ -777,8 +843,11 @@ export class Skyline {
             if (anchor.key === "profiles" && !this.profileOpen && this.dismissedAnchor === "profiles") return;
             event.preventDefault();
             this.cancelDwell();
-            if (anchor.key === "profiles") this.openProfile();
-            else this.openRootPanel(anchor);
+            // enterOpenPanel (TVMainTabView.swift:845-853): a panel the dwell already opened is entered, not reopened.
+            if (this.selector.hidden || this.panelAnchor !== anchor.key) {
+                if (anchor.key === "profiles") this.openProfile();
+                else this.openRootPanel(anchor);
+            }
             const current = this.panelTab === undefined ? undefined : this.scope(this.panelTab);
             (this.panel.find(item => item.key === `library:${current?.id}`) ?? this.panel[0])?.element.focus({ preventScroll: true });
             return;
@@ -829,7 +898,7 @@ export class Skyline {
         if (back && this.selector.hidden && this.routeBack !== undefined) {
             event.preventDefault();
             this.routeBack();
-        } else if (back && (!this.selector.hidden || (this.selected !== "search" && (!this.nav.contains(document.activeElement) || this.selected !== "home")))) {
+        } else if (back && (!this.selector.hidden || (this.selected !== "search" && !(this.selected === "home" && anchor?.key === "home")))) {
             event.preventDefault();
             this.back();
         } else if (key === "down" && !this.selector.hidden && this.nav.contains(document.activeElement)) {
@@ -858,13 +927,18 @@ export class Skyline {
     /** A row appearing or going while the menu is open replaces every row, so focus returns to the row it was on. */
     private rebuildProfile(): void {
         const focusedKey = this.panel.find(item => item.element === document.activeElement)?.key;
-        this.openProfile();
+        this.openProfile(false, false);
         if (focusedKey !== undefined) this.panel.find(item => item.key === focusedKey)?.element.focus({ preventScroll: true });
     }
 
-    private openProfile(enter = false): void {
+    private openProfile(enter = false, fade = true): void {
         if (!this.visible) return;
-        this.close();
+        // openProfilePanelImmediately (TVMainTabView.swift:835-841): pressing the avatar enters a menu the dwell opened.
+        if (fade && this.profileOpen && !this.selector.hidden) {
+            if (enter) this.panel[0]?.element.focus({ preventScroll: true });
+            return;
+        }
+        this.close(fade);
         this.profileOpen = true;
         this.panelAnchor = "profiles";
         this.selector.setAttribute("data-menu-kind", "profile");
@@ -899,6 +973,7 @@ export class Skyline {
         this.selector.style.left = "auto";
         this.selector.style.right = "88px";
         this.selector.hidden = false;
+        this.anchorOrigin(this.items.find(item => item.key === "profiles")?.element ?? this.selector);
         this.scrim.hidden = true;
         this.updateChrome();
         this.refresh();

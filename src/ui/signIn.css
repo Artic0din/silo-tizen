@@ -896,42 +896,6 @@
     opacity: 0.55;
 }
 
-.signin-alert {
-    display: flex;
-    flex-direction: column;
-    position: fixed;
-    top: 50%;
-    left: 50%;
-    width: 586px;
-    min-height: 330px;
-    padding: 45px 30px 30px;
-    border: 1px solid var(--silo-hairline);
-    border-radius: 40px;
-    background: rgba(17, 17, 20, 0.6);
-    backdrop-filter: blur(30px);
-    transform: translate(-50%, -50%);
-}
-
-.signin-alert-title {
-    margin: 0 16px 12px;
-    font-size: 32px;
-    line-height: 37px;
-    font-weight: 700;
-}
-
-.signin-alert-text {
-    margin: 0 16px 28px;
-    font-size: 25px;
-    line-height: 1.32;
-    color: var(--silo-secondary);
-}
-
-.signin-alert .signin-actions {
-    display: flex;
-    justify-content: space-between;
-    margin: auto 0 0;
-}
-
 .signin-auth .signin-alert .marquee-button,
 .profiles-flow .signin-alert .signin-button {
     width: 250px;

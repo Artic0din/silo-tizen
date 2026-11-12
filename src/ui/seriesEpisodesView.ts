@@ -142,5 +142,5 @@ function episodeCard(episode: Episode, context: ViewContext): FocusItem {
         if (context.playEpisode === undefined) context.open({ kind: "item", id: episode.id, title: episode.title });
         else context.playEpisode(episode.id, episode.title);
     });
-    return mediaItem({ key: episode.id, element }, { id: episode.id, title: episode.title, type: "episode" }, context);
+    return mediaItem({ key: episode.id, element }, { id: episode.id, title: episode.title, type: "episode", played: episode.played }, context);
 }

@@ -7,6 +7,8 @@ import type { FocusItem, View, Zone } from "./browseFocus.ts";
 import { artworkUrl, type Destination, type EpisodeSelection, type SeriesLine, browseCardDestination, destinationOf } from "./browseModel.ts";
 import { type CardOverlayPrefs, overlayLayer } from "./cardOverlays.ts";
 import { homeCaption } from "./cardPresentation.ts";
+import type { CardMenuOptions, MenuCard } from "./cardActions.ts";
+import type { HomeDismissal } from "../api/detailOperations.ts";
 import { artworkSymbol, defaultArtwork, type DefaultArtworkFactory } from "./defaultArtwork.ts";
 import { blurEpisodeStill, hidesCardImage, type EpisodeSpoilerSettings } from "./episodeSpoilers.ts";
 import { el } from "./screen.ts";
@@ -41,7 +43,11 @@ export interface ViewContext {
     readonly savedFileOverlay?: (card: Card) => CardOverlay | undefined;
     readonly resume?: (id: string, title: string, line?: SeriesLine) => void;
     readonly playEpisode?: (id: string, title: string, startOver?: boolean, selection?: EpisodeSelection) => void;
-    readonly quickActions?: (card: QuickActionCard, play?: () => void) => void;
+    readonly quickActions?: (card: MenuCard, options: CardMenuOptions) => void;
+    /** The server `section_type` of the feed row a card sits in; SectionRow gives every row's cards the watched row. */
+    readonly homeRow?: string;
+    /** Home's own rows, whose Continue Watching and Next Up cards can be removed. */
+    readonly homeDismissals?: boolean;
     readonly cardDestination?: (card: Card) => Destination | undefined;
     /** Profile spoiler switches. Absent reads as both off. */
     readonly spoilers?: () => EpisodeSpoilerSettings;
@@ -51,13 +57,10 @@ function spoilerSettings(context: ViewContext): EpisodeSpoilerSettings {
     return context.spoilers?.() ?? { hidesImages: false, hidesOverviews: false };
 }
 
-/** A held card. `seasonPill` marks a Details season pill, whose menu is Apple's season-only context menu. */
-export type QuickActionCard = Pick<Card, "id" | "title" | "type"> & { readonly seasonPill?: boolean };
-
 /** Only catalog media receives hold/right-click actions; navigation tiles keep their clicks. */
-export function mediaItem(item: FocusItem, card: QuickActionCard, context: ViewContext, contextPlay?: () => void): FocusItem {
-    if (context.quickActions === undefined || !["movie", "series", "episode", "season"].includes(card.type)) return item;
-    const quickAction = (): void => context.quickActions?.(card, contextPlay);
+export function mediaItem(item: FocusItem, card: MenuCard, context: ViewContext, options: CardMenuOptions = {}): FocusItem {
+    if (context.quickActions === undefined || !["movie", "series", "episode", "season", "audiobook"].includes(card.type)) return item;
+    const quickAction = (): void => context.quickActions?.(card, options);
     item.element.addEventListener("contextmenu", event => { event.preventDefault(); item.element.focus({ preventScroll: true }); quickAction(); });
     return { ...item, quickAction };
 }
@@ -227,7 +230,8 @@ export function cardItem(card: Card, context: ViewContext): FocusItem | undefine
     element.addEventListener("focus", () => context.preview?.(card, "Browse"));
     const line = episodeLine(card);
     const play = card.type === "movie" || card.type === "episode" ? () => context.resume?.(card.id, card.title, line) : undefined;
-    return mediaItem({ key: card.id, element, ...(play === undefined ? {} : { play }) }, card, context, continuing ? play : undefined);
+    const home = context.homeRow !== undefined;
+    return mediaItem({ key: card.id, element, ...(play === undefined ? {} : { play }) }, card, context, { play: continuing ? play : undefined, dismissal: context.homeDismissals === true ? homeDismissal(card, context.homeRow) : undefined, home });
 }
 
 export function cardItems(cards: readonly Card[], context: ViewContext): FocusItem[] {
@@ -280,6 +284,33 @@ export interface HomeHandlers {
     readonly search: () => void;
     readonly library: (library: UserLibrary) => void;
     readonly chooseProfile: () => void;
+    /** Only Home itself removes cards from Continue Watching and Next Up ("Home is the only caller with a removal handler"). */
+    readonly dismisses?: boolean;
+}
+
+/** SF Symbol play.rectangle.on.rectangle. */
+const PLAY_RECTANGLES_ICON = '<svg viewBox="0 0 54 44" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round"><path d="M10 6.5h29a5 5 0 0 1 5 5"/><rect x="1.5" y="12.5" width="42.5" height="30" rx="5"/><path d="M18 21.5v12l10-6Z" fill="currentColor"/><path d="M17.5 1.5h29a5 5 0 0 1 5 5v22"/></svg>';
+
+/**
+ * Apple HomeSectionsMutation.removingDismissedItem: a dismissed card leaves the playback rows at once, and dismissing an
+ * episode or series drops every card of that show from them; rows left empty go. Other rows keep the title.
+ */
+export function removingDismissed(sections: readonly HomeSection[], card: Pick<Card, "id" | "type" | "seriesId">): HomeSection[] {
+    const series = card.type === "series" ? card.id : card.type === "episode" && card.seriesId !== undefined && card.seriesId !== "" ? card.seriesId : undefined;
+    return sections.map(section => {
+        const type = section.sectionType.toLowerCase();
+        if (!(isContinueWatching(type) || type === "next_up")) return section;
+        const items = section.items.filter(item => item.id !== card.id && (series === undefined || (item.id !== series && item.seriesId !== series)));
+        return items.length === section.items.length ? section : { ...section, items };
+    }).filter(section => section.items.length > 0);
+}
+
+/** Apple HomeDismissal for a card in a Continue Watching or Next Up row (SectionRow.offersHomeDismissal); otherwise none. */
+function homeDismissal(card: Card, row: string | undefined): HomeDismissal | undefined {
+    if (row === undefined || !(isContinueWatching(row) || row.toLowerCase() === "next_up")) return undefined;
+    if (card.progressUpdatedAt !== undefined && card.progressUpdatedAt !== "") return { surface: "continue_watching", progressUpdatedAt: card.progressUpdatedAt };
+    if (card.seriesId !== undefined && card.seriesId !== "") return { surface: "next_up", seriesId: card.seriesId };
+    return undefined;
 }
 
 /** Resume rows. Apple `ResolvedSection.isContinueWatchingSection`: the server type, not the title. */
@@ -333,7 +364,7 @@ export function homeView(libraries: readonly UserLibrary[], sections: readonly H
     const content: HTMLElement[] = [];
     // Server order is the profile's order; featured rows render as ordinary rows (Apple HomeViewModel).
     for (const { section, continuing, layout, cards: titles } of homeRows(sections)) {
-        const cards = cardItems(titles, { ...context, continueWatching: continuing, cardLayout: layout, homeCaptions: true, overlays: context.cardOverlays?.(), preview: (card) => context.preview?.(card, section.title, continuing, section.featured === true) });
+        const cards = cardItems(titles, { ...context, continueWatching: continuing, homeRow: section.sectionType, homeDismissals: handlers.dismisses === true, cardLayout: layout, homeCaptions: true, overlays: context.cardOverlays?.(), preview: (card) => context.preview?.(card, section.title, continuing, section.featured === true) });
         // A row of only books, podcasts or other media this client does not browse is left out.
         if (cards.length === 0) {
             continue;
@@ -354,7 +385,16 @@ export function homeView(libraries: readonly UserLibrary[], sections: readonly H
         block.appendChild(zoneNode("browse-row", cards));
         content.push(block);
     }
-    if (zones.length === 0) {
+    if (zones.length === 0 && handlers.dismisses === true) {
+        // Apple HomeView: EmptyStateView under a page focus owner whose Up goes to the top bar.
+        const page = searchState("Nothing to watch yet", "Add media to your libraries or start watching to see it here.", "home-empty", PLAY_RECTANGLES_ICON);
+        page.tabIndex = -1;
+        page.setAttribute("role", "status");
+        page.setAttribute("aria-label", "Nothing to watch yet");
+        page.setAttribute("data-focus", "home-empty");
+        content.push(page);
+        zones.push({ id: "empty", layout: "row", items: [{ key: "home-empty", element: page }] });
+    } else if (zones.length === 0) {
         content.push(...lines(["There is nothing to watch on this profile yet."]));
     }
     const first = zones[0]?.items[0];

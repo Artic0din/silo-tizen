@@ -47,7 +47,7 @@ Optional personal, next-episode, title-art and related reads retain prior displa
 Series Play retains the cached episode owner and its normal launch behavior when its fresh read fails.
 Season Details also retries offline supporting reads automatically.
 Episode refusals survive cached revisits and recovery until a fresh episode read succeeds.
-Card menus reuse visited Details and personal display state on transport failure; server refusals, writes and confirmation reads still require normal authority checks.
+Card menus open from the row's own state; a card without list state reads its item once, and a failed read or change shows Apple's Couldn’t Update Item alert.
 Apple's active episode selection overrides the overview suggestion; Show Series Info restores the selected season's suggestion independently of rail focus memory.
 Uncached optional failures omit the corresponding unavailable content rather than adding red notices.
 Failed episode hierarchy reads still show the episode Retry alongside retained episodes, as Apple TV does.

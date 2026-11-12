@@ -33,6 +33,7 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Holding Select on a card now opens a menu that looks and reads like Apple TV's: it appears beside the card at once, with a symbol on each row, Apple's labels, and Remove from Continue Watching or Remove from Next Up on those Home rows. A change that fails shows "Couldn’t Update Item". An empty Home now says "Nothing to watch yet", and Home no longer shows refresh messages under its rows.
 - The player's subtitle options now use Apple TV's wording: Search Subtitles…, and pickers titled Subtitle Delay, Subtitle Size, Subtitle Position, Subtitle Style, Subtitle Font, Text Color, Text Opacity, Outline Color, Background Color and Background Opacity. As on Apple TV, a picker's title stays in view while its options scroll.
 - Secondary text, such as counts, settings descriptions and metadata lines, now uses Apple TV's colour: the primary text colour at 60%, instead of a lighter flat grey. Watch Party captions, hints, presence and suggestion lines use the same colour at Apple's lower strengths.
 - Details starts the highest-resolution version, honouring the Resolution cap in Playback settings, and lists versions as resolution, video codec, DV or HDR, and audio codec, as Apple TV does. It no longer starts the first version the server lists, and no longer prints the edition in the Version list.

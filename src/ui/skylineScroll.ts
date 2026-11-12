@@ -69,6 +69,17 @@ const MOVIE_HERO_SCROLL = { duration: 450, ease: cubicBezier(0.42, 0, 0.58, 1) }
 /** TVSeriesDetailView animatePage: 0.55 s on UICubicTimingParameters (0.4, 0) (0.2, 1). */
 const SERIES_HERO_SCROLL = { duration: 550, ease: cubicBezier(0.4, 0, 0.2, 1) };
 
+/** One animated scroll: where it started, where it goes, and its curve. */
+export interface Motion {
+    readonly fromLeft: number;
+    readonly fromTop: number;
+    readonly left: number;
+    readonly top: number;
+    readonly start: number;
+    readonly duration: number;
+    readonly ease: (progress: number) => number;
+}
+
 export class SkylineScroll {
     /** TVSeriesDetailView.swift:653-674 centers the selected mode. */
     static seasonOffset(row: HTMLElement, element: HTMLElement): number {
@@ -76,6 +87,7 @@ export class SkylineScroll {
     }
     private readonly frames = new Map<HTMLElement, number>();
     private readonly targets = new WeakMap<HTMLElement, { left: number; top: number }>();
+    private readonly motions = new WeakMap<HTMLElement, Motion>();
     /** Shelf already bottom-aligned. Horizontal moves inside it do not scroll again. */
     private pinnedShelf: HTMLElement | null = null;
 
@@ -142,7 +154,25 @@ export class SkylineScroll {
             return;
         }
         if (previous === undefined) node.dispatchEvent(new Event(SCROLL_START_EVENT));
-        const start = performance.now();
+        this.run(node, { fromLeft, fromTop, left, top, start: performance.now(), duration, ease });
+    }
+
+    /** The move `node` is making now. */
+    motion(node: HTMLElement): Motion | undefined {
+        return this.frames.has(node) ? this.motions.get(node) : undefined;
+    }
+
+    /** Carries on `motion` on `node` from where its own curve is now, replacing any other move there. */
+    resume(node: HTMLElement, motion: Motion): void {
+        const previous = this.frames.get(node);
+        if (previous !== undefined) cancelAnimationFrame(previous);
+        this.targets.set(node, { left: motion.left, top: motion.top });
+        this.run(node, motion);
+    }
+
+    private run(node: HTMLElement, motion: Motion): void {
+        const { fromLeft, fromTop, left, top, start, duration, ease } = motion;
+        this.motions.set(node, motion);
         const frame = (now: number): void => {
             if (!node.isConnected) {
                 this.frames.delete(node);
@@ -317,16 +347,9 @@ export class SkylineScroll {
         this.move(viewport, 0, Math.max(0, viewport.scrollTop + delta / scale));
     }
 
-    /** Whether `node` is moving now. */
-    moving(node: HTMLElement): boolean { return this.frames.has(node); }
-
-    /** Cancels every move except `keep`'s. */
-    stop(keep?: HTMLElement): void {
-        for (const [node, frame] of this.frames) {
-            if (node === keep) continue;
-            cancelAnimationFrame(frame);
-            this.frames.delete(node);
-        }
+    stop(): void {
+        for (const frame of this.frames.values()) cancelAnimationFrame(frame);
+        this.frames.clear();
         this.pinnedShelf = null;
     }
 }

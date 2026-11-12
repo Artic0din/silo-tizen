@@ -1193,12 +1193,12 @@ browseTest("Box set Play stays on the first screen with and without a backdrop",
                 stacked: filmBounds.top >= verbBounds.bottom - 1 && Math.abs(filmBounds.left - verbBounds.left) <= 2,
                 artwork: image?.isConnected === true && image.naturalWidth > 0,
             };
-        }, null, value => value.top >= 0 && value.bottom <= 1080 && value.stacked && value.verbSize === "29px" && value.filmSize === "16px" && value.verbWeight === "600" && value.filmWeight === "600" && value.artwork === artwork, artwork ? "Play with a backdrop" : "Play without a backdrop");
+        }, null, value => value.top >= 0 && value.bottom <= 1080 && value.stacked && value.verbSize === "28.0865px" && value.filmSize === "15.496px" && value.verbWeight === "600" && value.filmWeight === "600" && value.artwork === artwork, artwork ? "Play with a backdrop" : "Play without a backdrop");
         assert.ok(play.top >= 0 && play.bottom <= 1080, JSON.stringify(play));
         assert.equal(play.stacked, true);
         assert.equal(play.artwork, artwork);
-        assert.equal(play.verbSize, "29px");
-        assert.equal(play.filmSize, "16px");
+        assert.equal(play.verbSize, "28.0865px");
+        assert.equal(play.filmSize, "15.496px");
     };
     await open();
     await playOnScreen(true);
@@ -2121,7 +2121,7 @@ browseTest("Details portraits keep their circular geometry and retain the cast c
         const art = node.querySelector(".skyline-art-frame");
         return art !== null && getComputedStyle(node).overflow === "clip";
     }), true, "hero artwork cannot paint over later rails");
-    assert.equal(await tv.page.locator('[data-detail-section="related"] .browse-card-title').first().evaluate(node => getComputedStyle(node).fontSize), "24px");
+    assert.equal(await tv.page.locator('[data-detail-section="related"] .browse-card-title').first().evaluate(node => getComputedStyle(node).fontSize), "23.244px", "siloPosterTitle 24 times --silo-sf-cap-scale");
     assert.equal(await tv.page.locator('.details-people [data-focus^="credit:7:"]').count(), 1);
     await shows(tv, "Alex");
     assert.equal(await tv.page.locator('.details-people [data-focus^="credit:7:"] .browse-card-subtitle').textContent(), 'Alex');

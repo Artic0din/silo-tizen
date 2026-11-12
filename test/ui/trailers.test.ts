@@ -196,7 +196,7 @@ trailerTest("a movie with only a YouTube video shows Trailers & More and leaves 
             captionText: caption.textContent,
             badge: badge.getBoundingClientRect().width,
         };
-    }, null, value => value.titleText === "Official Trailer" && value.captionText === "YouTube" && Math.abs(value.gap - 76) < 1 && Math.abs(value.stillWidth - 470) < 1 && Math.abs(value.stillHeight - 264) < 1 && value.radius === "18px" && Math.abs(value.titleGap - 14) < 1 && Math.abs(value.captionGap - 5) < 1 && value.titleSize === "21px" && value.titleWeight === "600" && value.titleColor === "rgba(237, 237, 237, 0.92)" && value.captionSize === "17px" && value.captionWeight === "500" && value.captionColor === "rgba(237, 237, 237, 0.6)" && value.badge === 60, "trailer card geometry");
+    }, null, value => value.titleText === "Official Trailer" && value.captionText === "YouTube" && Math.abs(value.gap - 76) < 1 && Math.abs(value.stillWidth - 470) < 1 && Math.abs(value.stillHeight - 264) < 1 && value.radius === "18px" && Math.abs(value.titleGap - 14) < 1 && Math.abs(value.captionGap - 5) < 1 && value.titleSize === "20.3385px" && value.titleWeight === "600" && value.titleColor === "rgba(237, 237, 237, 0.92)" && value.captionSize === "16.4645px" && value.captionWeight === "500" && value.captionColor === "rgba(237, 237, 237, 0.6)" && value.badge === 60, "trailer card geometry");
     assert.equal(metrics.titleText, "Official Trailer");
     assert.equal(metrics.captionText, "YouTube");
     assert.ok(Math.abs(metrics.gap - 76) < 1, JSON.stringify(metrics));
@@ -205,10 +205,10 @@ trailerTest("a movie with only a YouTube video shows Trailers & More and leaves 
     assert.equal(metrics.radius, "18px");
     assert.ok(Math.abs(metrics.titleGap - 14) < 1, JSON.stringify(metrics));
     assert.ok(Math.abs(metrics.captionGap - 5) < 1, JSON.stringify(metrics));
-    assert.equal(metrics.titleSize, "21px");
+    assert.equal(metrics.titleSize, "20.3385px");
     assert.equal(metrics.titleWeight, "600");
     assert.equal(metrics.titleColor, "rgba(237, 237, 237, 0.92)");
-    assert.equal(metrics.captionSize, "17px");
+    assert.equal(metrics.captionSize, "16.4645px");
     assert.equal(metrics.captionWeight, "500");
     assert.equal(metrics.captionColor, "rgba(237, 237, 237, 0.6)");
     assert.equal(metrics.badge, 60);

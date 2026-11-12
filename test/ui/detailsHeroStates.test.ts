@@ -124,7 +124,7 @@ detailTest("a held Details page paints the card's seed in Apple's loading frame 
     assert.ok(near(overview.size, px(26)), overview.size); assert.equal(overview.color, "rgba(255, 255, 255, 0.72)"); assert.equal(overview.line, "35.62px");
     assert.deepEqual(frame.labels, ["VERSION", "AUDIO", "SUBTITLES"]);
     const label = frame.labelStyle as { size: string; weight: string; tracking: string; color: string };
-    assert.ok(near(label.size, px(12)), label.size); assert.equal(label.weight, "700"); assert.equal(label.tracking, "1.1px"); assert.equal(label.color, "rgba(255, 255, 255, 0.42)");
+    assert.ok(near(label.size, px(12)), label.size); assert.equal(label.weight, "700"); assert.equal(label.tracking, "1.6px", "Apple's 1.1 plus the 0.5 Inter needs to run SF Pro's 12pt bold width"); assert.equal(label.color, "rgba(255, 255, 255, 0.42)");
     assert.deepEqual(frame.columns, [245, 285, 264]);
     assert.deepEqual((frame.readoutBars as { width: number; height: number }[]).map(bar => [bar.width, bar.height]), [[100, 14], [130, 14], [60, 14]]);
     assert.deepEqual((frame.actions as { width: number; height: number; radius: string; fill: string }[]).map(bar => [bar.width, bar.height, bar.radius, bar.fill]), [[340, 64, "14px", "rgba(255, 255, 255, 0.1)"], [190, 64, "14px", "rgba(255, 255, 255, 0.1)"], [64, 64, "14px", "rgba(255, 255, 255, 0.1)"]]);
@@ -231,7 +231,7 @@ detailTest("readout labels, values, credit and ratings use Apple's type, colour 
     await patchDetail(tv, "movie:m0001", { crew: [{ person_id: "7", name: "River Vale", job: "Director" }, { name: "A Director With A Name Long Enough To Run Past The Editorial Column Width Of The Hero", job: "Director" }] });
     await tv.page.locator(MOVIE).first().click();
     const shown = await readLive(tv, readout, null, value => value.values.every(item => item.text !== ""), "resolved readout");
-    for (const label of shown.labels) assert.deepEqual([near(label.size, px(23)), label.weight, label.tracking, label.color], [true, "700", "0.9px", "rgba(255, 255, 255, 0.48)"], label.text);
+    for (const label of shown.labels) assert.deepEqual([near(label.size, px(23)), label.weight, label.tracking, label.color], [true, "700", "1.15px", "rgba(255, 255, 255, 0.48)"], `${label.text}: Apple's 0.9 plus the 0.25 Inter needs to run SF Pro's 23pt bold width`);
     for (const value of shown.values) assert.deepEqual([value.weight, value.color], ["500", "rgba(255, 255, 255, 0.82)"], value.text);
     const credit = await readLive(tv, () => {
         const node = document.querySelector(".details-editorial .details-director");

@@ -78,6 +78,41 @@ async function next(tv: Tv, number: number): Promise<void> {
     await tv.eventually(async () => await grid(tv).count() === Math.min(number * 60, 124), "near-end append");
 }
 
+/** Apple EmptyStateView(icon: "film.stack", title: personEmpty, subtitle: personEmptyBody), at least 420pt tall (PersonDetailView.swift:417-423). */
+async function emptyFilmography(tv: Tv): Promise<void> {
+    const state = tv.page.locator(".person-filmography-empty");
+    await state.waitFor();
+    const style = (selector: string, property: string): Promise<string> => state.locator(selector).evaluate((node, key) => getComputedStyle(node).getPropertyValue(key), property);
+    assert.equal(await state.locator(".search-state-title").textContent(), "No titles found");
+    assert.equal(await state.locator(".search-state-description").textContent(), "There are no movies or series linked to this person yet.");
+    assert.equal(await state.locator(".search-state-icon svg").count(), 1);
+    // film.stack draws filled sprocket strips with eight holes, not an outline frame.
+    assert.equal(await state.locator(".search-state-icon svg path[fill-rule=\"evenodd\"]").count(), 1);
+    assert.ok(await state.evaluate(node => node.getBoundingClientRect().height) >= 420, "Apple's 420pt minimum height");
+    assert.equal(await style(".search-state-icon", "height"), "44px");
+    assert.equal(await style(".search-state-icon", "margin-bottom"), "12px");
+    assert.equal(await style(".search-state-icon", "color"), "rgba(237, 237, 237, 0.3)");
+    // Apple's points times --silo-sf-cap-scale (0.9685, #418): siloSubheadline 28 semibold, siloCaption 22.
+    assert.equal(await style(".search-state-title", "font-size"), "27.118px");
+    assert.equal(await style(".search-state-title", "font-weight"), "600");
+    assert.equal(await style(".search-state-title", "margin-bottom"), "12px");
+    assert.equal(await style(".search-state-description", "font-size"), "21.307px");
+    assert.equal(await style(".search-state-description", "color"), "rgba(237, 237, 237, 0.6)");
+}
+
+/** Apple ErrorView(state:onRetry:) in the Filmography area, at least 420pt tall (PersonDetailView.swift:414-416). */
+async function failedFilmography(tv: Tv, message: string): Promise<void> {
+    const state = tv.page.locator(".person-filmography-failure");
+    await state.waitFor();
+    assert.equal(await state.getAttribute("role"), "alert");
+    assert.equal(await state.locator(".search-state-title").textContent(), "Something went wrong");
+    assert.equal(await state.locator(".search-state-description").textContent(), message);
+    assert.equal(await state.locator(".search-state-icon svg").count(), 1);
+    assert.deepEqual(await state.locator("[data-focus]").evaluateAll(nodes => nodes.map(node => [node.getAttribute("data-focus"), node.textContent])), [["retry", "Try Again"]]);
+    assert.ok(await state.evaluate(node => node.getBoundingClientRect().height) >= 420, "Apple's 420pt minimum height");
+    assert.equal(await tv.page.locator(".details-person-hero").count(), 1, "the person stays on screen above the error");
+}
+
 function journey(name: string, body: (tv: Tv, catalog: FakeDetails) => Promise<void>): void {
     test(name, async () => {
         const tv = await openTv(browser, { app: "browse" });
@@ -702,12 +737,12 @@ journey("filter race fences old answer; failed and empty filters keep controls r
     assert.equal(await tv.focused(), "filter:series");
     catalog.personReplies.push(problem(500, "internal_error", "Synthetic filter failure"));
     await tv.page.locator('[data-focus="filter:movie"]').click();
-    await tv.page.locator('[data-focus="retry"]').waitFor();
+    await failedFilmography(tv, "The server ran into a problem. Try again in a moment.");
     assert.equal(await tv.page.locator('[data-focus^="filter:"]').count(), 3);
     assert.equal(await tv.page.locator('[data-focus="filter:movie"]').getAttribute("aria-pressed"), "true");
     catalog.empty = true;
     await tv.page.locator('[data-focus="retry"]').click();
-    await tv.page.getByText("No titles found", { exact: true }).waitFor();
+    await emptyFilmography(tv);
     await tv.page.locator('[data-focus="filter:movie"]').focus();
     await tv.page.keyboard.press("ArrowRight");
     assert.equal(await tv.focused(), "filter:series");
@@ -824,8 +859,7 @@ journey("person metadata errors recover, artwork falls back, and facts render as
     let response: Record<string, unknown> = { id: "7", name: "<b>River Vale</b>", bio: 7 };
     await tv.page.route("**/api/v2/catalog/people/7", route => route.fulfill({ status: 200, json: response }));
     await tv.page.locator('.details-people [data-focus^="credit:7:"]').first().click();
-    await tv.page.getByText("The server sent an answer this TV could not read.", { exact: true }).waitFor();
-    assert.equal(await tv.page.locator('[data-focus="back"]').count(), 1);
+    await personFailure(tv, "Something went wrong", "The server sent an answer this TV could not read.", ["retry"]);
     response = { id: "7", name: "<b>River Vale</b>", bio: "<img src=x onerror=alert(1)>", birthplace: "<script>synthetic</script>", future_metadata: { value: 7 } };
     await tv.page.locator('[data-focus="retry"]').click();
     await tv.page.getByText(response.name as string, { exact: true }).first().waitFor();
@@ -836,13 +870,38 @@ journey("person metadata errors recover, artwork falls back, and facts render as
     assert.equal(await tv.page.locator("h1").textContent(), "<b>River Vale</b>");
 });
 
-for (const status of [404, 500]) journey(`person metadata ${status} keeps explicit retry and Back`, async tv => {
+/** Apple rootContent: with no person, the read's failure is the whole page's ErrorView (PersonDetailView.swift:358-359). */
+async function personFailure(tv: Tv, headline: string, message: string, actions: string[]): Promise<void> {
+    const page = tv.page.locator('.browse .details-failure[role="alert"]');
+    await page.waitFor();
+    assert.equal(await page.locator(".search-state-title").textContent(), headline);
+    assert.equal(await page.locator(".search-state-description").textContent(), message);
+    assert.deepEqual(await page.locator("[data-focus]").evaluateAll(nodes => nodes.map(node => node.getAttribute("data-focus"))), actions);
+    assert.equal(await tv.focused(), actions[0]);
+    assert.equal(await tv.page.locator(".details-person-hero, .person-filmography-heading, [data-focus^='filter:']").count(), 0, "the error replaces the page");
+}
+
+for (const status of [404, 500]) journey(`person metadata ${status} shows Apple's ErrorView for the page`, async tv => {
     await tv.remote(BACK);
     await tv.page.route("**/api/v2/catalog/people/7", route => route.fulfill({ status, json: problem(status, status === 404 ? "not_found" : "internal_error", "Synthetic person failure").body }));
     await tv.page.locator('.details-people [data-focus^="credit:7:"]').first().click();
-    await tv.page.locator('[data-focus="retry"]').waitFor();
-    if (status === 404) await tv.page.getByText("This person is no longer available.", { exact: true }).waitFor();
-    await tv.remote(BACK);
+    // ErrorView.recoveryPlan: a 404 leads with Go Back and keeps Try Again; any other failure offers only Try Again.
+    if (status === 404) {
+        await personFailure(tv, "Not found", "We couldn't find what you were looking for. It may have been removed or moved.", ["go-back", "retry"]);
+        await tv.page.keyboard.press("Enter");
+    } else {
+        await personFailure(tv, "Something went wrong", "The server ran into a problem. Try again in a moment.", ["retry"]);
+        // PersonDetailViewModel.reload clears the error first (PersonDetailView.swift:97): Try Again shows the loading page, not the old error.
+        await tv.page.unroute("**/api/v2/catalog/people/7");
+        const held = tv.fake.hold("/catalog/people/7", true);
+        await tv.page.keyboard.press("Enter");
+        await tv.jump(0);
+        assert.equal(await tv.page.locator(".details-failure").count(), 0, "the old error stays up while the person reloads");
+        assert.equal(await tv.page.locator(".details-person-hero").count(), 1);
+        held.release();
+        await tv.page.getByText("River Vale", { exact: true }).first().waitFor();
+        await tv.remote(BACK);
+    }
     assert.match(await tv.focused() ?? "", /^credit:7:/);
 });
 
@@ -884,7 +943,7 @@ journey("failed initial works read retains metadata and filter recovery", async 
     await tv.remote(BACK);
     catalog.personReplies.push(problem(500, "internal_error", "Synthetic first page failure"));
     await tv.page.locator('.details-people [data-focus^="credit:7:"]').first().click();
-    await tv.page.locator('[data-focus="retry"]').waitFor();
+    await failedFilmography(tv, "The server ran into a problem. Try again in a moment.");
     assert.equal(await tv.page.locator(".details-person-hero").count(), 1);
     assert.equal(await tv.page.locator('[data-focus^="filter:"]').count(), 3);
     const reads = metadataReads(tv);

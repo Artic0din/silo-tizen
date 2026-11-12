@@ -800,3 +800,143 @@ test("a pending card change keeps Details' own personal writes locked", async ()
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }
 });
+
+// Apple keeps a series' last season only on its cached page (TVItemDetailView.swift:169). A watched change from a card
+// refreshes that page, which picks the season again (MediaCardWatchedSync.swift:15); a favorite only writes back its flag.
+for (const action of ["Mark as Watched", "Add to Favorites"] as const) test(`after ${action} on a series card, Details ${action === "Mark as Watched" ? "picks its season again" : "keeps the season last viewed"}`, async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const catalog = await start(tv);
+        const series = origin(tv, false, "series:s1");
+        const opened = async (): Promise<void> => { await series.click(); await tv.eventually(async () => await tv.focused() === "next-episode", "Series Play entry focus settles"); };
+        await opened();
+        await tv.page.locator('[data-focus="season:2"]').focus(); await tv.jump(500);
+        await tv.page.locator('[data-focus="season:2"][aria-pressed="true"]').waitFor();
+        await tv.remote(10009);
+        await opened();
+        await tv.page.locator('[data-focus="season:2"][aria-pressed="true"]').waitFor();
+        await tv.remote(10009);
+        await hold(tv, false, "series:s1");
+        await row(tv, action).click();
+        await tv.eventually(async () => catalog.mutations.length === 1 && await menu(tv).count() === 0, "card change lands");
+        await opened();
+        const season = action === "Mark as Watched" ? 1 : 2;
+        await tv.page.locator(`[data-focus="season:${season}"][aria-pressed="true"]`).waitFor();
+        assert.equal(await tv.page.locator('.details-season[aria-pressed="true"], [data-focus^="season:"][aria-pressed="true"]').count(), 1);
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
+
+// A series page still in the stack is Apple's cached page too: the watched change refreshes it, so Back shows the season
+// picked again (PersonalStateSync.swift:200-210, ItemDetailCache.swift:68-79, ItemDetailViewModel.swift:490-512).
+test("a watched change from a card above a series page makes Back show the season picked again", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const catalog = await start(tv);
+        await origin(tv, false, "series:s1").click();
+        await tv.eventually(async () => await tv.focused() === "next-episode", "Series Play entry focus settles");
+        await tv.page.locator('[data-focus="season:2"]').focus(); await tv.jump(500);
+        await tv.page.locator('[data-focus="season:2"][aria-pressed="true"]').waitFor();
+        await tv.page.locator('.details-people [data-focus^="credit:7:"]').first().click();
+        const card = tv.page.locator('.browse[data-view="person:7"] [data-focus="series:s1"]').first();
+        await card.waitFor();
+        await card.focus(); await tv.down(13); await tv.jump(650); await tv.up(13);
+        await row(tv, "Mark as Watched").click();
+        await tv.eventually(async () => catalog.mutations.length === 1 && await menu(tv).count() === 0, "watched change lands");
+        await tv.remote(10009);
+        await tv.page.locator('[data-focus="season:1"][aria-pressed="true"]').waitFor();
+        assert.equal(await tv.page.locator('[data-focus^="season:"][aria-pressed="true"]').count(), 1);
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
+
+test("leaving a retained series page before its reread lands still picks the season again on the next visit", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const catalog = await start(tv);
+        const series = origin(tv, false, "series:s1");
+        await series.click();
+        await tv.eventually(async () => await tv.focused() === "next-episode", "Series Play entry focus settles");
+        await tv.page.locator('[data-focus="season:2"]').focus(); await tv.jump(500);
+        await tv.page.locator('[data-focus="season:2"][aria-pressed="true"]').waitFor();
+        await tv.page.locator('.details-people [data-focus^="credit:7:"]').first().click();
+        const card = tv.page.locator('.browse[data-view="person:7"] [data-focus="series:s1"]').first();
+        await card.waitFor();
+        await card.focus(); await tv.down(13); await tv.jump(650); await tv.up(13);
+        await row(tv, "Mark as Watched").click();
+        await tv.eventually(async () => catalog.mutations.length === 1 && await menu(tv).count() === 0, "watched change lands");
+        const reread = tv.fake.hold("/catalog/items/series%3As1", true);
+        await tv.remote(10009);
+        await tv.page.locator('.browse[data-view="item:series:s1"]').waitFor();
+        await tv.remote(10009);
+        await series.waitFor();
+        reread.release();
+        await series.click();
+        await tv.page.locator('[data-focus="season:1"][aria-pressed="true"]').waitFor();
+        assert.equal(await tv.page.locator('[data-focus^="season:"][aria-pressed="true"]').count(), 1);
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
+
+// ItemDetailCache.swift:34: a Favorite change keeps Apple's cached series page, so the page and its season still leave
+// after 20 other pages.
+test("after a favorite change, a remembered season still ends once 20 other title pages open", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const catalog = await start(tv);
+        const series = origin(tv, false, "series:s1");
+        await series.click();
+        await tv.eventually(async () => await tv.focused() === "next-episode", "Series Play entry focus settles");
+        await tv.page.locator('[data-focus="season:2"]').focus(); await tv.jump(500);
+        await tv.page.locator('[data-focus="season:2"][aria-pressed="true"]').waitFor();
+        await tv.remote(10009);
+        await hold(tv, false, "series:s1");
+        await row(tv, "Add to Favorites").click();
+        await tv.eventually(async () => catalog.mutations.length === 1 && await menu(tv).count() === 0, "favorite change lands");
+        await tv.page.locator('[data-focus="movies"]').click();
+        await tv.page.locator('.browse[data-view="library:12"] .browse-card:not(.discovery-collection)').first().waitFor();
+        await selectLibraryMode(tv, "Recently Added");
+        const grid = tv.page.locator('.browse .browse-grid .browse-card');
+        await grid.first().waitFor();
+        for (let index = 0; index < 20; index++) {
+            const card = grid.nth(index);
+            const id = await card.getAttribute("data-focus");
+            await card.click();
+            await tv.page.locator(`.browse[data-view="item:${id}"]`).waitFor();
+            await tv.remote(10009);
+            await grid.first().waitFor();
+        }
+        await tv.page.locator('[data-focus="home"]').click();
+        await series.click();
+        await tv.page.locator('[data-focus="season:1"][aria-pressed="true"]').waitFor();
+        assert.equal(await tv.page.locator('[data-focus^="season:"][aria-pressed="true"]').count(), 1);
+    } finally { await tv.page.context().close(); }
+});
+
+// TVItemDetailView.swift:166-170: Apple's cached page keeps its season however the visit ends, including a related
+// title replacing it.
+test("a series page replaced by a related title keeps its season for the next visit", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        await start(tv);
+        await tv.page.route("**/api/v2/recommendations/similar/movie%3Am0001**", route => route.fulfill({ json: { items: [{ content_id: "series:s1", type: "series", title: "Harbor Lights" }, ...Array.from({ length: 11 }, (_, index) => ({ content_id: `movie:m${String(index + 2).padStart(4, "0")}`, type: "movie", title: `Movie ${String(index + 2).padStart(4, "0")}` }))] } }));
+        await origin(tv).click();
+        const related = tv.page.locator('.browse[data-view="item:movie:m0001"] [data-detail-section="related"] [data-focus="series:s1"]');
+        await related.waitFor();
+        await related.click();
+        await tv.eventually(async () => await tv.focused() === "next-episode", "Series Play entry focus settles");
+        await tv.page.locator('[data-focus="season:2"]').focus(); await tv.jump(500);
+        await tv.page.locator('[data-focus="season:2"][aria-pressed="true"]').waitFor();
+        const next = tv.page.locator('.browse[data-view="item:series:s1"] [data-detail-section="related"] .browse-card[data-focus^="movie:"]').first();
+        await next.waitFor();
+        const replacement = await next.getAttribute("data-focus");
+        await next.click();
+        await tv.page.locator(`.browse[data-view="item:${replacement}"]`).waitFor();
+        await tv.remote(10009);
+        await tv.page.locator('.browse[data-view="item:movie:m0001"]').waitFor();
+        await tv.remote(10009);
+        await origin(tv, false, "series:s1").click();
+        await tv.page.locator('[data-focus="season:2"][aria-pressed="true"]').waitFor();
+        assert.equal(await tv.page.locator('[data-focus^="season:"][aria-pressed="true"]').count(), 1);
+    } finally { await tv.page.context().close(); }
+});

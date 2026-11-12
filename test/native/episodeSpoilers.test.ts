@@ -12,6 +12,7 @@ import {
     EPISODE_SPOILER_BLUR_PX,
     SPOILER_INTRODUCED_IN,
     episodeDetailPresentation,
+    cardUsesBackdrop,
     hidesCardImage,
     hidesCardOverview,
     hidesEpisodeImage,
@@ -177,6 +178,17 @@ test("cards, lists, the marquee and episode detail keep series art and series te
     assert.equal(hidesCardImage({ ...episode, backdropUrl: undefined, posterIsEpisodeStill: false }, both, false), false);
     assert.equal(hidesCardImage(series, both, false), false);
     assert.equal(hidesCardImage(startedCard, both, true), false);
+    // A stored Home snapshot keeps ThumbHashes but no URLs; the preview of a still is still a still.
+    const snapshot: Card = { ...episode, posterUrl: undefined, backdropUrl: undefined };
+    assert.equal(hidesCardImage({ ...snapshot, posterThumbhash: "hash" }, both, false), true);
+    assert.equal(hidesCardImage({ ...snapshot, backdropThumbhash: "hash" }, both, true), true);
+    assert.equal(hidesCardImage(snapshot, both, true), false, "nothing drawn, nothing to hide");
+    // A series-art poster with no backdrop URL draws the poster and its own ThumbHash, never the still's.
+    const mixed: Card = { ...episode, backdropUrl: undefined, posterIsEpisodeStill: false, backdropThumbhash: "still-hash", posterThumbhash: "poster-hash" };
+    assert.equal(cardUsesBackdrop(mixed, true), false);
+    assert.equal(hidesCardImage(mixed, both, true), false);
+    assert.equal(cardUsesBackdrop({ ...mixed, posterUrl: undefined }, true), true, "a snapshot keeps the backdrop preview");
+    assert.equal(hidesCardImage({ ...mixed, posterUrl: undefined }, both, true), true);
     assert.equal(hidesCardOverview(episode, both), true);
     assert.equal(hidesCardOverview(series, both), false);
     assert.equal(hidesCardOverview(startedCard, text), false);

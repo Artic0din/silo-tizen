@@ -305,9 +305,8 @@ test("a replaced marquee keeps the new card's translation on the incoming layer"
         assert.equal(crossing.incoming?.title, "Movie 0004");
         assert.equal(crossing.incoming?.synopsis, "Translated overview");
         assert.equal(crossing.incoming?.status, "Translated by AI");
-        assert.notEqual(crossing.outgoing?.title, "Movie 0004");
-        assert.notEqual(crossing.outgoing?.synopsis, "Translated overview");
-        assert.equal(crossing.outgoing?.status, "");
+        // Apple's foreground has no transition (TVFocusMarquee.swift:1262-1264): the previous card's text is already gone.
+        assert.equal(crossing.outgoing, null);
         await tv.jump(300);
         const settled = await marqueeLayers(tv);
         assert.equal(settled.outgoing, null);

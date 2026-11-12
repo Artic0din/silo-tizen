@@ -333,7 +333,7 @@ At scale 1 the server resolves the 1344 px fill request to a 1920 px backdrop; s
 The one-size fallback resolves backdrops to 2560 px and episode stills to 1280 px.
 The probe runs once per Home session, and its last answer for the server is remembered so Home does not wait for it.
 Apple reads item detail when focus rests for the aired-date and cast line, and Continue Watching reads the last-played file when that card is mounted.
-Tizen reads Continue Watching's saved file when the row loads, four titles at a time. The row draws every card up front, and the reads stay on that queue of four. Every other title waits until focus has rested for 150 ms, then reads that one card. A move before the answer cancels it. For You also warms at most sixteen cards that omit a content rating, three at a time. Answers stay for the Browse session; Continue Watching reads again when `progress_updated_at` moves.
+Tizen reads Continue Watching's saved file when the row loads, four titles at a time. The row draws every card up front, and the reads stay on that queue of four. Every other title waits until focus has rested for 150 ms, then reads that one card; a row change reads the new card at once, as Apple does. A move before the answer cancels it. For You also warms at most sixteen cards that omit a content rating, three at a time. Answers stay for the Browse session; Continue Watching reads again when `progress_updated_at` moves.
 The aired line (`Aired 12 Mar 2026 · first three billed cast`, in an Australian region) fills in place when its answer lands and keeps its space until then.
 Dates follow the device region and retain the server's calendar day.
 Detail also supplies a runtime or content rating omitted by a row, without replacing the row's confirmed values.
@@ -451,7 +451,9 @@ This is a scoped Home journey delivery against canonical Apple `f334794047127374
 The Select and Play behavior follows Apple `7baff3ef657757cc0a69202e86dd4bd5c7fcb585`; native same-state acceptance remains pending.
 It does not complete whole-Home parity, issue #28, preplay controls, next-up behaviour or hardware acceptance.
 Progress appears only when the server supplies position and duration.
-The first card previews immediately; subsequent previews wait 150 ms and crossfade for 240 ms.
+The marquee text follows focus at once, with no animation.
+The backdrop shows at once for the first card; later backdrops wait for focus to rest 150 ms, or after a row change until Apple's 320 ms hold cap (the tvOS band's scroll phase outlasts it, so Apple always swaps there), then fade in over the previous art with `ease-in-out` over 240 ms.
+The same artwork never fades, and the backdrop shows its ThumbHash until the image decodes.
 Root transitions take 200 ms, and reduced motion snaps transitions and scrolling.
 Deliberate pill and same-tab scope changes crossfade for 200 ms with a 12 px upward drift of incoming content.
 Focus and remote input take effect synchronously; chrome and pills stay mounted above the outgoing layer.

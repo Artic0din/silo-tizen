@@ -1371,6 +1371,11 @@ journey("Home reads the rested card once and sends nothing while focus is still 
     const continuing = ["episode:s1e12", "movie:m0001"];
     assert.deepEqual([...new Set(detailReads(tv))].sort(), [...continuing].sort(), "after first paint only Continue Watching is read");
     await tv.page.keyboard.press("ArrowDown");
+    // The first card's own rest may finish on the running clock before that Down replaces it; that read is the landing,
+    // not the roll. From here the clock is paused, so the roll below takes no page time.
+    await pauseTvClock(tv);
+    const landed = [...new Set(detailReads(tv))].sort();
+    assert.ok(landed.every(id => continuing.includes(id) || id === "movie:m0004"), `only the landing card can have rested: ${landed.join(", ")}`);
     for (let step = 0; step < 4; step += 1) await tv.page.keyboard.press("ArrowRight");
     let focused = await tv.focused();
     let guard = 0;
@@ -1380,7 +1385,7 @@ journey("Home reads the rested card once and sends nothing while focus is still 
         guard += 1;
     }
     assert.ok(focused !== null && !continuing.includes(focused) && !focused.startsWith("expand:"));
-    assert.deepEqual([...new Set(detailReads(tv))].sort(), [...continuing].sort(), "fast key moves send no item detail");
+    assert.deepEqual([...new Set(detailReads(tv))].sort(), landed, "fast key moves send no item detail");
     await tv.jump(149);
     assert.equal(detailReads(tv).includes(focused), false, "149 ms is before Apple's rest delay");
     await tv.jump(1);

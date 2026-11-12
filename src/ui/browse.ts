@@ -260,6 +260,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
 
     let stack: Route[] = [];
     const seriesSeasons = new Map<string, number>();
+    /** Retained series pages whose next reread picks the season again, as Apple's refreshed cached page does. */
+    const repickSeasons = new WeakSet<DetailsState>();
     let loading: AbortController | undefined;
     let personRead: { route: Route; controller: AbortController } | undefined;
     let personFilterGeneration = 0;
@@ -287,7 +289,10 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         applied: (id, watched) => {
             visitedDetails.delete(id);
             // MediaCardWatchedSync.swift:15 refreshes Apple's cached page, which picks its season again; favorites keep it.
-            if (watched) seriesSeasons.delete(id);
+            if (watched) {
+                seriesSeasons.delete(id);
+                for (const entry of stack) if (entry.kind === "item" && entry.id === id && entry.data?.details !== undefined) repickSeasons.add(entry.data.details);
+            }
             cache.invalidate();
             // Delivery may be uncertain; retained roots must reread even after a failed change.
             for (const entry of new Set([...roots.values(), ...stack])) entry.stale = true;
@@ -1491,9 +1496,10 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                         if (detail.type === "series") {
                             const series = previous.series;
                             series?.stop();
-                            const season = series?.selectionChanged ? series.seasonNumber : data.contextSeason ?? series?.seasonNumber;
+                            const repick = repickSeasons.delete(previous);
+                            const season = repick ? undefined : series?.selectionChanged ? series.seasonNumber : data.contextSeason ?? series?.seasonNumber;
                             previous.series = new SeriesEpisodes(session, detail.id, data.seasons, reason => previous.warmSeriesEpisodes(reason === "load"), season, current.seriesContext?.episodeId);
-                            previous.series.restore(series, true);
+                            previous.series.restore(repick ? undefined : series, true);
                             previous.series.start();
                         }
                         current.data = { ...data, detail, details: previous };
@@ -1503,8 +1509,9 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     }
                     const details = createItemDetails(current, data.detail);
                     details.restore(previous);
-                    if (data.detail.type === "series") details.series = new SeriesEpisodes(session, data.detail.id, data.seasons, reason => details.warmSeriesEpisodes(reason === "load"), previous?.series?.seasonNumber ?? data.contextSeason ?? (current.seriesContext === undefined ? seriesSeasons.get(data.detail.id) : undefined), current.seriesContext?.episodeId);
-                    details.series?.restore(previous?.series, true);
+                    const repick = previous !== undefined && repickSeasons.delete(previous);
+                    if (data.detail.type === "series") details.series = new SeriesEpisodes(session, data.detail.id, data.seasons, reason => details.warmSeriesEpisodes(reason === "load"), repick ? undefined : previous?.series?.seasonNumber ?? data.contextSeason ?? (current.seriesContext === undefined ? seriesSeasons.get(data.detail.id) : undefined), current.seriesContext?.episodeId);
+                    details.series?.restore(repick ? undefined : previous?.series, true);
                     details.restoreSeasonStates(previous);
                     details.focusedEpisodeId ??= current.seriesContext?.episodeId;
                     details.related = quiet ? previous?.related : undefined;

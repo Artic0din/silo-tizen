@@ -358,6 +358,8 @@ export class DetailsState {
         this.personalSupported = previous.personalSupported;
         for (const [key, value] of previous.values) if (key !== "watched") this.values.set(key, value);
         if (this.detail.id === previous.detail.id) this.trailers.restore(previous.trailers);
+        // A hold outlives the owner: reopening the title must not let a press re-send an unanswered write.
+        if (this.detail.id === previous.detail.id) for (const [kind, change] of previous.changes) if (change.held === true) this.changes.set(kind, change);
         if (this.detail.versions.some(file => file.fileId === previous.failedPlay?.fileId)) this.failedPlay = previous.failedPlay;
         this.previousNextEpisodeState = previous.nextEpisodeState;
         this.focusedEpisodeId = previous.focusedEpisodeId;

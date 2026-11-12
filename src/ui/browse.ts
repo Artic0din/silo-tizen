@@ -2346,10 +2346,10 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         const route = newRoute({ kind: "watchParty", watchParty: watchPartyScreen(hub), ...(anchor === undefined ? {} : { anchor }) });
         push(route);
         if (origin !== undefined && anchor !== undefined) origin.focus = { zone: "nav", key: anchor };
+        if (choice === undefined) { void hub.check(); return; }
+        // WatchPartySession.create(selection:): a host-pick room that opens with the chosen title. create() reads support
+        // itself and locks the entry at once, so a press on Start a party cannot race it.
         void (async () => {
-            await hub.check();
-            // WatchPartySession.create(selection:): a host-pick room that opens with the chosen title.
-            if (choice === undefined || hub.state.room !== undefined) return;
             await hub.create("host_pick");
             if (hub.state.room !== undefined) await hub.stage(choice);
         })();

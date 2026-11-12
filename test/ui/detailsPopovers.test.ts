@@ -238,9 +238,12 @@ detailTest("An unanswered favourite is Apple's Change Not Confirmed alert, and D
     // PersonalStateNoticeAlert: the destructive Discard Held Change sits above OK, and OK keeps focus.
     assert.deepEqual(await alert.locator("button").allTextContents(), ["Discard Held Change", "OK"]);
     assert.equal(await tv.focused(), "alert-ok");
-    // OK keeps the hold: pressing the control again shows the alert instead of sending the write.
+    // OK keeps the hold, across leaving and reopening the title too: pressing the control again shows the alert instead
+    // of sending the write.
     await alert.getByRole("button", { name: "OK", exact: true }).click();
     await alert.waitFor({ state: "detached" });
+    await tv.remote(10009);
+    await openMovie(tv);
     await tv.page.locator('[data-focus="more"]').click();
     await tv.page.locator('[data-focus="favorites"]').click();
     await alert.waitFor();
@@ -346,6 +349,8 @@ test("Watch Party ends More only while the off-by-default switch is on, and open
             assert.equal(await panel.locator('[data-focus="watch-party"]').textContent(), "Watch Party");
             assert.equal(await panel.locator('[data-focus="watch-party"] svg').getAttribute("data-symbol"), "person.3");
             await panel.locator('[data-focus="watch-party"]').click();
+            // The automatic create locks the entry at once, so Start a party cannot race it.
+            assert.equal(await tv.page.locator('[data-focus="create"]').getAttribute("aria-disabled"), "true");
             await tv.page.locator('.browse[data-view="watchParty:lobby"]').waitFor();
             assert.equal(fake.createdRooms[0]?.selection_mode, "host_pick");
             await tv.eventually(async () => fake.selectedContentId === "movie:m0001", "the title is the room's selection");

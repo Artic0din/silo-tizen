@@ -2178,6 +2178,15 @@ test("the menu says what is happening: loading, a failed list with Retry, a chan
 
         await show(page, playing({ ...TRACKS, change: { state: "changing" } }));
         assert.equal(await text(page, ".player-menu-status"), "Changing track");
+        // Below the panel the status sits over video, so it carries Apple's non-sampling HUD fill to stay readable on bright frames.
+        const plate = await page.locator(".player-menu-status").evaluate((node) => {
+            const style = getComputedStyle(node);
+            const box = node.getBoundingClientRect();
+            const panel = document.querySelector(".player-menu")!.getBoundingClientRect();
+            return { fill: style.backgroundColor, top: box.top, panelBottom: panel.bottom, width: box.width };
+        });
+        assert.equal(plate.fill, "rgba(26, 26, 26, 0.88)");
+        assert.ok(plate.top >= plate.panelBottom && plate.width < 1044, "a plate under the panel, sized to its text");
         await show(page, playing({ ...TRACKS, change: { state: "refused", message: "The selected subtitle source cannot be burned in by the installed transport." } }));
         assert.equal(await text(page, ".player-menu-status"), "Not available: The selected subtitle source cannot be burned in by the installed transport.");
         await show(page, playing({ ...TRACKS, change: { state: "failed" } }));
@@ -2837,7 +2846,7 @@ test("the S95C findings: checkmark, column height, Appearance truncation and gla
         assert.deepEqual(measured.mark, ["24px", "24px", true]);
         // PaneColumn rows run to the panel's padded bottom (Apple clips the fifth track there, y 510 of 532).
         assert.equal(Math.round(measured.rows.bottom), Math.round(measured.panel.bottom - 22));
-        assert.ok(measured.status.top >= measured.panel.bottom, "the status line sits below the panel, not inside its 380px");
+        assert.ok(measured.status.height === 0 || measured.status.top >= measured.panel.bottom, "the status line sits below the panel, not inside its 380px");
         // HUDSettingRowLabel: 28pt textformat frame, 14pt gaps around Spacer(minLength: 18), 10pt to an 11pt chevron.
         assert.equal(Math.round(measured.glyph.width), 28);
         assert.ok(measured.value.left - measured.label.right >= 46 - 0.5, "label and value keep 14 + 18 + 14 apart");

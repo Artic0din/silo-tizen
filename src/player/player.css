@@ -1198,19 +1198,28 @@
 /*
  * Apple's 380pt panel holds only the pane (TVPlayerInfoHUD.swift:190), so its columns run to the padded bottom edge.
  * The status line has no Apple counterpart; it sits just below the panel instead of taking 36px from the columns.
+ * Over video it carries siloPlayerGlass's non-sampling fill (SiloGlass.swift:51-52) so it reads on bright frames.
  */
 .player-menu-status {
     position: absolute;
     top: 100%;
-    right: 28px;
     left: 28px;
+    box-sizing: border-box;
+    width: max-content;
+    max-width: 1044px;
     max-height: 72px;
     overflow-y: auto;
     margin: 12px 0 0;
+    padding: 6px 14px;
+    border-radius: 14px;
+    background: rgba(26, 26, 26, 0.88);
     font-size: 17px;
     line-height: 1.35;
     color: rgba(255, 255, 255, 0.7);
-    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+}
+
+.player-menu-status:empty {
+    display: none;
 }
 
 @media (prefers-reduced-motion: reduce) {

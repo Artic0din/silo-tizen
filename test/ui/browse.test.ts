@@ -2193,7 +2193,9 @@ browseTest("optional Details reads load independently and omit empty Related res
     await showing(tv, "item:movie:m0001");
     assert.equal(await tv.focused(), "resume", "optional reads do not block playback");
     await tv.page.locator(".details-related-placeholder").first().waitFor();
-    await shows(tv, "Loading personal actions.");
+    // TVDetailActions.swift:485-545: Apple's action row keeps Watchlist and More while personal state loads, with no status line.
+    await tv.page.locator('[data-focus="watchlist"]').waitFor();
+    assert.equal(await tv.page.getByText("Loading personal actions.", { exact: true }).count(), 0);
     await tv.remote(BACK);
     await showing(tv, "home");
     related.release(); capability.release();

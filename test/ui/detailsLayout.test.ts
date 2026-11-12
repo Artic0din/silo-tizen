@@ -2803,14 +2803,23 @@ detailTest("subtitle choices retain their language when stream titles repeat the
     assert.equal(await tv.page.locator('[data-focus="subtitle:2"] .details-option-subtext').textContent(), "Commentary · SRT");
 });
 
-detailTest("More owns accessible personal-action loading and failure announcements", async tv => {
+detailTest("More lists Favorites with no loading text while personal state loads, and owns failure announcements", async tv => {
     const held = tv.fake.hold("/capabilities/personal-lists", true);
     await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().click();
     await tv.page.locator('[data-focus="more"]').click();
     const panel = tv.page.getByRole("dialog", { name: "More", exact: true });
-    assert.equal(await panel.getByRole("status").filter({ hasText: "Loading personal actions." }).count(), 1);
+    // TVMovieDetailView.swift:213-236: Apple's More lists Favorite then Watched at once, with no loading text.
+    await panel.locator('[data-focus="watched"]').waitFor();
+    assert.equal(await panel.getByRole("button", { name: "Add to Favorites", exact: true }).count(), 1);
+    assert.deepEqual(await panel.locator('[data-focus="favorites"], [data-focus="watched"]').evaluateAll(nodes => nodes.map(node => node.getAttribute("data-focus"))), ["favorites", "watched"]);
+    assert.equal(await panel.getByText("Loading personal actions.", { exact: true }).count(), 0);
+    // Like Watchlist, the press waits for membership: nothing is sent and More stays open.
+    const writes = tv.fake.requests.length;
+    await panel.locator('[data-focus="favorites"]').click();
+    assert.equal(await panel.count(), 1);
+    assert.equal(tv.fake.requests.slice(writes).some(request => request.method !== "GET"), false);
     held.release();
-    await panel.locator('[data-focus="favorites"]').waitFor();
+    await panel.locator('[data-focus="favorites"][aria-pressed="false"]').waitFor();
     const catalog = tv.fake.catalog;
     assert.ok(catalog instanceof FakeDetails);
     catalog.mutationFailure = problem(422, "validation_failed", "Unavailable action");

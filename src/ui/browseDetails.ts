@@ -619,7 +619,7 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
                     : detail.type === "season" ? value ? "Mark Season Unwatched" : "Mark Season Watched"
                     : value ? "Mark as Unwatched" : "Mark as Watched";
             }
-            item.element.addEventListener("click", () => { if (!state.busy) state.closePanel(); }, { capture: true });
+            item.element.addEventListener("click", () => { if (!state.busy && (item.key !== "favorites" || value !== undefined)) state.closePanel(); }, { capture: true });
         }
         const seasonState = state.series?.seasonNumber === undefined ? undefined : state.seasonStates.get(state.series.seasonNumber);
         if (seasonState !== undefined) {
@@ -778,7 +778,11 @@ export function personalControls(state: DetailsState, alerts = false): { items: 
     for (const kind of ["watched", "favorites", "watchlist"] as const) {
         if (kind !== "watched" && state.personalSupported === false) continue;
         const value = state.values.get(kind);
-        if (value === undefined) continue;
+        if (value === undefined) {
+            // TVMovieDetailView.swift:213-236: Apple's More lists Favorite before membership loads. Like Watchlist, the press waits for it.
+            if (kind === "favorites" && state.personalSupported === undefined && !state.personalFailed) items.push(actionButton(kind, "Add to Favorites", () => undefined));
+            continue;
+        }
         const change = state.changes.get(kind);
         const label = kind === "watched" ? `${state.detail.type === "series" || state.detail.type === "season" ? "Mark all" : "Mark"} ${value ? "unwatched" : "watched"}` : kind === "watchlist" ? value ? "Remove from watchlist" : "Add to watchlist" : value ? "Remove favorite" : "Add favorite";
         const item = actionButton(kind, change?.pending ? `Updating ${kind}…` : change?.failed && !alerts ? `Retry ${kind}` : label, () => state.change(kind, change?.failed ? change.target : !value, change?.failed));
@@ -788,7 +792,8 @@ export function personalControls(state: DetailsState, alerts = false): { items: 
         if (change?.failed && !alerts) notes.push(...lines([`Could not update ${kind}.`], "error"));
     }
     if (state.personalFailed) items.push(actionButton("retry-personal", "Retry personal actions", () => { if (!state.busy) state.loadPersonal(); }));
-    if (state.personalSupported === undefined && !state.offline) notes.push(...lines([state.personalFailed ? "Could not load personal actions." : "Loading personal actions."], state.personalFailed ? "error" : "info"));
+    // Apple shows no loading text in the action row or More (TVDetailActions.swift:485-545, TVMovieDetailView.swift:213-236).
+    if (state.personalFailed && state.personalSupported === undefined && !state.offline) notes.push(...lines(["Could not load personal actions."], "error"));
     return { items, notes };
 }
 

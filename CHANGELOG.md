@@ -54,6 +54,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- The top bar and its menus now match Apple TV: tab labels are white and Apple's size, long tab names get Apple's full width, tabs and the avatar animate into focus, the avatar keeps its disc when focused and grows slightly, nameless profiles show a person glyph, the menus have Apple's lit surface and filled icons and grow from and fade back toward their tab, and Back on Home returns to the Home tab before offering to exit.
 - Title pages no longer show "Loading personal actions." under the actions or in More while your watched, favorite and watchlist state loads; as on Apple TV, the actions simply appear, and More lists Add to Favorites right away.
 - A series page now picks its season again, as Apple TV does, after you mark that series watched from a card, including when you go Back to a page that was already open, or once 20 other title pages have opened since; a favorite or watchlist change keeps the season you were viewing, and so does a series page that a related title replaced.
 - Made the fast season-walk test on a series page wait for each season read to reach the test server before the next season, so a slow runner can no longer drop one from its count.

@@ -58,3 +58,17 @@ test("navigation avatar resolves relative paths, preserves error fallback and re
         }
     } finally { await page.close(); }
 });
+
+test("a nameless navigation avatar shows the person glyph instead of an empty disc", async () => {
+    const page = await browser.newPage();
+    try {
+        await page.setContent("<main></main>");
+        await page.addScriptTag({ content: script });
+        await page.evaluate("document.querySelector('main').appendChild(avatarFixture.navigationAvatar('  ', undefined, 'https://silo.example', 58))");
+        assert.equal(await page.locator(".navigation-avatar-fallback").innerText(), "");
+        assert.equal(await page.locator(".navigation-avatar-fallback svg.navigation-avatar-person").count(), 1);
+        await page.evaluate("document.querySelector('main').replaceChildren(avatarFixture.profileMenuAvatar('', undefined, '🦊', 'https://silo.example', 58))");
+        assert.equal(await page.locator(".navigation-avatar-fallback").innerText(), "🦊", "an emoji avatar still wins over the glyph");
+        assert.equal(await page.locator("svg").count(), 0);
+    } finally { await page.close(); }
+});

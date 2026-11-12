@@ -451,7 +451,9 @@ This is a scoped Home journey delivery against canonical Apple `f334794047127374
 The Select and Play behavior follows Apple `7baff3ef657757cc0a69202e86dd4bd5c7fcb585`; native same-state acceptance remains pending.
 It does not complete whole-Home parity, issue #28, preplay controls, next-up behaviour or hardware acceptance.
 Progress appears only when the server supplies position and duration.
-The first card previews immediately; subsequent previews wait 150 ms and crossfade for 240 ms.
+The marquee text follows focus at once, with no animation.
+The backdrop shows at once for the first card; later backdrops wait for focus to rest 150 ms, wait for a row-change scroll to settle (at most 320 ms), then fade in over the previous art with `ease-in-out` over 240 ms.
+The same artwork never fades, and the backdrop shows its ThumbHash until the image decodes.
 Root transitions take 200 ms, and reduced motion snaps transitions and scrolling.
 Deliberate pill and same-tab scope changes crossfade for 200 ms with a 12 px upward drift of incoming content.
 Focus and remote input take effect synchronously; chrome and pills stay mounted above the outgoing layer.

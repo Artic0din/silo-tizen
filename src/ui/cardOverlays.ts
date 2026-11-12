@@ -218,11 +218,13 @@ export function overlayLayer(card: Card, prefs: CardOverlayPrefs, variant: "post
             style.borderRadius = preset.radius === undefined ? "999px" : px(preset.radius);
             style.background = preset.background(badge.accent);
             style.color = preset.foreground(badge.accent);
-            style.fontSize = px(preset.fontSize);
+            // Apple's point size times --silo-sf-cap-scale, as Home's other text (Typography rule in theme.css).
+            style.fontSize = `calc(${px(preset.fontSize)} * var(--silo-sf-cap-scale))`;
             style.fontWeight = String(preset.weight);
             style.letterSpacing = px(preset.tracking);
             const border = preset.border(badge.accent);
-            if (border !== undefined) style.boxShadow = `inset 0 0 0 ${px(1)} ${border}`;
+            // CardOverlays.swift:181-182, :220 strokes `scale` wide on the edge, then clips it: half the stroke shows.
+            if (border !== undefined) style.boxShadow = `inset 0 0 0 ${px(0.5)} ${border}`;
             if (preset.blur) style.setProperty("backdrop-filter", "blur(20px)");
             if (preset.shadow) style.textShadow = `0 ${px(1)} ${px(1)} rgba(0,0,0,.85)`;
             // A brand mark draws its own token, so the label drops it ("DV HDR10" with the DV mark reads "HDR10").

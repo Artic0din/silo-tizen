@@ -735,7 +735,7 @@ journey("Home marquee headlines episodes with their series and shows rating, met
     assert.deepEqual(await layer.locator(".skyline-meta-line > *").allTextContents(), ["TV-14", "S1 E2 · Harbor Lights chapter 1.2 · 22m · 14m left"]);
     assert.deepEqual(await layer.locator(".skyline-badges > *").allInnerTexts(), ["4K", "DOLBY VISION", "EAC3 5.1"], "the file this viewer last played, not the best file");
     assert.equal(await layer.locator(".skyline-detail-line").textContent(), "Al Pacino", "the pinned detail fixture's billed cast, no air date");
-    assert.match(await layer.locator(".skyline-backdrop").getAttribute("src") ?? "", /\/art\/series%3As1\.svg$/, "episodes use the series backdrop, not the still");
+    assert.match(await tv.page.locator(".skyline-marquee-art:not(.skyline-outgoing) .skyline-backdrop").getAttribute("src") ?? "", /\/art\/series%3As1\.svg$/, "episodes use the series backdrop, not the still");
     await tv.page.locator('[data-section="resume/opaque"] [data-focus="movie:m0001"]').focus();
     await tv.jump(300);
     assert.equal(await layer.locator("h1").innerText(), "Movie 0001");
@@ -750,6 +750,194 @@ journey("Home marquee headlines episodes with their series and shows rating, met
     assert.equal(detailReads(tv).filter(id => id === "movie:m0005").length, 1, "the uncached card is read once after it rests");
     assert.equal(tv.fake.requests.length, requests + 1);
 }, catalog => { enrichHome(catalog, heroFields); enrichDetails(catalog, detailFields); });
+
+// #401: TVFocusMarquee at silo-apple 85679e7. Text follows focus at once; the backdrop rests 150 ms, a row scroll holds
+// it (capped at 320 ms), and new artwork fades in over the old with easeInOut(0.24).
+const ART_HASH = "1QcSHQRnh493V4dIh4eXh1h4kJUI";
+const marqueeBackdrops = Object.fromEntries(["movie:m0001", "movie:m0002", "movie:m0004", "movie:m0005"].map(id => [id, { backdrop_url: `/art/${encodeURIComponent(id)}.svg` }]));
+const marqueeArt = (tv: Tv) => tv.page.locator(".skyline-marquee").evaluate(node => [...node.querySelectorAll(".skyline-marquee-art")].map(layer => {
+    const style = getComputedStyle(layer);
+    return { art: layer.querySelector("img.skyline-backdrop")?.getAttribute("src")?.split("/").pop() ?? null, outgoing: layer.classList.contains("skyline-outgoing"), fade: style.animationName === "none" ? null : `${style.animationName} ${style.animationDuration} ${style.animationTimingFunction}` };
+}));
+const marqueeTitles = (tv: Tv) => tv.page.locator(".skyline-marquee .skyline-marquee-layer h1").allInnerTexts();
+/** Lets the rest, the row scroll and the crossfade that follows each finish on the paused clock. */
+const settleMarquee = async (tv: Tv): Promise<void> => { await tv.jump(1000); await tv.jump(300); };
+
+journey("Home marquee text follows focus at once while only the backdrop waits out the 150 ms rest and crossfades easeInOut", async tv => {
+    await tv.page.emulateMedia({ reducedMotion: "no-preference" });
+    await pauseTvClock(tv);
+    await tv.remote(40);
+    await settleMarquee(tv);
+    assert.equal(await tv.focused(), "movie:m0001");
+    assert.deepEqual((await marqueeArt(tv)).map(layer => layer.art), ["movie%3Am0001.svg"]);
+    await tv.remote(39);
+    await tv.jump(0);
+    assert.equal(await tv.focused(), "movie:m0002");
+    assert.deepEqual(await marqueeTitles(tv), ["Movie 0002"], "the new title replaces the old one in the same frame, with no second layer");
+    assert.equal(await tv.page.locator(".skyline-marquee-layer").evaluate(node => getComputedStyle(node).animationName), "none", "the text does not fade");
+    assert.deepEqual((await marqueeArt(tv)).map(layer => layer.art), ["movie%3Am0001.svg"], "the backdrop stays until focus rests");
+    await tv.jump(149);
+    assert.deepEqual((await marqueeArt(tv)).map(layer => layer.art), ["movie%3Am0001.svg"]);
+    await tv.jump(1);
+    const crossing = await marqueeArt(tv);
+    assert.deepEqual(crossing.map(layer => [layer.art, layer.outgoing]), [["movie%3Am0001.svg", true], ["movie%3Am0002.svg", false]], "the old backdrop stays under the new one");
+    assert.equal(crossing[1]?.fade, "skyline-appear 0.24s ease-in-out", "the rested backdrop fades in with SwiftUI's easeInOut(0.24)");
+    await tv.jump(240);
+    assert.deepEqual((await marqueeArt(tv)).map(layer => layer.art), ["movie%3Am0002.svg"]);
+}, catalog => enrichHome(catalog, marqueeBackdrops));
+
+journey("Home holds the backdrop while a row change scrolls, and its 320 ms cap releases a scroll that has not settled", async tv => {
+    await tv.page.emulateMedia({ reducedMotion: "no-preference" });
+    await pauseTvClock(tv);
+    await tv.remote(40);
+    await settleMarquee(tv);
+    assert.equal(await tv.focused(), "movie:m0001");
+    await tv.remote(40);
+    await tv.jump(0);
+    assert.equal(await tv.focused(), "movie:m0005");
+    assert.deepEqual(await marqueeTitles(tv), ["Movie 0005"]);
+    await tv.jump(150);
+    assert.deepEqual((await marqueeArt(tv)).map(layer => layer.art), ["movie%3Am0001.svg"], "the rest has passed but the row is still scrolling");
+    await tv.jump(60);
+    assert.deepEqual((await marqueeArt(tv)).map(layer => layer.art), ["movie%3Am0001.svg", "movie%3Am0005.svg"], "the swap starts once the 200 ms row scroll settles");
+    await tv.jump(300);
+    // A scroll that never reports idle: the cap lets the held swap through 320 ms after the move.
+    await tv.page.locator(".skyline-content").evaluate(node => node.dispatchEvent(new Event("skyline-scroll-start")));
+    await tv.page.locator('[data-section="recent/12"] [data-focus="movie:m0004"]').focus();
+    await tv.jump(319);
+    assert.deepEqual(await marqueeTitles(tv), ["Movie 0004"]);
+    assert.deepEqual((await marqueeArt(tv)).map(layer => layer.art), ["movie%3Am0005.svg"]);
+    await tv.jump(1);
+    assert.deepEqual((await marqueeArt(tv)).map(layer => layer.art), ["movie%3Am0005.svg", "movie%3Am0004.svg"]);
+    await tv.page.locator(".skyline-content").evaluate(node => node.dispatchEvent(new Event("skyline-scroll-end")));
+}, catalog => enrichHome(catalog, marqueeBackdrops));
+
+journey("a newer focus drops the backdrop an earlier card was still waiting for, so a later scroll cannot replay it", async tv => {
+    await tv.page.emulateMedia({ reducedMotion: "no-preference" });
+    await pauseTvClock(tv);
+    await tv.remote(40);
+    await settleMarquee(tv);
+    assert.equal(await tv.focused(), "movie:m0001");
+    const content = tv.page.locator(".skyline-content");
+    // A row scroll is under way while focus moves right to m0002, then into another row before m0002 rests.
+    await content.evaluate(node => node.dispatchEvent(new Event("skyline-scroll-start")));
+    await tv.page.locator('[data-section="recent/12"] [data-focus="movie:m0002"]').focus();
+    await tv.jump(50);
+    await tv.page.locator('[data-section="because/opaque"] [data-focus="movie:m0005"]').focus();
+    await content.evaluate(node => node.dispatchEvent(new Event("skyline-scroll-end")));
+    await settleMarquee(tv);
+    assert.deepEqual((await marqueeArt(tv)).map(layer => layer.art), ["movie%3Am0005.svg"]);
+    await content.evaluate(node => { node.dispatchEvent(new Event("skyline-scroll-start")); node.dispatchEvent(new Event("skyline-scroll-end")); });
+    await settleMarquee(tv);
+    assert.deepEqual(await marqueeTitles(tv), ["Movie 0005"]);
+    assert.deepEqual((await marqueeArt(tv)).map(layer => layer.art), ["movie%3Am0005.svg"], "m0002's cancelled swap never returns");
+}, catalog => enrichHome(catalog, marqueeBackdrops));
+
+let releaseBackdrop: () => void = () => undefined;
+journey("Home's backdrop shows its ThumbHash until the image decodes, and keeps it with a film mark when the image fails", async tv => {
+    await tv.page.locator('[data-section="recent/12"] [data-focus="movie:m0003"]').focus();
+    await tv.jump(150);
+    const frame = tv.page.locator(".skyline-marquee-art:not(.skyline-outgoing) .skyline-art-frame");
+    await frame.waitFor();
+    assert.equal(await frame.getAttribute("data-art"), "loading");
+    assert.equal(await frame.locator("canvas.hero-art-thumbhash").count(), 1, "AsyncImageView's ThumbHash placeholder");
+    assert.equal(await frame.locator(".skyline-backdrop").evaluate(node => getComputedStyle(node).opacity), "0");
+    releaseBackdrop();
+    await tv.eventually(async () => await frame.getAttribute("data-art") === "failed", "failed backdrop");
+    assert.equal(await frame.locator("canvas.hero-art-thumbhash").count(), 1);
+    assert.equal(await frame.locator(".hero-art-missing .hero-art-glyph").count(), 1, "the .surface style's film mark");
+}, catalog => enrichHome(catalog, { "movie:m0003": { backdrop_url: "/art/held-backdrop.svg", backdrop_thumbhash: ART_HASH } }), undefined, { beforeMount: tv => {
+    const gate = new Promise<void>(resolve => { releaseBackdrop = resolve; });
+    void tv.page.route("**/art/held-backdrop.svg", async route => { await gate; await route.abort(); });
+} });
+
+let backdropAttempts = 0;
+journey("a backdrop that failed loads again when its card previews again", async tv => {
+    const card = tv.page.locator('[data-section="recent/12"] [data-focus="movie:m0003"]');
+    await card.focus();
+    await tv.jump(150);
+    const frame = tv.page.locator(".skyline-marquee-art:not(.skyline-outgoing) .skyline-art-frame");
+    await tv.eventually(async () => await frame.getAttribute("data-art") === "failed", "first attempt failed");
+    await tv.page.locator('[data-focus="home"]').focus();
+    await card.focus();
+    await tv.eventually(async () => await frame.getAttribute("data-art") === "loaded", "same artwork retried");
+    assert.equal(backdropAttempts, 2);
+}, catalog => enrichHome(catalog, { "movie:m0003": { backdrop_url: "/art/flaky-backdrop.svg" } }), undefined, { beforeMount: tv => {
+    void tv.page.route("**/art/flaky-backdrop.svg", route => (++backdropAttempts === 1 ? route.abort() : route.fulfill({ contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="9"/>' })));
+} });
+
+journey("Home cards show their ThumbHash while artwork loads and keep it in place of DefaultArtwork when it fails", async tv => {
+    const poster = tv.page.locator(`${POSTER} .browse-art`);
+    const still = tv.page.locator('[data-section="resume/opaque"] [data-focus="movie:m0001"] .browse-art');
+    for (const art of [poster, still]) {
+        await art.locator("canvas.browse-art-thumbhash").waitFor();
+        assert.equal(await art.locator(".default-artwork").count(), 0);
+    }
+    releaseBackdrop();
+    for (const art of [poster, still]) {
+        await tv.eventually(async () => await art.locator("img").count() === 0, "failed artwork removed");
+        assert.equal(await art.locator("canvas.browse-art-thumbhash").count(), 1, "the ThumbHash stays");
+        assert.equal(await art.locator(".default-artwork").count(), 0, "no DefaultArtwork over a ThumbHash");
+        assert.equal(await art.evaluate(node => node.classList.contains("browse-art-missing")), false);
+    }
+}, catalog => enrichHome(catalog, { "movie:m0006": { poster_url: "/art/held-poster.svg", poster_thumbhash: ART_HASH }, "movie:m0001": { backdrop_url: "/art/held-still.svg", backdrop_thumbhash: ART_HASH } }), undefined, { beforeMount: tv => {
+    const gate = new Promise<void>(resolve => { releaseBackdrop = resolve; });
+    void tv.page.route(/\/art\/held-(poster|still)\.svg/, async route => { await gate; await route.abort(); });
+} });
+
+journey("a non-episode card on a thumbnail row other than Continue Watching is titled by its series", async tv => {
+    const card = tv.page.locator('[data-section="next/opaque"] [data-focus="movie:m0008"]');
+    assert.equal(await card.locator(".browse-card-title").innerText(), "Harbor Lights");
+    assert.equal(await card.locator(".browse-card-subtitle").innerText(), "Season 2");
+}, catalog => {
+    catalog.households.get("p-owner")?.sections.push({ id: "next/opaque", sectionType: "next_up", title: "Next Up", items: ["movie:m0008"] });
+    enrichHome(catalog, { "movie:m0008": { type: "season", title: "Season 2", series_id: "series:s1", series_title: "Harbor Lights", season_number: 2 } });
+});
+
+journey("Home hero and card text use Apple's point sizes times --silo-sf-cap-scale", async tv => {
+    const size = (selector: string) => tv.page.locator(selector).first().evaluate(node => parseFloat(getComputedStyle(node).fontSize));
+    const near = (actual: number, points: number, what: string) => assert.ok(Math.abs(actual - points * 0.9685) < 0.01, `${what}: ${actual}`);
+    near(await size(".skyline-marquee-layer .skyline-title"), 84, "marquee title");
+    near(await size(`${POSTER} .browse-card-title`), 24, "card title");
+    near(await size(`${POSTER} .browse-card-subtitle`), 20, "card line");
+    near(await size('[data-section="recent/12"] .skyline-explore-label'), 24, "Explore all");
+});
+
+journey("Explore all has only the shared lift on thumbnail rows, a half-weight outline, and shrinks a label that does not fit, to 80% at most", async tv => {
+    const tile = tv.page.locator('[data-section="resume/opaque"] .skyline-explore');
+    const art = tile.locator(".browse-art");
+    const still = tv.page.locator('[data-section="resume/opaque"] [data-focus="movie:m0001"] .browse-art');
+    assert.equal(await still.evaluate(node => getComputedStyle(node).boxShadow), "rgba(0, 0, 0, 0.2) 0px 4px 16px 0px", "EpisodeThumbCard rests at radius 8, y 4");
+    assert.equal(await art.evaluate(node => getComputedStyle(node).boxShadow), "none", "no EpisodeThumbCard shadow on the tile");
+    assert.deepEqual(await art.evaluate(node => { const style = getComputedStyle(node); return [style.borderTopWidth, style.borderTopColor]; }), ["1px", "rgba(255, 255, 255, 0.04)"]);
+    await tile.focus();
+    await tv.jump(200);
+    assert.equal(await art.evaluate(node => getComputedStyle(node).boxShadow), "rgba(0, 0, 0, 0.45) 0px 8px 36px 0px", "only TVCardOutlineButtonStyle's focused shadow");
+    const label = tile.locator(".skyline-explore-label");
+    const fitted = (node: Element) => ({ size: parseFloat(getComputedStyle(node).fontSize), overflow: node.scrollWidth - node.clientWidth });
+    const base = 24 * 0.9685;
+    assert.ok(Math.abs((await label.evaluate(fitted)).size - base) < 0.01, "a label that fits keeps its size");
+    const narrow = tv.page.locator('[data-section="hero/opaque"] .skyline-explore-label');
+    const shrunk = await narrow.evaluate(fitted);
+    assert.ok(shrunk.size < base && shrunk.size >= base * 0.8 - 0.01 && shrunk.overflow <= 1, `a 120px tile shrinks the label to fit, no further than 80%: ${JSON.stringify(shrunk)}`);
+}, undefined, undefined, { beforeMount: tv => { void tv.page.addStyleTag({ content: '[data-section="hero/opaque"] .skyline-explore .skyline-explore-tile { width: 120px !important; }' }); } });
+
+journey("Select draws the focused card pressed at 0.97 of its lift until release", async tv => {
+    await tv.page.emulateMedia({ reducedMotion: "no-preference" });
+    // The computed transform is read at its end value, not mid-way through the 120 ms transition.
+    await tv.page.addStyleTag({ content: ".browse-art { transition: none !important; }" });
+    const card = tv.page.locator(`${POSTER}`);
+    await card.focus();
+    await tv.jump(200);
+    await tv.down(13);
+    await tv.jump(200);
+    assert.equal(await card.getAttribute("data-pressed"), "");
+    const scale = await card.locator(".browse-art").evaluate(node => new DOMMatrix(getComputedStyle(node).transform).a);
+    assert.ok(Math.abs(scale - 1.05 * 0.97) < 0.001, `pressed scale ${scale}`);
+    await tv.remote(37);
+    assert.equal(await card.getAttribute("data-pressed"), null, "another key ends the press");
+    await tv.up(13);
+});
 
 journey("Home refreshes the same title's marquee progress after playback", async (tv, catalog) => {
     const id = "episode:s1e12";
@@ -924,7 +1112,9 @@ for (const [name, configure, expected] of [
 journey("Home poster badges scale from Apple's 185pt poster and Continue Watching draws Apple's ProgressBar", async tv => {
     await tv.eventually(async () => await tv.page.locator(`${POSTER} .card-overlay`).count() > 0, "badges");
     const sizes = await tv.page.locator(`${POSTER} .card-overlay`).first().evaluate(node => { const style = getComputedStyle(node); return [style.fontSize, style.paddingTop, style.paddingLeft]; });
-    assert.deepEqual(sizes, ["9.51px", "2.85px", "7.61px"], "classic preset at 176 / 185");
+    assertCapText(sizes[0], 9.51, "classic preset text at 176 / 185");
+    assert.match(await tv.page.locator(`${POSTER} .card-overlay`).first().evaluate(node => (node as HTMLElement).style.boxShadow), /inset 0px 0px 0px 0\.48px|0px 0px 0px 0\.48px inset/, "half of Apple's clipped 1-scale stroke");
+    assert.deepEqual(sizes.slice(1), ["2.85px", "7.61px"], "classic preset padding at 176 / 185");
     const wide = tv.page.locator('[data-section="resume/opaque"] [data-focus="episode:s1e12"]');
     await tv.eventually(async () => JSON.stringify(await corners(tv, '[data-section="resume/opaque"] [data-focus="episode:s1e12"]')) === JSON.stringify({ "top-left": ["4K", "DV", "EAC3"] }), "saved-file badges");
     assert.deepEqual(await corners(tv, '[data-section="resume/opaque"] [data-focus="movie:m0001"]'), { "top-left": ["4K", "Dolby Vision", "TrueHD Atmos"] }, "an unknown last file keeps the summary");
@@ -951,6 +1141,8 @@ journey("Home poster badges scale from Apple's 185pt poster and Continue Watchin
 }, catalog => { enrichHome(catalog, badgeFields); enrichDetails(catalog, detailFields); }, () => undefined);
 
 const badgePx = (value: number, artWidth: number): number => Math.round(value * artWidth / 185 * 100) / 100;
+/** Badge text is Apple's scaled point size times --silo-sf-cap-scale. */
+const assertCapText = (actual: string | undefined, points: number, message: string): void => assert.ok(Math.abs(parseFloat(actual ?? "") - points * 0.9685) < 0.01, `${message}: ${actual} for ${points}px`);
 /** SF Symbol "tv" layout box at iconSize 12 times the poster scale. The old value was a square of that point size. */
 const tvLayout = (artWidth: number): { width: string; height: string } => ({
     width: `${Math.round(12 * 73 / 48 * artWidth / 185 * 100) / 100}px`,
@@ -988,7 +1180,7 @@ journey("series status badges draw the tv icon at Apple's scaled pill size", asy
         return { text: node.textContent, font: style.fontSize, pad: style.padding, radius: style.borderRadius, icon: icon === null || iconStyle === undefined ? undefined : { width: icon.style.width, height: icon.style.height, gap: icon.style.marginRight, used: iconStyle.width } };
     });
     assert.equal(home.text, "Returning");
-    assert.equal(home.font, `${badgePx(10, homeArt)}px`, "pill text is fontSize 10 times the poster width over 185");
+    assertCapText(home.font, badgePx(10, homeArt), "pill text is fontSize 10 times the poster width over 185");
     assert.equal(home.pad, `${badgePx(4, homeArt)}px ${badgePx(10, homeArt)}px`);
     assert.equal(home.radius, "999px", "the pill preset is a capsule");
     // The old square icon was iconSize 12 times the scale (a point-size box). SF Symbol "tv" lays out at 73/48 by 58/48 of that point size.
@@ -1015,7 +1207,7 @@ journey("series status badges draw the tv icon at Apple's scaled pill size", asy
     assert.equal(grid.width, 224, "compact library posters are 260 times 0.86, which rounds to 224");
     assert.equal(grid.badge?.text, "Returning");
     // 10 * 223.6 / 185 is 12.09. The captured 15.8px is not this font size.
-    assert.equal(grid.badge?.font, `${badgePx(10, gridArt)}px`, "12.09px text on the 224-wide card, from fontSize 10 times 260*0.86/185");
+    assertCapText(grid.badge?.font, badgePx(10, gridArt), "12.09px text on the 224-wide card, from fontSize 10 times 260*0.86/185");
     assert.equal(grid.badge?.pad, `${badgePx(4, gridArt)}px ${badgePx(10, gridArt)}px`);
     assert.equal(grid.badge?.radius, "999px");
     // The old square icon was 14.5px (iconSize 12 times 260*0.86/185). The symbol box is wider than that point size.
@@ -1031,11 +1223,11 @@ journey("series status badges draw the tv icon at Apple's scaled pill size", asy
 for (const [size, scale] of [["compact", 0.86], ["standard", 1], ["large", 1.2]] as const) journey(`Home ${size} artwork and poster badges follow the profile's TV size`, async tv => {
     const sizes = await tv.page.locator(`${POSTER} .browse-art`).evaluate(node => {
         const badge = node.querySelector<HTMLElement>(".card-overlay");
-        return { width: (node as HTMLElement).offsetWidth, height: (node as HTMLElement).offsetHeight, badgeFont: parseFloat(badge?.style.fontSize ?? "0") };
+        return { width: (node as HTMLElement).offsetWidth, height: (node as HTMLElement).offsetHeight, badgeFont: badge === null ? "" : getComputedStyle(badge).fontSize };
     });
     assert.ok(Math.abs(sizes.width - 176 * scale) < 1);
     assert.ok(Math.abs(sizes.height - 264 * scale) < 1);
-    assert.ok(Math.abs(sizes.badgeFont - Math.round(10 * 176 * scale / 185 * 100) / 100) < 0.01);
+    assertCapText(sizes.badgeFont, Math.round(10 * 176 * scale / 185 * 100) / 100, "badge text follows the poster scale");
     const still = tv.page.locator('[data-section="resume/opaque"] .browse-art').first();
     assert.ok(Math.abs(await still.evaluate(node => (node as HTMLElement).offsetWidth) - 360 * scale) < 1);
 }, catalog => enrichHome(catalog, badgeFields), settings => settings.profile().set(CARD_PRESENTATION_KEY, { poster_size: size, caption: "title_metadata" }));
@@ -1356,7 +1548,7 @@ journey("a pending optional image probe cannot block cold Home", async tv => {
     assert.equal(await tv.focused(), focus);
     await tv.eventually(async () => tv.fake.requests.filter(request => request.path.startsWith("/home/sections")).length === 2, "cold artwork upgraded");
     assert.equal(tv.fake.requests.filter(request => request.path.startsWith("/home/sections"))[1]?.path, "/home/sections?image_size=medium&logo_width=880&backdrop_width=1344");
-    await tv.eventually(async () => (await tv.page.locator('.skyline-marquee-layer:not(.skyline-outgoing) .skyline-backdrop').getAttribute("src"))?.includes("width=1344") === true, "upgraded artwork displayed");
+    await tv.eventually(async () => (await tv.page.locator('.skyline-marquee-art:not(.skyline-outgoing) .skyline-backdrop').getAttribute("src"))?.includes("width=1344") === true, "upgraded artwork displayed");
     assert.deepEqual(await homeTitles(tv), titles, "artwork changes cannot replace content or metadata");
     assert.equal(await tv.focused(), focus);
     assert.equal(detailReads(tv).length, metadataReads, "artwork refresh reuses completed metadata");

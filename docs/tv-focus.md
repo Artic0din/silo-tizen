@@ -233,7 +233,7 @@ Outside the named filter, season-pill, episode-detail, outer-edge, featured-card
 Fetching belongs to explicit activation (Enter), to a view loading, or to a one-off prefetch.
 
 - Card focus calls `context.preview`, which redraws the marquee from data already in memory (`Skyline.preview`).
-  The first preview is immediate, later ones wait 150 ms and crossfade for 240 ms.
+  The text follows focus at once; the backdrop waits for focus to rest 150 ms, holds while a row change scrolls (at most 320 ms), then crossfades for 240 ms.
   The marquee-rest exception above is the only read that preview starts.
 - The aired-date and cast line fills in when that rested read lands (`docs/features/skyline-browse-shell.md`, Home section).
 - Bar items open a dropdown after a 250 ms dwell on focus.

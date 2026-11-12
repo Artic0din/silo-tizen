@@ -10,7 +10,8 @@ import { homeCaption } from "./cardPresentation.ts";
 import type { CardMenuOptions, MenuCard } from "./cardActions.ts";
 import type { HomeDismissal } from "../api/detailOperations.ts";
 import { artworkSymbol, defaultArtwork, type DefaultArtworkFactory } from "./defaultArtwork.ts";
-import { blurEpisodeStill, hidesCardImage, type EpisodeSpoilerSettings } from "./episodeSpoilers.ts";
+import { blurEpisodeStill, cardUsesBackdrop, hidesCardImage, type EpisodeSpoilerSettings } from "./episodeSpoilers.ts";
+import { thumbhashCanvas } from "./heroBackdrop.ts";
 import { el } from "./screen.ts";
 
 /** Home artwork widths in browse.css (Apple SiloTheme poster and EpisodeThumbCard widths); badges scale from them. */
@@ -108,6 +109,8 @@ export function errorView(name: string, error: ShownError, retry: () => void, ba
     return { name, content: [page], zones: [{ id: "status", layout: "column", items }], focus: { zone: "status", key: items[0]?.key ?? "retry" }, back };
 }
 
+const EXPLORE_MINIMUM_SCALE = 0.8;
+
 /** SectionExploreAllCard keeps the current marquee while its row's trailing tile owns focus. */
 export function exploreAllCard(rowTitle: string, key: string, wide: boolean, onPress: () => void): FocusItem {
     const element = el("button", "browse-card skyline-explore");
@@ -118,8 +121,16 @@ export function exploreAllCard(rowTitle: string, key: string, wide: boolean, onP
     const tile = el("span", "browse-art skyline-explore-tile");
     const icon = el("span", "skyline-explore-icon");
     icon.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 12h15M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-    tile.append(icon, el("span", "skyline-explore-label", "Explore all"));
+    const label = el("span", "skyline-explore-label", "Explore all");
+    tile.append(icon, label);
     element.appendChild(tile);
+    // minimumScaleFactor(0.8) (SectionExploreAllCard.swift:61): a label wider than the tile shrinks to fit, down to 80%.
+    // FocusHost places the view synchronously, so the tile is laid out by the next microtask; a poster-size change redraws it.
+    queueMicrotask(() => {
+        if (label.clientWidth === 0) return;
+        const fit = label.clientWidth / label.scrollWidth;
+        if (fit < 1) label.style.fontSize = `${parseFloat(getComputedStyle(label).fontSize) * Math.max(EXPLORE_MINIMUM_SCALE, fit)}px`;
+    });
     element.addEventListener("click", onPress);
     return { key, element };
 }
@@ -128,12 +139,18 @@ export function exploreAllCard(rowTitle: string, key: string, wide: boolean, onP
  * An <img> for signed or presigned artwork, or the fallback when it is missing or fails. A `defaultArtwork`
  * factory fills the box as Apple's DefaultArtwork does and is called only when the fallback shows; any
  * other fallback sits in the text placeholder.
+ * A `thumbhash` is AsyncImageView's `.artwork` placeholder (silo-apple 85679e7
+ * `Components/Images/AsyncImageView.swift:218-229`, `:338-344`): it shows while the image loads and
+ * stays in place of DefaultArtwork when the image is missing.
  */
-export function artwork(className: string, reference: string | undefined, baseUrl: string, fallback: string | Node | DefaultArtworkFactory): HTMLElement {
+export function artwork(className: string, reference: string | undefined, baseUrl: string, fallback: string | Node | DefaultArtworkFactory, thumbhash?: string): HTMLElement {
     const box = el("div", className);
     const src = artworkUrl(reference, baseUrl);
     const drawn = typeof fallback === "function";
+    const preview = drawn ? thumbhashCanvas(thumbhash, "browse-art-thumbhash") : undefined;
+    if (preview !== undefined) box.appendChild(preview);
     const showFallback = (): void => {
+        if (preview !== undefined) return;
         box.classList.add("browse-art-missing");
         if (drawn) {
             // Drawn artwork is absolutely placed: first, so badges and progress added to the box stay above it.
@@ -200,7 +217,8 @@ export function cardItem(card: Card, context: ViewContext): FocusItem | undefine
     // Rows follow their own layout (SectionRow.layout); a grid squares each audiobook cover (CatalogGrid).
     const square = !thumbnail && (context.cardLayout === "square" || ((context.cardLayout === undefined || context.cardLayout === "grid") && card.type === "audiobook"));
     if (square) element.classList.add("browse-card-square");
-    const art = artwork("browse-art", thumbnail ? card.backdropUrl ?? card.posterUrl : card.posterUrl, context.baseUrl, defaultArtwork(artworkSymbol(card.type)));
+    const backdrop = cardUsesBackdrop(card, thumbnail);
+    const art = artwork("browse-art", backdrop ? card.backdropUrl : card.posterUrl, context.baseUrl, defaultArtwork(artworkSymbol(card.type)), backdrop ? card.backdropThumbhash : card.posterThumbhash);
     if (hidesCardImage(card, spoilerSettings(context), thumbnail)) blurEpisodeStill(art);
     element.appendChild(art);
     if (thumbnail) {
@@ -221,7 +239,7 @@ export function cardItem(card: Card, context: ViewContext): FocusItem | undefine
         tick.appendChild(el("span", "silo-sr-only", "Watched"));
         element.firstElementChild?.appendChild(tick);
     }
-    const caption = homeCaption(card, context.homeCaptions === true && continuing);
+    const caption = homeCaption(card, context.homeCaptions === true && thumbnail);
     element.appendChild(el("span", "browse-card-title", caption.title));
     if (caption.line !== undefined) {
         element.appendChild(el("span", "browse-card-subtitle", caption.line));

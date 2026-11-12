@@ -211,8 +211,9 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     const context: ViewContext = { baseUrl: server.server.http.base.baseUrl, cardOverlays: () => presentation.cardOverlays, posterScale: () => presentation.posterScale, spoilers: () => episodeSpoilers?.settings ?? { hidesImages: false, hidesOverviews: false }, savedFileOverlay: card => homeDetails.savedFile(card)?.overlay, open: (destination) => open(destination), preview: (card, row, continuing, featured) => {
         const current = top();
         const preview = (): void => {
-            shell.preview(card, row, continuing ?? false, featured === true);
+            // The read is armed first, so a row change the marquee reports during preview starts this card's read.
             if (enrichedScene()) homeDetails.rest(card, continuing === true);
+            shell.preview(card, row, continuing ?? false, featured === true);
         };
         if (current !== undefined) previews.set(current, preview);
         preview();
@@ -2774,6 +2775,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     const enrichedScene = (): boolean => { const current = top(); return current?.kind === "home" || current?.kind === "for_you" || (current?.kind === "library" && current.discovery?.mode === "Recommended"); };
     shell.details = (card, continuing) => !enrichedScene() ? { line: undefined, badges: undefined } : { line: homeDetails.detailLine(card.id), badges: continuing ? homeDetails.savedFile(card)?.badges : undefined };
     shell.filled = card => enrichedScene() ? homeDetails.filled(card) : card;
+    shell.rowChangeRead = () => { if (enrichedScene()) homeDetails.readNow(); };
     // This profile's last bar, or no library tabs when it has none. An empty
     // update here would drop Movies and Series that a later failed read should keep.
     shell.setShowAudiobooks(showAudiobooks.value);

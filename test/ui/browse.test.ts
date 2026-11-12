@@ -353,15 +353,18 @@ browseTest("Collections keeps Apple's neutral management-type counts and hides t
     await tv.page.locator('[data-focus="collection:loose"] .browse-art-missing svg').waitFor();
 });
 
-browseTest("a failed Collections read keeps main's explicit Retry", async (tv, catalog) => {
+// TVLibraryCollectionsView.loadCollections (silo-apple 48a197d :183-191): a failed read shows no collections; opening Collections again reads again.
+browseTest("a failed Collections read shows Apple's empty state and the next visit reads again", async (tv, catalog) => {
     await tv.page.locator('[data-focus="movies"]').click();
     await showing(tv, "library:12");
     catalog.failNext("/library/12/collections", problem(500, "internal", "Collections unavailable"));
     await selectLibraryMode(tv, "Collections");
-    await tv.page.locator('[data-focus="retry"]').waitFor();
-    assert.equal(await tv.page.locator('[data-focus="retry"], [data-focus="retry-collections"]').count(), 1);
+    await tv.page.locator(".library-empty").waitFor();
+    assert.equal(await tv.page.locator('[data-focus="retry"], [data-focus="retry-collections"]').count(), 0);
     assert.equal(await tv.page.getByRole("button", { name: /create|manage/i }).count(), 0);
-    await tv.page.locator('[data-focus="retry"]').click();
+    await selectLibraryMode(tv, "Recommended");
+    await tv.page.locator('[data-view="library:12"] .home-section').first().waitFor();
+    await selectLibraryMode(tv, "Collections");
     await tv.page.locator('[data-focus="collection:highlights"]').waitFor();
 });
 
@@ -1554,7 +1557,8 @@ for (const withMedia of [false, true]) {
         await showing(tv, "library:12");
         assert.deepEqual(await tv.page.locator('.skyline-content [data-section]').evaluateAll(nodes => nodes.map(node => node.getAttribute("data-section"))), withMedia ? ["visible"] : []);
         assert.equal(await tv.page.locator('[data-focus="collection:highlights"]').count(), 0);
-        assert.equal(await tv.focused(), withMedia ? "movie:m0001" : "movies");
+        // tvPageFocusOwner (TVLibraryBrowseView.swift:106-111): an empty page takes focus from the bar.
+        assert.equal(await tv.focused(), withMedia ? "movie:m0001" : "library-page");
     }, { catalog });
 }
 
@@ -1652,15 +1656,14 @@ browseTest("a late Recommended artwork probe upgrades only image fields", async 
 
 const failedCollectionsCatalog = new FakeCatalog();
 failedCollectionsCatalog.failNext("/library/12/collections", problem(422, "validation_failed", "Collections unavailable"));
-browseTest("Recommended defers collections reads and Collections retries failures", async tv => {
+browseTest("Recommended defers collections reads and a refused Collections read shows no collections", async tv => {
     await tv.page.locator('[data-focus="movies"]').click();
     await showing(tv, "library:12");
     assert.equal(tv.fake.requests.filter(request => request.path === "/library/12/collections").length, 0);
     await selectLibraryMode(tv, "Collections");
-    await tv.page.getByRole("alert").waitFor();
-    await tv.page.locator('[data-focus="retry"]').click();
-    await tv.page.locator('[data-focus="collection:highlights"]').waitFor();
+    await tv.page.locator(".library-empty").waitFor();
     assert.equal(await tv.page.getByRole("alert").count(), 0);
+    assert.equal(tv.fake.requests.filter(request => request.path === "/library/12/collections").length, 1);
 }, { catalog: failedCollectionsCatalog });
 
 browseTest("Series Recommended shares Home stills, band alignment and the three-section menu", async (tv, catalog) => {
@@ -2472,7 +2475,8 @@ browseTest("R2 cached library restores flyout modes without reads on focus", asy
 browseTest("a completed library read preserves navigation chosen while loading", async (tv) => {
     const pending = tv.fake.hold("/library/12/sections", true);
     await tv.page.locator('[data-focus="movies"]').click();
-    await tv.page.locator('[aria-label="Loading"]').waitFor();
+    await tv.page.locator('.library-loading').waitFor();
+    assert.equal(await tv.focused(), "library-page");
     await press(tv, "ArrowUp", "ArrowRight", "ArrowLeft");
     const focused = await tv.focused();
     assert.equal(focused, "movies");
@@ -4088,8 +4092,10 @@ browseTest("loading, slow, offline, removed, empty and missing-artwork states al
     await tv.jump(250);
     await press(tv, "ArrowDown", "ArrowDown", "Enter");
     await showing(tv, "library:17");
-    await shows(tv, "No titles");
-    assert.equal(await tv.focused(), "movies", "empty scope retains its top-bar destination");
+    await shows(tv, "New Shelf is empty");
+    await tv.eventually(async () => await tv.focused() === "library-page", "the empty page holds focus, and Up still reaches the bar");
+    await press(tv, "ArrowUp");
+    assert.equal(await tv.focused(), "movies");
 });
 
 browseTest("an authority change removes only browse, aborts its reads, and the next profile sees only its own catalog", async (tv) => {

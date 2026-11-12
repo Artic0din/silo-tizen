@@ -39,7 +39,7 @@ import { errorState, unconfirmedWriteMessage, writeFailureMessage, writeMayHaveA
 import { homeRows, removingDismissed, type ViewContext } from "./browseViews.ts";
 import { HomeEnrichment } from "./homeEnrichment.ts";
 import { el } from "./screen.ts";
-import { discoveryState, genreGroups, libraryScope, librarySectionQuery, readDiscovery, type LibraryMode } from "./libraryDiscovery.ts";
+import { discoveryState, genreGroups, libraryScope, librarySectionQuery, readDiscovery, type LibraryMode, type VideoScope } from "./libraryDiscovery.ts";
 import { availableModes } from "./libraryDiscoveryViews.ts";
 import { personalEndCanReenter, personalListCapability, readPersonalPage, type PersonalFilter } from "./personalLists.ts";
 import type { MediaScope } from "../contracts/v2/discovery.ts";
@@ -1446,7 +1446,10 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 load(current, async signal => {
                     const state = current.discovery ?? discoveryState();
                     const artworkQuery = homeArtworkQuery(imageCapability, window.devicePixelRatio);
-                    const data = await readDiscovery(current.library, state.mode, spec => read(spec, signal), artworkQuery);
+                    const original = home.kind === "home" ? home.data?.libraries.find(library => library.id === current.library.id) : undefined;
+                    // TVLibraryTypeTabView.mediaScope (:77-87): only a mixed library opened from the Movies or Series tab is narrowed.
+                    const scope: VideoScope | undefined = original?.type !== "mixed" ? undefined : current.library.type === "movies" ? "movie" : current.library.type === "series" ? "series" : undefined;
+                    const data = await readDiscovery(current.library, state.mode, spec => read(spec, signal), artworkQuery, scope);
                     const page = (state.mode === "Recently Added" || state.mode === "A–Z") && data.capabilities?.allowed === true
                         ? await read(operations.queryCatalogItems({ ...libraryScope(current.library), limit: PAGE_SIZE, sort: state.mode === "Recently Added" ? "added_at" : "title", order: state.mode === "Recently Added" ? "desc" : "asc" }), signal) : undefined;
                     return { data, page, artworkQuery };

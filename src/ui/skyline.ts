@@ -7,7 +7,8 @@ import { marqueeBadges, marqueeMeta, marqueeRating, marqueeTitle } from "./cardP
 import { actionButton, zoneNode } from "./browseViews.ts";
 import { el } from "./screen.ts";
 import { TMDB_LOGO_PATH } from "./acknowledgements.ts";
-import { SkylineScroll } from "./skylineScroll.ts";
+import { SCROLL_START_EVENT, SkylineScroll } from "./skylineScroll.ts";
+import { MARQUEE_REST_MILLISECONDS } from "./homeEnrichment.ts";
 import { profileMenuAvatar } from "./navigationAvatar.ts";
 import { navigationRoots } from "./navigation.ts";
 import type { PrimaryMenu } from "../contracts/v2/navigation.ts";
@@ -21,6 +22,11 @@ import { PERSONAL_TITLES, type PersonalSource } from "./personalLists.ts";
 import { signOutConfirmationCopy } from "./signOutConfirmation.ts";
 
 type VideoTab = "movies" | "series" | "music" | "audiobooks";
+
+/** `SiloTheme.Skyline.marqueeCrossfadeDuration` (silo-apple 85679e7 `Theme/SiloTheme.swift:304`). */
+const MARQUEE_CROSSFADE_MILLISECONDS = 240;
+/** `SiloTheme.Skyline.marqueeBackdropHoldCapMilliseconds` (`Theme/SiloTheme.swift:309`). */
+const MARQUEE_BACKDROP_HOLD_CAP_MILLISECONDS = 320;
 
 interface ProfileMenu {
     readonly requests?: () => void;
@@ -123,9 +129,19 @@ export class Skyline {
     private profileOpen = false;
     private dismissedAnchor: string | undefined;
     private cancelDwell = (): void => undefined;
-    private cancelPreview = (): void => undefined;
     private previewId: string | undefined;
-    private previewPending = false;
+    /** The marquee's backdrop layer and what it draws; the text layer above it follows focus on its own. */
+    private art: HTMLElement | undefined;
+    private artKey: string | undefined;
+    /** TVRootHeroBackdrop.hasDisplayedArtwork: only artwork after the first crossfades. */
+    private artShown = false;
+    private cancelRest = (): void => undefined;
+    /** The backdrop swap waiting out the 150 ms rest, then one a row scroll holds. */
+    private restingBackdrop: (() => void) | undefined;
+    private heldBackdrop: (() => void) | undefined;
+    /** setBackdropDeferred: a row-change scroll holds the backdrop until its 320 ms cap. */
+    private rowScrolling = false;
+    private cancelHoldCap = (): void => undefined;
     private readonly tints = new Map<string, Tints>();
     private selected = "home";
     private sharedScene = false;
@@ -145,6 +161,8 @@ export class Skyline {
     /** Profile spoiler switches. Off until browse installs the owner. */
     spoilers: () => EpisodeSpoilerSettings = () => ({ hidesImages: false, hidesOverviews: false });
     filled: (card: Card) => Card = card => card;
+    /** A row change starts the focused card's detail read without the 150 ms rest (restForRowChange). */
+    rowChangeRead: () => void = () => undefined;
     /** What Home's detail reads added for a title: the aired and cast line, and Continue Watching's saved-file chips. */
     details: (card: Card, continuing: boolean) => { readonly line: string | undefined; readonly badges: readonly string[] | undefined } = () => ({ line: undefined, badges: undefined });
     translations: DescriptionTranslations | undefined;
@@ -189,6 +207,7 @@ export class Skyline {
         this.marquee.setAttribute("aria-atomic", "true");
         container.addEventListener("focusin", this.onFocus);
         container.addEventListener("keydown", this.onKey, true);
+        this.body.addEventListener(SCROLL_START_EVENT, this.onRowScrollStart);
     }
 
     update(libraries: readonly UserLibrary[]): void {
@@ -338,7 +357,7 @@ export class Skyline {
         this.visible = false;
         this.marqueeShown = false;
         this.close();
-        this.cancelPreview();
+        this.suspendBackdrop();
         this.cancelTranslation();
         this.container.classList.remove("skyline-root", "skyline-preview", "skyline-library", "skyline-home");
     }
@@ -346,7 +365,9 @@ export class Skyline {
     /** Redraws the shown preview, as when the title-art answer lands. */
     repaint(): void {
         const shown = this.shown;
-        if (shown !== undefined && this.previewId === `${shown.row}:${shown.card.id}`) this.draw(shown.card, shown.row, shown.continuing, shown.featured);
+        if (shown === undefined || this.previewId !== `${shown.row}:${shown.card.id}`) return;
+        this.draw(shown.card, shown.row, shown.continuing, shown.featured);
+        if (!this.backdropPending()) this.showBackdrop(shown.card, false);
     }
 
     /** Fills in what a detail read added for the shown title, in place, when its answer lands. */
@@ -372,26 +393,152 @@ export class Skyline {
         if (badges !== null) replaceNodes(badges as HTMLElement, (details.badges ?? marqueeBadges(card.overlay)).map(badge => el("span", "skyline-chip", badge)));
     }
 
+    /**
+     * TVFocusMarquee.preview (silo-apple 85679e7 `tvOS/Components/TVFocusMarquee.swift:779-816`): the title, meta and
+     * synopsis follow focus at once with no animation (`:1249`, `:1262-1264`); only the backdrop waits.
+     */
     preview(card: Card, row: string, continuing = false, featured = false): void {
-        this.cancelPreview();
         const identity = `${row}:${card.id}`;
-        this.previewPending = this.previewId !== identity || this.shown?.card !== card || this.shown.continuing !== continuing || this.shown.featured !== featured;
+        if (this.previewId === identity && this.shown?.card === card && this.shown.continuing === continuing && this.shown.featured === featured) {
+            // hide() cancels the dwell and the backdrop rest and keeps this card. Coming back has to restore both.
+            if (!this.translationArmed) this.armTranslation();
+            if (!this.backdropPending()) this.showBackdrop(card, false);
+            return;
+        }
         // Focus owns the dwell immediately; capability/repaint callbacks must not rearm the outgoing card.
-        if (this.previewPending) this.cancelTranslation();
-        const apply = (): void => {
-            this.previewPending = false;
-            if (this.previewId === identity && this.shown?.card === card && this.shown.continuing === continuing && this.shown.featured === featured) {
-                // hide() cancels the dwell and keeps this card. Coming back has to arm it again.
-                if (!this.translationArmed) this.armTranslation();
-                return;
-            }
-            this.previewId = identity;
-            this.immediatePreview = false;
-            this.draw(card, row, continuing, featured);
-            this.armTranslation();
-        };
-        if (this.previewId === undefined || this.immediatePreview) apply();
-        else this.cancelPreview = this.clock.schedule(apply, 150);
+        this.cancelTranslation();
+        const rowChange = this.shown?.row !== row;
+        const cold = this.previewId === undefined || this.immediatePreview;
+        this.previewId = identity;
+        this.immediatePreview = false;
+        this.draw(card, row, continuing, featured);
+        this.armTranslation();
+        // cancelBackdropWork: a swap still waiting for an earlier card must never land under this one.
+        this.dropPendingBackdrop();
+        if (cold) {
+            // restImmediately: a newly shown feed paints its first backdrop on the first frame.
+            this.artShown = false;
+            this.showBackdrop(card, false);
+            return;
+        }
+        const swap = (): void => this.showBackdrop(card, true);
+        // restForRowChange: a scroll already under way is the gate, so the rest is skipped and the scroll holds the swap.
+        if (this.rowScrolling && rowChange) {
+            this.restForRowChange(swap);
+            return;
+        }
+        this.restingBackdrop = swap;
+        this.cancelRest = this.clock.schedule(() => {
+            this.cancelRest = () => undefined;
+            this.restingBackdrop = undefined;
+            this.holdOrSwap(swap);
+        }, MARQUEE_REST_MILLISECONDS);
+    }
+
+    private dropPendingBackdrop(): void {
+        this.cancelRest();
+        this.cancelRest = () => undefined;
+        this.restingBackdrop = undefined;
+        this.heldBackdrop = undefined;
+    }
+
+    private backdropPending(): boolean {
+        return this.restingBackdrop !== undefined || this.heldBackdrop !== undefined;
+    }
+
+    /** updateBackdropIfReady: while a row scroll holds the backdrop, keep the swap for the hold cap. */
+    private holdOrSwap(swap: () => void): void {
+        if (this.rowScrolling) { this.heldBackdrop = swap; return; }
+        this.heldBackdrop = undefined;
+        swap();
+    }
+
+    /**
+     * restForRowChange (TVFocusMarquee.swift:818-826): restart the hold cap, start the detail read without the rest,
+     * and hold the swap.
+     */
+    private restForRowChange(swap: () => void): void {
+        this.armHoldCap();
+        this.rowChangeRead();
+        this.holdOrSwap(swap);
+    }
+
+    /**
+     * armBackdropHoldCap (TVFocusMarquee.swift:914-925). Home's band is tvOS's native ScrollView
+     * (TVSkylineSectionFeed.swift:159-178), whose scroll phase stays non-idle for over a second after one move
+     * (SiloTheme.swift:305-309), so Apple's swap always lands at this cap. Tizen releases at the cap as well, not when
+     * its own shorter scroll settles.
+     */
+    private armHoldCap(): void {
+        this.cancelHoldCap();
+        this.cancelHoldCap = this.clock.schedule(() => {
+            this.cancelHoldCap = () => undefined;
+            if (!this.rowScrolling) return;
+            this.rowScrolling = false;
+            const swap = this.heldBackdrop;
+            this.heldBackdrop = undefined;
+            swap?.();
+        }, MARQUEE_BACKDROP_HOLD_CAP_MILLISECONDS);
+    }
+
+    /** setBackdropDeferred(true) (TVFocusMarquee.swift:893-904): the row band started scrolling. */
+    private readonly onRowScrollStart = (): void => {
+        this.rowScrolling = true;
+        const swap = this.restingBackdrop;
+        if (swap === undefined) { this.armHoldCap(); return; }
+        this.dropPendingBackdrop();
+        this.restForRowChange(swap);
+    };
+
+    /** TVFocusMarquee.suspend: leaving drops every pending swap and any hold an unfinished scroll left. */
+    private suspendBackdrop(): void {
+        this.dropPendingBackdrop();
+        this.rowScrolling = false;
+        this.cancelHoldCap();
+    }
+
+    /**
+     * TVSkylineBackdrop over TVRootHeroBackdrop (TVSkylineSectionFeed.swift:370-380, TVRootHeroBackdrop.swift:156-205):
+     * the same artwork stays put; new artwork fades in over the old with easeInOut(0.24), except the first. The art is
+     * AsyncImageView's default `.surface`: the backdrop ThumbHash until the image decodes (TVRootHeroBackdrop.swift:181-186).
+     */
+    private showBackdrop(card: Card, animate: boolean): void {
+        const settings = this.spoilers();
+        const seriesArt = marqueeUsesSeriesArt(card, settings);
+        const background = hidesMarqueeBackdrop(card, settings) ? undefined : artworkUrl(seriesArt ? card.seriesBackdropUrl : card.backdropUrl, this.baseUrl);
+        const thumbhash = seriesArt ? undefined : card.backdropThumbhash;
+        const key = JSON.stringify([this.sharedScene, background ?? null, thumbhash ?? null]);
+        // A failed image is not kept: the next preview of the same artwork asks for it again.
+        if (key === this.artKey && this.art?.dataset.failed === undefined) return;
+        const layer = el("div", "skyline-marquee-art");
+        layer.setAttribute("aria-hidden", "true");
+        if (background !== undefined && this.sharedScene) {
+            layer.appendChild(heroBackdrop(background, thumbhash, this.tints, false, true));
+        } else if (background !== undefined) {
+            const image = el("img", "skyline-backdrop");
+            image.alt = "";
+            image.referrerPolicy = "no-referrer";
+            image.src = background;
+            image.addEventListener("error", () => image.remove());
+            layer.append(image, el("div", "skyline-scrim"));
+        }
+        layer.querySelector("img.skyline-backdrop")?.addEventListener("error", () => { layer.dataset.failed = ""; });
+        const outgoing = this.art;
+        for (const old of Array.from(this.marquee.querySelectorAll(".skyline-marquee-art"))) old.classList.add("skyline-outgoing");
+        if (outgoing === undefined) this.marquee.prepend(layer);
+        else outgoing.after(layer);
+        this.art = layer;
+        this.artKey = key;
+        this.cancelFade();
+        this.cancelFade = () => undefined;
+        const fade = animate && this.artShown && outgoing !== undefined;
+        if (background !== undefined) this.artShown = true;
+        const clear = (): void => { for (const old of Array.from(this.marquee.querySelectorAll(".skyline-marquee-art"))) if (old !== layer) old.remove(); };
+        if (!fade) { clear(); return; }
+        // An empty layer has nothing to fade in, so the outgoing art fades out instead.
+        if (layer.childElementCount > 0) layer.classList.add("skyline-art-enter");
+        else outgoing.classList.add("skyline-art-leave");
+        this.cancelFade = this.clock.schedule(clear, MARQUEE_CROSSFADE_MILLISECONDS);
     }
 
     /** Featured cards in auto mode only, after the card has held the marquee. Rolling focus never reaches this. */
@@ -399,7 +546,7 @@ export class Skyline {
         this.cancelTranslation();
         const shown = this.shown;
         const translations = this.translations;
-        if (this.previewPending || !this.marqueeOnScreen() || shown === undefined || translations === undefined) return;
+        if (!this.marqueeOnScreen() || shown === undefined || translations === undefined) return;
         const pending = translations.cards.presentation(shown.card).pendingLanguage;
         if (marqueeTranslationRequest(shown.featured, translations.onView(), shown.card.id, pending) === undefined) return;
         const card = shown.card;
@@ -461,27 +608,11 @@ export class Skyline {
         detailLine.appendChild(el("span", "skyline-detail-text"));
         layer.append(detailLine, el("div", "skyline-badges"));
         this.fillDetails(layer, card, continuing);
-        const seriesArt = marqueeUsesSeriesArt(card, settings);
-        const background = hidesMarqueeBackdrop(card, settings) ? undefined : artworkUrl(seriesArt ? card.seriesBackdropUrl : card.backdropUrl, this.baseUrl);
-        if (background !== undefined && this.sharedScene) {
-            layer.prepend(heroBackdrop(background, seriesArt ? undefined : card.backdropThumbhash, this.tints));
-        } else if (background !== undefined) {
-            const image = el("img", "skyline-backdrop");
-            image.alt = "";
-            image.referrerPolicy = "no-referrer";
-            image.src = background;
-            image.addEventListener("error", () => image.remove());
-            layer.prepend(image, el("div", "skyline-scrim"));
-        }
-        const outgoing = this.marquee.lastElementChild;
+        // `.transaction { $0.animation = nil }`: the new text replaces the old in the same frame.
+        for (const old of Array.from(this.marquee.querySelectorAll(".skyline-marquee-layer"))) old.remove();
         this.marquee.appendChild(layer);
         // A two-line title costs the synopsis a line (Apple synopsisLineLimit).
         layer.classList.toggle("skyline-title-wrapped", title.offsetHeight > parseFloat(getComputedStyle(title).fontSize) * 1.4);
-        // Mark the previous layer before filling this one. The refresh selector otherwise hits it first.
-        if (outgoing !== null) {
-            outgoing.setAttribute("aria-hidden", "true");
-            outgoing.classList.add("skyline-outgoing");
-        }
         this.refreshTranslation(layer);
         // The text title shows first; the logo replaces it only once decoded and only while title art is on.
         const logo = this.titleArt() ? artworkUrl(card.logoUrl, this.baseUrl) : undefined;
@@ -490,19 +621,13 @@ export class Skyline {
             image.alt = title.textContent ?? "";
             image.referrerPolicy = "no-referrer";
             image.addEventListener("load", () => {
-                if (!this.titleArt() || !layer.isConnected || layer.classList.contains("skyline-outgoing")) return;
+                if (!this.titleArt() || !layer.isConnected) return;
                 title.textContent = "";
                 title.classList.add("skyline-title-logo");
                 title.appendChild(image);
                 layer.classList.add("skyline-title-wrapped");
             });
             image.src = logo;
-        }
-        if (outgoing !== null) {
-            this.cancelFade();
-            this.cancelFade = this.clock.schedule(() => {
-                for (const old of Array.from(this.marquee.children)) if (old !== layer) old.remove();
-            }, 240);
         }
     }
 

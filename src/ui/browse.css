@@ -228,18 +228,24 @@
    (ascender 69.609375, descender -15.1875, leading 0) and SwiftUI lays the
    text out 85pt tall. The facts row is the 22pt VStack spacing at line 449
    below that box. A 1.05 line was 75.6px, so the glyphs and the facts sat high. */
-.details-person-hero .browse-title { max-width: 1100px; margin-top: 0; margin-bottom: 22px; font-size: 72px; line-height: 85px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+/* #418, silo-apple 7e478b2: Person text is Apple's points times --silo-sf-cap-scale; line boxes stay at SF Pro's rounded-up
+   line height at Apple's size. Tracking is the per-character gap to CoreText's SF Pro width for the same strings, as on
+   Details (#399). Name: 72 bold (PersonDetailView.swift:452-455). */
+.details-person-hero .browse-title { max-width: 1100px; margin-top: 0; margin-bottom: 22px; font-size: calc(72px * var(--silo-sf-cap-scale)); line-height: 85px; letter-spacing: .5px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .details-person-hero .browse-detail-info { padding-top: 10px; }
-.details-person-hero .browse-overview { max-width: 920px; max-height: none; margin-bottom: 22px; font-size: 26px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 7; -webkit-box-orient: vertical; overflow: hidden; }
+.details-person-hero .browse-overview { max-width: 920px; max-height: none; margin-bottom: 22px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 7; -webkit-box-orient: vertical; overflow: hidden; }
 .person-facts { margin: 0 0 10px; }
-.person-fact { display: inline-block; margin: 0 12px 12px 0; padding: 8px 16px; border-radius: 999px; background: #0e0f12; color: var(--silo-text); font-size: 20px; font-weight: 400; line-height: 1.2; }
+/* Fact capsules: siloSmall 20 regular, 16/8 padding (PersonDetailView.swift:475-483, Typography.swift:34); SF Pro's 23.56 line rounds to 24. */
+.person-fact { display: inline-block; margin: 0 12px 12px 0; padding: 8px 16px; border-radius: 999px; background: #0e0f12; color: var(--silo-text); font-size: calc(20px * var(--silo-sf-cap-scale)); font-weight: 400; line-height: 24px; letter-spacing: -.15px; }
+/* PersonMetadataRefreshIndicator: siloSecondaryText on siloSurfaceVariant at 0.72 (PersonDetailView.swift:730-738). */
+.person-fact.person-metadata-loading { color: var(--silo-secondary); background: rgba(14, 15, 18, 0.72); }
 .person-portrait[data-person-portrait="loading"],
 .person-portrait[data-person-portrait="error"] { background: #0e0f12; }
 .person-portrait-thumbhash,
 .person-portrait-photo { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; }
 .person-portrait-photo { opacity: 0; }
 .person-portrait[data-person-portrait="loaded"] .person-portrait-photo { opacity: 1; transition: opacity var(--silo-fast) ease-out; }
-.person-portrait-initials { position: absolute; top: 0; right: 0; bottom: 0; left: 0; display: flex; align-items: center; justify-content: center; font-size: 84px; font-weight: 600; color: var(--silo-secondary); }
+.person-portrait-initials { position: absolute; top: 0; right: 0; bottom: 0; left: 0; display: flex; align-items: center; justify-content: center; font-size: calc(84px * var(--silo-sf-cap-scale)); font-weight: 600; letter-spacing: .2px; color: var(--silo-secondary); }
 .person-portrait-missing { position: absolute; left: 50%; top: 50%; width: 72px; height: 56px; margin: -28px 0 0 -36px; border: 4px solid rgba(237, 237, 237, 0.3); border-radius: 8px; }
 
 .browse,
@@ -631,6 +637,9 @@
 
 /* ThumbhashImage's colour when there is no hash: Apple draws it while artwork loads, then DefaultArtwork once it is missing. */
 .browse-art-default { background: var(--silo-surface-variant); }
+/* ThumbhashImage scaledToFill under the loading image; it stays when the image is missing. */
+.browse-art-thumbhash { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.browse-art-thumbhash + .browse-art-image { position: relative; }
 
 /*
  * silo-apple DefaultArtwork (tvOS). The glow radii are fractions of the longer side, so the box is a size
@@ -653,10 +662,14 @@
     width: 100%;
     height: 100%;
     object-fit: cover;
+    opacity: 0;
 }
+.browse-art-image.is-loaded { opacity: 1; transition: opacity var(--silo-fast) ease-out; }
+.browse-art-image.is-cached { opacity: 1; transition: none; }
 
 /* Apple EpisodeSpoilerBlur.radius is 24. The image grows by that radius on every side (48px) so the blur fringe falls outside the clip, matching SwiftUI blur(radius:opaque: true). */
 .episode-spoiler-blur > .browse-art-image,
+.episode-spoiler-blur > .browse-art-thumbhash,
 .details-hero .episode-spoiler-blur > .skyline-backdrop,
 .details-hero .episode-spoiler-blur > .hero-art-thumbhash {
     filter: blur(24px);
@@ -871,15 +884,17 @@
 .skyline-selector[data-menu-kind] .browse-button:focus, .skyline-selector.skyline-flyout .browse-button:focus { background: #fff; color: #000; }
 .skyline-selector .browse-button.skyline-destructive:focus { background: #fff; color: #000; }
 .skyline-marquee { position: fixed; top: 218px; left: 88px; width: 880px; height: 280px; pointer-events: none; }
-.skyline-marquee-layer { animation: skyline-appear 240ms ease-out; }
+/* The text layer swaps with no animation; the backdrop layer under it crossfades easeInOut(0.24)
+   (silo-apple 85679e7 TVRootHeroBackdrop.swift:160, :188-191; SiloTheme.swift:304). */
 .skyline-marquee-layer { position: absolute; bottom: 0; left: 0; width: 880px; }
-.skyline-marquee-layer.skyline-outgoing { opacity: 0; transition: opacity 240ms; }
+.skyline-art-enter { animation: skyline-appear 240ms ease-in-out; }
+.skyline-art-leave { animation: skyline-leave 240ms ease-in-out forwards; }
 .skyline-backdrop, .skyline-scrim { position: fixed; top: 0; left: 0; width: 1920px; height: 1080px; z-index: -2; }
 .skyline-backdrop { object-fit: cover; }
 .skyline-scrim { z-index: -1; background: linear-gradient(0deg, #000 10%, rgba(0,0,0,.4) 54%, rgba(0,0,0,.42)), linear-gradient(90deg, rgba(0,0,0,.8), transparent); }
 .skyline-library { padding-top: 510px; }
 .skyline-library .skyline-marquee { top: 246px; height: 250px; }
-.skyline-library .skyline-title { font-size: 66px; max-height: 136px; }
+.skyline-library .skyline-title { font-size: calc(66px * var(--silo-sf-cap-scale)); max-height: calc(136px * var(--silo-sf-cap-scale)); }
 .skyline-pills { position: fixed; top: 150px; left: 88px; width: 1744px; z-index: 4; }
 .skyline-pills.person-filmography-filters { position: static; width: auto; margin-bottom: 24px; }
 .skyline-pills .browse-button { font-size: 19px; padding: 9px 22px; border-radius: 30px; background: rgba(255,255,255,.07); color: #ededed; border-color: rgba(255,255,255,.09); }
@@ -950,7 +965,8 @@
 .browse-episode:focus .browse-card-subtitle { color: rgba(0,0,0,.6); }
 /* Marquee block: Apple TVMarqueeBlock and SiloTheme.Skyline (silo-apple 1a7ccee), bottom-anchored, 14px apart. */
 .silo-sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-.skyline-title { margin: 0 0 14px; font-size: 84px; line-height: .98; font-weight: 800; color: #fff; text-shadow: 0 4px 10px rgba(0,0,0,.5); max-height: 166px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+/* marqueeTitleSizeHome 84pt heavy (SiloTheme.swift:280, TVFocusMarquee.swift:1476) times --silo-sf-cap-scale, like the lines under it. */
+.skyline-title { margin: 0 0 14px; font-size: calc(84px * var(--silo-sf-cap-scale)); line-height: .98; font-weight: 800; color: #fff; text-shadow: 0 4px 10px rgba(0,0,0,.5); max-height: calc(166px * var(--silo-sf-cap-scale)); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .skyline-meta-line { display: flex; align-items: center; max-width: 780px; height: 27px; margin: 0 0 14px; white-space: nowrap; }
 /* Hero text sizes are Apple's points times --silo-sf-cap-scale. Letter-spacing is tuned per line so Inter's
    widths match the Apple TV capture (Spidey and His Amazing Friends, 1920x1080) within 2px; SF Pro's own size-specific
@@ -1036,20 +1052,27 @@
 .home-section .browse-card:focus { transform: none; box-shadow: none; }
 .home-section .browse-art { width: 176px; height: 264px; border-radius: 12px; transition: transform var(--silo-fast) ease-out, box-shadow var(--silo-fast) ease-out; }
 .home-section .browse-card.skyline-continue { width: 360px; }
-.home-section .skyline-continue .browse-art { width: 360px; height: 200px; box-shadow: 0 4px 8px rgba(0,0,0,.2); }
+/* EpisodeThumbCard.swift:352-356 rests at radius 8, y 4; CSS blur is twice the SwiftUI radius. Explore all has only the shared lift (SectionExploreAllCard.swift:37). */
+.home-section .skyline-continue .browse-art { width: 360px; height: 200px; }
+.home-section .skyline-continue:not(.skyline-explore) .browse-art { box-shadow: 0 4px 16px rgba(0,0,0,.2); }
 .skyline-home .home-section .browse-card, .skyline-home .home-section .browse-art { width: calc(176px * var(--poster-scale, 1)); }
 .skyline-home .home-section .browse-art { height: calc(264px * var(--poster-scale, 1)); }
 .skyline-home .home-section .skyline-continue, .skyline-home .home-section .skyline-continue .browse-art { width: calc(360px * var(--poster-scale, 1)); }
 .skyline-home .home-section .skyline-continue .browse-art { height: calc(200px * var(--poster-scale, 1)); }
 .home-section .browse-card-title, .home-section .browse-card-subtitle { padding: 0; line-height: 1.2; transition: color var(--silo-fast) ease-out, text-shadow var(--silo-fast) ease-out, transform var(--silo-fast) ease-out; }
 /* TVMediaCardCaption frames the title at the artwork width (densePosterCardWidth 176 times the poster scale) and does not clip it. The subtitle is the clipped line. clientWidth floors that frame and scrollWidth ceils the ink, so a line Apple draws in full at about 152px is replaced by an ellipsis. The extra 2px is that floor plus that ceil. The negative margin keeps the card at the artwork width, and a longer line still truncates. */
-.home-section .browse-card-title { width: calc(100% + 2px); margin: 22px -2px 0 0; font-size: 24px; font-weight: 500; color: rgba(237,237,237,.45); }
-.home-section .browse-card-subtitle { margin: 4px 0 0; font-size: 20px; font-weight: 400; color: rgba(237,237,237,.32); }
+/* siloPosterTitle 24pt and siloPosterMetadata 20pt (Typography.swift:22, :25) times --silo-sf-cap-scale. Untracked Inter at
+   that size keeps the Apple TV capture's 152px "The Dog Stars". */
+.home-section .browse-card-title { width: calc(100% + 2px); margin: 22px -2px 0 0; font-size: calc(24px * var(--silo-sf-cap-scale)); letter-spacing: 0; font-weight: 500; color: rgba(237,237,237,.45); }
+.home-section .browse-card-subtitle { margin: 4px 0 0; font-size: calc(20px * var(--silo-sf-cap-scale)); letter-spacing: 0; font-weight: 400; color: rgba(237,237,237,.32); }
 .home-section .skyline-continue .browse-card-title { margin-top: 14px; }
-.home-section .skyline-explore .skyline-explore-tile, .box-set-row .skyline-explore .skyline-explore-tile { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0 8px; border: 1px solid rgba(255,255,255,.08); background: #15171c; color: #ededed; }
+/* SectionExploreAllCard.swift:72 strokes white .08 at 0.5pt, half of it outside the tile. A 1px CSS border on this
+   1920-wide surface is twice that line, so it carries half the opacity for the same ink. */
+.home-section .skyline-explore .skyline-explore-tile, .box-set-row .skyline-explore .skyline-explore-tile { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0 8px; border: 1px solid rgba(255,255,255,.04); background: #15171c; color: #ededed; }
 .skyline-explore-icon { display: flex; align-items: center; justify-content: center; width: 66px; height: 66px; margin-bottom: 18px; border-radius: 50%; background: rgba(237,237,237,.12); }
 .skyline-explore-icon svg { width: 30px; height: 30px; }
-.skyline-explore-label { font-size: 24px; font-weight: 500; white-space: nowrap; }
+/* siloPosterTitle 24pt; minimumScaleFactor(0.8) shrinks a long label (exploreAllCard), then it truncates. */
+.skyline-explore-label { max-width: 100%; overflow: hidden; text-overflow: ellipsis; font-size: calc(24px * var(--silo-sf-cap-scale)); letter-spacing: 0; font-weight: 500; white-space: nowrap; }
 @keyframes skyline-appear { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
   .browse-card:focus { transform: none; }
@@ -1078,7 +1101,9 @@
 /* CSS box-shadow blur is twice the SwiftUI Gaussian radius. */
 .browse .browse-card:focus .browse-art { --card-focus-scale: 1.05; transform: scale(var(--card-focus-scale)); box-shadow: 0 8px 36px rgba(0,0,0,.45); }
 /* Continue Watching adds EpisodeThumbCard's focused shadow on top of the shared lift. */
-.browse .home-section .skyline-continue:focus .browse-art { box-shadow: 0 8px 36px rgba(0,0,0,.45), 0 10px 40px rgba(0,0,0,.5); }
+.browse .home-section .skyline-continue:not(.skyline-explore):focus .browse-art { box-shadow: 0 8px 36px rgba(0,0,0,.45), 0 10px 40px rgba(0,0,0,.5); }
+/* TVCardFocusStyle.swift:150-153: Select scales the lifted card by 0.97. Reduce Motion keeps it unscaled. */
+.browse .browse-card:focus[data-pressed] .browse-art { transform: scale(calc(var(--card-focus-scale) * .97)); }
 .browse .browse-card-title, .browse .browse-card-subtitle { transition: color var(--silo-fast) ease-out, transform var(--silo-fast) ease-out, text-shadow var(--silo-fast) ease-out; }
 .browse .browse-card:is(:focus, [aria-current="true"]) .browse-card-title { color: #fff; }
 .browse .browse-card:is(:focus, [aria-current="true"]) .browse-card-subtitle { color: rgba(255,255,255,.92); }
@@ -1115,7 +1140,8 @@
     .browse .browse-card:is(:focus, [aria-current="true"]) .browse-art,
     .browse .browse-card:is(:focus, [aria-current="true"]) :is(.browse-card-title, .browse-card-subtitle),
     .browse .details-person:focus,
-    .browse .discovery-collection:not(.collection-poster):focus { transform: none; }
+    .browse .discovery-collection:not(.collection-poster):focus,
+    .browse .browse-card:focus[data-pressed] .browse-art { transform: none; }
 }
 /* Keep the file-bound picker over Details, using Skyline's existing glass and focus grammar. */
 .details-audio-picker { position: fixed; left: 88px; top: 420px; width: 620px; max-height: 560px; overflow-y: auto; z-index: 12; }
@@ -1618,13 +1644,17 @@
 /* PersonDetailView.swift:459 .siloBody (Typography.swift:28, 26pt regular), no lineSpacing. Apple TV
    at 2ef3a171 draws its lines 31px apart (measured); SwiftUI rounds the font's 30.62 line up. The
    7-line clamp comes from .details-person-hero .browse-overview. */
-.browse[data-view^="person:"] .browse-overview { margin: 0; color: rgba(237, 237, 237, 0.6); font-size: 26px; font-weight: 400; line-height: 31px; white-space: pre-line; }
+.browse[data-view^="person:"] .browse-overview { margin: 0; color: rgba(237, 237, 237, 0.6); font-size: calc(26px * var(--silo-sf-cap-scale)); font-weight: 400; line-height: 31px; letter-spacing: -.235px; white-space: pre-line; }
 .browse[data-view^="person:"] .browse-detail-info > * + * { margin-top: 22px; }
 .person-filmography-heading { display: flex; align-items: baseline; gap: 60px; margin: 0 0 20px; }
-.person-filmography-heading .browse-section-title { margin: 0; font-size: 36px; font-weight: 600; }
-.person-title-count { color: rgba(237, 237, 237, 0.6); font-size: 22px; font-weight: 400; }
+/* Filmography: siloHeadline 36 semibold and the count in siloCaption 22 (PersonDetailView.swift:495-502, Typography.swift:14,31).
+   SF Pro's 42.4 and 25.91 lines round to 43 and 26, so the filter bar starts 20 below a 43px heading row. */
+.person-filmography-heading .browse-section-title { margin: 0; font-size: calc(36px * var(--silo-sf-cap-scale)); font-weight: 600; line-height: 43px; letter-spacing: .45px; }
+.person-title-count { color: rgba(237, 237, 237, 0.6); font-size: calc(22px * var(--silo-sf-cap-scale)); font-weight: 400; line-height: 26px; letter-spacing: -.05px; }
 .browse[data-view^="person:"] .person-filmography-filters { display: flex; gap: 8px; padding: 8px 0; margin: 0 0 28px; }
-.browse[data-view^="person:"] .person-filmography-filters .browse-button { margin: 0; padding: 10px 22px; border-width: 1px; border-radius: 999px; font-size: 22px; font-weight: 400; background: rgba(21, 23, 28, 0.55); color: rgba(237, 237, 237, 0.6); border-color: rgba(255, 255, 255, 0.08); transition: transform var(--silo-fast) ease-out; }
+/* PersonFilterButton: siloCaption 22, 22/10 padding with the stroke drawn over the frame (PersonDetailView.swift:802-814,837-851).
+   The 1px border sits inside the box, so 21/9 padding keeps Apple's 46px frame. */
+.browse[data-view^="person:"] .person-filmography-filters .browse-button { margin: 0; padding: 9px 21px; border-width: 1px; border-radius: 999px; font-size: calc(22px * var(--silo-sf-cap-scale)); font-weight: 400; line-height: 26px; letter-spacing: -.25px; background: rgba(21, 23, 28, 0.55); color: rgba(237, 237, 237, 0.6); border-color: rgba(255, 255, 255, 0.08); transition: transform var(--silo-fast) ease-out; }
 .browse[data-view^="person:"] .person-filmography-filters .browse-button[aria-pressed="true"] { background: #0e0f12; color: var(--silo-text); border-color: rgba(255, 255, 255, 0.16); }
 .browse[data-view^="person:"] .person-filmography-filters .browse-button:focus { outline: none; background: rgba(14, 15, 18, 0.8); color: var(--silo-text); border-color: rgba(237, 237, 237, 0.85); box-shadow: inset 0 0 0 1px rgba(237, 237, 237, 0.85); transform: scale(1.06); }
 .browse[data-view^="person:"] .person-filmography-filters .browse-button[aria-pressed="true"]:focus { background: #0e0f12; }
@@ -1634,6 +1664,9 @@
    keeps the focused card 132px above the screen. The generic 32px margin (92px with
    the safe area) left the row 40px too low. */
 .browse[data-view^="person:"] .browse-grid .browse-card { scroll-margin-top: 72px; scroll-margin-bottom: 132px; }
+/* TVCatalogGrid's TVMediaCard caption: siloPosterTitle 24 and siloPosterMetadata 20 (TVMediaCard.swift:259,267), tracked as on Details. */
+.browse[data-view^="person:"] .catalog-grid .browse-card-title { font-size: calc(24px * var(--silo-sf-cap-scale)); letter-spacing: -.05px; }
+.browse[data-view^="person:"] .catalog-grid .browse-card-subtitle { font-size: calc(20px * var(--silo-sf-cap-scale)); letter-spacing: .2px; }
 
 .settings-modal-scrim { position: fixed; inset: 0; z-index: 20; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.88); }
 .settings-modal { box-sizing: border-box; width: 760px; max-height: 760px; padding: 30px; border-radius: 30px; background: #202020; border: 1px solid rgba(255,255,255,.2); box-shadow: 0 22px 48px rgba(0,0,0,.58); display: flex; flex-direction: column; }

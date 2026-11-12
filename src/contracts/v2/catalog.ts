@@ -163,6 +163,7 @@ export interface Card {
     readonly year: number | undefined;
     /** uri-reference: presigned or signed, short-lived; never needs a bearer. */
     readonly posterUrl: string | undefined;
+    readonly posterThumbhash?: string | undefined;
     readonly seriesId: string | undefined;
     readonly seriesTitle: string | undefined;
     readonly seasonNumber: number | undefined;
@@ -242,6 +243,7 @@ export function decodeCard(value: unknown, path: string): Card {
         title: string(obj, "title", path),
         year: optionalInteger(obj, "year", path),
         posterUrl: optionalString(obj, "poster_url", path),
+        posterThumbhash: optionalString(obj, "poster_thumbhash", path),
         ...(obj.poster_is_episode_still === undefined ? {} : { posterIsEpisodeStill: boolean(obj, "poster_is_episode_still", path) }),
         ...(obj.backdrop_is_episode_still === undefined ? {} : { backdropIsEpisodeStill: boolean(obj, "backdrop_is_episode_still", path) }),
         seriesId: optionalString(obj, "series_id", path),

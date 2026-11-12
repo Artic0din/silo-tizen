@@ -26,16 +26,21 @@ export interface DetailsAlert {
     readonly id: string;
     readonly title: string;
     readonly message: string;
+    /** A write the server never answered; the alert also offers Discard Held Change. */
+    readonly held?: PersonalAction;
 }
 
 /** PersonalStateNotice.failed(nil) (silo-apple Components/MediaActionFeedback.swift). */
 const ITEM_UPDATE_FAILED: DetailsAlert = { id: "details-update-failed", title: "Couldn't Update Item", message: "Your change wasn't saved. Please try again." };
+/** PersonalStateNotice.held: the write may have landed without an answer, so it is never re-sent from here. */
+const HELD_MESSAGE = "Silo sent this change but the server didn't answer, so it won't be sent again. Discard the held change to reload this item and try again.";
 /** TVSeriesDetailView's season watched alert (detail.watchedError). */
 const SEASON_WATCHED_FAILED: DetailsAlert = { id: "details-season-watched-failed", title: "Couldn't Update Watched Status", message: "Please check your connection and try again." };
 /** ShuffleLauncher.failureMessage under the shuffle.failedTitle alert. */
 function shuffleFailure(error: unknown): DetailsAlert {
+    // ShuffleError.classify reads Problem Details only.
     const failure = error instanceof ApiError ? error.failure : undefined;
-    const status = failure?.kind === "problem" ? failure.problem.status : failure?.kind === "http" ? failure.status : undefined;
+    const status = failure?.kind === "problem" ? failure.problem.status : undefined;
     const message = status === 409 ? "Nothing here can be played." : status === 404 ? "This is no longer available to shuffle." : "Couldn't start the shuffle. Try again.";
     return { id: "details-shuffle-failed", title: "Couldn't Shuffle", message };
 }
@@ -515,6 +520,18 @@ export class DetailsState {
         this.changed();
     }
 
+    /** Discard Held Change: drop the unconfirmed write and reload what the server now holds for it. */
+    discardHeld(): void {
+        const kind = this.alert?.held;
+        const change = kind === undefined ? undefined : this.changes.get(kind);
+        const controller = this.controller;
+        this.alert = undefined;
+        if (kind !== undefined) this.changes.delete(kind);
+        this.changed();
+        if (kind === undefined || change === undefined || controller === undefined) return;
+        void this.refresh(kind, controller, change.target, false).then(() => { if (this.current(controller)) this.changed(); }, () => undefined);
+    }
+
     /** ShuffleLauncher.start: More closes at once; a failure is the Couldn't Shuffle alert. */
     startShuffle(handoff: (request: PlayRequest) => void, season?: { readonly id: string }): void {
         const controller = this.controller;
@@ -862,13 +879,21 @@ export class DetailsState {
         if (controller === undefined || this.busy || !this.values.has(kind)) return;
         this.changes.set(kind, { target, pending: true, failed: false });
         this.changed();
+        let unanswered = false;
         const run = async (): Promise<void> => {
             if (reconcile) {
                 const actual = await this.refresh(kind, controller, target, false);
                 if (!this.current(controller) || actual === target) return;
             }
             if (!this.current(controller)) return;
-            await this.session.call({ ...detailOperations.setPersonal(kind, this.detail.id, target), profileScoped: true, replayAfterRefresh: false, signal: controller.signal });
+            try {
+                await this.session.call({ ...detailOperations.setPersonal(kind, this.detail.id, target), profileScoped: true, replayAfterRefresh: false, signal: controller.signal });
+            } catch (error) {
+                // MutationDelivery.unconfirmed: no answer may still mean the write landed. A network failure here
+                // cannot tell an unsent request from a lost answer, so it is held like a timeout.
+                unanswered = error instanceof ApiError && (error.failure.kind === "timeout" || error.failure.kind === "network");
+                throw error;
+            }
             if (!this.current(controller)) return;
             const actual = await this.refresh(kind, controller, target, true);
             if (actual !== target) throw new Error("Personal state was not applied");
@@ -880,7 +905,7 @@ export class DetailsState {
         }, () => {
             if (!this.current(controller)) return;
             this.changes.set(kind, { target, pending: false, failed: true });
-            this.alert = this.detail.type === "season" ? SEASON_WATCHED_FAILED : ITEM_UPDATE_FAILED;
+            this.alert = this.detail.type === "season" ? SEASON_WATCHED_FAILED : unanswered ? { id: "details-change-held", title: "Change Not Confirmed", message: HELD_MESSAGE, held: kind } : ITEM_UPDATE_FAILED;
             this.changed();
         });
     }

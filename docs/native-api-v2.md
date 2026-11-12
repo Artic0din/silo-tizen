@@ -404,6 +404,7 @@ Bearer plus Profile.
 Shuffle is offered only when `allowed` is true, `state === "available"`, and `scope_kinds` includes `library` (`canShuffle`, `src/ui/browse.ts`).
 Creation is sent once with refresh replay off.
 A 404 on create shows "This is no longer available to shuffle."
+Details' More sends `series` and `season` scopes when `scope_kinds` lists them; a failure there is the "Couldn't Shuffle" alert, which reads a Problem Details 409 as "Nothing here can be played.", a 404 as above, and anything else as "Couldn't start the shuffle. Try again."
 `advance` runs when the current item finishes (`src/player/nextShuffle.ts`).
 
 ### Watch Together (hub, lobby, ballot and room socket)

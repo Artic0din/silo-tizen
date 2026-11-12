@@ -642,9 +642,9 @@ detailTest('275 More glass obscures the page with blur and pinned Swift tint str
     });
     assert.equal(glass.blur, 'blur(30px)');
     assert.equal(glass.tint, 'rgba(0, 0, 0, 0.45)');
-    assert.equal(glass.border, 'rgba(255, 255, 255, 0.1)');
-    assert.equal(glass.width, '1px');
-    assert.equal(glass.shadow, 'rgba(0, 0, 0, 0.45) 0px 18px 32px 0px');
+    // strokeBorder is an overlay that takes no layout: an inset 1px ring, not a CSS border.
+    assert.equal(glass.width, '0px');
+    assert.equal(glass.shadow, 'rgba(255, 255, 255, 0.1) 0px 0px 0px 1px inset, rgba(0, 0, 0, 0.45) 0px 18px 32px 0px');
 });
 
 detailTest('More is an anchored popover with Apple ordering and immediate Back focus', async tv => {

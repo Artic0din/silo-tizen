@@ -74,7 +74,9 @@ export function detailPanel(view: View, state: DetailsState, title: string, item
     panel.append(el("h2", "browse-section-title", popover ? title.toUpperCase() : title), ...notes, options);
     // TVActionPopoverMenu.initialOptionId: the selected row when it is enabled, otherwise the first enabled row.
     // A disabled row stays drawn but is left out of the zone, so it never takes focus.
-    const enabled = items.filter(item => item.element.getAttribute("aria-disabled") !== "true");
+    // A popover whose rows are all disabled (every personal row busy) keeps them focusable so focus is never lost.
+    const live = items.filter(item => item.element.getAttribute("aria-disabled") !== "true");
+    const enabled = live.length > 0 ? live : items;
     const initial = popover
         ? enabled.find(item => item.element.getAttribute("aria-checked") === "true") ?? enabled[0]
         : items.find(item => item.element.getAttribute("aria-checked") === "true") ?? items[0];

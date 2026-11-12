@@ -788,15 +788,20 @@ for (const outcome of ["pending", "lost"]) journey(`Details reconciles ${outcome
     if (outcome === "lost") tv.fake.dropNextAnswer(path);
     await tv.page.getByRole("button", { name: "Add to watchlist", exact: true }).click();
     await tv.eventually(async () => catalog.mutations.length === 1, "membership write");
-    // Apple's Watchlist keeps its label; the failure note marks the unconfirmed write.
-    if (outcome === "lost") await tv.page.getByText("Could not update watchlist.").waitFor();
+    // A lost answer is Apple's Change Not Confirmed alert; the Watchlist circle keeps its label.
+    if (outcome === "lost") {
+        const alert = tv.page.getByRole("alertdialog", { name: "Change Not Confirmed", exact: true });
+        await alert.waitFor();
+        await alert.getByRole("button", { name: "OK", exact: true }).click();
+        await alert.waitFor({ state: "detached" });
+    }
     await tv.page.locator('.details-people [data-focus^="credit:7:"]').first().click();
     await grid(tv).first().waitFor();
     await all(tv);
     await next(tv, 2);
     await tv.remote(BACK);
     held?.release();
-    await tv.page.getByText("Could not update watchlist.").waitFor();
+    await tv.page.locator('[data-focus="watchlist"]').waitFor();
     assert.equal(await tv.page.locator('[data-focus="watchlist"]').innerText(), "Watchlist");
     await tv.page.locator('[data-focus="watchlist"]').click();
     await tv.page.getByRole("button", { name: "Remove from watchlist", exact: true }).waitFor();

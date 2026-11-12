@@ -793,7 +793,8 @@ for (const reduced of [false, true]) {
         await tv.page.locator('[data-focus="audio"]').click();
         assert.equal(await tv.focused(), "audio:auto");
         const visible = (scrolled: boolean, what: string) => readLive(tv, () => {
-            const panel = document.querySelector(".details-audio-picker");
+            // More than seven rows scroll inside the popover's 504px list (TVActionPopoverMenu.maxRows).
+            const panel = document.querySelector(".details-audio-picker .details-popover-scroll");
             const option = document.activeElement;
             if (!(panel instanceof HTMLElement) || !(option instanceof HTMLElement) || !panel.isConnected || !option.isConnected) return null;
             const bounds = panel.getBoundingClientRect();

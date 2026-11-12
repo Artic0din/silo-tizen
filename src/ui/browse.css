@@ -1149,6 +1149,11 @@
 .browse .signin-alert { z-index: 21; }
 .browse .signin-alert .signin-actions .browse-button { flex: 1; height: 66px; margin: 0; padding: 0 32px; border: 2px solid transparent; border-radius: 40px; background: var(--silo-selected); color: #ededed; font-size: 30px; box-shadow: none; }
 .browse .signin-alert .signin-actions .browse-button:focus { background: #fff; color: #000; }
+/* tvOS stacks a two-button alert: the destructive Discard Held Change in system red above OK. */
+.browse .signin-alert .signin-actions:has(> .skyline-destructive) { flex-direction: column; gap: 16px; }
+.browse .signin-alert .signin-actions:has(> .skyline-destructive) .browse-button { flex: none; }
+.browse .signin-alert .signin-actions .browse-button.skyline-destructive { color: #ff453a; }
+.browse .signin-alert .signin-actions .browse-button.skyline-destructive:focus { color: #000; }
 .details-option-subtext { display: block; font-size: 20px; line-height: 26px; opacity: .65; }
 /* Detail metrics are scoped here after the shared Home card and heading rules. */
 .browse:has(.details-hero) > .browse-section-title, .browse:has(.details-hero) .details-facts > .browse-section-title { margin-left: 12px; margin-bottom: 14px; font-size: 36px; line-height: 43.2px; font-weight: 600; }

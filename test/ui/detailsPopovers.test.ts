@@ -222,6 +222,33 @@ detailTest("A failed favourite is Apple's Couldn't Update Item alert, and More k
     assert.equal(await tv.focused(), "more");
 });
 
+detailTest("An unanswered favourite is Apple's Change Not Confirmed alert, and Discard reloads it without re-sending", async (tv, details) => {
+    await openMovie(tv);
+    let writes = 0;
+    await tv.page.route("**/api/v2/favorites/movie%3Am0001", async route => {
+        if (route.request().method() === "GET") { await route.fallback(); return; }
+        writes++;
+        await route.abort("timedout");
+    });
+    await tv.page.locator('[data-focus="more"]').click();
+    await tv.page.locator('[data-focus="favorites"]').click();
+    const alert = tv.page.getByRole("alertdialog", { name: "Change Not Confirmed", exact: true });
+    await alert.waitFor();
+    assert.equal(await alert.locator(".signin-alert-text").textContent(), "Silo sent this change but the server didn't answer, so it won't be sent again. Discard the held change to reload this item and try again.");
+    // PersonalStateNoticeAlert: the destructive Discard Held Change sits above OK, and OK keeps focus.
+    assert.deepEqual(await alert.locator("button").allTextContents(), ["Discard Held Change", "OK"]);
+    assert.equal(await tv.focused(), "alert-ok");
+    const membershipReads = () => tv.fake.requests.filter(request => request.path === "/favorites/movie%3Am0001/membership").length;
+    const before = membershipReads();
+    await alert.getByRole("button", { name: "Discard Held Change", exact: true }).click();
+    await alert.waitFor({ state: "detached" });
+    await tv.eventually(async () => membershipReads() > before, "discard reloads the membership");
+    assert.equal(writes, 1, "a held change is never re-sent");
+    await tv.page.locator('[data-focus="more"]').click();
+    await tv.page.getByRole("dialog", { name: "More", exact: true }).getByRole("button", { name: "Add to Favorites", exact: true }).waitFor();
+    void details;
+});
+
 detailTest("Back dismisses the alert like OK", async (tv, details) => {
     await openMovie(tv);
     details.mutationFailure = problem(422, "validation_failed", "Unavailable action");
@@ -237,7 +264,7 @@ for (const [status, message] of [[409, "Nothing here can be played."], [404, "Th
     detailTest(`Shuffle Season leads More and a ${status} is the Couldn't Shuffle alert`, async (tv) => {
         await tv.page.route("**/api/v2/shuffles/capabilities", route => route.fulfill({ json: { allowed: true, state: "available", scope_kinds: ["series", "season"] } }));
         const posts: unknown[] = [];
-        await tv.page.route("**/api/v2/shuffles", async route => { posts.push(route.request().postDataJSON()); await route.fulfill({ status, json: problem(status, "refused", "Refused").body }); });
+        await tv.page.route("**/api/v2/shuffles", async route => { posts.push(route.request().postDataJSON()); await route.fulfill({ status, contentType: "application/problem+json", body: JSON.stringify(problem(status, "refused", "Refused").body) }); });
         await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
         await tv.page.locator('[data-focus="watchlist"][aria-pressed]').waitFor();
         await tv.page.locator('[data-focus="more"]').click();
@@ -289,12 +316,13 @@ test("Watch Party ends More only while the off-by-default switch is on, and open
             await tv.page.locator('.browse[data-view="watchParty:lobby"]').waitFor();
             assert.equal(fake.createdRooms[0]?.selection_mode, "host_pick");
             await tv.eventually(async () => fake.selectedContentId === "movie:m0001", "the title is the room's selection");
-            // tvOS pushes the lobby over Details: Back leaves the party to its entry, then returns to the title.
+            // tvOS pushes the lobby over Details: Back leaves the party to its entry, whose Back moves to the bar like the
+            // profile-menu entry, and the next Back returns to the title.
             await tv.remote(10009);
             await tv.page.locator('.browse[data-view="watchParty:hub"]').waitFor();
             await tv.remote(10009);
-            await tv.jump(500);
-            console.error("DEBUG", await tv.page.locator(".browse").first().getAttribute("data-view"), await tv.page.evaluate(() => Array.from(document.querySelectorAll("[data-view]")).map(n => n.getAttribute("data-view")).join(",")));
+            await tv.eventually(async () => (await tv.page.evaluate(() => document.activeElement?.closest(".browse-nav") !== null)), "Back focuses the bar");
+            await tv.remote(10009);
             await tv.page.locator('[data-view="item:movie:m0001"]').waitFor();
         } finally { await tv.page.context().close(); }
     }

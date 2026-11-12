@@ -33,6 +33,7 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Details popovers now match Apple TV: Version, Audio and Subtitles share More's glass panel, reopen on the selected track, close with Left or Right, scroll long lists, dim subtitles that can't be delivered, and a failed change, season watched or shuffle shows Apple's alert. More adds Shuffle Season and, with Watch Party on, Watch Party.
 - The player's subtitle options now use Apple TV's wording: Search Subtitles…, and pickers titled Subtitle Delay, Subtitle Size, Subtitle Position, Subtitle Style, Subtitle Font, Text Color, Text Opacity, Outline Color, Background Color and Background Opacity. As on Apple TV, a picker's title stays in view while its options scroll.
 - Secondary text, such as counts, settings descriptions and metadata lines, now uses Apple TV's colour: the primary text colour at 60%, instead of a lighter flat grey. Watch Party captions, hints, presence and suggestion lines use the same colour at Apple's lower strengths.
 - Details starts the highest-resolution version, honouring the Resolution cap in Playback settings, and lists versions as resolution, video codec, DV or HDR, and audio codec, as Apple TV does. It no longer starts the first version the server lists, and no longer prints the edition in the Version list.

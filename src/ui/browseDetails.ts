@@ -670,7 +670,10 @@ export function withDetailsAlert(view: View, state: DetailsState | undefined): V
     if (state === undefined || alert === undefined) return view;
     const dismiss = (): void => { seasonOwner?.dismissAlert(); state.dismissAlert(); };
     const ok = actionButton("alert-ok", "OK", dismiss);
-    return { name: `${view.name}:alert`, content: centredDialog({ style: "alert", id: alert.id, title: alert.title, message: alert.message, buttons: [ok.element], behind: view.content }), zones: [{ id: "alert", layout: "row", items: [ok] }], focus: { zone: "alert", key: ok.key }, back: dismiss };
+    // PersonalStateNoticeAlert: a held change adds the destructive Discard Held Change before OK.
+    const discard = alert.held === undefined ? undefined : actionButton("alert-discard", "Discard Held Change", () => state.discardHeld());
+    const buttons = discard === undefined ? [ok] : [discard, ok];
+    return { name: `${view.name}:alert`, content: centredDialog({ style: "alert", id: alert.id, title: alert.title, message: alert.message, buttons: buttons.map(item => item.element), ...(discard === undefined ? {} : { destructive: discard.element }), behind: view.content }), zones: [{ id: "alert", layout: buttons.length > 1 ? "column" : "row", items: buttons }], focus: { zone: "alert", key: ok.key }, back: dismiss };
 }
 
 /** TVSeriesDetailView.shuffleSeason: the season on screen, outside the series overview, once it has two episodes with files. */

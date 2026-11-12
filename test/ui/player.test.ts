@@ -1778,7 +1778,10 @@ async function capture(page: Page, name: string): Promise<void> {
     if (dir !== undefined) {
         // Let focus colour transitions finish so the capture shows the settled state.
         await page.waitForTimeout(300);
+        // Desktop Chromium has no AVPlay plane; black stands in for a dark video frame behind the translucent glass.
+        await page.evaluate(() => { document.documentElement.style.background = "#000"; });
         await page.screenshot({ path: `${dir}/${name}.png` });
+        await page.evaluate(() => { document.documentElement.style.background = ""; });
     }
 }
 
@@ -2036,12 +2039,14 @@ test("the open panel is Apple's 1100 by 380 tabbed HUD and the clock is elapsed 
         const panel = await page.locator(".player-menu").evaluate((node) => {
             const style = getComputedStyle(node);
             const box = node.getBoundingClientRect();
-            return { width: box.width, height: box.height, radius: style.borderTopLeftRadius, border: style.borderTopColor, shadow: style.boxShadow };
+            const glass = getComputedStyle(node, "::before");
+            return { width: box.width, height: box.height, radius: style.borderTopLeftRadius, shadow: glass.boxShadow };
         });
         assert.equal(panel.width, 1100);
         assert.equal(panel.height, 380);
         assert.equal(panel.radius, "28px");
-        assert.equal(panel.border, "rgba(255, 255, 255, 0.14)");
+        // Apple's 14% stroke is an overlay, so it is drawn as an inset ring rather than a layout border.
+        assert.match(panel.shadow, /rgba\(255, 255, 255, 0\.14\) 0px 0px 0px 1px inset/);
         assert.match(panel.shadow, /rgba\(0, 0, 0, 0\.5\)/);
         // Old tabs were Audio, Subtitles, Video. Info leads, and Video follows Subtitles.
         assert.deepEqual(await page.locator(".player-tab:not([hidden])").allTextContents(), ["Info", "Stats", "Video", "Audio", "Subtitles"]);
@@ -2763,12 +2768,12 @@ test("pickers float over the dimmed pane, track rows carry only a checkmark, and
             const glyph = (id: string): number | undefined => document.querySelector(`[data-focus="${id}"] .player-setting-glyph svg`)?.getBoundingClientRect().width;
             return {
                 offWash: getComputedStyle(off).backgroundColor,
-                offMark: getComputedStyle(off, "::after").content,
+                offMark: getComputedStyle(off, "::after").webkitMaskImage.startsWith("url("),
                 search: glyph("subtitle-search"), translate: glyph("ai-translate"), transcribe: glyph("ai-transcribe"),
             };
         });
         assert.equal(rows.offWash, "rgba(0, 0, 0, 0)", "HUDTrackRow has no selected wash");
-        assert.equal(rows.offMark, '"\u2713"');
+        assert.equal(rows.offMark, true, "the checkmark is a drawn symbol, not a font glyph");
         assert.deepEqual([rows.search, rows.translate, rows.transcribe], [22, 22, 22]);
         await capture(page, "player-subtitles-two-columns");
         await page.locator('[data-focus="subtitle-delay"]').focus();
@@ -2795,6 +2800,57 @@ test("pickers float over the dimmed pane, track rows carry only a checkmark, and
         assert.equal(dialog.option, "24px");
         assert.equal(dialog.selectedWash, "rgba(255, 255, 255, 0.14)");
         await capture(page, "player-subtitle-delay-picker");
+    } finally { await page.close(); }
+});
+
+test("the S95C findings: checkmark, column height, Appearance truncation and glass follow Apple's capture", async () => {
+    const { page } = await open();
+    // The tracks and options in Apple's capture (evidence/107-subtitle-hud/apple-subtitle-options.png).
+    const rows: readonly (readonly [string, string])[] = [["Arabic", "SRT"], ["Chinese", "Traditional · SRT"], ["Czech", "SRT"], ["Danish", "SRT"], ["Dutch", "SRT"], ["English", "SRT"]];
+    const subtitles = rows.map(([label, detail], index) => ({ id: `file:42:subtitle:${index}`, label, detail }));
+    try {
+        await page.emulateMedia({ reducedMotion: "reduce" });
+        await show(page, playing({ ...TRACKS, subtitles, subtitleTools: { ...ALL_TOOLS, search: { ...CLOSED_SEARCH, offered: false } } }));
+        await page.evaluate(() => document.fonts.ready);
+        await openPanel(page);
+        await nextTab(page, 4);
+        await remote(page, DOWN);
+        const measured = await page.evaluate(() => {
+            const box = (selector: string): DOMRect => document.querySelector(selector)!.getBoundingClientRect();
+            const off = document.querySelector('[data-focus="subtitles-off"]')!;
+            const mark = getComputedStyle(off, "::after");
+            const appearance = document.querySelector('[data-focus="subtitle-appearance"]')!;
+            const value = appearance.querySelector(".player-setting-value") as HTMLElement;
+            const panel = getComputedStyle(document.querySelector(".player-menu")!, "::before");
+            return {
+                mark: [mark.width, mark.height, mark.webkitMaskImage.startsWith("url(")],
+                offRight: off.getBoundingClientRect().right,
+                panel: box(".player-menu"), rows: box(".player-menu-column-tracks .player-menu-column-rows"), status: box(".player-menu-status"),
+                label: appearance.querySelector(".player-setting-label")!.getBoundingClientRect(),
+                glyph: appearance.querySelector(".player-setting-glyph")!.getBoundingClientRect(),
+                value: value.getBoundingClientRect(), chevron: appearance.querySelector(".player-setting-chevron")!.getBoundingClientRect(),
+                truncated: value.scrollWidth > value.clientWidth, row: appearance.getBoundingClientRect(),
+                glass: [panel.backgroundColor, panel.backdropFilter],
+            };
+        });
+        // HUDTrackRowLabel's 20pt semibold checkmark: Apple's ink is 17x17 in a 24pt frame at the row's trailing padding.
+        assert.deepEqual(measured.mark, ["24px", "24px", true]);
+        // PaneColumn rows run to the panel's padded bottom (Apple clips the fifth track there, y 510 of 532).
+        assert.equal(Math.round(measured.rows.bottom), Math.round(measured.panel.bottom - 22));
+        assert.ok(measured.status.top >= measured.panel.bottom, "the status line sits below the panel, not inside its 380px");
+        // HUDSettingRowLabel: 28pt textformat frame, 14pt gaps around Spacer(minLength: 18), 10pt to an 11pt chevron.
+        assert.equal(Math.round(measured.glyph.width), 28);
+        assert.ok(measured.value.left - measured.label.right >= 46 - 0.5, "label and value keep 14 + 18 + 14 apart");
+        assert.equal(Math.round(measured.row.right - 14 - measured.chevron.right), 0);
+        assert.equal(Math.round(measured.chevron.left - measured.value.right), 10);
+        assert.equal(Math.round(measured.chevron.width), 11);
+        assert.equal(measured.truncated, true, "Box, Large, Bottom truncates as on Apple TV");
+        // siloPlayerGlass over video: Apple's capture passes ~63% of the video and lifts black to 13.
+        assert.deepEqual(measured.glass, ["rgba(32, 32, 32, 0.37)", "blur(30px)"]);
+        await remote(page, UP);
+        await remote(page, UP);
+        assert.equal(await focused(page), "tab-subtitles");
+        await capture(page, "player-subtitles-apple-state");
     } finally { await page.close(); }
 });
 

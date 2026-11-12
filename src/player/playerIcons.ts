@@ -67,9 +67,9 @@ export function skipIcon(direction: "backward" | "forward", seconds: number): st
     return svg(`${arc}${number}`);
 }
 
-/** `chevron.forward` at `HUDSettingRowLabel`'s 15pt bold. */
+/** `chevron.forward` at `HUDSettingRowLabel`'s 15pt bold: an 11x15 frame around 8x13 of ink, as in Apple's capture. */
 export function chevronForwardIcon(): string {
-    return svg(`<path fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" d="M9 4.5 16.5 12 9 19.5"/>`);
+    return `<svg viewBox="0 0 11 15" focusable="false" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" d="M2.7 2.2 8.3 7.5 2.7 12.8"/></svg>`;
 }
 
 /** `magnifyingglass`: the Search Subtitles row's symbol. */

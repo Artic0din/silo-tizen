@@ -50,7 +50,12 @@ Issue #391 matches Apple's two-column panes (`Silo-Server/silo-apple` at `7e478b
 - `:1042–1144`, `:1665–1684`: a picker is a 620 px dialog over its pane, which dims to 28 % and leaves the focus graph. Its title keeps its case at 30 px semibold, options are 24 px with the 14 % selected wash, and Back closes it; it has no Back row.
 - `:9–16`, `:131–152`: panes change only on the tab rail. Down from a pill enters at the pane's top row (`:1664`), and Left/Right inside a pane only cross its columns.
 
-Still different from Apple, outside this issue: Speed offers 1× and 2× and Aspect Fit and Stretch, because AVPlay supports only those (see Platform limits).
+- `SiloGlass.swift:35-57`, `:190-199`: the panel and pickers use `siloPlayerGlass`, Liquid Glass on current TVs. Apple's capture passes about 63 % of the video and lifts black to 13, which `rgba(32, 32, 32, 0.37)` with the app's 30 px backdrop blur reproduces; the 14 % stroke is an overlay ring. The glass sits on a `::before` layer so a picker's blur can still sample the pane under it.
+- `:2239–2241`, `:1138–1139`: the selected checkmark is a drawn 20 pt (picker: 22 pt) semibold symbol, 17 × 17 px of ink in a 24 px frame, not a font glyph.
+- `:559–590`: setting rows keep 14 + 18 + 14 px between label and value (`Spacer(minLength: 18)`), a 28 px `textformat` frame and an 11 px chevron frame, so Appearance truncates its value ("Box, Large, Bott…") as on Apple TV. Row text uses SF's 27 px and 21 px line heights, giving Apple's 49 px and 73 px rows.
+- `:190`: the 380 px panel holds only the pane, so columns run to its padded bottom and clip the next row. The status line, which Apple does not have, sits just below the panel.
+
+Still different from Apple, outside this issue: Speed offers 1× and 2× and Aspect Fit and Stretch, because AVPlay supports only those (see Platform limits). Liquid Glass also blurs the video under the panel; AVPlay draws video on a plane below the web page, so the CSS blur cannot reach it, and the video shows through the tint unblurred. Inter replaces SF Pro, so text widths differ by a few pixels.
 
 Stats display engine and playback-plan facts, including output codec, resolution and configured bitrate when supplied.
 Configured bitrate is labelled explicitly and is never presented as measured throughput.

@@ -288,6 +288,7 @@ Back from the open profile menu itself still restores avatar focus.
 Every top-bar menu uses Apple's `TVSkylinePanelChrome`: a top-lit gradient, a frosted backdrop, a white hairline that fades down the edge and two shadows.
 A menu grows from 0.96 under its tab or avatar over 0.12 s and fades back toward it when it closes; the modes flyout only fades, over 0.16 s.
 The Sign Out confirmation and its backdrop fade in and out over 0.2 s.
+Profile and For You rows use original filled glyphs for Apple's filled symbols (people, clock, paper plane, gear, bookmark, heart, sparkles), sized to Apple's measured ink in the same 30 × 20 icon box; Change Account is a person in a circle with a tick badge, and Watch Party and Sign Out stay outlined as on Apple TV.
 The header uses the confirmed server branding name, falling back to the host when none is cached.
 Every focused menu row uses a white platter and black text, including Sign Out.
 Change Account opens saved accounts without logging out or deleting saved sign-ins.

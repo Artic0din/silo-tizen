@@ -12,7 +12,7 @@ import { MARQUEE_REST_MILLISECONDS } from "./homeEnrichment.ts";
 import { profileMenuAvatar } from "./navigationAvatar.ts";
 import { navigationRoots } from "./navigation.ts";
 import type { PrimaryMenu } from "../contracts/v2/navigation.ts";
-import { navigationIcon } from "./navigationIcon.ts";
+import { menuIcon } from "./navigationIcon.ts";
 import { remoteKey } from "./keys.ts";
 import { heroBackdrop, type Tints } from "./heroBackdrop.ts";
 import { hidesCardOverview, hidesMarqueeBackdrop, marqueeUsesSeriesArt, type EpisodeSpoilerSettings } from "./episodeSpoilers.ts";
@@ -788,7 +788,7 @@ export class Skyline {
     private menuItem(key: string, title: string, action: () => void, icon = key): FocusItem {
         const item = actionButton(key, title, () => { if (this.visible) action(); });
         item.element.classList.add("skyline-menu-item");
-        item.element.replaceChildren(navigationIcon(icon), el("span", "skyline-menu-label", title));
+        item.element.replaceChildren(menuIcon(icon), el("span", "skyline-menu-label", title));
         item.element.setAttribute("role", "menuitem");
         return item;
     }

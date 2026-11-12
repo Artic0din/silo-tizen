@@ -682,3 +682,41 @@ test("the top bar's sign-out confirmation fades in and out over Apple's easeOut(
         assert.equal(await tv.page.evaluate(() => window.browseHarness.signOutCalls), 0);
     } finally { await tv.page.context().close(); }
 });
+
+/** Ink of each filled SF Symbol at Apple's 20 pt semibold, measured with AppKit (TVTopMenuBar.swift:1034-1037, :1183-1200). */
+const APPLE_MENU_INK: Readonly<Record<string, readonly [number, number]>> = {
+    "switch-profile": [26.8, 17.8], history: [20.4, 20.4], requests: [20.9, 20.9], settings: [21, 21],
+    watchlist: [14, 21.8], favorites: [20, 18.5], recommendations: [18.5, 22.6],
+};
+
+test("profile and For You menus draw Apple's filled glyphs at Apple's ink size in the same icon box", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        await start(tv, null, new ProfileDestinationsCatalog(), true);
+        const icons = (kind: string) => tv.page.locator(`.skyline-selector[data-menu-kind="${kind}"] [data-focus]`).evaluateAll(rows => rows.map(row => {
+            // The panel's 0.96 open scale would shrink the measured box.
+            for (const animation of document.getAnimations()) animation.finish();
+            const svg = row.querySelector("svg") as SVGSVGElement;
+            const box = svg.getBoundingClientRect();
+            const ink = svg.getBBox();
+            const scale = box.height / 24;
+            return { key: row.getAttribute("data-focus"), filled: svg.classList.contains("skyline-menu-icon-filled"), box: [box.width, box.height], ink: [Math.round(ink.width * scale * 10) / 10, Math.round(ink.height * scale * 10) / 10] };
+        }));
+        await tv.page.locator('[data-focus="profiles"]').focus();
+        await tv.jump(250);
+        const profile = await icons("profile");
+        await tv.page.locator('[data-focus="for_you"]').focus();
+        await tv.jump(250);
+        const forYou = await icons("for_you");
+        assert.deepEqual(forYou.map(icon => icon.key), ["watchlist", "favorites", "recommendations"]);
+        assert.ok(profile.some(icon => icon.key === "requests") && profile.some(icon => icon.key === "signout"), JSON.stringify(profile.map(icon => icon.key)));
+        for (const icon of [...profile, ...forYou]) {
+            assert.deepEqual(icon.box, [30, 20], `${icon.key}: the icon keeps its 30 by 20 box`);
+            const apple = APPLE_MENU_INK[icon.key ?? ""];
+            // person.3 and rectangle.portrait.and.arrow.forward are outline symbols on Apple too; Change Account mixes both.
+            if (apple === undefined) { assert.equal(icon.filled, icon.key === "switch-server", `${icon.key}: Apple draws it outlined`); continue; }
+            assert.equal(icon.filled, true, `${icon.key}: Apple draws a filled symbol`);
+            assert.ok(Math.abs((icon.ink[0] ?? 0) - apple[0]) <= 1.5 && Math.abs((icon.ink[1] ?? 0) - apple[1]) <= 1.5, `${icon.key}: ink ${icon.ink.join("×")} against Apple's ${apple.join("×")}`);
+        }
+    } finally { await tv.page.context().close(); }
+});

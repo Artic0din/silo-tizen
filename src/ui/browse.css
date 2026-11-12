@@ -857,6 +857,8 @@
 .navigation-avatar-emoji .navigation-avatar-fallback { font-size: calc(var(--avatar-size) * .45); font-weight: 400; }
 .skyline-menu-header { padding: 8px 16px 10px; color: rgba(255,255,255,.38); font-family: monospace; font-size: 14px; line-height: 18px; letter-spacing: 3.64px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .skyline-menu-icon { width: 30px; height: 24px; flex-shrink: 0; }
+/* navigationIcon.ts menuIcon: a filled glyph keeps the line icon's box but may overrun it, as SF Symbols overrun their frame. */
+.skyline-menu-icon-filled { overflow: visible; }
 .skyline-menu-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .skyline-profile-header { display: flex; align-items: center; gap: 14px; padding: 8px 16px; margin-bottom: 10px; }
 /* The menu header's 44 pt avatar sits on white 16% with a white initial (TVTopMenuBar.swift:1226-1233). */

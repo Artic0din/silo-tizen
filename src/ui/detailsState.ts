@@ -21,6 +21,25 @@ import { matchesSubtitle, preferredCatalogSubtitle } from "../player/preplaySubt
 import { DescriptionTranslations, type ItemDescriptionTranslation } from "./descriptionTranslation.ts";
 import { TrailerFetch } from "./trailerFetch.ts";
 
+/** A failure Apple TV presents as a system alert with one OK button. */
+export interface DetailsAlert {
+    readonly id: string;
+    readonly title: string;
+    readonly message: string;
+}
+
+/** PersonalStateNotice.failed(nil) (silo-apple Components/MediaActionFeedback.swift). */
+const ITEM_UPDATE_FAILED: DetailsAlert = { id: "details-update-failed", title: "Couldn't Update Item", message: "Your change wasn't saved. Please try again." };
+/** TVSeriesDetailView's season watched alert (detail.watchedError). */
+const SEASON_WATCHED_FAILED: DetailsAlert = { id: "details-season-watched-failed", title: "Couldn't Update Watched Status", message: "Please check your connection and try again." };
+/** ShuffleLauncher.failureMessage under the shuffle.failedTitle alert. */
+function shuffleFailure(error: unknown): DetailsAlert {
+    const failure = error instanceof ApiError ? error.failure : undefined;
+    const status = failure?.kind === "problem" ? failure.problem.status : failure?.kind === "http" ? failure.status : undefined;
+    const message = status === 409 ? "Nothing here can be played." : status === 404 ? "This is no longer available to shuffle." : "Couldn't start the shuffle. Try again.";
+    return { id: "details-shuffle-failed", title: "Couldn't Shuffle", message };
+}
+
 export interface PersonalChange {
     readonly target: boolean;
     readonly pending: boolean;
@@ -81,8 +100,10 @@ export class DetailsState {
     extraPending: string | undefined;
     extraFailed: string | undefined;
     shuffleSupported = false;
+    shuffleSeasonSupported = false;
     shuffleStarting = false;
-    shuffleFailed = false;
+    /** The failure on screen as an alert, until OK or Back dismisses it. */
+    alert: DetailsAlert | undefined;
     private full = false;
     private restored = false;
     private readonly responses = new Map<string, unknown>();
@@ -237,6 +258,7 @@ export class DetailsState {
         void this.read(operations.shuffleCapabilities(), controller).then(capability => {
             if (!this.current(controller)) return;
             this.shuffleSupported = capability.usable && capability.scopeKinds.includes("series");
+            this.shuffleSeasonSupported = capability.usable && capability.scopeKinds.includes("season");
             this.changed();
         }, () => undefined);
     }
@@ -249,6 +271,7 @@ export class DetailsState {
         this.trailers.stop();
         this.pendingEpisodePanel = undefined;
         this.shuffleStarting = false;
+        this.alert = undefined;
         for (const state of this.seasonStates.values()) state.stop();
         this.descriptions?.stop();
         this.extraPending = undefined;
@@ -486,25 +509,31 @@ export class DetailsState {
         }
     }
 
-    startShuffle(handoff: (request: PlayRequest) => void): void {
-        const controller = this.controller;
-        if (controller === undefined || !this.shuffleSupported || this.shuffleStarting || this.detail.type !== "series") return;
-        this.shuffleStarting = true;
-        this.shuffleFailed = false;
+    dismissAlert(): void {
+        if (this.alert === undefined) return;
+        this.alert = undefined;
         this.changed();
+    }
+
+    /** ShuffleLauncher.start: More closes at once; a failure is the Couldn't Shuffle alert. */
+    startShuffle(handoff: (request: PlayRequest) => void, season?: { readonly id: string }): void {
+        const controller = this.controller;
+        const supported = season === undefined ? this.shuffleSupported : this.shuffleSeasonSupported;
+        if (controller === undefined || !supported || this.shuffleStarting || this.detail.type !== "series") return;
+        this.shuffleStarting = true;
+        this.closePanel();
         void (async () => {
             try {
-                const shuffle = await this.session.call({ ...operations.createShuffle(this.detail.id, "series"), profileScoped: true, replayAfterRefresh: false, signal: controller.signal });
+                const shuffle = await this.session.call({ ...operations.createShuffle(season?.id ?? this.detail.id, season === undefined ? "series" : "season"), profileScoped: true, replayAfterRefresh: false, signal: controller.signal });
                 if (!this.current(controller)) return;
                 await this.capReady(controller.signal);
                 if (!this.current(controller)) return;
                 const request = await shufflePick(spec => this.read(spec, controller), shuffle, this.preferredQuality);
                 if (!this.current(controller)) return;
                 if (request === undefined) throw new Error("Shuffle has no playable file");
-                this.closePanel();
                 handoff(request);
-            } catch {
-                if (this.current(controller)) this.shuffleFailed = true;
+            } catch (error) {
+                if (this.current(controller)) this.alert = shuffleFailure(error);
             } finally {
                 if (this.current(controller)) { this.shuffleStarting = false; this.changed(); }
             }
@@ -851,6 +880,7 @@ export class DetailsState {
         }, () => {
             if (!this.current(controller)) return;
             this.changes.set(kind, { target, pending: false, failed: true });
+            this.alert = this.detail.type === "season" ? SEASON_WATCHED_FAILED : ITEM_UPDATE_FAILED;
             this.changed();
         });
     }

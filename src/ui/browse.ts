@@ -1772,7 +1772,10 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
      */
     const loadSearch = (current: Extract<Route, { kind: "search" }>, append: boolean, quiet = false): void => {
         const query = current.query;
+        const filter = current.filter;
         const shown = current.pages;
+        // A quiet reread of the answered query and filter (a card change marks every route stale) keeps every loaded page.
+        const depth = quiet && !append && shown?.page !== undefined && current.resultsFor === query && current.resultsFilter === filter ? shown.index + 1 : 1;
         current.appending = append;
         load(current, async signal => {
             if (append && shown?.page !== undefined) {
@@ -1781,9 +1784,19 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 const first = (): Promise<CatalogPage> => read(operations.listCatalogItems({ q: query.trim(), type: scope, limit: SEARCH_PAGE_SIZE, cursor: undefined }), signal);
                 let rejected: unknown;
                 try {
-                    const page = await read(operations.listCatalogItems({ q: query.trim(), type: scope, limit: SEARCH_PAGE_SIZE, cursor }), signal);
-                    if (page.nextCursor === undefined || !shown.cursors.includes(page.nextCursor)) return { page, startsOver: false };
-                    rejected = new ApiError({ kind: "invalid_response", path: "search.page.next_cursor" });
+                    const seen = new Set(shown.page.items.map(item => item.id));
+                    const skipped: (string | undefined)[] = [];
+                    for (let next = cursor; ;) {
+                        const page = await read(operations.listCatalogItems({ q: query.trim(), type: scope, limit: SEARCH_PAGE_SIZE, cursor: next }), signal);
+                        if (page.nextCursor !== undefined && (shown.cursors.includes(page.nextCursor) || skipped.includes(page.nextCursor))) {
+                            rejected = new ApiError({ kind: "invalid_response", path: "search.page.next_cursor" });
+                            break;
+                        }
+                        // The end observer asks again only when cards are added, so a page of cards already shown reads on.
+                        if (page.nextCursor === undefined || page.items.some(item => !seen.has(item.id))) return { page, startsOver: false, skipped };
+                        skipped.push(page.nextCursor);
+                        next = page.nextCursor;
+                    }
                 } catch (error) {
                     if (signal.aborted || !(error instanceof ApiError) || error.problemId !== "invalid_cursor") throw error;
                     rejected = error;
@@ -1807,19 +1820,29 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             if (signal.aborted || top() !== current || current.query !== query) throw new DOMException("Aborted", "AbortError");
             searchPeople(current, searchTypeFor(current, type));
             searchBoxSets(current);
-            return { page: await read(operations.listCatalogItems({ q: query.trim(), type: searchTypeFor(current, type), limit: SEARCH_PAGE_SIZE, cursor: undefined }), signal), startsOver: true };
-        }, ({ page, startsOver }) => {
+            let page = await read(operations.listCatalogItems({ q: query.trim(), type: searchTypeFor(current, type), limit: SEARCH_PAGE_SIZE, cursor: undefined }), signal);
+            const cursors: (string | undefined)[] = [undefined, page.nextCursor];
+            const items = [...page.items], seen = new Set(items.map(item => item.id));
+            while (cursors.length - 1 < depth && page.nextCursor !== undefined) {
+                page = await read(operations.listCatalogItems({ q: query.trim(), type: searchTypeFor(current, type), limit: SEARCH_PAGE_SIZE, cursor: page.nextCursor }), signal);
+                if (page.nextCursor !== undefined && cursors.includes(page.nextCursor)) throw new ApiError({ kind: "invalid_response", path: "search.page.next_cursor" });
+                for (const item of page.items) if (!seen.has(item.id)) { seen.add(item.id); items.push(item); }
+                cursors.push(page.nextCursor);
+            }
+            return { page: { ...page, items }, startsOver: true, cursors };
+        }, ({ page, startsOver, cursors, skipped }) => {
             current.appending = false;
             current.restarted = append && startsOver;
             current.resultsFor = query;
+            current.resultsFilter = filter;
             if (startsOver || shown?.page === undefined) {
-                current.pages = { page, index: 0, cursors: [undefined, page.nextCursor] };
+                current.pages = { page, index: (cursors?.length ?? 2) - 2, cursors: cursors ?? [undefined, page.nextCursor] };
                 return;
             }
             const seen = new Set(shown.page.items.map(item => item.id));
             shown.page = { ...page, items: [...shown.page.items, ...page.items.filter(item => !seen.has(item.id))] };
-            shown.index++;
-            shown.cursors.push(page.nextCursor);
+            shown.index += 1 + (skipped?.length ?? 0);
+            shown.cursors.push(...(skipped ?? []), page.nextCursor);
         }, quiet || shown?.page !== undefined);
     };
 
@@ -1852,7 +1875,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         render();
     };
     const moreSearch = (current: Extract<Route, { kind: "search" }>): void => {
-        if (torn || playing || top() !== current || loading !== undefined || cardActions.active || settingsScreen !== undefined || current.failure !== undefined || current.query !== current.resultsFor || current.pages?.page?.nextCursor === undefined) return;
+        if (torn || playing || top() !== current || loading !== undefined || cardActions.active || settingsScreen !== undefined || current.failure !== undefined || current.query !== current.resultsFor || current.filter !== current.resultsFilter || current.pages?.page?.nextCursor === undefined) return;
         loadSearch(current, true, true);
         render(host.focused());
     };
@@ -2013,7 +2036,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             detailWork = current.data.details;
             detailWork.start();
         }
-        const queryChanged = current.kind === "search" && current.query !== current.resultsFor;
+        // A query or filter whose answer an earlier push interrupted is searched again on return.
+        const queryChanged = current.kind === "search" && (current.query !== current.resultsFor || current.filter !== current.resultsFilter);
         if (!hasData(current) || current.stale || current.failure !== undefined || queryChanged) {
             loadRoute(current, hasData(current) && !queryChanged);
             if (current.kind === "calendar") render(focus);

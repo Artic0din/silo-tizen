@@ -1665,6 +1665,55 @@ browseTest("Search stops loading pages when the restarted list rejects its curso
     assert.equal(cursorReads(), 2, "a second rejection stops automatic paging until Try Again");
 }, { catalog: new SearchCatalog(120) });
 
+browseTest("Back finishes a filter change that opening a retained card interrupted", async tv => {
+    await tv.page.locator('[data-focus="search"]').click();
+    await tv.page.fill("#browse-search", "Movie"); await tv.remote(IME_DONE);
+    await tv.page.locator('.browse-grid [data-focus="movie:m0001"]').waitFor();
+    const typeOf = (request: { path: string } | undefined): string | null => new URL(request?.path ?? "", "https://fake.invalid").searchParams.get("type");
+    tv.fake.hold("/catalog");
+    await tv.page.locator('[data-focus="search-filter:movie"]').focus();
+    await tv.eventually(async () => typeOf(browseReads(tv, "/catalog").at(-1)) === "movie", "the Movies read");
+    const reads = browseReads(tv, "/catalog").length;
+    await tv.page.locator('.browse-grid [data-focus="movie:m0001"]').click();
+    await showing(tv, "item:movie:m0001");
+    await tv.remote(BACK);
+    await showing(tv, "search");
+    await tv.eventually(async () => browseReads(tv, "/catalog").length === reads + 1 && typeOf(browseReads(tv, "/catalog").at(-1)) === "movie", "Back searches the selected filter again");
+    assert.equal(await tv.page.locator('[data-focus="search-filter:movie"]').getAttribute("aria-pressed"), "true");
+}, { catalog: new SearchCatalog(60) });
+
+browseTest("Search keeps paging past a continuation that adds no new cards", async (tv, catalog) => {
+    const card = (id: string) => ({ content_id: `movie:${id}`, type: "movie", title: `Paging ${id}` });
+    const first = Array.from({ length: 60 }, (_, index) => card(`page-${index}`));
+    catalog.failNext("/catalog",
+        { status: 200, body: { items: first, total: 61, total_exact: true, page: { has_more: true, next_cursor: "duplicates" } } },
+        { status: 200, body: { items: first.slice(50), total: 61, total_exact: true, page: { has_more: true, next_cursor: "fresh" } } },
+        { status: 200, body: { items: [card("fresh")], total: 61, total_exact: true, page: { has_more: false } } });
+    await tv.page.locator('[data-focus="search"]').click();
+    await tv.page.fill("#browse-search", "Paging"); await tv.remote(IME_DONE);
+    await tv.page.locator('.browse-grid [data-focus="movie:page-59"]').waitFor({ state: "attached" });
+    await tv.page.locator(".browse").evaluate(node => { node.scrollTop = node.scrollHeight; });
+    await tv.page.locator('.browse-grid [data-focus="movie:fresh"]').waitFor({ state: "attached" });
+    assert.deepEqual(browseReads(tv, "/catalog").map(request => new URL(request.path, "https://fake.invalid").searchParams.get("cursor")), [null, "duplicates", "fresh"], "one scroll reads past the duplicate page");
+    assert.equal(await tv.page.locator(".search-scene > .browse-grid .browse-card").count(), 61, "duplicates are not drawn twice");
+});
+
+browseTest("Changing an appended card's state keeps every loaded Search page and its focus", async tv => {
+    await tv.page.locator('[data-focus="search"]').click();
+    await tv.page.fill("#browse-search", "Movie"); await tv.remote(IME_DONE);
+    await tv.page.locator('.browse-grid [data-focus="movie:m0060"]').waitFor({ state: "attached" });
+    await tv.page.locator(".browse").evaluate(node => { node.scrollTop = node.scrollHeight; });
+    await tv.page.locator('.browse-grid [data-focus="movie:m0100"]').waitFor({ state: "attached" });
+    const firstPages = (): number => browseReads(tv, "/catalog").filter(request => new URL(request.path, "https://fake.invalid").searchParams.get("cursor") === null).length;
+    const before = firstPages();
+    await tv.page.locator('.browse-grid [data-focus="movie:m0100"]').focus();
+    await tv.down(13); await tv.jump(650); await tv.up(13);
+    await tv.page.locator('[data-focus="watched"]').click();
+    await tv.eventually(async () => firstPages() === before + 1, "the refresh after the change");
+    await tv.eventually(async () => await tv.page.locator(".search-scene > .browse-grid .browse-card").count() >= 120 && !(await tv.page.locator(".search-scene .section-catalog-loading").count()), "the refresh reads every loaded page");
+    assert.equal(await tv.focused(), "movie:m0100", "focus stays on the changed card");
+}, { catalog: new SearchCatalog(120) });
+
 browseTest("Search counts results from the response total without an estimate marker", async (tv, catalog) => {
     await tv.page.locator('[data-focus="search"]').click();
     const items = Array.from({ length: 3 }, (_, index) => ({ content_id: `movie:estimate-${index}`, type: "movie", title: `Estimate ${index}` }));

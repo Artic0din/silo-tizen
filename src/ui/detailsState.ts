@@ -114,7 +114,7 @@ export class DetailsState {
     shuffleStarting = false;
     /** The failure on screen as an alert, until OK or Back dismisses it. */
     alert: DetailsAlert | undefined;
-    /** Details shows personal failures as Apple's alerts and holds unanswered writes; a card menu keeps its inline Retry. */
+    /** Details shows personal failures as Apple's alerts and holds unanswered writes; an owner without alerts keeps inline Retry. */
     presentsAlerts = false;
     private full = false;
     private restored = false;
@@ -362,8 +362,8 @@ export class DetailsState {
         for (const [key, value] of previous.values) if (key !== "watched") this.values.set(key, value);
         if (this.detail.id === previous.detail.id) this.trailers.restore(previous.trailers);
         // A hold outlives the owner: reopening the title must not let a press re-send an unanswered write. It arrives
-        // settled, because the old owner's discard reload (if any) stopped with it. A card menu cannot show the held
-        // alert, so it inherits the hold as a failure that reconciles with a read before any write.
+        // settled, because the old owner's discard reload (if any) stopped with it. An owner that cannot show the held
+        // alert inherits the hold as a failure that reconciles with a read before any write.
         if (this.detail.id === previous.detail.id) {
             for (const [kind, change] of previous.changes) if (change.held === true) this.changes.set(kind, { target: change.target, pending: false, failed: true, ...(this.presentsAlerts ? { held: true as const } : {}) });
         }

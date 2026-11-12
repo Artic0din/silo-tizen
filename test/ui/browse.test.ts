@@ -1821,7 +1821,11 @@ async function activateDetails(tv: Tv, id = "movie:m0001", information = false):
         await tv.page.locator(`[data-section="recently_added"] [data-focus="${id}"]`).focus();
     }
     if (information) {
-        await tv.page.locator(`[data-section="recently_added"] [data-focus="${id}"]`).click({ button: "right" });
+        // Apple's Home has no detail row: Select opens the series at the episode, whose rail offers Episode information.
+        await tv.page.locator(`[data-section="recently_added"] [data-focus="${id}"]`).click();
+        const episode = tv.page.locator(`.details-episodes [data-focus="${id}"]`);
+        await episode.waitFor();
+        await episode.click({ button: "right" });
         await tv.page.locator('[data-focus="episode-information"]').click();
     } else await press(tv, "Enter");
 }
@@ -2022,7 +2026,7 @@ for (const aggregate of ["series", "season"]) {
             await showing(tv, `item:${episodeId}`);
             await detailsMore(tv);
             await tv.eventually(async () => await tv.page.getByRole("button", { name: played ? "Mark as Unwatched" : "Mark as Watched", exact: true }).count() === 1, "covered episode reflects the aggregate change");
-            assert.equal(browseReads(tv, "/catalog/items/episode%3As1e12").length, 4, "Home, Card actions, Details and refresh; Series no longer hydrates every card");
+            assert.equal(browseReads(tv, "/catalog/items/episode%3As1e12").length, 5, "Home, the series rail's focused episode, Card actions, Details and refresh; Series no longer hydrates every card");
             assert.equal(catalog.mutations.length, 1);
         }, { catalog: new FakeDetails() });
     }
@@ -3744,6 +3748,9 @@ browseTest("Continue movie Select opens its Details without playback", async tv 
 
 browseTest("Continue context menu offers Resume without activating Select", async (tv, catalog) => {
     catalog.progress.set("episode:s1e12", 420);
+    // The menu reads the row, as Apple's does; reload Home so the row carries the new position.
+    await tv.page.evaluate(() => { window.browseHarness.destroy(); window.browseHarness.mount(); });
+    await tv.page.locator('[data-section="continue_watching"] [data-focus="episode:s1e12"]').waitFor();
     await tv.page.locator('[data-section="continue_watching"] [data-focus="episode:s1e12"]').click({ button: "right" });
     await tv.page.locator('[data-focus="card-play"]').waitFor();
     assert.equal(await tv.page.locator('[data-focus="card-play"]').innerText(), "Resume");

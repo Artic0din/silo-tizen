@@ -59,7 +59,7 @@ test("stopped uncertain owner retains its target and reconciles before an explic
     } finally { state.stop(); }
 });
 
-test("a card menu owner neither holds an unanswered write nor raises an alert it cannot show", async () => {
+test("an owner without alerts neither holds an unanswered write nor raises an alert it cannot show", async () => {
     const h = await setup();
     const state = new DetailsState(h.detail, h.core.session, () => undefined, async () => undefined);
     try {
@@ -99,7 +99,7 @@ test("a Details owner holds an unanswered write and never sends it again until d
     } finally { state.stop(); }
 });
 
-test("a card menu inherits a Details hold as a failure that reconciles before any write", async () => {
+test("an owner without alerts inherits a Details hold as a failure that reconciles before any write", async () => {
     const h = await setup();
     const details = new DetailsState(h.detail, h.core.session, () => undefined, async () => undefined);
     details.presentsAlerts = true;

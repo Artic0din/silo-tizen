@@ -325,7 +325,9 @@ for (const media of ["movie:m0001", "series:s1"] as const) detailTest(`returning
         return false;
     }, "a cast card takes focus");
     await tv.jump(1000);
-    await tv.eventually(async () => await scrollTop() > 100, "the cast row scrolled the page");
+    // The focus scroll runs on the TV clock; keep it moving, as a slow runner can start the scroll after the first jump.
+    await tv.eventually(async () => { if (await scrollTop() > 100) return true; await tv.jump(100); return false; }, "the cast row scrolled the page");
+    await tv.jump(1000);
     // A paused clock makes the sample below land exactly half-way through the move.
     await pauseTvClock(tv);
     const from = await scrollTop();

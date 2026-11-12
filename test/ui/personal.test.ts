@@ -56,13 +56,18 @@ class PersonalCatalog extends FakeDetails {
             const selected = remaining.slice(0, limit);
             const last = selected[selected.length - 1];
             const next = last === undefined ? offset : scoped.indexOf(last) + 1;
-            const cards = selected.map(t => {
-                const reply = super.route("GET", `/catalog/items/${encodeURIComponent(t.id)}`, profile);
-                return reply?.body;
-            });
+            const cards = selected.map(t => this.withMembership(super.route("GET", `/catalog/items/${encodeURIComponent(t.id)}`, profile)?.body, profile));
             return { status: 200, body: { window_cursor: scope, items: cards, total: ids.length, total_exact: true, page: remaining.length > limit ? { has_more: true, next_cursor: `${scope}:${next}` } : { has_more: false } } };
         }
-        return super.route(method, path, profile, body);
+        const reply = super.route(method, path, profile, body);
+        if (method === "GET" && path.startsWith("/catalog/items/") && reply?.status === 200) return { ...reply, body: this.withMembership(reply.body, profile) };
+        return reply;
+    }
+    /** This catalog keeps list membership itself; cards and items report it in `user_state`, as the server does. */
+    private withMembership(value: unknown, profile: string | undefined): unknown {
+        if (typeof value !== "object" || value === null || !("content_id" in value) || !("user_state" in value)) return value;
+        const id = String(value.content_id);
+        return { ...value, user_state: { ...(value.user_state as Record<string, unknown>), is_favorite: this.members(profile, "favorites").has(id), in_watchlist: this.members(profile, "watchlist").has(id) } };
     }
     private members(profile: string | undefined, source: string): Set<string> {
         const key = JSON.stringify([profile, source]);
@@ -500,7 +505,7 @@ test("review: dismissing card actions resumes a cancelled one-row Favorites cont
         await tv.page.locator(".personal-page .browse-card").first().focus();
         const identity = await tv.focused();
         await tv.down(13); await tv.jump(650); await tv.up(13);
-        await tv.page.getByRole("dialog", { name: "Card actions" }).waitFor();
+        await tv.page.getByRole("menu").waitFor();
         await tv.remote(10009);
         await tv.eventually(async () => await tv.page.locator(".personal-page .browse-card").count() > 8, "dismissal restarts the cancelled continuation");
         assert.equal(await tv.focused(), identity);
@@ -683,11 +688,8 @@ for (const source of ["watchlist", "favorites"]) test(`card quick-actions remove
         const card = tv.page.locator('[data-focus="movie:m0050"]');
         await card.focus();
         await tv.down(13); await tv.jump(650); await tv.up(13);
-        const panel = tv.page.getByRole("dialog", { name: "Card actions" });
-        const remove = source === "watchlist" ? "Remove from watchlist" : "Remove favorite";
-        await panel.getByRole("button", { name: remove, exact: true }).click();
-        await panel.getByRole("button", { name: source === "watchlist" ? "Add to watchlist" : "Add favorite", exact: true }).waitFor();
-        await tv.remote(10009);
+        const remove = source === "watchlist" ? "Remove from Watchlist" : "Remove from Favorites";
+        await tv.page.getByRole("menu").getByRole("menuitem", { name: remove, exact: true }).click();
         await tv.eventually(async () => await card.count() === 0 && await tv.focused() === "movie:m0051", "nearby removal focus");
         const last = listReads(tv).slice(-1)[0];
         assert.equal(last?.body?.cursor, `p-owner:${source}:video:48`);

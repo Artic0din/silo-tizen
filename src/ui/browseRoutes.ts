@@ -178,10 +178,14 @@ export function routeView(current: Route, handlers: RouteHandlers): View {
                 search: () => handlers.push(newRoute({ kind: "search", query: "", pages: undefined, resultsFor: "" })),
                 library: (library) => handlers.push(newRoute({ kind: "library", library, pages: newPages() })),
                 chooseProfile: handlers.chooseProfile,
+                dismisses: true,
             });
-            if (current.failure === undefined && !handlers.busy) return view;
-            const retry = current.failure === undefined ? [] : [actionButton("retry", "Try again", () => handlers.retry(current))];
-            return { ...view, content: [...view.content, ...lines([current.failure ?? "Refreshing titles."], current.failure === undefined ? "info" : "error"), zoneNode("browse-actions", retry)], zones: [...view.zones, { id: "status", layout: "row", items: retry }] };
+            // Apple tvOS HomeView shows only the feed while it has rows, whether a refresh is running or failed;
+            // with no rows, a failure is the whole page.
+            if (current.failure !== undefined && view.zones.every(zone => zone.id === "empty")) {
+                return errorView("home:failed", failureError(current.failure, current.error), () => handlers.retry(current), back, handlers.signIn, handlers.manageServers);
+            }
+            return view;
         }
         case "homeSection":
             if (current.pages.page !== undefined) {

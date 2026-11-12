@@ -1891,3 +1891,37 @@ button.watch-party-seat-invite { box-sizing: content-box; padding: 0; margin: 0;
 .watch-party-episode:focus .watch-party-episode-number { background: #fff; color: #000; }
 .watch-party-episode-title { max-width: 400px; overflow: hidden; font-size: 24px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .watch-party-episode-meta { font-size: 20px; color: var(--silo-secondary); }
+/* Apple EmptyStateView on Home: a 44 pt symbol at 0.3 opacity, 28 pt semibold title and 22 pt secondary body, 12 pt apart, centred on the page. */
+.home-empty { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; margin: 0; padding: 0 60px; outline: none; }
+.home-empty .search-state-icon { width: 54px; height: 44px; margin: 0; color: rgba(237,237,237,.3); }
+.home-empty .search-state-icon svg { display: block; width: 54px; height: 44px; }
+.home-empty .search-state-title { margin: 0; font-size: calc(28px * var(--silo-sf-cap-scale)); line-height: 34px; font-weight: 600; color: var(--silo-text); }
+.home-empty .search-state-description { margin: 0; font-size: calc(22px * var(--silo-sf-cap-scale)); line-height: 27px; color: var(--silo-secondary); text-align: center; }
+/* cardActions.ts: the tvOS `.contextMenu` platter beside the focused card, measured from Apple's Continue Watching capture
+   (silo-apple 85679e7, simulator, 1920x1080): a 451 x ~405 platter with a 44 px radius and a thin light rim, 25 px right of
+   the card; rows on a 66 px pitch with the SF Symbol leading (centre 54 px in) and the label after it in medium weight, sized
+   so "Mark as Watched" spans Apple's 187 px (Inter runs wider than SF Pro at the same point size); the
+   focused row is a white 74 px capsule, 18 px in from each side; Remove is the system red. The screen behind is not dimmed. */
+.card-menu-scrim { display: block; background: transparent; }
+.card-menu { position: fixed; display: flex; flex-direction: column; box-sizing: border-box; width: 451px; padding: 20px 16px; border: 2px solid rgba(255,255,255,.16); border-radius: 44px; background: rgba(255,255,255,.05); backdrop-filter: blur(40px); box-shadow: 0 24px 60px rgba(0,0,0,.35); animation: skyline-appear 150ms ease-out; }
+.card-menu-row { position: relative; isolation: isolate; display: flex; align-items: center; gap: 19px; box-sizing: border-box; min-height: 66px; margin: 0; padding: 17px 17px 17px 21px; border: 0; outline: none; background: transparent; color: #ededed; font: inherit; font-size: calc(25.7px * var(--silo-sf-cap-scale)); line-height: 32px; font-weight: 500; text-align: left; }
+/* The focus capsule is 74 px tall on the 66 px pitch, so it overhangs the row by 4 px above and below. */
+.card-menu-row:focus::before { content: ""; position: absolute; z-index: -1; top: -4px; right: 0; bottom: -4px; left: 0; border-radius: 37px; background: #fff; box-shadow: 0 8px 18px rgba(0,0,0,.35); }
+.card-menu-row:focus { color: #000; }
+.card-menu-icon { display: flex; flex: none; order: -1; width: 30px; height: 30px; }
+/* The symbols are drawn on a 24-point grid with a 2.5-point margin; 33 px puts the glyph at Apple's 29 px, centred in the 30 px slot. */
+.card-menu-icon svg { flex: none; width: 33px; height: 33px; margin: -1.5px; }
+.card-menu-label { flex: 1 1 auto; min-width: 0; }
+.card-menu-label .card-menu-keep { white-space: nowrap; }
+.card-menu-destructive { color: #ff4245; }
+.card-menu-destructive:focus { color: #ff4245; }
+.card-menu-row[aria-disabled="true"] { opacity: .4; }
+/* The card menu's failure alert: the shared centred alert with its single OK across the button row. */
+.card-alert-scrim { display: block; background: rgba(0,0,0,.45); }
+.card-alert-scrim .signin-actions { justify-content: center; }
+.card-alert-button { width: 100%; height: 66px; margin: 0; padding: 0 32px; border: 0; border-radius: 40px; outline: none; background: var(--silo-selected); color: #ededed; font: inherit; font-size: 30px; }
+.card-alert-button:focus { background: #fff; color: #000; }
+.card-menu-loading { display: block; background: transparent; outline: none; }
+/* cardActions.ts MENU_LIFT_*: while its menu is open the card's art is Apple's lifted preview, 1.1 about its centre and a
+   fifteenth of its width to the right, with no focus outline and the focused shadow kept. The caption stays put. */
+.browse .browse-card.card-menu-lifted .browse-art, .browse .browse-card.card-menu-lifted:focus .browse-art { transform: translateX(calc(100% / 15)) scale(1.1); outline-color: transparent; box-shadow: 0 8px 36px rgba(0,0,0,.45), 0 10px 40px rgba(0,0,0,.5); }

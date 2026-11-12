@@ -3850,8 +3850,13 @@ browseTest("Home lists visible video libraries and supported rows, and every row
     await press(tv, "ArrowDown", "ArrowRight", "ArrowLeft", "ArrowDown", "ArrowRight", "ArrowRight", "ArrowUp", "ArrowUp");
     assert.equal(tv.fake.requests.length, before, "moving focus fetches nothing");
 
+    assert.notEqual(await tv.focused(), "home");
     await tv.remote(BACK);
-    assert.equal(await tv.page.evaluate(() => window.browseHarness.lastKeyPrevented), false, "Back on Home reaches the app's root exit handler");
+    // handleExitPress (TVTopMenuBar.swift:643-656): Back from another bar element on Home first returns to the Home tab.
+    assert.equal(await tv.focused(), "home");
+    assert.equal(await tv.page.evaluate(() => window.browseHarness.lastKeyPrevented), true);
+    await tv.remote(BACK);
+    assert.equal(await tv.page.evaluate(() => window.browseHarness.lastKeyPrevented), false, "Back on the Home tab reaches the app's root exit handler");
     assert.equal(await view(tv), "home");
 });
 

@@ -258,18 +258,21 @@ journey("Person uses the Apple source geometry and remote zones", async tv => {
     assert.equal(await style(".person-facts", "margin-top"), "22px");
     assert.equal(await style(".person-facts", "column-gap"), "12px");
     assert.equal(await style(".browse-overview", "margin-top"), "22px");
-    assert.equal(await style(".person-title-count", "font-size"), "22px");
+    // Apple's points times --silo-sf-cap-scale (0.9685, #418).
+    assert.equal(await style(".person-title-count", "font-size"), "21.307px");
     assert.equal(await style(".person-title-count", "color"), "rgba(237, 237, 237, 0.6)");
-    assert.equal(await style(".person-filmography-heading h2", "font-size"), "36px");
+    assert.equal(await style(".person-filmography-heading h2", "font-size"), "34.866px");
+    assert.equal(await style(".person-filmography-heading h2", "line-height"), "43px");
     assert.equal(await style(".person-filmography-heading h2", "font-weight"), "600");
     assert.equal(await style(".person-filmography-heading", "margin-bottom"), "20px");
     assert.equal(await style(".person-filmography-heading", "column-gap"), "60px");
     assert.equal(await style(".person-filmography-filters", "padding-top"), "8px");
     assert.equal(await style(".person-filmography-filters", "column-gap"), "8px");
     assert.equal(await style(".person-filmography-filters", "margin-bottom"), "28px");
-    assert.equal(await style('[data-focus="filter:video"]', "font-size"), "22px");
+    assert.equal(await style('[data-focus="filter:video"]', "font-size"), "21.307px");
     assert.equal(await style('[data-focus="filter:video"]', "font-weight"), "400");
-    assert.equal(await style('[data-focus="filter:video"]', "padding"), "10px 22px");
+    // Apple's 22/10 padding is measured to the stroke the chip draws over its frame; the 1px border sits inside the box.
+    assert.equal(await style('[data-focus="filter:video"]', "padding"), "9px 21px");
     assert.equal(await style('[data-focus="filter:video"]', "border-top-width"), "1px");
     assert.equal(await style(".browse-grid", "width"), "1600px");
     assert.equal(await style(".browse-overview", "font-weight"), "400");
@@ -290,7 +293,8 @@ journey("Person uses the Apple source geometry and remote zones", async tv => {
     const first = await grid(tv).first().getAttribute("data-focus");
     assert.equal(await tv.focused(), first);
     await tv.jump(300);
-    assert.equal(await tv.page.locator(".browse").evaluate(node => node.scrollTop), 277, "was 237 when the reveal used a 92px bottom margin");
+    // Was 277 before #418 put the heading row and chips on Apple's 43 and 46 line boxes, which lifts the grid 3px.
+    assert.equal(await tv.page.locator(".browse").evaluate(node => node.scrollTop), 274, "was 237 when the reveal used a 92px bottom margin");
     await tv.page.keyboard.press("ArrowLeft");
     assert.equal(await tv.focused(), first);
     await tv.page.keyboard.press("ArrowRight");

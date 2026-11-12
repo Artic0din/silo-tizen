@@ -101,7 +101,8 @@ railTest("a loading season holds the rail with Apple TV's four skeleton cards", 
     await tv.page.route("**/api/v2/catalog/series/series%3As1/seasons/1/episodes?**", route => { release = () => route.fallback(); });
     await tv.page.locator(SERIES).first().click();
     await tv.page.locator(".details-episodes-placeholder").waitFor();
-    assert.equal(await tv.page.getByText("Loading episodes…", { exact: true }).count(), 0, "no loading sentence under the pills");
+    // The removed sentence was a status line; the Play button may still read "Loading episodes…" until its target lands.
+    assert.equal(await tv.page.locator(".browse-text", { hasText: "Loading episodes…" }).count(), 0, "no loading sentence under the pills");
     const skeleton = await tv.page.locator(".details-episodes-placeholder").evaluate(row => {
         const box = (node: Element | null) => { const rect = node?.getBoundingClientRect(); return rect === undefined ? null : [rect.width, rect.height]; };
         const card = row.querySelector(".details-episode-placeholder"), still = card?.querySelector(".details-episode-placeholder-still");

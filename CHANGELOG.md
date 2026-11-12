@@ -54,6 +54,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- For You now matches Apple TV: its rows end at their last card with no Explore all page, each visit reads it again while the last rows stay on screen, a refused read keeps the rows, loading is a blank page, the empty state is Apple's centred one with no Home button, and an expired session offers Sign In Again. The For You menu is 460 wide under its tab, with filled icons, Apple's text sizes, a pressed state and Apple's spoken name and hint.
 - The top bar and its menus now match Apple TV: tab labels are white and Apple's size, long tab names get Apple's full width, tabs and the avatar animate into focus, the avatar keeps its disc when focused and grows slightly, nameless profiles show a person glyph, the menus have Apple's lit surface and filled icons and grow from and fade back toward their tab, and Back on Home returns to the Home tab before offering to exit.
 - Title pages no longer show "Loading personal actions." under the actions or in More while your watched, favorite and watchlist state loads; as on Apple TV, the actions simply appear, and More lists Add to Favorites right away.
 - A series page now picks its season again, as Apple TV does, after you mark that series watched from a card, including when you go Back to a page that was already open, or once 20 other title pages have opened since; a favorite or watchlist change keeps the season you were viewing, and so does a series page that a related title replaced.

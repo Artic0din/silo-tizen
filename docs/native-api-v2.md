@@ -321,7 +321,6 @@ Bearer plus Profile, both safe.
 | Operation | Method and path |
 | --- | --- |
 | discover | `GET /recommendations/discover?image_size=small` (or the artwork query passed in) |
-| section | `GET /recommendations/section/{kind}?limit=60&image_size=small[&key=]` |
 
 ### Calendar
 

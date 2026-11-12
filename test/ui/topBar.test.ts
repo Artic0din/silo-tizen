@@ -226,28 +226,32 @@ test("the bar centers fixed roots despite authored order with fixed Search and a
     } finally { await tv.page.context().close(); }
 });
 
-test("an expired session on an expanded For You row offers Sign In Again first and Try Again second", async () => {
-    const tv = await openTv(browser, { app: "browse" });
-    try {
-        await start(tv, null, new RecommendationsCatalog(), true);
-        await tv.page.route("**/api/v2/recommendations/section/**", route => route.fulfill({ status: 401, contentType: "application/problem+json", body: JSON.stringify({ type: "about:blank", title: "Unauthorized", status: 401 }) }));
-        await tv.page.locator('[data-focus="for_you"]').click();
-        await tv.page.locator('.browse[data-view="for_you"] .browse-card').first().waitFor();
-        await tv.page.locator('[data-focus^="expand:recommendation:"]').first().click();
-        const page = tv.page.locator('[data-view^="recommendationSection:"] .details-failure');
-        await page.waitFor();
-        assert.equal(await page.locator(".search-state-title").innerText(), "Session expired");
-        assert.deepEqual(await page.locator(".browse-button").allInnerTexts(), ["Sign In Again", "Try Again"]);
-        assert.equal(await tv.focused(), "sign-in");
-        await tv.page.keyboard.press("ArrowDown");
-        assert.equal(await tv.focused(), "retry");
-        await tv.page.keyboard.press("ArrowUp");
-        await tv.page.keyboard.press("Enter");
-        await tv.eventually(async () => await tv.page.evaluate(() => window.browseHarness.signOutCalls) === 1, "Sign In Again signs out");
-    } finally { await tv.page.context().close(); }
-});
+const problem = (status: number, title: string): Reply => ({ status, body: { type: "about:blank", title, status } });
 
-test("For You shares Home shelves and expands only rows with a supported locator", async () => {
+for (const [status, headline, buttons] of [[401, "Session expired", ["Sign In Again", "Try Again"]], [403, "Not allowed", ["Try Again"]], [404, "Not found", ["Try Again"]], [500, "Something went wrong", ["Try Again"]]] as const) {
+    test(`For You with no rows shows Apple's ${status} error page with ${buttons.join(" and ")}`, async () => {
+        const tv = await openTv(browser, { app: "browse" });
+        try {
+            await start(tv, null, new RecommendationsCatalog(), true);
+            await tv.page.route("**/api/v2/recommendations/discover**", route => route.fulfill({ status, contentType: "application/problem+json", body: JSON.stringify({ type: "about:blank", title: headline, status }) }));
+            await tv.page.locator('[data-focus="for_you"]').click();
+            const page = tv.page.locator('[data-view="for_you"] .details-failure');
+            await page.waitFor();
+            assert.equal(await page.locator(".search-state-title").innerText(), headline);
+            assert.deepEqual(await page.evaluate(node => { const box = node.getBoundingClientRect(); return [box.left + box.width / 2, box.top + box.height / 2]; }), [960, 510], "ErrorView fills the root page");
+            assert.deepEqual(await page.locator(".browse-button").allInnerTexts(), buttons, "a root page has no Go Back");
+            assert.equal(await tv.focused(), status === 401 ? "sign-in" : "retry");
+            if (status !== 401) return;
+            await tv.page.keyboard.press("ArrowDown");
+            assert.equal(await tv.focused(), "retry");
+            await tv.page.keyboard.press("ArrowUp");
+            await tv.page.keyboard.press("Enter");
+            await tv.eventually(async () => await tv.page.evaluate(() => window.browseHarness.signOutCalls) === 1, "Sign In Again signs out");
+        } finally { await tv.page.context().close(); }
+    });
+}
+
+test("For You shares Home shelves and its rows end at their last card", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {
         const catalog = new RecommendationsCatalog();
@@ -261,17 +265,121 @@ test("For You shares Home shelves and expands only rows with a supported locator
         assert.equal(await tv.page.locator('.browse').evaluate(node => node.classList.contains("skyline-home")), true);
         assert.equal(await tv.page.locator(".browse > .skyline-marquee .skyline-marquee-art:not(.skyline-outgoing) .skyline-backdrop").count(), 1, "the fixture supplies backdrop artwork");
         assert.equal(await tv.page.locator(".browse > .skyline-marquee .skyline-marquee-art:not(.skyline-outgoing) .skyline-hero-backdrop").count(), 1, "For You uses Home's calibrated artwork and tint owner");
-        assert.equal(await tv.page.locator('[data-focus^="expand:recommendation:"]').count(), 2);
+        assert.equal(await tv.page.locator(".browse > .skyline-content .skyline-explore").count(), 0, "RecommendationsView passes no onExploreAll");
+        assert.equal(await tv.focused(), "movie:m0001");
         const reads = tv.fake.requests.length;
         await tv.remote(39);
+        assert.equal(await tv.focused(), "movie:m0001", "the last card is the row's last stop");
         assert.equal(tv.fake.requests.length, reads, "focus does not read");
-        await tv.page.locator('[data-focus^="expand:recommendation:"]').first().click();
-        await tv.page.locator('[data-view^="recommendationSection:"] .browse-card').first().waitFor();
-        assert.equal(tv.fake.requests.filter(request => request.path.startsWith("/recommendations/section/cluster")).length, 1);
+        assert.equal(tv.fake.requests.some(request => request.path.startsWith("/recommendations/section/")), false);
         assert.equal(tv.fake.requests.some(request => request.path.includes("/home/sections/recommendation")), false);
-        await tv.remote(10009);
+    } finally { await tv.page.context().close(); }
+});
+
+test("each visit to For You reads recommendations again, keeps the cached rows meanwhile and starts at the first row", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        await start(tv);
+        const reads = (): number => tv.fake.requests.filter(request => request.path.startsWith("/recommendations/discover")).length;
+        await tv.page.locator('[data-focus="for_you"]').click();
         await tv.page.locator('[data-view="for_you"] .browse-card').first().waitFor();
-        assert.equal(tv.fake.requests.filter(request => request.path.startsWith("/recommendations/discover")).length, 1);
+        assert.equal(reads(), 1);
+        await tv.remote(40);
+        assert.equal(await tv.page.evaluate(() => document.activeElement?.closest("[data-section]") === document.querySelectorAll(".skyline-content [data-section]")[1]), true, "Down reaches the second row");
+        const held = tv.fake.hold("/recommendations/discover", true);
+        try {
+            await tv.page.locator('[data-focus="home"]').click();
+            await tv.page.locator('[data-view="home"] .browse-card').first().waitFor();
+            await tv.page.locator('[data-focus="for_you"]').click();
+            await tv.eventually(async () => reads() === 2, "a second discover read");
+            assert.ok(await tv.page.locator('[data-view="for_you"] > .skyline-content .browse-card').count() > 0, "cached rows stay on screen while the read runs");
+            assert.equal(await tv.page.locator('[aria-label="Loading recommendations"]').count(), 0);
+            assert.equal(await tv.page.evaluate(() => document.activeElement?.closest("[data-section]") === document.querySelector(".skyline-content [data-section]")), true, "the rebuilt page starts at its first row");
+        } finally { held.release(); }
+        await tv.jump(0);
+        assert.equal(await tv.page.evaluate(() => document.activeElement?.closest("[data-section]") === document.querySelector(".skyline-content [data-section]")), true, "the answer keeps focus where it is");
+    } finally { await tv.page.context().close(); }
+});
+
+test("a 403 or 404 on a later For You read keeps the rows on screen", async () => {
+    for (const status of [403, 404]) {
+        const tv = await openTv(browser, { app: "browse" });
+        try {
+            const catalog = new RecommendationsCatalog();
+            await start(tv, null, catalog);
+            await tv.page.locator('[data-focus="for_you"]').click();
+            await tv.page.locator('[data-view="for_you"] .browse-card').first().waitFor();
+            await tv.page.locator('[data-focus="home"]').click();
+            await tv.page.locator('[data-view="home"] .browse-card').first().waitFor();
+            catalog.recommendationReply = problem(status, "Refused");
+            await tv.page.locator('[data-focus="for_you"]').click();
+            await tv.eventually(async () => tv.fake.requests.filter(request => request.path.startsWith("/recommendations/discover")).length === 2, "second read");
+            await tv.jump(0);
+            assert.ok(await tv.page.locator('[data-view="for_you"] > .skyline-content .browse-card').count() > 0, `${status} keeps the rows`);
+            assert.equal(await tv.page.locator(".details-failure").count(), 0);
+        } finally { await tv.page.context().close(); }
+    }
+});
+
+test("the For You menu is 460 wide, centred under its tab, with filled icons, scaled text, Apple's spoken name and a tab hint", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        await tv.page.emulateMedia({ reducedMotion: "reduce" });
+        await start(tv);
+        const tab = tv.page.locator('[data-focus="for_you"]');
+        assert.equal(await tab.getAttribute("aria-description"), "Rest to choose Watchlist, Favorites, or Recommendations");
+        await tab.focus();
+        await tv.remote(40);
+        assert.equal(await tv.focused(), "watchlist");
+        const panel = tv.page.locator(".skyline-selector:not(.skyline-flyout)");
+        assert.equal(await panel.getAttribute("aria-label"), "For You menu");
+        assert.equal(await panel.locator(".skyline-menu-header").getAttribute("aria-hidden"), "true");
+        const box = await panel.evaluate(node => node.getBoundingClientRect().width);
+        const tabBox = await tab.evaluate(node => { const rect = node.getBoundingClientRect(); return rect.left + rect.width / 2; });
+        const left = await panel.evaluate(node => node.getBoundingClientRect().left);
+        assert.equal(box, 460);
+        assert.ok(Math.abs(left + 230 - Math.max(88 + 230, Math.min(1832 - 230, tabBox))) < 0.5, `panel centred under the tab (${left} vs ${tabBox})`);
+        for (const key of ["watchlist", "favorites", "recommendations"]) {
+            assert.equal(await panel.locator(`[data-focus="${key}"] svg`).getAttribute("fill"), "currentColor", `${key} icon is filled`);
+        }
+        const scale = 0.9685;
+        const label = await panel.locator('[data-focus="watchlist"] .skyline-menu-label').evaluate(node => parseFloat(getComputedStyle(node).fontSize));
+        const header = await panel.locator(".skyline-menu-header").evaluate(node => ({ size: parseFloat(getComputedStyle(node).fontSize), tracking: parseFloat(getComputedStyle(node).letterSpacing) }));
+        assert.ok(Math.abs(label - 22 * scale) < 0.01, `row label ${label}`);
+        assert.ok(Math.abs(header.size - 14 * scale) < 0.01, `header ${header.size}`);
+        assert.ok(Math.abs(header.tracking - 14 * scale * 0.26) < 0.01, `header tracking ${header.tracking}`);
+    } finally { await tv.page.context().close(); }
+});
+
+test("the profile menu is 460 wide at the right safe area", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        await tv.page.emulateMedia({ reducedMotion: "reduce" });
+        await start(tv);
+        await tv.page.locator('[data-focus="profiles"]').focus();
+        await tv.remote(40);
+        const rect = await tv.page.locator(".skyline-selector:not(.skyline-flyout)").evaluate(node => { const box = node.getBoundingClientRect(); return [box.width, box.right]; });
+        assert.deepEqual(rect, [460, 1832]);
+    } finally { await tv.page.context().close(); }
+});
+
+test("a held Select dims a For You row to 0.75 over 0.12 s until release", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        await start(tv);
+        await tv.page.locator('[data-focus="for_you"]').focus();
+        await tv.remote(40);
+        assert.equal(await tv.focused(), "watchlist");
+        const row = tv.page.locator('.skyline-selector [data-focus="watchlist"]');
+        assert.equal(await row.evaluate(node => getComputedStyle(node).transition.includes("opacity 0.12s ease-out")), true);
+        // A synthetic Enter reaches the press owner without the browser's default click.
+        await tv.page.evaluate(() => document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+        assert.equal(await row.getAttribute("data-pressed"), "");
+        await tv.page.evaluate(() => document.activeElement?.dispatchEvent(new KeyboardEvent("keyup", { key: "Enter", bubbles: true })));
+        assert.equal(await row.getAttribute("data-pressed"), null);
+        await row.evaluate(node => node.setAttribute("data-pressed", ""));
+        await tv.page.emulateMedia({ reducedMotion: "reduce" });
+        assert.equal(await row.evaluate(node => getComputedStyle(node).opacity), "0.75");
     } finally { await tv.page.context().close(); }
 });
 
@@ -476,7 +584,7 @@ test("a long authored menu cannot add roots and Search and the avatar remain fix
     } finally { await tv.page.context().close(); }
 });
 
-test("For You loading and empty states own focus without carrying Home's hero", async () => {
+test("For You loading is a clear page labelled Loading recommendations, and empty is Apple's centred empty state; neither has a heading or button", async () => {
     const tv = await openTv(browser, { app: "browse" });
     const held = tv.fake.hold("/recommendations/discover", true);
     try {
@@ -484,17 +592,75 @@ test("For You loading and empty states own focus without carrying Home's hero", 
         catalog.recommendationReply = { status: 200, body: { items: [] } };
         await start(tv, null, catalog);
         await tv.page.locator('[data-focus="for_you"]').click();
-        await tv.page.getByText("Loading recommendations", { exact: true }).waitFor();
+        await tv.page.locator('[data-view="for_you"] [aria-label="Loading recommendations"]').waitFor();
+        assert.equal(await tv.focused(), "loading");
         assert.equal(await tv.page.locator(".browse > .skyline-marquee").count(), 0);
-        assert.equal(await tv.focused(), "home");
+        assert.equal(await tv.page.locator(".browse > .skyline-content").innerText(), "", "no visible text while loading");
+        assert.equal(await tv.page.locator(".browse > .skyline-content button").count(), 0);
+        await tv.remote(38);
+        assert.equal(await tv.focused(), "for_you", "Up from the loading page reaches the bar");
         held.release();
-        await tv.page.getByText("No recommendations yet", { exact: true }).waitFor();
+        const empty = tv.page.locator('[data-view="for_you"] .for-you-empty');
+        await empty.waitFor();
         assert.equal(await tv.page.locator(".browse > .skyline-marquee").count(), 0);
+        assert.equal(await tv.page.locator(".browse > .skyline-content button").count(), 0);
+        assert.equal(await empty.locator(".search-state-title").innerText(), "No recommendations yet");
+        assert.equal(await empty.locator(".search-state-description").innerText(), "Watch or rate a few titles to build your personalised recommendations.");
+        assert.equal(await empty.getAttribute("aria-label"), "No recommendations yet");
+        const shape = await empty.evaluate(node => {
+            const icon = node.querySelector(".search-state-icon");
+            const title = node.querySelector(".search-state-title");
+            const body = node.querySelector(".search-state-description");
+            if (icon === null || title === null || body === null) throw new Error("Missing empty state parts");
+            const box = node.getBoundingClientRect();
+            const iconBox = icon.getBoundingClientRect();
+            return {
+                centre: [box.left + box.width / 2, box.top + box.height / 2],
+                icon: [iconBox.width, getComputedStyle(icon).opacity === "1" ? getComputedStyle(icon).color : getComputedStyle(icon).opacity],
+                titleSize: parseFloat(getComputedStyle(title).fontSize),
+                titleWeight: getComputedStyle(title).fontWeight,
+                body: parseFloat(getComputedStyle(body).fontSize),
+                gap: title.getBoundingClientRect().top - iconBox.bottom,
+            };
+        });
+        assert.deepEqual(shape.centre, [960, 510], "centred in the page above tvOS's 60 pt bottom safe area");
+        assert.deepEqual(shape.icon, [44, "rgba(237, 237, 237, 0.3)"]);
+        assert.ok(Math.abs(shape.titleSize - 28 * 0.9685) < 0.01, `title ${shape.titleSize}`);
+        assert.equal(shape.titleWeight, "600");
+        assert.ok(Math.abs(shape.body - 22 * 0.9685) < 0.01, `body ${shape.body}`);
+        assert.equal(shape.gap, 12);
+        await tv.page.locator('[data-focus="for_you"]').focus();
+        await tv.remote(40); await tv.remote(40); await tv.remote(40); await tv.remote(40);
+        assert.equal(await tv.focused(), "for-you-empty", "Down from the last action reaches the passive owner");
         await tv.remote(10009);
         assert.equal(await tv.focused(), "for_you", "Back first returns to the current root");
         await tv.remote(10009);
         await tv.page.locator('[data-view="home"]').waitFor();
     } finally { held.release(); await tv.page.context().close(); }
+});
+
+test("returning to an empty or failed For You shows the loading page until the new read answers", async () => {
+    for (const reply of [{ status: 200, body: { items: [] } }, problem(500, "Broken")] satisfies Reply[]) {
+        const tv = await openTv(browser, { app: "browse" });
+        try {
+            const catalog = new RecommendationsCatalog();
+            catalog.recommendationReply = reply;
+            await start(tv, null, catalog);
+            await tv.page.locator('[data-focus="for_you"]').click();
+            await tv.page.locator(reply.status === 200 ? ".for-you-empty" : '[data-view="for_you"] .details-failure').waitFor();
+            await tv.page.locator('[data-focus="home"]').click();
+            await tv.page.locator('[data-view="home"] .browse-card').first().waitFor();
+            const held = tv.fake.hold("/recommendations/discover", true);
+            try {
+                await tv.page.locator('[data-focus="for_you"]').click();
+                await tv.eventually(async () => tv.fake.requests.filter(request => request.path.startsWith("/recommendations/discover")).length === 2, "second read");
+                assert.equal(await tv.page.locator('[data-view="for_you"] [aria-label="Loading recommendations"]').count(), 1, `status ${reply.status}: RecommendationsViewModel loads again with no sections`);
+                assert.equal(await tv.page.locator(".for-you-empty, .details-failure").count(), 0);
+                assert.equal(await tv.focused(), "loading");
+            } finally { held.release(); }
+            await tv.page.locator(reply.status === 200 ? ".for-you-empty" : '[data-view="for_you"] .details-failure').waitFor();
+        } finally { await tv.page.context().close(); }
+    }
 });
 
 test("For You failure has an explicit retry that waits for loaded shelves", async () => {

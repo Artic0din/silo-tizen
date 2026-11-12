@@ -819,6 +819,15 @@
 .browse { position: relative; }
 .skyline-root { padding-top: 180px; }
 .home-loading { width: 100%; height: 480px; background: transparent; outline: none; }
+/* EmptyStateView centred on the page: sparkles.tv 44 pt at 0.3, siloSubheadline and siloCaption, spacing 12 (EmptyStateView.swift:10-27; Typography.swift:17, :31). */
+/* RecommendationsView fills the root page, which ignores the top and side safe areas but keeps tvOS's 60 pt bottom one (TVMainTabView.swift:444-445). */
+.browse[data-view="for_you"] .skyline-content:has(> .for-you-empty, > .details-failure) { top: 0; left: 0; width: 1920px; height: 1020px; padding: 0; }
+.for-you-empty, .for-you-empty * { font-family: var(--silo-font); }
+.for-you-empty { position: absolute; inset: 0; margin: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; text-align: center; outline: none; }
+.for-you-empty .search-state-icon { width: 44px; height: 44px; margin: 0; color: rgba(237,237,237,.3); }
+.for-you-empty .search-state-icon svg { width: 100%; height: 100%; }
+.for-you-empty .search-state-title { margin: 0; font-size: calc(28px * var(--silo-sf-cap-scale)); font-weight: 600; }
+.for-you-empty .search-state-description { margin: 0; padding: 0 60px; font-size: calc(22px * var(--silo-sf-cap-scale)); font-weight: 400; color: rgba(237,237,237,.6); }
 .home-loading:focus { outline: none; }
 .skyline-preview { padding-top: 545px; }
 /* The bar dims with easeInOut(SiloTheme.normalDuration) (silo-apple 7e478b2 `tvOS/Navigation/TVTopMenuBar.swift:246`, `Theme/SiloTheme.swift:167`). */
@@ -899,15 +908,20 @@
 :is(.skyline-selector, .skyline-selector-leaving) .browse-button[aria-checked="true"]:not(:focus) { background: rgba(255,255,255,.14); }
 :is(.skyline-selector, .skyline-selector-leaving) .browse-button { display: block; width: 100%; margin: 0; padding: 16px 18px; font-size: 22px; border: 0; background: transparent; color: #ededed; white-space: normal; overflow-wrap: break-word; text-align: left; }
 :is(.skyline-selector, .skyline-selector-leaving) .browse-button.skyline-menu-item { display: flex; align-items: center; gap: 14px; min-height: 60px; padding: 14px 16px; line-height: 26px; font-weight: 600; }
-:is(.skyline-selector, .skyline-selector-leaving)[data-menu-kind="for_you"], :is(.skyline-selector, .skyline-selector-leaving)[data-menu-kind="profile"] { display: flex; flex-direction: column; gap: 10px; }
-:is(.skyline-selector, .skyline-selector-leaving)[data-menu-kind="for_you"] .skyline-menu-header { padding-bottom: 2px; }
+/* .padding(14).frame(width: 460): the padding is inside the 460 (TVTopMenuBar.swift:1040-1041, :1216-1217). */
+:is(.skyline-selector, .skyline-selector-leaving)[data-menu-kind="for_you"], :is(.skyline-selector, .skyline-selector-leaving)[data-menu-kind="profile"] { display: flex; flex-direction: column; gap: 10px; box-sizing: border-box; }
+/* TVSkylinePanelHeader: 14 pt monospaced, tracking 0.26 × size (TVTopMenuBar.swift:833-834; SiloTheme.swift:218). */
+:is(.skyline-selector, .skyline-selector-leaving)[data-menu-kind="for_you"] .skyline-menu-header { padding-bottom: 2px; font-size: calc(14px * var(--silo-sf-cap-scale)); letter-spacing: calc(14px * var(--silo-sf-cap-scale) * .26); }
 :is(.skyline-selector, .skyline-selector-leaving)[data-menu-kind="for_you"] .skyline-menu-item, :is(.skyline-selector, .skyline-selector-leaving)[data-menu-kind="profile"] .skyline-menu-item { min-height: 54px; }
 :is(.skyline-selector, .skyline-selector-leaving)[data-menu-kind="profile"] .skyline-profile-header { margin-bottom: 0; }
 :is(.skyline-selector, .skyline-selector-leaving)[data-menu-kind="profile"] .skyline-menu-divider { flex-shrink: 0; margin: 0 12px; }
 :is(.skyline-selector, .skyline-selector-leaving)[data-menu-kind="library"] .browse-button[role="menuitem"], :is(.skyline-selector, .skyline-selector-leaving):is(.skyline-flyout, .skyline-flyout-leaving) .browse-button.skyline-menu-item { font-size: 20px; line-height: 24px; min-height: 50px; padding: 13px 16px; border-radius: 12px; gap: 12px; color: rgba(255,255,255,.86); }
 :is(.skyline-selector, .skyline-selector-leaving)[data-menu-kind="library"] [role="menuitem"] .skyline-menu-icon, :is(.skyline-flyout, .skyline-flyout-leaving) .skyline-menu-icon { width: 26px; height: 18px; }
 :is(.skyline-selector, .skyline-selector-leaving)[data-menu-kind="library"] .browse-button[role="menuitemradio"] { padding: 16px 18px; min-height: 58px; border-radius: 14px; color: rgba(255,255,255,.9); }
-:is(.skyline-selector, .skyline-selector-leaving)[data-menu-kind="for_you"] .skyline-menu-item, :is(.skyline-selector, .skyline-selector-leaving)[data-menu-kind="profile"] .skyline-menu-item { border-radius: 14px; color: rgba(255,255,255,.86); }
+/* TVProfileMenuButtonBody: 22 pt semibold label; a press drops to 0.75 opacity, easeOut(0.12) (TVTopMenuBar.swift:1066, :1323, :1327; SiloTheme.swift:164, :217). */
+:is(.skyline-selector, .skyline-selector-leaving)[data-menu-kind="for_you"] .skyline-menu-item, :is(.skyline-selector, .skyline-selector-leaving)[data-menu-kind="profile"] .skyline-menu-item { border-radius: 14px; color: rgba(255,255,255,.86); font-size: calc(22px * var(--silo-sf-cap-scale)); transition: opacity 120ms ease-out; }
+.skyline-selector[data-menu-kind="for_you"] .skyline-menu-item[data-pressed], .skyline-selector[data-menu-kind="profile"] .skyline-menu-item[data-pressed] { opacity: .75; }
+@media (prefers-reduced-motion: reduce) { :is(.skyline-selector, .skyline-selector-leaving)[data-menu-kind] .skyline-menu-item { transition: none; } }
 :is(.skyline-selector, .skyline-selector-leaving)[data-menu-kind="for_you"] .skyline-menu-icon, :is(.skyline-selector, .skyline-selector-leaving)[data-menu-kind="profile"] .skyline-menu-icon { height: 20px; }
 :is(.skyline-selector, .skyline-selector-leaving) .browse-button:focus { background: #fff; color: #000; }
 :is(.skyline-selector, .skyline-selector-leaving) .browse-button.skyline-destructive { color: rgba(255,69,58,.9); }

@@ -103,7 +103,7 @@ export class FocusHost {
     private incoming: HTMLElement[] = [];
     private transitionTimer: number | undefined;
     private press: { item: FocusItem; started: number; timer: number | undefined; cancelled: boolean } | undefined;
-    /** The card Select is holding down, drawn pressed (TVCardFocusStyle.swift:150-153) until release. */
+    /** The card or For You and profile menu row Select is holding down, drawn pressed (TVCardFocusStyle.swift:150-153, TVTopMenuBar.swift:1323) until release. */
     private pressedCard: HTMLElement | undefined;
     /** One Play claim per Details visit. tvOS retries it; a failed claim used to leave body focused until the next key. */
     private playClaim: { visit: string; attempts: number; waits: number; finished: boolean; timer: number | undefined; moved: boolean; awaitingPrimary: boolean } | undefined;
@@ -708,7 +708,7 @@ export class FocusHost {
         const key = remoteKey(event);
         if (key !== "enter") { if (key !== undefined) this.cancelPress(); return; }
         const card = document.activeElement;
-        if (!event.repeat && card instanceof HTMLElement && card.classList.contains("browse-card") && this.container.contains(card)) {
+        if (!event.repeat && card instanceof HTMLElement && (card.classList.contains("browse-card") || card.classList.contains("skyline-menu-item")) && this.container.contains(card)) {
             this.releaseCard();
             this.pressedCard = card;
             card.setAttribute("data-pressed", "");

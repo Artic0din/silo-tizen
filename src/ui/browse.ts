@@ -262,6 +262,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     const seriesSeasons = new Map<string, number>();
     /** Series whose page was in the stack at a watched change: their next landed read picks the season again, as Apple's refreshed cached page does. */
     const repickSeasons = new Set<string>();
+    /** The last 20 Details visits, in order, including ones a change dropped from `visitedDetails` (ItemDetailCache.swift:34). */
+    const visitOrder = new Set<string>();
     let loading: AbortController | undefined;
     let personRead: { route: Route; controller: AbortController } | undefined;
     let personFilterGeneration = 0;
@@ -346,10 +348,16 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     };
     const stopDetails = (): void => {
         if (detailWork !== undefined) {
-            visitedDetails.delete(detailWork.detail.id);
-            visitedDetails.set(detailWork.detail.id, detailWork);
-            // ItemDetailCache.swift:34: Apple remembers a series' season only on its 20 cached pages.
-            if (visitedDetails.size > 20) { const evicted = visitedDetails.keys().next().value!; visitedDetails.delete(evicted); seriesSeasons.delete(evicted); }
+            const id = detailWork.detail.id;
+            visitedDetails.delete(id);
+            visitedDetails.set(id, detailWork);
+            // TVItemDetailView.swift:166-170: Apple's cached page keeps its season however the visit ends.
+            const season = detailWork.series?.seasonNumber;
+            if (season !== undefined && !repickSeasons.has(id)) seriesSeasons.set(id, season);
+            // ItemDetailCache.swift:34: the page and its season leave after 20 others; a Favorite change does not reset that count.
+            visitOrder.delete(id);
+            visitOrder.add(id);
+            if (visitOrder.size > 20) { const evicted = visitOrder.values().next().value!; visitOrder.delete(evicted); visitedDetails.delete(evicted); seriesSeasons.delete(evicted); }
         }
         detailWork?.stop(); detailWork = undefined;
         personRead?.controller.abort();
@@ -780,6 +788,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         roots.clear();
         seriesSeasons.clear();
         repickSeasons.clear();
+        visitOrder.clear();
         shell.destroy();
         host.destroy();
         if (container.parentNode === root) {
@@ -1849,7 +1858,6 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         loading?.abort();
         loading = undefined;
         cancelSearch();
-        if (active?.kind === "item" && active.data?.details?.series?.seasonNumber !== undefined && !repickSeasons.has(active.id)) seriesSeasons.set(active.id, active.data.details.series.seasonNumber);
         retireRoute(stack.pop());
         const current = top();
         if (current?.kind === "requests" && !requestsCapability.enabled) { closeRequests(); return; }

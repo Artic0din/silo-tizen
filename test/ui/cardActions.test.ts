@@ -877,3 +877,66 @@ test("leaving a retained series page before its reread lands still picks the sea
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }
 });
+
+// ItemDetailCache.swift:34: a Favorite change keeps Apple's cached series page, so the page and its season still leave
+// after 20 other pages.
+test("after a favorite change, a remembered season still ends once 20 other title pages open", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const catalog = await start(tv);
+        const series = origin(tv, false, "series:s1");
+        await series.click();
+        await tv.eventually(async () => await tv.focused() === "next-episode", "Series Play entry focus settles");
+        await tv.page.locator('[data-focus="season:2"]').focus(); await tv.jump(500);
+        await tv.page.locator('[data-focus="season:2"][aria-pressed="true"]').waitFor();
+        await tv.remote(10009);
+        await hold(tv, false, "series:s1");
+        await row(tv, "Add to Favorites").click();
+        await tv.eventually(async () => catalog.mutations.length === 1 && await menu(tv).count() === 0, "favorite change lands");
+        await tv.page.locator('[data-focus="movies"]').click();
+        await tv.page.locator('.browse[data-view="library:12"] .browse-card:not(.discovery-collection)').first().waitFor();
+        await selectLibraryMode(tv, "Recently Added");
+        const grid = tv.page.locator('.browse .browse-grid .browse-card');
+        await grid.first().waitFor();
+        for (let index = 0; index < 20; index++) {
+            const card = grid.nth(index);
+            const id = await card.getAttribute("data-focus");
+            await card.click();
+            await tv.page.locator(`.browse[data-view="item:${id}"]`).waitFor();
+            await tv.remote(10009);
+            await grid.first().waitFor();
+        }
+        await tv.page.locator('[data-focus="home"]').click();
+        await series.click();
+        await tv.page.locator('[data-focus="season:1"][aria-pressed="true"]').waitFor();
+        assert.equal(await tv.page.locator('[data-focus^="season:"][aria-pressed="true"]').count(), 1);
+    } finally { await tv.page.context().close(); }
+});
+
+// TVItemDetailView.swift:166-170: Apple's cached page keeps its season however the visit ends, including a related
+// title replacing it.
+test("a series page replaced by a related title keeps its season for the next visit", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        await start(tv);
+        await tv.page.route("**/api/v2/recommendations/similar/movie%3Am0001**", route => route.fulfill({ json: { items: [{ content_id: "series:s1", type: "series", title: "Harbor Lights" }, ...Array.from({ length: 11 }, (_, index) => ({ content_id: `movie:m${String(index + 2).padStart(4, "0")}`, type: "movie", title: `Movie ${String(index + 2).padStart(4, "0")}` }))] } }));
+        await origin(tv).click();
+        const related = tv.page.locator('.browse[data-view="item:movie:m0001"] [data-detail-section="related"] [data-focus="series:s1"]');
+        await related.waitFor();
+        await related.click();
+        await tv.eventually(async () => await tv.focused() === "next-episode", "Series Play entry focus settles");
+        await tv.page.locator('[data-focus="season:2"]').focus(); await tv.jump(500);
+        await tv.page.locator('[data-focus="season:2"][aria-pressed="true"]').waitFor();
+        const next = tv.page.locator('.browse[data-view="item:series:s1"] [data-detail-section="related"] .browse-card[data-focus^="movie:"]').first();
+        await next.waitFor();
+        const replacement = await next.getAttribute("data-focus");
+        await next.click();
+        await tv.page.locator(`.browse[data-view="item:${replacement}"]`).waitFor();
+        await tv.remote(10009);
+        await tv.page.locator('.browse[data-view="item:movie:m0001"]').waitFor();
+        await tv.remote(10009);
+        await origin(tv, false, "series:s1").click();
+        await tv.page.locator('[data-focus="season:2"][aria-pressed="true"]').waitFor();
+        assert.equal(await tv.page.locator('[data-focus^="season:"][aria-pressed="true"]').count(), 1);
+    } finally { await tv.page.context().close(); }
+});

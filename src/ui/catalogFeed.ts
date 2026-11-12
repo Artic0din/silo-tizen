@@ -5,6 +5,7 @@
 import type { Card, CatalogPage } from "../contracts/v2/catalog.ts";
 import type { FocusItem, Zone } from "./browseFocus.ts";
 import { cardItem, type ViewContext } from "./browseViews.ts";
+import { SPINNER_ICON } from "./requestsScene.ts";
 import { el } from "./screen.ts";
 
 /** Apple tvOS grids use six columns at the standard card size. */
@@ -17,6 +18,8 @@ interface FeedNode {
     observer: IntersectionObserver | undefined;
     /** Item count the live observer was armed for. A failed read keeps it, so the end must leave and return. */
     watched: number;
+    /** A read failed while the end was on screen: wait for it to leave before reading again (TVLibraryGridViewModel.swift:337-339). */
+    waitsForExit: boolean;
     more: () => void;
     readonly scale: number;
     readonly hidesImages: boolean;
@@ -42,7 +45,7 @@ export function feedGrid(owner: object, page: CatalogPage, context: ViewContext,
     const extends_ = feed !== undefined && feed.cards.length <= page.items.length && feed.cards.every((card, index) => page.items[index] === card);
     if (feed === undefined || !extends_ || feed.scale !== scale || feed.overlays !== overlays || feed.hidesImages !== hidesImages) {
         feed?.observer?.disconnect();
-        feed = { node: el("div", "browse-grid catalog-grid"), cards: [], items: [], observer: undefined, watched: 0, more, scale, overlays, hidesImages };
+        feed = { node: el("div", "browse-grid catalog-grid"), cards: [], items: [], observer: undefined, watched: 0, waitsForExit: false, more, scale, overlays, hidesImages };
         feeds.set(owner, feed);
     }
     feed.node.style.setProperty("--grid-columns", String(columns));
@@ -62,6 +65,12 @@ export function feedGrid(owner: object, page: CatalogPage, context: ViewContext,
     return { content: [feed.node, ...spinner], zones: [{ id: "grid", layout: "grid", columns, items: feed.items }] };
 }
 
+/** After a failed read, the next request waits until the end has scrolled away and back; a re-armed observer alone does not read. */
+export function waitForFeedEnd(owner: object): void {
+    const feed = feeds.get(owner);
+    if (feed !== undefined) feed.waitsForExit = true;
+}
+
 export function stopFeed(owner: object): void {
     const feed = feeds.get(owner);
     feed?.observer?.disconnect();
@@ -79,7 +88,10 @@ function watchEnd(feed: FeedNode, hasMore: boolean, lead: number): void {
     if (feed.observer !== undefined && feed.watched === feed.items.length) return;
     feed.observer?.disconnect();
     const targets = feed.items.slice(Math.max(0, feed.items.length - lead)).map(item => item.element);
+    const shown = new Set<Element>();
     const observer = new IntersectionObserver(entries => {
+        for (const entry of entries) if (entry.isIntersecting && entry.target.isConnected) shown.add(entry.target); else shown.delete(entry.target);
+        if (feed.waitsForExit) { feed.waitsForExit = shown.size > 0; return; }
         if (entries.some(entry => entry.isIntersecting && entry.target.isConnected)) feed.more();
     });
     for (const target of targets) observer.observe(target);
@@ -87,9 +99,11 @@ function watchEnd(feed: FeedNode, hasMore: boolean, lead: number): void {
     feed.watched = feed.items.length;
 }
 
+/** TVCatalogGrid.swift:83-91: a spinning ProgressView centred under the grid. */
 function loadingMore(): HTMLElement {
     const node = el("div", "section-catalog-loading");
     node.setAttribute("role", "status");
     node.setAttribute("aria-label", "Loading more titles");
+    node.innerHTML = SPINNER_ICON;
     return node;
 }

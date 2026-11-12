@@ -12,7 +12,10 @@
 .section-catalog-grid .browse-card-subtitle { margin: 0; padding: 0; font-size: 20px; line-height: 24px; font-weight: 400; color: rgba(237,237,237,.32); }
 .section-catalog-state { margin: 220px 0 16px; font-size: 36px; font-weight: 600; text-align: center; outline: none; }
 .section-catalog-state ~ .browse-text { text-align: center; font-size: 26px; }
-.section-catalog-loading { width: 40px; height: 40px; margin: 0 auto 48px; border: 4px solid var(--silo-secondary); border-top-color: var(--silo-text); border-radius: 50%; }
+/* TVCatalogGrid.swift:83-91: ProgressView tinted siloOnSurface with default padding, spinning as on Requests. */
+.section-catalog-loading { width: 40px; height: 40px; margin: 0 auto 48px; padding: 16px; color: var(--silo-text); }
+.section-catalog-loading svg { display: block; width: 40px; height: 40px; animation: search-spin 1s steps(8) infinite; }
+@media (prefers-reduced-motion: reduce) { .section-catalog-loading svg { animation: none; } }
 .skyline-home { font-family: var(--silo-font); font-weight: 400; }
 /* Platform-wide font rules must not replace the packaged face or the component's inherited weight. */
 .skyline-home * { font-family: inherit; font-weight: inherit; }
@@ -1548,11 +1551,14 @@ svg.library-empty-icon { width: auto; }
 .catalog-grid .browse-card-title { margin: 16px 0 4px; padding: 0; font: 500 24px/29px var(--silo-font); color: rgba(237,237,237,.45); text-align: center; }
 .catalog-grid .browse-card-subtitle { margin: 0; padding: 0; font: 400 20px/24px var(--silo-font); color: rgba(237,237,237,.32); text-align: center; }
 .catalog-skeleton { display: grid; }
-.catalog-skeleton .discovery-skeleton { width: calc(260px * var(--poster-scale, 1)); height: calc(390px * var(--poster-scale, 1)); }
-.browse-empty-title { margin: 160px 0 16px; font-size: 36px; font-weight: 600; text-align: center; }
-.browse-empty-title ~ .browse-text { max-width: none; text-align: center; font-size: 26px; }
-.browse-empty-actions { text-align: center; }
-.browse-empty-actions .browse-button { display: inline-flex; align-items: center; font-size: 24px; font-weight: 500; }
+/* PosterSkeletons.swift:3-12: a static white 9% poster with SiloTheme.cornerRadius 12. */
+.catalog-skeleton .poster-skeleton { width: calc(260px * var(--poster-scale, 1)); height: calc(390px * var(--poster-scale, 1)); border-radius: 12px; background: rgba(255,255,255,.09); }
+/* TVLibraryGridView.swift:206-213, :268-284: a full-width area at least 400 tall, Clear filters 32 below the state. */
+.browse-empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 32px; min-height: 400px; }
+.library-browse .library-empty-title { font-weight: 600; }
+.browse-empty-actions { display: flex; justify-content: center; }
+.browse .browse-empty-actions .browse-button { display: flex; align-items: center; height: 53px; margin: 0; padding: 0 22px; border: 1px solid rgba(255,255,255,.09); border-radius: 27px; background: rgba(255,255,255,.07); color: #ededed; font-size: 24px; font-weight: 500; transition: transform 120ms ease-out; }
+.browse .browse-empty-actions .browse-button:focus { background: #ededed; color: #000; border-color: transparent; transform: scale(1.04); }
 /* TVAlphabetRail: collapsed width 18, centred in the 1020pt column. Each LetterButton is a 10×10
    monospaced semibold 10pt glyph at opacity 0.35 (SiloTheme.Skyline, LetterButton). The selected
    All chip is siloOnSurface in an 8pt corner, which on a 10px box is the circle. Expanded letters

@@ -55,6 +55,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Browse on the Movies and Series tabs now uses Apple TV's loading, empty, no-matches and error pages: twelve still poster placeholders while loading, Apple's empty states with their icons, a Clear filters pill like Sort and Filter that Left from the letter rail reaches, and Apple's error page. A failed next page keeps the grid without an error and loads again when the end comes back into view, and the loading-more indicator now spins.
 - A mixed library's Movies and Series tabs now show only movies or only series on Recommended, as on Apple TV, and say so when a shelf could not be fully loaded. Recommended and Collections now use Apple TV's loading, empty and error pages, a failed Collections read shows no collections, and collection cards and group headers match Apple TV's.
 - The Person page's Filmography posters are now spaced as on Apple TV: 40px apart, with the first poster lined up under the filter chips instead of 13px apart and slightly to their left.
 - On a movie's page, moving down to Cast & Crew now always scrolls the page there. An answer that redrew the page during that scroll could stop it, leaving the row low on the screen.

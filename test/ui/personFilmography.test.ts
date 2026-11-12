@@ -274,7 +274,10 @@ journey("Person uses the Apple source geometry and remote zones", async tv => {
     // Apple's 22/10 padding is measured to the stroke the chip draws over its frame; the 1px border sits inside the box.
     assert.equal(await style('[data-focus="filter:video"]', "padding"), "9px 21px");
     assert.equal(await style('[data-focus="filter:video"]', "border-top-width"), "1px");
-    assert.equal(await style(".browse-grid", "width"), "1600px");
+    // Apple's TVCatalogGrid lays six 260pt cards 40pt apart from the content's leading edge (#426).
+    const lefts = await grid(tv).evaluateAll(cards => cards.slice(0, 6).map(card => card.getBoundingClientRect().left));
+    assert.deepEqual(lefts, [160, 460, 760, 1060, 1360, 1660]);
+    assert.equal(await tv.page.locator(".browse").evaluate(node => node.scrollWidth <= node.clientWidth), true, "the wider grid must not scroll the page sideways");
     assert.equal(await style(".browse-overview", "font-weight"), "400");
     assert.equal(await style(".browse-grid", "padding-left"), "0px");
     assert.equal(await style(".browse-grid", "column-gap"), "40px");
@@ -299,9 +302,9 @@ journey("Person uses the Apple source geometry and remote zones", async tv => {
     assert.equal(await tv.focused(), first);
     await tv.page.keyboard.press("ArrowRight");
     assert.equal(await tv.focused(), await grid(tv).nth(1).getAttribute("data-focus"));
+    const second = await tv.focused();
     await tv.page.keyboard.press("ArrowUp");
-    // Replaces `assert.equal(await tv.focused(), "filter:video", "was filter:movie when Up restored the focused chip; column 1 overlaps the row and All stays selected")`.
-    assert.equal(await tv.focused(), "filter:series", "column 1's left edge meets Series; the selected All chip does not take Up");
+    assert.equal(await tv.focused(), second, "was filter:series while the 1600px grid pulled column 1 under Series (#426); no chip is above column 1");
     await grid(tv).nth(2).focus();
     const third = await tv.focused();
     await tv.page.keyboard.press("ArrowUp");

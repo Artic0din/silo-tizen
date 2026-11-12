@@ -45,7 +45,7 @@ export function personFilmographyView(route: Extract<Route, { kind: "person" }>,
             state.append(...lines(["No titles found", "There are no movies or series linked to this person yet."]));
             content.push(state);
         }
-        const grid = feedGrid(route.pages, page, handlers.context, LOAD_MORE_ROWS * columns, handlers.busy, () => handlers.morePerson(route), columns, 260, 1600);
+        const grid = feedGrid(route.pages, page, handlers.context, LOAD_MORE_ROWS * columns, handlers.busy, () => handlers.morePerson(route), columns);
         const scale = handlers.context.posterScale?.() ?? 1;
         const node = grid.content[0];
         node?.classList.add("catalog-grid");

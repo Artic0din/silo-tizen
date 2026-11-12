@@ -502,6 +502,8 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     let aiLanguages = false;
     let subtitlePane: SubtitlePane = { kind: "tracks" };
     let menuRestoreFocus: string | undefined;
+    /** Each column scrolls on its own. Redraws and picker round trips keep the unfocused one where the viewer left it. */
+    const columnScroll = new Map<string, number>();
 
     const buttons = (index: number): HTMLElement[] => Array.from(lists[index]?.querySelectorAll<HTMLElement>("[data-focus]") ?? []);
     const focusedId = (): string | null => (menu.contains(document.activeElement) ? (document.activeElement?.getAttribute("data-focus") ?? null) : null);
@@ -587,8 +589,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             // The Video SYNC row opens the delay picker in place of the Video columns.
             const videoPicker = subtitlePane.kind === "picker" && subtitlePane.origin.pane === "video" ? subtitlePane : undefined;
             for (const [index, list] of lists.entries()) {
-                // Each column scrolls on its own; a redraw keeps the unfocused one where the viewer left it.
-                const offsets = new Map(Array.from(list.querySelectorAll<HTMLElement>(".player-menu-column")).map(column => [column.className, column.lastElementChild?.scrollTop ?? 0]));
+                for (const column of list.querySelectorAll<HTMLElement>(".player-menu-column")) columnScroll.set(`${index} ${column.className}`, column.lastElementChild?.scrollTop ?? 0);
                 list.textContent = "";
                 const name = tabNames[index];
                 const hud = view.phase === "playing" || view.phase === "paused" ? view.hud : undefined;
@@ -604,7 +605,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
                 } else fillHUDPane(list, name ?? "", hud, view.phase === "playing" || view.phase === "paused" ? view.positionSeconds : 0, choice, clockText);
                 for (const column of list.querySelectorAll<HTMLElement>(".player-menu-column")) {
                     const rows = column.lastElementChild;
-                    const top = offsets.get(column.className);
+                    const top = columnScroll.get(`${index} ${column.className}`);
                     if (!(rows instanceof HTMLElement) || top === undefined) continue;
                     rows.style.scrollBehavior = "auto";
                     rows.scrollTop = top;
@@ -648,6 +649,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         if (phase !== undefined && phase !== "closed") controls.subtitleTool({ kind: "search-close" });
         menuOpen = false;
         drawn = undefined;
+        columnScroll.clear();
         focusScrubberOnRender = returnToScrubber;
     };
 

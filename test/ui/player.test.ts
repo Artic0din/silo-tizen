@@ -2691,7 +2691,7 @@ test("remote focus moves within each Subtitles column and Left/Right cross betwe
     } finally { await page.close(); }
 });
 
-test("a menu update keeps the unfocused column's scroll position", async () => {
+test("a menu update or picker round trip keeps the unfocused column's scroll position", async () => {
     const { page } = await open();
     const subtitles = Array.from({ length: 30 }, (_, index) => ({ id: `file:42:subtitle:${index}`, label: `Subtitle ${index + 1}` }));
     try {
@@ -2706,6 +2706,12 @@ test("a menu update keeps the unfocused column's scroll position", async () => {
         assert.ok(before > 0);
         await show(page, playing({ ...TRACKS, subtitles, subtitleTools: { ...ALL_TOOLS, display: { ...ALL_TOOLS.display!, delayMs: 100 } } }));
         assert.equal(await rows.evaluate(node => node.scrollTop), before, "the TRACKS column stays where it was");
+        for (let step = 0; step < 6 && await focused(page) !== "subtitle-delay"; step += 1) await remote(page, UP);
+        assert.equal(await focused(page), "subtitle-delay");
+        await remote(page, ENTER);
+        await remote(page, BACK);
+        assert.equal(await focused(page), "subtitle-delay");
+        assert.equal(await rows.evaluate(node => node.scrollTop), before, "a picker round trip keeps TRACKS where it was");
         await remote(page, LEFT);
         const landed = await focused(page);
         assert.ok(landed !== null && Number(landed.split(":").pop()) > 20, `Left lands on a visible track, not ${landed}`);

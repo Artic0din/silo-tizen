@@ -1,9 +1,10 @@
 import { el } from "../ui/screen.ts";
 import type { SubtitleAppearance } from "../contracts/v2/subtitles.ts";
 import type { TrackView } from "./controller.ts";
-import { chevronForwardIcon } from "./playerIcons.ts";
+import { chevronForwardIcon, magnifyingGlassIcon } from "./playerIcons.ts";
 import { appearanceSummary, BACKGROUND_COLORS, delayLabel, delayOptions, FONT_COLORS, FONT_FAMILIES, FONT_SIZES, opacityOptions, POSITIONS, providerLabel, resultDetail, STYLES } from "./subtitleAppearance.ts";
 
+/** The Subtitles pane's state. A picker floats over the pane it opened from, including Video's PLAYBACK and SYNC rows. */
 export type SubtitlePane =
     | { readonly kind: "tracks" }
     | { readonly kind: "appearance" }
@@ -24,15 +25,16 @@ function choice(id: string, label: string, current: boolean, detail?: string): H
 
 /**
  * `HUDSettingRow` (TVPlayerInfoHUD.swift:494, label at 548): label left, value right-aligned, then a chevron when the row opens a picker.
- * `glyph` stands in for its `systemImage`; Appearance's `textformat` symbol reads "Aa".
+ * `glyph` (text) or `icon` (inline SVG) stands in for its `systemImage` at 20pt semibold; Appearance's `textformat` reads "Aa".
  */
-export function settingRow(id: string, label: string, value: string, options: { readonly chevron?: boolean; readonly glyph?: string; readonly pressed?: boolean } = {}): HTMLButtonElement {
+export function settingRow(id: string, label: string, value: string, options: { readonly chevron?: boolean; readonly glyph?: string; readonly icon?: string; readonly pressed?: boolean } = {}): HTMLButtonElement {
     const button = el("button", "player-choice player-setting");
     button.type = "button";
     button.setAttribute("data-focus", id);
     if (options.pressed !== undefined) button.setAttribute("aria-pressed", String(options.pressed));
-    if (options.glyph !== undefined) {
+    if (options.glyph !== undefined || options.icon !== undefined) {
         const glyph = el("span", "player-setting-glyph", options.glyph);
+        if (options.icon !== undefined) glyph.innerHTML = options.icon;
         glyph.setAttribute("aria-hidden", "true");
         button.append(glyph);
     }
@@ -54,14 +56,23 @@ export function paneColumn(heading: string, className: string): { readonly colum
     return { column, rows };
 }
 
-/** `HUDPickerDialog` (TVPlayerInfoHUD.swift:1042, title at 1054): the title keeps its case and stays put while the options scroll. */
-export function fillSubtitlePicker(list: HTMLElement, pane: Extract<SubtitlePane, { kind: "picker" }>): void {
+/**
+ * `HUDPickerDialog` (TVPlayerInfoHUD.swift:1042-1104) floats over the pane it opened from, which dims to 28% and
+ * leaves the focus graph (`.disabled`, :1665-1666). Its title keeps its case; Back closes it (`onExitCommand`, :1092),
+ * so it has no Back row.
+ */
+export function overlayPicker(list: HTMLElement, pane: Extract<SubtitlePane, { kind: "picker" }>): void {
+    const behind = el("div", "player-menu-behind");
+    behind.append(...Array.from(list.childNodes));
+    behind.inert = true;
+    for (const node of behind.querySelectorAll("[data-focus]")) node.removeAttribute("data-focus");
     const picker = el("div", "player-menu-picker");
+    picker.setAttribute("role", "dialog");
+    picker.setAttribute("aria-label", pane.title);
     const options = el("div", "player-menu-picker-options");
-    options.append(choice("subtitle-picker-back", "Back", false));
     for (const option of pane.options) options.append(choice(`subtitle-picker:${option.id}`, option.label, option.id === pane.selected));
     picker.append(el("h2", "player-menu-picker-title", pane.title), options);
-    list.append(picker);
+    list.append(behind, picker);
 }
 
 function named(table: readonly (readonly [string, string])[], id: string): string {
@@ -106,10 +117,6 @@ export function appearanceDetail(appearance: SubtitleAppearance, field: string):
 export function fillSubtitleTools(list: HTMLElement, tracks: TrackView, pane: SubtitlePane, replace: boolean): void {
     const tools = tracks.subtitleTools;
     if (tools === undefined) return;
-    if (pane.kind === "picker") {
-        fillSubtitlePicker(list, pane);
-        return;
-    }
     if (pane.kind === "appearance") {
         const display = tools.display;
         if (display === undefined) return;
@@ -144,7 +151,7 @@ export function fillSubtitleTools(list: HTMLElement, tracks: TrackView, pane: Su
         return;
     }
     // SubtitlesPane.optionRowsContent (TVPlayerInfoHUD.swift:1964): Search, Delay, the device toggle, Size, Position, Appearance.
-    if (!replace && search.offered) list.append(settingRow("subtitle-search", "Search Subtitles…", ""));
+    if (!replace && search.offered) list.append(settingRow("subtitle-search", "Search Subtitles…", "", { icon: magnifyingGlassIcon() }));
     const display = tools.display;
     if (display === undefined || !tools.overlay) return;
     if (display.delay) list.append(settingRow("subtitle-delay", "Delay", delayLabel(display.delayMs)));

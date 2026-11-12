@@ -273,8 +273,9 @@ Playback has these differences from browse:
 - Playback resuming outside the scrubber cancels its timeline preview without seeking and restores auto-hide.
   A hold that paused a pending resume returns that resume on cancellation only if no newer Play or Pause superseded it.
 - The track menu opens on the active tab.
-  Down enters its pane, Up at the top returns to its tab, Left/Right switches panes, Enter chooses and Back closes.
-  Subtitles (TRACKS, OPTIONS) and Video (PLAYBACK, SYNC) have two columns, as Apple's `focusSection` columns: Up and Down stay in the focused column, and Left/Right first cross to the row level with focus in the next column, then switch panes past the last one.
+  Panes change only on the tab rail, as on Apple TV (`TVPlayerInfoHUD.swift:9-16`): Left/Right on a tab switches panes, Down enters the pane at its top row (Off in Subtitles), Up from a pane's top row returns to its tab, Enter chooses and Back closes.
+  Subtitles (TRACKS, OPTIONS) and Video (PLAYBACK, SYNC) have two columns, as Apple's `focusSection` columns: Up and Down stay in the focused column, Left/Right cross to the row level with focus in the other column, and Left/Right past the outer column, or in a one-column pane, do nothing.
+  A picker floats over its pane and keeps focus until Back closes it onto the row that opened it; Up at its top does not reach the rail.
 - Play/Pause, Play, Pause, Stop, Rewind and Fast Forward act directly.
   Stop leaves playback.
 - Back from the overlay leaves playback (`controls.back()`), which restores the originating browse view and focus.

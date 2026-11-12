@@ -44,11 +44,13 @@ Subtitle controls belong to issue #226.
 Issue #391 matches Apple's two-column panes (`Silo-Server/silo-apple` at `7e478b26afd88bbe8e2fec00e945f9766a4e79a3`, `Screens/Player/tvOS/TVPlayerInfoHUD.swift`):
 
 - `:1653–1659`: Subtitles has TRACKS (470 px) and OPTIONS (440 px), 58 px apart. Tracks, AI results and the series choice sit in TRACKS; AI actions, Search, Delay, Only on this TV, Size, Position and Appearance sit in OPTIONS.
-- `:821–920`: Video has equal PLAYBACK and SYNC columns, 48 px apart. SYNC holds Subtitle delay, when the overlay offers a delay, and Auto-play next.
-- `:548–593`: option rows show the value right-aligned at 72 % white, then a chevron when the row opens a picker. Toggles have no chevron. Appearance carries the `textformat` glyph, drawn as "Aa".
-- `:1054`: picker titles keep their case ("Subtitle Delay") at 30 px semibold.
+- `:821–920`: Video has equal PLAYBACK and SYNC columns, 48 px apart. PLAYBACK lists Quality, Speed and Aspect, each opening its picker (Quality, Playback Speed, Aspect); SYNC holds Subtitle delay, when the overlay offers a delay, and Auto-play next.
+- `:548–593`: option rows show the value right-aligned at 72 % white, then a chevron when the row opens a picker. Toggles have no chevron. Appearance carries `textformat` ("Aa"), Search `magnifyingglass` and the AI rows `sparkles` (`:1964–2077`), drawn as inline SVG at 20 pt.
+- `:2191–2245`: track rows mark the selection with a 20 pt checkmark and no wash.
+- `:1042–1144`, `:1665–1684`: a picker is a 620 px dialog over its pane, which dims to 28 % and leaves the focus graph. Its title keeps its case at 30 px semibold, options are 24 px with the 14 % selected wash, and Back closes it; it has no Back row.
+- `:9–16`, `:131–152`: panes change only on the tab rail. Down from a pill enters at the pane's top row (`:1664`), and Left/Right inside a pane only cross its columns.
 
-Still different from Apple: pickers replace the pane instead of floating over it and keep a Back row, track rows keep the selected-row wash, and Search and AI rows have no `magnifyingglass` or `sparkles` symbol.
+Still different from Apple, outside this issue: Speed offers 1× and 2× and Aspect Fit and Stretch, because AVPlay supports only those (see Platform limits).
 
 Stats display engine and playback-plan facts, including output codec, resolution and configured bitrate when supplied.
 Configured bitrate is labelled explicitly and is never presented as measured throughput.

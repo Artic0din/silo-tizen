@@ -874,10 +874,41 @@
     scroll-behavior: smooth;
 }
 
+/*
+ * HUDPickerDialog (TVPlayerInfoHUD.swift:1042-1104): 620 wide, 34/28 padding, 28 corner, 18% stroke, centred over the
+ * pane it opened from, which dims to 28%. It spans the panel's padded content, so the status line sits behind it too.
+ */
+.player-menu-panes:has(.player-menu-picker),
+.player-menu-panes:has(.player-menu-picker) > .player-menu-pane-active {
+    position: static;
+}
+
+.player-menu-behind {
+    height: 100%;
+    overflow: hidden;
+    opacity: 0.28;
+}
+
+.player-menu:has(.player-menu-picker) .player-menu-status {
+    opacity: 0.28;
+}
+
 .player-menu-picker {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    z-index: 1;
     display: flex;
     flex-direction: column;
-    height: 100%;
+    box-sizing: border-box;
+    width: 620px;
+    max-height: calc(100% - 44px);
+    padding: 28px 34px;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 28px;
+    background: rgba(44, 44, 46, 0.94);
+    box-shadow: 0 14px 26px rgba(0, 0, 0, 0.62);
+    transform: translate(-50%, -50%);
 }
 
 .player-menu-picker-options {
@@ -885,6 +916,25 @@
     min-height: 0;
     overflow-y: auto;
     scroll-behavior: smooth;
+}
+
+/* HUDPickerOptionLabel: 24pt medium rows 4pt apart, a 22pt checkmark and the 14% selected wash (HUDRowButtonStyle isSelected, :1107-1144). */
+.player-menu-picker-options .player-choice {
+    margin-bottom: 4px;
+    border-radius: 10px;
+    font-size: 24px;
+}
+
+.player-menu-picker-options .player-choice-current {
+    background: rgba(255, 255, 255, 0.14);
+}
+
+.player-menu-picker-options .player-choice-current::after {
+    font-size: 22px;
+}
+
+.player-menu-picker-options .player-choice-current:focus {
+    background: #ffffff;
 }
 
 .player-menu-picker-title {
@@ -938,9 +988,16 @@
 }
 
 .player-setting-glyph {
+    display: flex;
     flex: none;
     font-size: 20px;
     font-weight: 600;
+}
+
+/* SF Symbols at 20pt semibold draw about 22px. */
+.player-setting-glyph svg {
+    width: 22px;
+    height: 22px;
 }
 
 .player-setting-label {
@@ -1083,10 +1140,7 @@
     display: block;
 }
 
-.player-choice-current {
-    background: rgba(255, 255, 255, 0.14);
-}
-
+/* HUDTrackRow marks the selected track with a checkmark only, no wash (TVPlayerInfoHUD.swift:2202, :2239-2241). */
 .player-choice-current::after {
     content: "\2713";
     font-size: 20px;

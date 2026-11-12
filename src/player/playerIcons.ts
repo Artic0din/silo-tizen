@@ -71,3 +71,17 @@ export function skipIcon(direction: "backward" | "forward", seconds: number): st
 export function chevronForwardIcon(): string {
     return svg(`<path fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" d="M9 4.5 16.5 12 9 19.5"/>`);
 }
+
+/** `magnifyingglass`: the Search Subtitles row's symbol. */
+export function magnifyingGlassIcon(): string {
+    return svg(`<g fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="10.2" cy="10.2" r="6.6"/><path d="M15.2 15.2 21 21"/></g>`);
+}
+
+/** `sparkles`: the AI subtitle rows' symbol. One large and two small four-point stars. */
+export function sparklesIcon(): string {
+    const star = (x: number, y: number, r: number): string => {
+        const k = r * 0.22;
+        return `M${x} ${y - r}C${x + k} ${y - k} ${x + k} ${y - k} ${x + r} ${y}C${x + k} ${y + k} ${x + k} ${y + k} ${x} ${y + r}C${x - k} ${y + k} ${x - k} ${y + k} ${x - r} ${y}C${x - k} ${y - k} ${x - k} ${y - k} ${x} ${y - r}Z`;
+    };
+    return svg(`<path fill="currentColor" d="${star(9.5, 13.5, 8)}${star(18.5, 5.5, 3.6)}${star(19, 18, 2.6)}"/>`);
+}

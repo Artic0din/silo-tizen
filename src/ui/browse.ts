@@ -260,6 +260,10 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
 
     let stack: Route[] = [];
     const seriesSeasons = new Map<string, number>();
+    /** Series whose page was in the stack at a watched change: their next landed read picks the season again, as Apple's refreshed cached page does. */
+    const repickSeasons = new Set<string>();
+    /** The last 20 Details visits, in order, including ones a change dropped from `visitedDetails` (ItemDetailCache.swift:34). */
+    const visitOrder = new Set<string>();
     let loading: AbortController | undefined;
     let personRead: { route: Route; controller: AbortController } | undefined;
     let personFilterGeneration = 0;
@@ -284,8 +288,13 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     };
     const personalPending = (): boolean => detailWork?.pending === true || cardActions.pending;
     const cardActions = new CardActions(container, session, {
-        applied: id => {
+        applied: (id, watched) => {
             visitedDetails.delete(id);
+            // MediaCardWatchedSync.swift:15 refreshes Apple's cached page, which picks its season again; favorites keep it.
+            if (watched) {
+                seriesSeasons.delete(id);
+                if (stack.some(entry => entry.kind === "item" && entry.id === id && entry.data?.details !== undefined)) repickSeasons.add(id);
+            }
             cache.invalidate();
             // Delivery may be uncertain; retained roots must reread even after a failed change.
             for (const entry of new Set([...roots.values(), ...stack])) entry.stale = true;
@@ -339,9 +348,16 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     };
     const stopDetails = (): void => {
         if (detailWork !== undefined) {
-            visitedDetails.delete(detailWork.detail.id);
-            visitedDetails.set(detailWork.detail.id, detailWork);
-            if (visitedDetails.size > 20) visitedDetails.delete(visitedDetails.keys().next().value!);
+            const id = detailWork.detail.id;
+            visitedDetails.delete(id);
+            visitedDetails.set(id, detailWork);
+            // TVItemDetailView.swift:166-170: Apple's cached page keeps its season however the visit ends.
+            const season = detailWork.series?.seasonNumber;
+            if (season !== undefined && !repickSeasons.has(id)) seriesSeasons.set(id, season);
+            // ItemDetailCache.swift:34: the page and its season leave after 20 others; a Favorite change does not reset that count.
+            visitOrder.delete(id);
+            visitOrder.add(id);
+            if (visitOrder.size > 20) { const evicted = visitOrder.values().next().value!; visitOrder.delete(evicted); visitedDetails.delete(evicted); seriesSeasons.delete(evicted); }
         }
         detailWork?.stop(); detailWork = undefined;
         personRead?.controller.abort();
@@ -771,6 +787,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         stack = [];
         roots.clear();
         seriesSeasons.clear();
+        repickSeasons.clear();
+        visitOrder.clear();
         shell.destroy();
         host.destroy();
         if (container.parentNode === root) {
@@ -1488,9 +1506,10 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                         if (detail.type === "series") {
                             const series = previous.series;
                             series?.stop();
-                            const season = series?.selectionChanged ? series.seasonNumber : data.contextSeason ?? series?.seasonNumber;
+                            const repick = !offline && repickSeasons.delete(detail.id);
+                            const season = repick ? undefined : series?.selectionChanged ? series.seasonNumber : data.contextSeason ?? series?.seasonNumber;
                             previous.series = new SeriesEpisodes(session, detail.id, data.seasons, reason => previous.warmSeriesEpisodes(reason === "load"), season, current.seriesContext?.episodeId);
-                            previous.series.restore(series, true);
+                            previous.series.restore(repick ? undefined : series, true);
                             previous.series.start();
                         }
                         current.data = { ...data, detail, details: previous };
@@ -1500,8 +1519,9 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     }
                     const details = createItemDetails(current, data.detail);
                     details.restore(previous);
-                    if (data.detail.type === "series") details.series = new SeriesEpisodes(session, data.detail.id, data.seasons, reason => details.warmSeriesEpisodes(reason === "load"), previous?.series?.seasonNumber ?? data.contextSeason ?? (current.seriesContext === undefined ? seriesSeasons.get(data.detail.id) : undefined), current.seriesContext?.episodeId);
-                    details.series?.restore(previous?.series, true);
+                    const repick = repickSeasons.delete(data.detail.id);
+                    if (data.detail.type === "series") details.series = new SeriesEpisodes(session, data.detail.id, data.seasons, reason => details.warmSeriesEpisodes(reason === "load"), repick ? previous === undefined ? data.contextSeason : undefined : previous?.series?.seasonNumber ?? data.contextSeason ?? (current.seriesContext === undefined ? seriesSeasons.get(data.detail.id) : undefined), current.seriesContext?.episodeId);
+                    details.series?.restore(repick ? undefined : previous?.series, true);
                     details.restoreSeasonStates(previous);
                     details.focusedEpisodeId ??= current.seriesContext?.episodeId;
                     details.related = quiet ? previous?.related : undefined;
@@ -1838,7 +1858,6 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         loading?.abort();
         loading = undefined;
         cancelSearch();
-        if (active?.kind === "item" && active.data?.details?.series?.seasonNumber !== undefined) seriesSeasons.set(active.id, active.data.details.series.seasonNumber);
         retireRoute(stack.pop());
         const current = top();
         if (current?.kind === "requests" && !requestsCapability.enabled) { closeRequests(); return; }

@@ -821,68 +821,98 @@
 .home-loading { width: 100%; height: 480px; background: transparent; outline: none; }
 .home-loading:focus { outline: none; }
 .skyline-preview { padding-top: 545px; }
-.browse-nav { position: fixed; z-index: 5; top: 56px; left: 88px; width: 1744px; height: 64px; display: flex; align-items: center; margin: 0; transition: opacity 200ms; }
+/* The bar dims with easeInOut(SiloTheme.normalDuration) (silo-apple 7e478b2 `tvOS/Navigation/TVTopMenuBar.swift:246`, `Theme/SiloTheme.swift:167`). */
+.browse-nav { position: fixed; z-index: 5; top: 56px; left: 88px; width: 1744px; height: 64px; display: flex; align-items: center; margin: 0; transition: opacity 200ms ease-in-out; }
 .skyline-muted { opacity: .7; }
 .skyline-wordmark { display: block; width: 96px; height: auto; }
 .skyline-tabs { position: absolute; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; max-width: calc(100% - 300px); }
 .skyline-roots { display: flex; gap: 8px; min-width: 0; overflow-x: hidden; }
-/* Inter sets these labels about 2% wider than SF; the tracking keeps each tab on Apple's anchor. */
-.skyline-roots .browse-button { flex-shrink: 0; max-width: 260px; letter-spacing: -.28px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Apple caps the label at 260 inside 29 px of padding, so a capsule reaches 318 (TVTopMenuBar.swift:444-446). At the
+   cap-scaled size untracked Inter runs within 1.4% of SF Pro 26 semibold for every tab title, so no tracking is set. */
+.skyline-roots .browse-button { flex-shrink: 0; max-width: 318px; letter-spacing: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .skyline-search-balance { width: 58px; height: 58px; flex-shrink: 0; }
 .browse-nav .skyline-tabs .browse-button { margin: 0; }
 .browse-nav .skyline-tabs .skyline-search { flex-shrink: 0; margin: 0; }
 .skyline-tools { margin-left: auto; display: flex; align-items: center; }
-/* Apple's 29 px tab inset includes the capsule edge. */
-.browse-nav .browse-button { height: 56px; margin: 0 8px 0 0; padding: 0 28px; border: 1px solid transparent; border-radius: 40px; background: transparent; color: rgba(237,237,237,.62); font-size: 26px; font-weight: 600; }
-.browse-nav .browse-button[aria-current="page"], .browse-nav .browse-button[aria-expanded="true"] { background: rgba(255,255,255,.14); border-color: rgba(255,255,255,.1); color: #ededed; }
+/* Apple's 29 px tab inset includes the capsule edge. Labels are 26 pt semibold, white at 62% resting and white selected
+   (SiloTheme.swift:189, TVTopMenuBar.swift:440,508-512). TVTopMenuCapsuleChrome springs on focus,
+   spring(response: 0.35, dampingFraction: 0.85), which this curve follows within 1.6%; a selection change alone eases
+   over 0.18 s (TVTopMenuBar.swift:762-763, SiloTheme.swift:173). */
+.browse-nav .browse-button { height: 56px; margin: 0 8px 0 0; padding: 0 28px; border: 1px solid transparent; border-radius: 40px; background: transparent; color: rgba(255,255,255,.62); font-size: calc(26px * var(--silo-sf-cap-scale)); font-weight: 600; transition: background-color 320ms cubic-bezier(.3,.25,.2,1.02), border-color 320ms cubic-bezier(.3,.25,.2,1.02), color 320ms cubic-bezier(.3,.25,.2,1.02); }
+.browse-nav .browse-button[data-selection-motion] { transition-duration: 180ms; transition-timing-function: ease-in-out; }
+.browse-nav .browse-button[aria-current="page"], .browse-nav .browse-button[aria-expanded="true"] { background: rgba(255,255,255,.14); border-color: rgba(255,255,255,.1); color: #fff; }
 .browse .browse-button:focus { background: #fff; color: #000; box-shadow: none; border-color: #fff; }
 .browse-nav .skyline-search, .browse-nav .skyline-profile { position: relative; width: 58px; height: 58px; padding: 0; margin-left: 22px; margin-right: 0; }
 /* Measured from Apple's 27 pt semibold magnifyingglass: 22 px ring, 3 px stroke, 4 px rounded handle. */
 .skyline-search::before { content: ""; position: absolute; box-sizing: border-box; width: 22px; height: 22px; border: 3px solid currentColor; border-radius: 50%; top: 15px; left: 16px; }
 .skyline-search::after { content: ""; position: absolute; width: 11.5px; height: 4px; border-radius: 2px; background: currentColor; transform: rotate(45deg); left: 31.75px; top: 34.5px; }
-.browse-nav .skyline-profile { border-radius: 50%; font-weight: 700; background: var(--silo-elevated); }
-.browse-nav .skyline-profile:focus { outline: none; border-color: transparent; }
-.browse-nav .skyline-profile:focus::after { content: ""; position: absolute; inset: 0; z-index: 1; border: 3px solid #fff; border-radius: 50%; pointer-events: none; }
+/* The avatar keeps its white 18% disc and white initial when focused; focus adds only a 3 pt ring and a 1.05 scale,
+   both on the spring (TVTopMenuBar.swift:603-618). */
+.browse-nav .skyline-profile, .browse-nav .skyline-profile:focus { border-radius: 50%; border-color: transparent; background: rgba(255,255,255,.18); color: #fff; transition: transform 320ms cubic-bezier(.3,.25,.2,1.02); }
+.browse-nav .skyline-profile:focus { outline: none; transform: scale(1.05); }
+.browse-nav .skyline-profile::after { content: ""; position: absolute; inset: 0; z-index: 1; border: 0 solid #fff; border-radius: 50%; pointer-events: none; transition: border-width 320ms cubic-bezier(.3,.25,.2,1.02); }
+.browse-nav .skyline-profile:focus::after { border-width: 3px; }
+@media (prefers-reduced-motion: reduce) { .browse-nav .skyline-profile:focus { transform: none; } }
 .skyline-profile-name { margin: 8px 18px 16px; font-size: 23px; overflow-wrap: break-word; }
 .navigation-avatar { position: relative; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; overflow: hidden; }
 .navigation-avatar img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-.navigation-avatar-fallback { font-size: 20px; font-weight: 600; }
+/* ProfileAvatarView.fallbackAvatar (Components/ProfileAvatarView.swift:46-57): the initial is size × 0.34 semibold; with no
+   name, a person glyph at size × 0.36 in secondary text, drawn to SF Symbols' person.fill ink box (0.83 × 0.9 of that size). */
+.navigation-avatar-fallback { font-size: calc(var(--avatar-size) * .34); font-weight: 600; }
+.navigation-avatar-person { width: calc(var(--avatar-size) * .297); height: calc(var(--avatar-size) * .323); fill: currentColor; color: var(--silo-secondary); }
 .navigation-avatar-emoji .navigation-avatar-fallback { font-size: calc(var(--avatar-size) * .45); font-weight: 400; }
 .skyline-menu-header { padding: 8px 16px 10px; color: rgba(255,255,255,.38); font-family: monospace; font-size: 14px; line-height: 18px; letter-spacing: 3.64px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .skyline-menu-icon { width: 30px; height: 24px; flex-shrink: 0; }
+/* navigationIcon.ts menuIcon: a filled glyph keeps the line icon's box but may overrun it, as SF Symbols overrun their frame. */
+.skyline-menu-icon-filled { overflow: visible; }
 .skyline-menu-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .skyline-profile-header { display: flex; align-items: center; gap: 14px; padding: 8px 16px; margin-bottom: 10px; }
+/* The menu header's 44 pt avatar sits on white 16% with a white initial (TVTopMenuBar.swift:1226-1233). */
+.skyline-profile-header .navigation-avatar { background: rgba(255,255,255,.16); color: #fff; }
 .skyline-profile-labels { min-width: 0; }
 .skyline-profile-title { font-size: 24px; font-weight: 600; line-height: 29px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .skyline-profile-server { font-family: monospace; font-size: 14px; line-height: 18px; letter-spacing: 1.4px; color: rgba(255,255,255,.38); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .skyline-menu-divider { height: 1px; background: rgba(255,255,255,.12); margin: 10px 12px; }
-.skyline-selector .skyline-destructive { color: #ff453a; }
-.skyline-selector .skyline-destructive:focus { background: #fff; color: #000; }
-.skyline-selector { position: fixed; z-index: 6; top: 132px; width: 460px; max-height: 860px; overflow-y: auto; padding: 14px; border-radius: 22px; background: rgba(22,23,27,.96); box-shadow: 0 20px 60px #000; }
+:is(.skyline-selector, .skyline-selector-leaving) .skyline-destructive { color: #ff453a; }
+:is(.skyline-selector, .skyline-selector-leaving) .skyline-destructive:focus { background: #fff; color: #000; }
+:is(.skyline-selector, .skyline-selector-leaving) { position: fixed; z-index: 6; top: 132px; width: 460px; max-height: 860px; overflow-y: auto; padding: 14px; border-radius: 22px; background: rgba(22,23,27,.96); box-shadow: 0 20px 60px #000; }
 .skyline-selector[hidden] { display: none; }
-.skyline-dropdown-scrim { position: fixed; top: 0; left: 0; width: 1920px; height: 1080px; z-index: 4; background: rgba(0,0,0,.55); animation: skyline-appear 150ms ease-out; }
+:is(.skyline-dropdown-scrim, .skyline-dropdown-scrim-leaving) { position: fixed; top: 0; left: 0; width: 1920px; height: 1080px; z-index: 4; background: rgba(0,0,0,.55); animation: skyline-appear 150ms ease-out; }
 .skyline-dropdown-scrim[hidden] { display: none; }
 .skyline-selector { animation: skyline-panel 180ms ease-out; }
-.skyline-flyout { animation-duration: 160ms; }
+/* TVSkylinePanelChrome (TVTopMenuBar.swift:786-820): a top-lit #23252C 92% to #141519 95% gradient over the page, a
+   frosted material, a 1 pt white 22% to 5% hairline, and contact and ambient shadows (radius 8 y 4 at 35%, radius 40
+   y 24 at 55%; CSS blur is twice the radius). The panel scales from 0.96 under its anchor with easeOut(0.12)
+   (TVMainTabView.swift:622-633, SiloTheme.swift:233); skyline.ts sets the origin. */
+.skyline-panel:not([data-confirmation]) { background: linear-gradient(rgba(35,37,44,.92), rgba(20,21,25,.95)); box-shadow: 0 4px 16px rgba(0,0,0,.35), 0 24px 80px rgba(0,0,0,.55); backdrop-filter: blur(30px); animation: skyline-panel 120ms ease-out; }
+.skyline-panel:not([data-confirmation])::before { content: ""; position: absolute; inset: 0; padding: 1px; border-radius: inherit; background: linear-gradient(rgba(255,255,255,.22), rgba(255,255,255,.05)); -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; pointer-events: none; }
+/* The flyout only fades in, easeInOut(0.16) (tvOS/Navigation/TVCascadeSelector.swift:151-164, SiloTheme.swift:257). */
+.skyline-panel.skyline-flyout { animation: skyline-appear 160ms ease-in-out; }
 @keyframes skyline-panel { from { opacity: 0; transform: scale(.96); } to { opacity: 1; transform: scale(1); } }
-.skyline-flyout { width: 300px; border-radius: 18px; }
-.skyline-selector .browse-button[aria-checked="true"]:not(:focus) { background: rgba(255,255,255,.14); }
-.skyline-selector .browse-button { display: block; width: 100%; margin: 0; padding: 16px 18px; font-size: 22px; border: 0; background: transparent; color: #ededed; white-space: normal; overflow-wrap: break-word; text-align: left; }
-.skyline-selector .browse-button.skyline-menu-item { display: flex; align-items: center; gap: 14px; min-height: 60px; padding: 14px 16px; line-height: 26px; font-weight: 600; }
-.skyline-selector[data-menu-kind="for_you"], .skyline-selector[data-menu-kind="profile"] { display: flex; flex-direction: column; gap: 10px; }
-.skyline-selector[data-menu-kind="for_you"] .skyline-menu-header { padding-bottom: 2px; }
-.skyline-selector[data-menu-kind="for_you"] .skyline-menu-item, .skyline-selector[data-menu-kind="profile"] .skyline-menu-item { min-height: 54px; }
-.skyline-selector[data-menu-kind="profile"] .skyline-profile-header { margin-bottom: 0; }
-.skyline-selector[data-menu-kind="profile"] .skyline-menu-divider { flex-shrink: 0; margin: 0 12px; }
-.skyline-selector[data-menu-kind="library"] .browse-button[role="menuitem"], .skyline-selector.skyline-flyout .browse-button.skyline-menu-item { font-size: 20px; line-height: 24px; min-height: 50px; padding: 13px 16px; border-radius: 12px; gap: 12px; color: rgba(255,255,255,.86); }
-.skyline-selector[data-menu-kind="library"] [role="menuitem"] .skyline-menu-icon, .skyline-flyout .skyline-menu-icon { width: 26px; height: 18px; }
-.skyline-selector[data-menu-kind="library"] .browse-button[role="menuitemradio"] { padding: 16px 18px; min-height: 58px; border-radius: 14px; color: rgba(255,255,255,.9); }
-.skyline-selector[data-menu-kind="for_you"] .skyline-menu-item, .skyline-selector[data-menu-kind="profile"] .skyline-menu-item { border-radius: 14px; color: rgba(255,255,255,.86); }
-.skyline-selector[data-menu-kind="for_you"] .skyline-menu-icon, .skyline-selector[data-menu-kind="profile"] .skyline-menu-icon { height: 20px; }
-.skyline-selector .browse-button:focus { background: #fff; color: #000; }
-.skyline-selector .browse-button.skyline-destructive { color: rgba(255,69,58,.9); }
-.skyline-selector[data-menu-kind] .browse-button:focus, .skyline-selector.skyline-flyout .browse-button:focus { background: #fff; color: #000; }
-.skyline-selector .browse-button.skyline-destructive:focus { background: #fff; color: #000; }
+/* skyline.ts leave(): copies of a closing panel run the open motion backwards; the confirmation and its scrim fade over 0.2 s. */
+.skyline-leaving > .skyline-panel-leaving { pointer-events: none; animation: skyline-panel-leave 120ms ease-out forwards; }
+.skyline-leaving > .skyline-panel-leaving:is([data-confirmation], .skyline-dropdown-scrim-leaving) { animation: skyline-leave 200ms ease-out forwards; }
+@keyframes skyline-panel-leave { to { opacity: 0; transform: scale(.96); } }
+/* The top bar's sign-out confirmation and its scrim fade in over easeOut(0.2) (AccountRemovalConfirmation.swift:31,34). */
+.skyline-root > .skyline-selector.skyline-panel[data-confirmation], .skyline-root > .skyline-dropdown-scrim[data-confirmation] { animation-duration: 200ms; }
+:is(.skyline-flyout, .skyline-flyout-leaving) { width: 300px; border-radius: 18px; }
+:is(.skyline-selector, .skyline-selector-leaving) .browse-button[aria-checked="true"]:not(:focus) { background: rgba(255,255,255,.14); }
+:is(.skyline-selector, .skyline-selector-leaving) .browse-button { display: block; width: 100%; margin: 0; padding: 16px 18px; font-size: 22px; border: 0; background: transparent; color: #ededed; white-space: normal; overflow-wrap: break-word; text-align: left; }
+:is(.skyline-selector, .skyline-selector-leaving) .browse-button.skyline-menu-item { display: flex; align-items: center; gap: 14px; min-height: 60px; padding: 14px 16px; line-height: 26px; font-weight: 600; }
+:is(.skyline-selector, .skyline-selector-leaving)[data-menu-kind="for_you"], :is(.skyline-selector, .skyline-selector-leaving)[data-menu-kind="profile"] { display: flex; flex-direction: column; gap: 10px; }
+:is(.skyline-selector, .skyline-selector-leaving)[data-menu-kind="for_you"] .skyline-menu-header { padding-bottom: 2px; }
+:is(.skyline-selector, .skyline-selector-leaving)[data-menu-kind="for_you"] .skyline-menu-item, :is(.skyline-selector, .skyline-selector-leaving)[data-menu-kind="profile"] .skyline-menu-item { min-height: 54px; }
+:is(.skyline-selector, .skyline-selector-leaving)[data-menu-kind="profile"] .skyline-profile-header { margin-bottom: 0; }
+:is(.skyline-selector, .skyline-selector-leaving)[data-menu-kind="profile"] .skyline-menu-divider { flex-shrink: 0; margin: 0 12px; }
+:is(.skyline-selector, .skyline-selector-leaving)[data-menu-kind="library"] .browse-button[role="menuitem"], :is(.skyline-selector, .skyline-selector-leaving):is(.skyline-flyout, .skyline-flyout-leaving) .browse-button.skyline-menu-item { font-size: 20px; line-height: 24px; min-height: 50px; padding: 13px 16px; border-radius: 12px; gap: 12px; color: rgba(255,255,255,.86); }
+:is(.skyline-selector, .skyline-selector-leaving)[data-menu-kind="library"] [role="menuitem"] .skyline-menu-icon, :is(.skyline-flyout, .skyline-flyout-leaving) .skyline-menu-icon { width: 26px; height: 18px; }
+:is(.skyline-selector, .skyline-selector-leaving)[data-menu-kind="library"] .browse-button[role="menuitemradio"] { padding: 16px 18px; min-height: 58px; border-radius: 14px; color: rgba(255,255,255,.9); }
+:is(.skyline-selector, .skyline-selector-leaving)[data-menu-kind="for_you"] .skyline-menu-item, :is(.skyline-selector, .skyline-selector-leaving)[data-menu-kind="profile"] .skyline-menu-item { border-radius: 14px; color: rgba(255,255,255,.86); }
+:is(.skyline-selector, .skyline-selector-leaving)[data-menu-kind="for_you"] .skyline-menu-icon, :is(.skyline-selector, .skyline-selector-leaving)[data-menu-kind="profile"] .skyline-menu-icon { height: 20px; }
+:is(.skyline-selector, .skyline-selector-leaving) .browse-button:focus { background: #fff; color: #000; }
+:is(.skyline-selector, .skyline-selector-leaving) .browse-button.skyline-destructive { color: rgba(255,69,58,.9); }
+:is(.skyline-selector, .skyline-selector-leaving)[data-menu-kind] .browse-button:focus, :is(.skyline-selector, .skyline-selector-leaving).skyline-flyout .browse-button:focus { background: #fff; color: #000; }
+:is(.skyline-selector, .skyline-selector-leaving) .browse-button.skyline-destructive:focus { background: #fff; color: #000; }
 .skyline-marquee { position: fixed; top: 218px; left: 88px; width: 880px; height: 280px; pointer-events: none; }
 /* The text layer swaps with no animation; the backdrop layer under it crossfades easeInOut(0.24)
    (silo-apple 85679e7 TVRootHeroBackdrop.swift:160, :188-191; SiloTheme.swift:304). */

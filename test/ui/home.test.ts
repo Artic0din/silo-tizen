@@ -602,7 +602,8 @@ journey("Home chrome uses the shared Swift wordmark and control dimensions", asy
         const style = getComputedStyle(node);
         return [style.fontSize, style.fontWeight, node.getBoundingClientRect().height];
     });
-    assert.deepEqual(tab, ["26px", "600", 56]);
+    // 26 pt semibold times the SF cap-height scale (SiloTheme.swift:189, theme.css --silo-sf-cap-scale).
+    assert.deepEqual(tab, ["25.181px", "600", 56]);
     assert.equal(await tv.page.locator(".skyline-profile").evaluate(node => node.getBoundingClientRect().width), 58);
 });
 

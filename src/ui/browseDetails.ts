@@ -441,7 +441,8 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
     // TVSeriesDetailView shows the readout while episodes load or while it has a target episode. Tizen reads a target's
     // playback detail only for the next-up episode, so the readout also hides once nothing is loading and no values came.
     const showsSummary = (detail.type !== "series" && detail.type !== "season") || state?.series === undefined || state.series.loading || state.nextEpisodeLoading || summary !== undefined;
-    const content = [...detailHeader(detail, context, actions.map(detailAction), state, summary, showsSummary), ...lines(notes), ...personal?.notes ?? []];
+    // TVDetailActions.swift:485-545: Apple's action row has no loading line; More keeps the announcement.
+    const content = [...detailHeader(detail, context, actions.map(detailAction), state, summary, showsSummary), ...lines(notes), ...state?.personalFailed ? personal?.notes ?? [] : []];
     // A save in flight holds Play; a failed one leaves Play live so pressing it re-sends the save.
     for (const action of actions.filter(action => ["play", "resume", "next-episode", "start-over-episode"].includes(action.key))) {
         if (playbackChoices !== undefined) action.element.setAttribute("aria-disabled", String(savePending));

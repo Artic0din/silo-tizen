@@ -341,6 +341,23 @@ for (const media of ["movie:m0001", "series:s1"] as const) detailTest(`returning
     assert.equal(await scrollTop(), 0);
 });
 
+detailTest("a Details repaint during the move down to Cast keeps the page scrolling to Cast", async tv => {
+    // The similar titles' answer repaints Details; holding it lands that repaint while the focus scroll runs.
+    const similar = tv.fake.hold("/recommendations/similar/movie%3Am0001");
+    await tv.page.locator(MOVIE).first().click();
+    await tv.page.locator('[data-focus^="credit:"]').first().waitFor();
+    await tv.eventually(() => tv.page.evaluate(() => document.activeElement?.closest(".details-editorial") !== null), "the hero actions take focus");
+    // A paused clock keeps the scroll at its first frame until the repaint has landed.
+    await pauseTvClock(tv);
+    await tv.remote(40);
+    assert.match(await tv.focused() ?? "", /^credit:/);
+    similar.release();
+    await tv.page.locator('[data-detail-section="related"] [data-focus]').first().waitFor();
+    await tv.jump(1000);
+    const heading = await tv.page.evaluate(() => (document.querySelector(".details-people")?.previousElementSibling?.getBoundingClientRect().top ?? 0) - (document.querySelector(".browse")?.getBoundingClientRect().top ?? 0));
+    assert.ok(Math.abs(heading - 546) <= 3, `the Cast heading rests at Apple's Down anchor, not ${heading}`);
+});
+
 detailTest("a focused episode shows only its own detail's ratings, never the list's copy", async tv => {
     await patchJson<{ items: Record<string, unknown>[] }>(tv, "**/api/v2/catalog/series/series%3As1/seasons/1/episodes?**", body => ({ ...body, items: body.items.map(item => ({ ...item, ratings: [{ source: "imdb", name: "IMDb", score: 90, display: "9.0" }] })) }));
     // The episode's own detail never answers, neighbour prefetch included.

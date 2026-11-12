@@ -317,9 +317,16 @@ export class SkylineScroll {
         this.move(viewport, 0, Math.max(0, viewport.scrollTop + delta / scale));
     }
 
-    stop(): void {
-        for (const frame of this.frames.values()) cancelAnimationFrame(frame);
-        this.frames.clear();
+    /** Whether `node` is moving now. */
+    moving(node: HTMLElement): boolean { return this.frames.has(node); }
+
+    /** Cancels every move except `keep`'s. */
+    stop(keep?: HTMLElement): void {
+        for (const [node, frame] of this.frames) {
+            if (node === keep) continue;
+            cancelAnimationFrame(frame);
+            this.frames.delete(node);
+        }
         this.pinnedShelf = null;
     }
 }

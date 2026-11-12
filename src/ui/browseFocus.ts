@@ -199,6 +199,8 @@ export class FocusHost {
             this.outgoing = outgoing;
             this.transitionTimer = window.setTimeout(() => this.clearTransition(), 200);
         }
+        // A Details focus scroll already on its way when this repaint starts; the repaint keeps it going.
+        const revealing = sameVisit && view.name.startsWith("item:") && this.scroll.moving(this.viewport());
         const previous = sameVisit ? this.locate(document.activeElement) : undefined;
         const kept = previous === undefined ? undefined : { zone: previous.zone.id, key: previous.item.key };
         const unchanged = sameVisit ? kept ?? focus ?? this.memoryTarget() : undefined;
@@ -238,8 +240,9 @@ export class FocusHost {
         const focused = this.focused();
         const sameIdentity = unchanged !== undefined && focused?.zone === unchanged.zone && focused.key === unchanged.key;
         if ((sameIdentity || returnSnap) && visit !== undefined && !retainedPerson) {
-            // Repainting the same identity (including a dismissed modal) must keep its viewport.
-            this.scroll.stop();
+            // Repainting the same identity (including a dismissed modal) must keep its viewport, and a
+            // Details focus scroll already on its way moves on from the restored position.
+            this.scroll.stop(revealing ? this.viewport() : undefined);
             this.applyVisit(visit);
             const element = this.locate(document.activeElement)?.item.element;
             if ((this.container.dataset.view === "search" || this.container.dataset.view?.startsWith("person:") || this.container.classList.contains("section-catalog") || this.container.classList.contains("library-browse") || this.container.classList.contains("requests-hub") || this.container.classList.contains("details-series-scene") || this.container.classList.contains("accounts-screen") || element?.closest(".settings-modal-options") != null) && element !== undefined) {

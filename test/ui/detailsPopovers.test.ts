@@ -238,15 +238,43 @@ detailTest("An unanswered favourite is Apple's Change Not Confirmed alert, and D
     // PersonalStateNoticeAlert: the destructive Discard Held Change sits above OK, and OK keeps focus.
     assert.deepEqual(await alert.locator("button").allTextContents(), ["Discard Held Change", "OK"]);
     assert.equal(await tv.focused(), "alert-ok");
+    // OK keeps the hold: pressing the control again shows the alert instead of sending the write.
+    await alert.getByRole("button", { name: "OK", exact: true }).click();
+    await alert.waitFor({ state: "detached" });
+    await tv.page.locator('[data-focus="more"]').click();
+    await tv.page.locator('[data-focus="favorites"]').click();
+    await alert.waitFor();
+    assert.equal(writes, 1, "a held change is never re-sent");
     const membershipReads = () => tv.fake.requests.filter(request => request.path === "/favorites/movie%3Am0001/membership").length;
     const before = membershipReads();
+    const reload = tv.fake.hold("/favorites/movie%3Am0001/membership");
     await alert.getByRole("button", { name: "Discard Held Change", exact: true }).click();
     await alert.waitFor({ state: "detached" });
     await tv.eventually(async () => membershipReads() > before, "discard reloads the membership");
-    assert.equal(writes, 1, "a held change is never re-sent");
+    // The control stays busy until the reload answers, so no press can act on the replaced state.
     await tv.page.locator('[data-focus="more"]').click();
-    await tv.page.getByRole("dialog", { name: "More", exact: true }).getByRole("button", { name: "Add to Favorites", exact: true }).waitFor();
+    const panel = tv.page.getByRole("dialog", { name: "More", exact: true });
+    assert.equal(await panel.locator('[data-focus="favorites"]').getAttribute("aria-disabled"), "true");
+    reload.release();
+    await tv.remote(10009);
+    await tv.page.locator('[data-focus="more"]').click();
+    await panel.getByRole("button", { name: "Add to Favorites", exact: true }).waitFor();
+    assert.equal(writes, 1);
     void details;
+});
+
+detailTest("A season watched failure that lands after switching seasons still shows its alert", async (tv, details) => {
+    const seasons = details.route("GET", "/catalog/series/series%3As1/seasons", "p-owner")?.body as { items: { content_id: string; season_number: number }[] };
+    const first = seasons.items.find(season => season.season_number === 1)?.content_id ?? "";
+    await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
+    await tv.page.locator('[data-focus="watchlist"][aria-pressed]').waitFor();
+    details.mutationFailure = problem(422, "validation_failed", "Unavailable action");
+    const write = tv.fake.hold(`/watched/${encodeURIComponent(first)}`, true);
+    await tv.page.locator('[data-focus="more"]').click();
+    await tv.page.locator('[data-focus="season-watched"]').click();
+    await tv.page.locator('[data-focus="season:2"]').click();
+    write.release();
+    await dismissAlert(tv, "Couldn't Update Watched Status", "Please check your connection and try again.");
 });
 
 detailTest("Back dismisses the alert like OK", async (tv, details) => {

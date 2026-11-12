@@ -2342,8 +2342,12 @@ browseTest("a lost watched answer is reconciled on Retry without repeating the n
     assert.equal(catalog.watched, true, "server committed the lost answer");
     await tv.jump(30000);
     assert.equal(catalog.mutations.length, 1);
+    // A held change is never re-sent: the press shows the alert, and Discard reloads the committed state.
     await detailsMore(tv);
     await tv.page.getByRole("button", { name: "Mark as Watched", exact: true }).click();
+    const held = tv.page.getByRole("alertdialog", { name: "Change Not Confirmed", exact: true });
+    await held.getByRole("button", { name: "Discard Held Change", exact: true }).click();
+    await held.waitFor({ state: "detached" });
         await detailsMore(tv);
     await tv.page.getByRole("button", { name: "Mark as Unwatched", exact: true }).waitFor();
     assert.equal(catalog.mutations.length, 1, "retry reads the committed state instead of recording another watch");

@@ -665,7 +665,8 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
 
 /** A failure Details shows as Apple's system alert: centred over the page, one OK, and Back dismisses it. */
 export function withDetailsAlert(view: View, state: DetailsState | undefined): View {
-    const seasonOwner = state?.series?.seasonNumber === undefined ? undefined : state.seasonStates.get(state.series.seasonNumber);
+    // Any season's owner can fail, including one the viewer moved away from while its write was in flight.
+    const seasonOwner = state?.alert === undefined ? [...state?.seasonStates.values() ?? []].find(owner => owner.alert !== undefined) : undefined;
     const alert = state?.alert ?? seasonOwner?.alert;
     if (state === undefined || alert === undefined) return view;
     const dismiss = (): void => { seasonOwner?.dismissAlert(); state.dismissAlert(); };

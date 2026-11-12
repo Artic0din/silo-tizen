@@ -34,6 +34,9 @@ export interface DetailsAlert {
 const ITEM_UPDATE_FAILED: DetailsAlert = { id: "details-update-failed", title: "Couldn't Update Item", message: "Your change wasn't saved. Please try again." };
 /** PersonalStateNotice.held: the write may have landed without an answer, so it is never re-sent from here. */
 const HELD_MESSAGE = "Silo sent this change but the server didn't answer, so it won't be sent again. Discard the held change to reload this item and try again.";
+function heldAlert(kind: PersonalAction): DetailsAlert {
+    return { id: "details-change-held", title: "Change Not Confirmed", message: HELD_MESSAGE, held: kind };
+}
 /** TVSeriesDetailView's season watched alert (detail.watchedError). */
 const SEASON_WATCHED_FAILED: DetailsAlert = { id: "details-season-watched-failed", title: "Couldn't Update Watched Status", message: "Please check your connection and try again." };
 /** ShuffleLauncher.failureMessage under the shuffle.failedTitle alert. */
@@ -49,6 +52,8 @@ export interface PersonalChange {
     readonly target: boolean;
     readonly pending: boolean;
     readonly failed: boolean;
+    /** PersonalStateHolds: the write went unanswered, so no press sends it again until Discard Held Change. */
+    readonly held?: true;
 }
 
 const EPISODE_PREFETCH_CONCURRENCY = 4;
@@ -109,6 +114,8 @@ export class DetailsState {
     shuffleStarting = false;
     /** The failure on screen as an alert, until OK or Back dismisses it. */
     alert: DetailsAlert | undefined;
+    /** Details shows personal failures as Apple's alerts and holds unanswered writes; a card menu keeps its inline Retry. */
+    presentsAlerts = false;
     private full = false;
     private restored = false;
     private readonly responses = new Map<string, unknown>();
@@ -522,14 +529,27 @@ export class DetailsState {
 
     /** Discard Held Change: drop the unconfirmed write and reload what the server now holds for it. */
     discardHeld(): void {
-        const kind = this.alert?.held;
+        const held = this.alert;
+        const kind = held?.held;
         const change = kind === undefined ? undefined : this.changes.get(kind);
         const controller = this.controller;
         this.alert = undefined;
-        if (kind !== undefined) this.changes.delete(kind);
+        if (kind === undefined || change === undefined || controller === undefined) { this.changed(); return; }
+        // The control stays busy until the reload settles, so no press can act on the state it is replacing.
+        const reloading: PersonalChange = { target: change.target, pending: true, failed: false };
+        this.changes.set(kind, reloading);
         this.changed();
-        if (kind === undefined || change === undefined || controller === undefined) return;
-        void this.refresh(kind, controller, change.target, false).then(() => { if (this.current(controller)) this.changed(); }, () => undefined);
+        void this.refresh(kind, controller, change.target, false).then(() => {
+            if (!this.current(controller) || this.changes.get(kind) !== reloading) return;
+            this.changes.delete(kind);
+            this.changed();
+        }, () => {
+            if (!this.current(controller) || this.changes.get(kind) !== reloading) return;
+            // The server state is still unknown: keep the hold and offer the discard again.
+            this.changes.set(kind, change);
+            this.alert = held;
+            this.changed();
+        });
     }
 
     /** ShuffleLauncher.start: More closes at once; a failure is the Couldn't Shuffle alert. */
@@ -577,6 +597,7 @@ export class DetailsState {
             const owner = new DetailsState({ ...this.detail, id: season.id, type: "season", seriesId: this.detail.id, seasonNumber: season.seasonNumber, played: this.aggregateWatched ?? season.userData?.played },
                 this.session, () => this.changed(), (detail, signal) => this.seasonWatchedChanged(detail, signal),
                 () => this.pending || this.pendingElsewhere());
+            owner.presentsAlerts = this.presentsAlerts;
             this.seasonStates.set(season.seasonNumber, owner);
             owner.start("personal");
         }
@@ -684,6 +705,7 @@ export class DetailsState {
             if (season === undefined) continue;
             const owner = new DetailsState({ ...prior.detail, played: season.userData?.played }, this.session, () => this.changed(),
                 (detail, signal) => this.seasonWatchedChanged(detail, signal), () => this.pending || this.pendingElsewhere());
+            owner.presentsAlerts = this.presentsAlerts;
             for (const [kind, change] of prior.changes) owner.changes.set(kind, { ...change, pending: false, failed: true });
             this.seasonStates.set(number, owner);
         }
@@ -877,6 +899,8 @@ export class DetailsState {
     change(kind: PersonalAction, target: boolean, reconcile = false): void {
         const controller = this.controller;
         if (controller === undefined || this.busy || !this.values.has(kind)) return;
+        // PersonalStateSync.set: a held change is never sent again; the press shows the held alert instead.
+        if (this.changes.get(kind)?.held === true) { this.alert = heldAlert(kind); this.changed(); return; }
         this.changes.set(kind, { target, pending: true, failed: false });
         this.changed();
         let unanswered = false;
@@ -904,8 +928,9 @@ export class DetailsState {
             this.changed();
         }, () => {
             if (!this.current(controller)) return;
-            this.changes.set(kind, { target, pending: false, failed: true });
-            this.alert = this.detail.type === "season" ? SEASON_WATCHED_FAILED : unanswered ? { id: "details-change-held", title: "Change Not Confirmed", message: HELD_MESSAGE, held: kind } : ITEM_UPDATE_FAILED;
+            const held = this.presentsAlerts && unanswered && this.detail.type !== "season";
+            this.changes.set(kind, { target, pending: false, failed: true, ...(held ? { held: true as const } : {}) });
+            if (this.presentsAlerts) this.alert = this.detail.type === "season" ? SEASON_WATCHED_FAILED : held ? heldAlert(kind) : ITEM_UPDATE_FAILED;
             this.changed();
         });
     }

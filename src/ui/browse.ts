@@ -1016,6 +1016,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             }
             detailsChanged(current, audioClosed);
         }, (value, signal) => refreshWatched(current, value, signal), personalPending, translations, () => resolutionCap.quality, signal => resolutionCap.ready(signal));
+        details.presentsAlerts = true;
         resolutionCap.ensure();
         return details;
     };
@@ -1548,6 +1549,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     current.data = data;
                     if (data.detail !== undefined) {
                         const details = new DetailsState(data.detail, session, (audioClosed) => detailsChanged(current, audioClosed), (detail, signal) => refreshWatched(current, detail, signal), personalPending, translations, () => resolutionCap.quality, signal => resolutionCap.ready(signal));
+                        details.presentsAlerts = true;
                         resolutionCap.ensure();
                         details.restore(previous);
                         current.data.details = details;

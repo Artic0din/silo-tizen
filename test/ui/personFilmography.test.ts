@@ -804,6 +804,12 @@ for (const outcome of ["pending", "lost"]) journey(`Details reconciles ${outcome
     await tv.page.locator('[data-focus="watchlist"]').waitFor();
     assert.equal(await tv.page.locator('[data-focus="watchlist"]').innerText(), "Watchlist");
     await tv.page.locator('[data-focus="watchlist"]').click();
+    if (outcome === "lost") {
+        // A held change is never re-sent: the press shows the alert, and Discard reloads the committed state.
+        const alert = tv.page.getByRole("alertdialog", { name: "Change Not Confirmed", exact: true });
+        await alert.getByRole("button", { name: "Discard Held Change", exact: true }).click();
+        await alert.waitFor({ state: "detached" });
+    }
     await tv.page.getByRole("button", { name: "Remove from watchlist", exact: true }).waitFor();
     assert.equal(catalog.mutations.length, 1);
 });

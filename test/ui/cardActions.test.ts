@@ -849,3 +849,31 @@ test("a watched change from a card above a series page makes Back show the seaso
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }
 });
+
+test("leaving a retained series page before its reread lands still picks the season again on the next visit", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const catalog = await start(tv);
+        const series = origin(tv, false, "series:s1");
+        await series.click();
+        await tv.eventually(async () => await tv.focused() === "next-episode", "Series Play entry focus settles");
+        await tv.page.locator('[data-focus="season:2"]').focus(); await tv.jump(500);
+        await tv.page.locator('[data-focus="season:2"][aria-pressed="true"]').waitFor();
+        await tv.page.locator('.details-people [data-focus^="credit:7:"]').first().click();
+        const card = tv.page.locator('.browse[data-view="person:7"] [data-focus="series:s1"]').first();
+        await card.waitFor();
+        await card.focus(); await tv.down(13); await tv.jump(650); await tv.up(13);
+        await row(tv, "Mark as Watched").click();
+        await tv.eventually(async () => catalog.mutations.length === 1 && await menu(tv).count() === 0, "watched change lands");
+        const reread = tv.fake.hold("/catalog/items/series%3As1", true);
+        await tv.remote(10009);
+        await tv.page.locator('.browse[data-view="item:series:s1"]').waitFor();
+        await tv.remote(10009);
+        await series.waitFor();
+        reread.release();
+        await series.click();
+        await tv.page.locator('[data-focus="season:1"][aria-pressed="true"]').waitFor();
+        assert.equal(await tv.page.locator('[data-focus^="season:"][aria-pressed="true"]').count(), 1);
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});

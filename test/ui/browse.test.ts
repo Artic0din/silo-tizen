@@ -3360,20 +3360,18 @@ browseTest("discovery uses nonzero letter positions and cancels an obsolete quer
     assert.equal(await tv.fake.requests.length, requests);
 }, { multipleLibraries: true });
 
-browseTest("Skyline keeps bounded type tabs and a passive debounced marquee", async (tv) => {
+browseTest("Skyline keeps bounded type tabs and a passive marquee whose text follows focus at once", async (tv) => {
     assert.deepEqual(await cardIds(tv, ".browse-nav .browse-button"), ["search", "home", "movies", "series", "for_you", "calendar", "profiles"]);
-    const headline = (): Promise<string | null> => tv.page.locator(".skyline-marquee-layer:not(.skyline-outgoing) h1").textContent();
-    assert.equal(await headline(), "Movie 0001");
+    const headlines = (): Promise<string[]> => tv.page.locator(".skyline-marquee-layer h1").allTextContents();
+    assert.deepEqual(await headlines(), ["Movie 0001"]);
     const reads = tv.fake.requests.length;
-    // The installed page clock keeps flowing, so a loaded runner can pass 150 ms before the next
-    // read. Pause it so only the jump below opens the debounced layer. The outgoing title stays
-    // mounted through the crossfade, so the read is the current layer.
+    // Pause the page clock so no rest timer can fire between the press and the read: the text must not need one.
     await tv.page.clock.pauseAt(await tv.page.evaluate(() => Date.now()) + 1000);
     await press(tv, "ArrowRight");
     assert.equal(await tv.focused(), "episode:s1e12");
-    assert.equal(await headline(), "Movie 0001");
+    // TVFocusMarquee.swift:1262-1264 at silo-apple 85679e7: the foreground replaces the old one with no animation.
+    assert.deepEqual(await headlines(), ["Harbor Lights"], "episodes headline with their series, at once and alone");
     await tv.jump(150);
-    assert.equal(await headline(), "Harbor Lights", "episodes headline with their series");
     assert.equal(tv.fake.requests.length, reads);
 });
 

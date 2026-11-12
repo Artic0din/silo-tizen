@@ -63,6 +63,8 @@ export class HomeEnrichment {
     private readonly continuingSettled: () => void;
     private readonly schedule: Clock["schedule"];
     private cancelRest: () => void = () => undefined;
+    /** The focused card's read while it waits out the rest. */
+    private pendingRead: (() => void) | undefined;
     private focusController: AbortController | undefined;
     private focusedId: string | undefined;
     private focusRevision: string | undefined;
@@ -130,6 +132,7 @@ export class HomeEnrichment {
         }
         this.cancelRest();
         this.cancelRest = () => undefined;
+        this.pendingRead = undefined;
         this.focusController?.abort();
         this.focusedId = card.id;
         this.focusRevision = revision;
@@ -140,20 +143,40 @@ export class HomeEnrichment {
         }
         const controller = new AbortController();
         this.focusController = controller;
-        this.cancelRest = this.schedule(() => {
-            this.cancelRest = () => undefined;
+        const read = (): void => {
             if (this.focusController !== controller) return;
             this.request(card.id, revision, controller.signal, () => {
                 if (this.focusController !== controller || !this.fresh(card.id, revision)) return;
                 this.landed(card.id);
             });
+        };
+        this.pendingRead = read;
+        this.cancelRest = this.schedule(() => {
+            this.cancelRest = () => undefined;
+            this.pendingRead = undefined;
+            read();
         }, MARQUEE_REST_MILLISECONDS);
+    }
+
+    /**
+     * A row change: `loadEnrichment(deferNetwork: false)` in restForRowChange (silo-apple 85679e7
+     * `tvOS/Components/TVFocusMarquee.swift:818-826`) starts the focused card's read without the rest.
+     * Moves within a row still wait for it (`:808`, `:973-978`).
+     */
+    readNow(): void {
+        const read = this.pendingRead;
+        if (read === undefined) return;
+        this.cancelRest();
+        this.cancelRest = () => undefined;
+        this.pendingRead = undefined;
+        read();
     }
 
     /** Leaves the scene: drop the wait and every read that has not landed. Kept answers stay. */
     suspend(): void {
         this.cancelRest();
         this.cancelRest = () => undefined;
+        this.pendingRead = undefined;
         this.focusController?.abort();
         this.focusController = undefined;
         this.focusedId = undefined;

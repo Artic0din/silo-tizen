@@ -103,6 +103,8 @@ export class FocusHost {
     private incoming: HTMLElement[] = [];
     private transitionTimer: number | undefined;
     private press: { item: FocusItem; started: number; timer: number | undefined; cancelled: boolean } | undefined;
+    /** The card Select is holding down, drawn pressed (TVCardFocusStyle.swift:150-153) until release. */
+    private pressedCard: HTMLElement | undefined;
     /** One Play claim per Details visit. tvOS retries it; a failed claim used to leave body focused until the next key. */
     private playClaim: { visit: string; attempts: number; waits: number; finished: boolean; timer: number | undefined; moved: boolean; awaitingPrimary: boolean } | undefined;
     private readonly detach = new MutationObserver(() => {
@@ -689,7 +691,13 @@ export class FocusHost {
         return zone === undefined || key === undefined ? undefined : { zone, key };
     }
 
+    private releaseCard(): void {
+        this.pressedCard?.removeAttribute("data-pressed");
+        this.pressedCard = undefined;
+    }
+
     private readonly cancelPress = (): void => {
+        this.releaseCard();
         if (this.press === undefined) return;
         if (this.press.timer !== undefined) window.clearTimeout(this.press.timer);
         this.press.timer = undefined;
@@ -699,6 +707,12 @@ export class FocusHost {
     private readonly onPress = (event: KeyboardEvent): void => {
         const key = remoteKey(event);
         if (key !== "enter") { if (key !== undefined) this.cancelPress(); return; }
+        const card = document.activeElement;
+        if (!event.repeat && card instanceof HTMLElement && card.classList.contains("browse-card") && this.container.contains(card)) {
+            this.releaseCard();
+            this.pressedCard = card;
+            card.setAttribute("data-pressed", "");
+        }
         if (this.press !== undefined) { event.preventDefault(); event.stopImmediatePropagation(); return; }
         if (event.defaultPrevented) return;
         const item = this.locate(document.activeElement)?.item;
@@ -722,6 +736,7 @@ export class FocusHost {
     }
 
     private readonly onRelease = (event: KeyboardEvent): void => {
+        if (remoteKey(event) === "enter") this.releaseCard();
         if (remoteKey(event) !== "enter" || this.press === undefined) return;
         event.preventDefault();
         event.stopImmediatePropagation();

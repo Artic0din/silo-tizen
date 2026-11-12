@@ -68,6 +68,7 @@ test("browse fixtures decode with the production decoders", () => {
         title: "Heat",
         year: 1995,
         posterUrl: "https://s3.example.test/poster.jpg",
+        posterThumbhash: undefined,
         backdropUrl: undefined,
         backdropThumbhash: undefined,
         overview: undefined,
@@ -131,13 +132,13 @@ test("Home featured is a boolean independent of the opaque section identity and 
     assert.throws(() => decodeHomeSections({ sections: [{ ...section, featured: "true" }] }), WireError);
 });
 
-test("Home backdrop ThumbHashes retain strings and reject malformed wire values", () => {
+for (const [wire, field] of [["backdrop_thumbhash", "backdropThumbhash"], ["poster_thumbhash", "posterThumbhash"]] as const) test(`Home ${wire} retains strings and rejects malformed wire values`, () => {
     const raw = fixture("list_home_sections_ok") as { sections: { items: Record<string, unknown>[] }[] };
     const card = raw.sections[0]?.items[0];
     assert.ok(card);
-    card.backdrop_thumbhash = "1QcSHQRnh493V4dIh4eXh1h4kJUI";
-    assert.equal(decodeHomeSections(raw)[0]?.items[0]?.backdropThumbhash, card.backdrop_thumbhash);
-    card.backdrop_thumbhash = ["invalid"];
+    card[wire] = "1QcSHQRnh493V4dIh4eXh1h4kJUI";
+    assert.equal(decodeHomeSections(raw)[0]?.items[0]?.[field], card[wire]);
+    card[wire] = ["invalid"];
     assert.throws(() => decodeHomeSections(raw), WireError);
 });
 

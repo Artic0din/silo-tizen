@@ -77,8 +77,8 @@ for (const root of ["home", "movies"] as const) for (const destination of ["Hist
         await page.locator('.browse-card').first().waitFor();
         await page.locator('.browse-card').first().focus();
         await tv.jump(500);
-        await page.locator('.skyline-marquee-layer:not(.skyline-outgoing) .skyline-backdrop').evaluate(async image => { await (image as HTMLImageElement).decode(); });
-        const hero = () => tv.page.locator('.skyline-marquee-layer:not(.skyline-outgoing)').evaluate(node => ({ title: node.querySelector('.skyline-title')?.textContent, image: node.querySelector('img')?.getAttribute('src') }));
+        await page.locator('.skyline-marquee-art:not(.skyline-outgoing) .skyline-backdrop').evaluate(async image => { await (image as HTMLImageElement).decode(); });
+        const hero = () => tv.page.locator('.skyline-marquee').evaluate(node => ({ title: node.querySelector('.skyline-marquee-layer .skyline-title')?.textContent, image: node.querySelector('.skyline-marquee-art:not(.skyline-outgoing) img')?.getAttribute('src') }));
         const expected = await hero();
         assert.ok(expected.image?.includes("/art/"), "origin has loaded backdrop artwork");
         await tv.page.locator('[data-focus="profiles"]').click();
@@ -96,7 +96,7 @@ for (const root of ["home", "movies"] as const) for (const destination of ["Hist
         await tv.jump(1000);
         assert.equal(await tv.focused(), root);
         assert.deepEqual(await hero(), expected, "Back restores the originating page's title and backdrop");
-        await page.locator('.skyline-marquee-layer:not(.skyline-outgoing) .skyline-backdrop').evaluate(async image => { await (image as HTMLImageElement).decode(); });
+        await page.locator('.skyline-marquee-art:not(.skyline-outgoing) .skyline-backdrop').evaluate(async image => { await (image as HTMLImageElement).decode(); });
         await tv.page.locator('[data-focus="profiles"]').click();
         await tv.remote(10009);
         assert.equal(await tv.focused(), "profiles", "Back from the menu itself still restores the avatar");
@@ -259,8 +259,8 @@ test("For You shares Home shelves and expands only rows with a supported locator
         await tv.page.locator('.browse[data-view="for_you"] .browse-card').first().waitFor();
         assert.deepEqual(await tv.page.locator(".browse > .skyline-content .browse-section-title").allTextContents(), ["For You", "Popular", "A new shelf"]);
         assert.equal(await tv.page.locator('.browse').evaluate(node => node.classList.contains("skyline-home")), true);
-        assert.equal(await tv.page.locator(".browse > .skyline-marquee .skyline-marquee-layer:not(.skyline-outgoing) .skyline-backdrop").count(), 1, "the fixture supplies backdrop artwork");
-        assert.equal(await tv.page.locator(".browse > .skyline-marquee .skyline-marquee-layer:not(.skyline-outgoing) .skyline-hero-backdrop").count(), 1, "For You uses Home's calibrated artwork and tint owner");
+        assert.equal(await tv.page.locator(".browse > .skyline-marquee .skyline-marquee-art:not(.skyline-outgoing) .skyline-backdrop").count(), 1, "the fixture supplies backdrop artwork");
+        assert.equal(await tv.page.locator(".browse > .skyline-marquee .skyline-marquee-art:not(.skyline-outgoing) .skyline-hero-backdrop").count(), 1, "For You uses Home's calibrated artwork and tint owner");
         assert.equal(await tv.page.locator('[data-focus^="expand:recommendation:"]').count(), 2);
         const reads = tv.fake.requests.length;
         await tv.remote(39);

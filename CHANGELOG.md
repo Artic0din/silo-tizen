@@ -33,6 +33,7 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Person page text now matches Apple TV's size and width: the name, facts, biography, Filmography heading, title count, filter chips, poster captions, initials and the Loading metadata capsule use Apple's point sizes corrected for Inter's taller capitals, with letter spacing fitted to Apple's SF Pro. The Loading metadata capsule uses Apple's dimmer text and background, and the filter chips are Apple's 46px tall, so the filmography grid starts where Apple's does.
 - Details text now matches Apple TV's size and width: the title, rating chip, cast, facts, rails, box set page and error pages use Apple's point sizes corrected for Inter's taller capitals, and each line's letter spacing makes it run as wide as Apple's SF Pro.
 - Details popovers now match Apple TV: Version, Audio and Subtitles share More's glass panel, reopen on the selected track, close with Left or Right, scroll long lists, dim subtitles that can't be delivered, and a failed change, season watched or shuffle shows Apple's alert. More adds Shuffle Season and, with Watch Party on, Watch Party.
 - Holding Select on a card now opens a menu that looks and reads like Apple TV's: it appears beside the card at once, with a symbol on each row, Apple's labels, and Remove from Continue Watching or Remove from Next Up on those Home rows. A change that fails shows "Couldn’t Update Item". An empty Home now says "Nothing to watch yet", and Home no longer shows refresh messages under its rows.

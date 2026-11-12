@@ -427,7 +427,8 @@ test("person biography uses Apple's body size, line and clamp", async () => {
         });
         // PersonDetailView.swift:459 .siloBody (Typography.swift:28, 26pt regular), lineLimit(7) at :461, no lineSpacing.
         // Apple TV at 2ef3a171 draws those lines 31px apart (measured, 8 Nov 2026), so seven lines are 217px tall.
-        assert.deepEqual(bio, { fontSize: "26px", lineHeight: "31px", height: 217, clipped: true });
+        // 26 times --silo-sf-cap-scale (#418); the line stays 31.
+        assert.deepEqual(bio, { fontSize: "25.181px", lineHeight: "31px", height: 217, clipped: true });
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }
 });

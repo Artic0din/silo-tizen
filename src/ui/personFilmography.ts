@@ -9,8 +9,8 @@ import { el } from "./screen.ts";
 const PERSON_PAGE_SIZE = 60;
 const LOAD_MORE_ROWS = 8;
 const MIN_FILMOGRAPHY_HEIGHT_PX = 420;
-/** SF Symbol film.stack: a film frame with two cards stacked behind it. */
-const FILM_STACK_ICON = '<svg viewBox="0 0 48 44" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round"><path d="M12 1.5h24M7 7.5h34"/><rect x="1.5" y="13.5" width="45" height="29" rx="5"/><path d="M12 13.5v29M36 13.5v29M1.5 28h10.5M36 28h10.5"/></svg>';
+/** SF Symbol film.stack: a film frame with sprocket strips and a centre divider, two cards stacked behind it. */
+const FILM_STACK_ICON = '<svg viewBox="0 0 48 44"><g fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round"><path d="M12 1.5h24M7 7.5h34"/><rect x="1.5" y="13.5" width="45" height="29" rx="4"/><path d="M11 28h26"/></g><path fill="currentColor" fill-rule="evenodd" d="M1.5 17.5a4 4 0 0 1 4-4H11v29H5.5a4 4 0 0 1-4-4ZM37 13.5h5.5a4 4 0 0 1 4 4v21a4 4 0 0 1-4 4H37ZM5 16.5h3.5V20H5ZM5 23h3.5v3.5H5ZM5 29.5h3.5V33H5ZM5 36h3.5v3.5H5ZM39.5 16.5H43V20h-3.5ZM39.5 23H43v3.5h-3.5ZM39.5 29.5H43V33h-3.5ZM39.5 36H43v3.5h-3.5Z"/></svg>';
 
 export function personQuery(id: string, filter: MediaScope, cursor?: string): CatalogQueryRequest {
     return { source: "person", person_id: id, type: filter, sort: "year", order: "desc", limit: PERSON_PAGE_SIZE, ...(cursor === undefined ? {} : { cursor }) };

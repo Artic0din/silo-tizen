@@ -86,6 +86,8 @@ async function emptyFilmography(tv: Tv): Promise<void> {
     assert.equal(await state.locator(".search-state-title").textContent(), "No titles found");
     assert.equal(await state.locator(".search-state-description").textContent(), "There are no movies or series linked to this person yet.");
     assert.equal(await state.locator(".search-state-icon svg").count(), 1);
+    // film.stack draws filled sprocket strips with eight holes, not an outline frame.
+    assert.equal(await state.locator(".search-state-icon svg path[fill-rule=\"evenodd\"]").count(), 1);
     assert.ok(await state.evaluate(node => node.getBoundingClientRect().height) >= 420, "Apple's 420pt minimum height");
     assert.equal(await style(".search-state-icon", "height"), "44px");
     assert.equal(await style(".search-state-icon", "margin-bottom"), "12px");

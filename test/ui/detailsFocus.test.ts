@@ -229,7 +229,13 @@ test("Left through a loaded previous season after a fast chip walk sends no seas
         await tv.page.locator('[data-focus="season:1"]').focus();
         // Each held read is aborted by the next chip, as in a fast walk.
         const holds = Array.from({ length: 22 }, (_, index) => tv.fake.hold(`/catalog/series/series%3As1/seasons/${index + 3}/episodes`));
-        for (let press = 0; press < 24; press++) { await tv.remote(39); await tv.jump(80); }
+        for (let press = 0; press < 24; press++) {
+            const reads = seasonReads().length;
+            await tv.remote(39); await tv.jump(80);
+            // Every chip after season 2 reads the season beside it. The fake records a read only once Playwright
+            // intercepts it, and on a slow runner the next chip can abort the read before that, so wait for it.
+            if (press > 0) await tv.eventually(async () => seasonReads().length > reads, `season ${press + 2}'s neighbour read reached the fake`);
+        }
         for (const hold of holds) hold.release();
         await tv.jump(300);
         await tv.remote(ENTER); await tv.jump(500);

@@ -373,6 +373,34 @@ for (const move of ["down", "up"] as const) detailTest(`a Details repaint during
     assert.ok(Math.abs(heading - expected) <= 3, `the Cast heading rests at ${expected} px, not ${heading}`);
 });
 
+detailTest("a box set row that lands above Related during the move down to it still leaves Related at its anchor", async tv => {
+    const catalog = tv.fake.catalog; assert.ok(catalog instanceof FakeDetails);
+    catalog.searchCapabilities = { ...catalog.searchCapabilities, box_sets: true };
+    const boxSet = { id: "1241", library_id: "12", title: "Signal Collection", overview: "Signals.", poster_url: "/art/signal.svg", movie_count: 2, played_count: 0, first_year: 2001, last_year: 2002,
+        items: [{ content_id: "movie:m0001", type: "movie", title: "The Last Signal", year: 2001, poster_url: "/art/s1.svg" }, { content_id: "movie:m0002", type: "movie", title: "Second Signal", year: 2002, poster_url: "/art/s2.svg" }] };
+    let answer: () => void = () => undefined;
+    const answered = new Promise<void>(resolve => { answer = resolve; });
+    await tv.page.route("**/api/v2/catalog/items/movie%3Am0001/box-set?**", async route => { await answered; await route.fulfill({ json: { box_set: boxSet } }); });
+    const related = (): Promise<number> => tv.page.evaluate(() => (document.querySelector('[data-detail-section="related"]')?.previousElementSibling?.getBoundingClientRect().top ?? 0) - (document.querySelector(".browse")?.getBoundingClientRect().top ?? 0));
+    await tv.page.locator(MOVIE).first().click();
+    await tv.page.locator('[data-detail-section="related"] [data-focus]').first().waitFor();
+    await tv.eventually(() => tv.page.evaluate(() => document.activeElement?.closest(".details-editorial") !== null), "the hero actions take focus");
+    await tv.remote(40); await tv.jump(500);
+    assert.match(await tv.focused() ?? "", /^credit:/);
+    // A paused clock keeps the scroll at its first frame until the box set row has landed above Related.
+    await pauseTvClock(tv);
+    await tv.remote(40);
+    assert.equal(await tv.page.evaluate(() => document.activeElement?.closest('[data-detail-section="related"]') !== null), true, "Related has focus");
+    answer();
+    await tv.page.locator('.box-set-row [data-focus="box-set-explore"]').waitFor();
+    await tv.jump(1000);
+    const moved = await related();
+    // The same move without a repaint: up through the box set and back down to Related.
+    await tv.remote(38); await tv.jump(1000);
+    await tv.remote(40); await tv.jump(1000);
+    assert.ok(Math.abs(moved - await related()) <= 1, `Related rests where an undisturbed move puts it (${await related()} px), not ${moved} px`);
+});
+
 detailTest("a focused episode shows only its own detail's ratings, never the list's copy", async tv => {
     await patchJson<{ items: Record<string, unknown>[] }>(tv, "**/api/v2/catalog/series/series%3As1/seasons/1/episodes?**", body => ({ ...body, items: body.items.map(item => ({ ...item, ratings: [{ source: "imdb", name: "IMDb", score: 90, display: "9.0" }] })) }));
     // The episode's own detail never answers, neighbour prefetch included.

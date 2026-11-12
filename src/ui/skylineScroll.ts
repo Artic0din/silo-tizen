@@ -88,6 +88,8 @@ export class SkylineScroll {
     private readonly frames = new Map<HTMLElement, number>();
     private readonly targets = new WeakMap<HTMLElement, { left: number; top: number }>();
     private readonly motions = new WeakMap<HTMLElement, Motion>();
+    /** While set, `move` records each target here instead of moving. */
+    private planned: Map<HTMLElement, { left: number; top: number }> | undefined;
     /** Shelf already bottom-aligned. Horizontal moves inside it do not scroll again. */
     private pinnedShelf: HTMLElement | null = null;
 
@@ -137,6 +139,7 @@ export class SkylineScroll {
     }
 
     move(node: HTMLElement, left: number, top: number, duration = 200, ease: (progress: number) => number = easeOutCubic): void {
+        if (this.planned !== undefined) { this.planned.set(node, { left, top }); return; }
         const previous = this.frames.get(node);
         const target = this.targets.get(node);
         const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -188,7 +191,19 @@ export class SkylineScroll {
         this.frames.set(node, requestAnimationFrame(frame));
     }
 
-    reveal(element: HTMLElement, container: HTMLElement, previous?: Element | null): void {
+    /**
+     * Where `reveal` would move `viewport` for `element` now, without moving anything. `up` stands in for the
+     * previous focus, which a repaint has already removed.
+     */
+    revealTarget(element: HTMLElement, container: HTMLElement, viewport: HTMLElement, up: boolean): { left: number; top: number } | undefined {
+        const planned = new Map<HTMLElement, { left: number; top: number }>();
+        const pinned = this.pinnedShelf;
+        this.planned = planned;
+        try { this.reveal(element, container, undefined, up); } finally { this.planned = undefined; this.pinnedShelf = pinned; }
+        return planned.get(viewport);
+    }
+
+    reveal(element: HTMLElement, container: HTMLElement, previous?: Element | null, movingUp?: boolean): void {
         if (element.closest(".settings-categories") !== null) return;
         if (element.closest(".browse-nav, .skyline-selector:not(.details-audio-picker)") !== null) return;
         const viewport = element.closest<HTMLElement>(".browse-panel-list, .details-popover-scroll, .details-audio-picker, .settings-modal-options, .settings-pane, .skyline-content, .accounts-rail, .accounts-pane, .accounts-settings") ?? container;
@@ -243,7 +258,7 @@ export class SkylineScroll {
             const header = section.previousElementSibling?.getBoundingClientRect();
             if (header === undefined) return;
             const headingTop = viewport.scrollTop + header.top - bounds.top;
-            const up = previous?.isConnected === true && previous.getBoundingClientRect().top > rect.top;
+            const up = movingUp ?? (previous?.isConnected === true && previous.getBoundingClientRect().top > rect.top);
             const series = container.querySelector('.details-hero')?.getAttribute('data-media-type') === 'series';
             const cast = section.classList.contains('details-people');
             const posters = section.hasAttribute('data-detail-section');

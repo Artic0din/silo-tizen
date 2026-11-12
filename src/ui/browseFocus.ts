@@ -246,7 +246,13 @@ export class FocusHost {
             // Details focus scroll already on its way carries on along its own curve.
             this.scroll.stop();
             this.applyVisit(visit);
-            if (revealing !== undefined) this.scroll.resume(revealViewport, revealing);
+            if (revealing !== undefined) {
+                // Rows the repaint added or removed above the focused one move its anchor: aim there, shifting the whole
+                // curve so the move keeps its remaining time.
+                const element = this.locate(document.activeElement)?.item.element;
+                const aim = element === undefined ? undefined : this.scroll.revealTarget(element, this.container, revealViewport, revealing.top < revealing.fromTop);
+                this.scroll.resume(revealViewport, aim === undefined ? revealing : { ...revealing, fromLeft: revealing.fromLeft + aim.left - revealing.left, fromTop: revealing.fromTop + aim.top - revealing.top, left: aim.left, top: aim.top });
+            }
             const element = this.locate(document.activeElement)?.item.element;
             if ((this.container.dataset.view === "search" || this.container.dataset.view?.startsWith("person:") || this.container.classList.contains("section-catalog") || this.container.classList.contains("library-browse") || this.container.classList.contains("requests-hub") || this.container.classList.contains("details-series-scene") || this.container.classList.contains("accounts-screen") || element?.closest(".settings-modal-options") != null) && element !== undefined) {
                 const viewport = element.closest<HTMLElement>(".browse-panel-list, .settings-modal-options, .settings-pane, .skyline-content, .accounts-rail, .accounts-pane, .accounts-settings") ?? this.container;

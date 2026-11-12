@@ -1644,6 +1644,27 @@ browseTest("Search loads the next 60 titles into the same grid when its end scro
     assert.equal(browseReads(tv, "/catalog").length, 2, "the last page stops loading");
 }, { catalog: new SearchCatalog(120) });
 
+browseTest("Search stops loading pages when the restarted list rejects its cursor again", async tv => {
+    await tv.page.route(url => url.pathname === "/api/v2/catalog" && url.searchParams.has("cursor"), route => route.fulfill({
+        status: 400, contentType: "application/problem+json",
+        body: JSON.stringify({ type: "https://siloserver.org/docs/api/v2/problems/invalid_cursor", title: "Invalid cursor", status: 400 }),
+    }));
+    // The route answers before the fake server, so count the browser's requests.
+    let cursors = 0;
+    tv.page.on("request", request => { const url = new URL(request.url()); if (url.pathname === "/api/v2/catalog" && url.searchParams.has("cursor")) cursors++; });
+    const cursorReads = (): number => cursors;
+    await tv.page.locator('[data-focus="search"]').click();
+    await tv.page.fill("#browse-search", "Movie"); await tv.remote(IME_DONE);
+    await tv.page.locator('.browse-grid [data-focus="movie:m0060"]').waitFor({ state: "attached" });
+    await tv.page.locator(".browse").evaluate(node => { node.scrollTop = node.scrollHeight; });
+    await tv.eventually(async () => cursorReads() >= 1 && browseReads(tv, "/catalog").length === 2, "one rejection and one fresh first page");
+    await tv.page.locator('.browse-grid [data-focus="movie:m0060"]').waitFor({ state: "attached" });
+    await tv.page.locator(".browse").evaluate(node => { node.scrollTop = node.scrollHeight; });
+    await tv.page.getByRole("button", { name: "Try Again", exact: true }).waitFor();
+    await tv.jump(2000);
+    assert.equal(cursorReads(), 2, "a second rejection stops automatic paging until Try Again");
+}, { catalog: new SearchCatalog(120) });
+
 browseTest("Search counts results from the response total without an estimate marker", async (tv, catalog) => {
     await tv.page.locator('[data-focus="search"]').click();
     const items = Array.from({ length: 3 }, (_, index) => ({ content_id: `movie:estimate-${index}`, type: "movie", title: `Estimate ${index}` }));

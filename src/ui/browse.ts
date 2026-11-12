@@ -1779,12 +1779,17 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 const cursor = shown.cursors[shown.index + 1];
                 const scope = searchTypeFor(current, current.searchType ?? "video");
                 const first = (): Promise<CatalogPage> => read(operations.listCatalogItems({ q: query.trim(), type: scope, limit: SEARCH_PAGE_SIZE, cursor: undefined }), signal);
+                let rejected: unknown;
                 try {
                     const page = await read(operations.listCatalogItems({ q: query.trim(), type: scope, limit: SEARCH_PAGE_SIZE, cursor }), signal);
                     if (page.nextCursor === undefined || !shown.cursors.includes(page.nextCursor)) return { page, startsOver: false };
+                    rejected = new ApiError({ kind: "invalid_response", path: "search.page.next_cursor" });
                 } catch (error) {
                     if (signal.aborted || !(error instanceof ApiError) || error.problemId !== "invalid_cursor") throw error;
+                    rejected = error;
                 }
+                // Restart once; a restarted list whose cursor is rejected again shows the error until Try Again, not an endless reread.
+                if (current.restarted === true) throw rejected;
                 return { page: await first(), startsOver: true };
             }
             let type = current.searchType;
@@ -1805,6 +1810,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             return { page: await read(operations.listCatalogItems({ q: query.trim(), type: searchTypeFor(current, type), limit: SEARCH_PAGE_SIZE, cursor: undefined }), signal), startsOver: true };
         }, ({ page, startsOver }) => {
             current.appending = false;
+            current.restarted = append && startsOver;
             current.resultsFor = query;
             if (startsOver || shown?.page === undefined) {
                 current.pages = { page, index: 0, cursors: [undefined, page.nextCursor] };

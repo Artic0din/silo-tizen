@@ -801,23 +801,28 @@ test("a pending card change keeps Details' own personal writes locked", async ()
     } finally { await tv.page.context().close(); }
 });
 
-// Apple keeps a series' last season only on its cached page (TVItemDetailView.swift:169). A watched change
-// refreshes that page, which picks the season again from the server (PersonalStateSync.swift:209).
-test("a series card's watched change drops its remembered season, so Details picks the season again", async () => {
+// Apple keeps a series' last season only on its cached page (TVItemDetailView.swift:169). A watched change from a card
+// refreshes that page, which picks the season again (MediaCardWatchedSync.swift:15); a favorite only writes back its flag.
+for (const action of ["Mark as Watched", "Add to Favorites"] as const) test(`after ${action} on a series card, Details ${action === "Mark as Watched" ? "picks its season again" : "keeps the season last viewed"}`, async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {
         const catalog = await start(tv);
-        await origin(tv, false, "series:s1").click();
-        await tv.eventually(async () => await tv.focused() === "next-episode", "Series Play entry focus settles");
+        const series = origin(tv, false, "series:s1");
+        const opened = async (): Promise<void> => { await series.click(); await tv.eventually(async () => await tv.focused() === "next-episode", "Series Play entry focus settles"); };
+        await opened();
         await tv.page.locator('[data-focus="season:2"]').focus(); await tv.jump(500);
         await tv.page.locator('[data-focus="season:2"][aria-pressed="true"]').waitFor();
         await tv.remote(10009);
+        await opened();
+        await tv.page.locator('[data-focus="season:2"][aria-pressed="true"]').waitFor();
+        await tv.remote(10009);
         await hold(tv, false, "series:s1");
-        await row(tv, "Mark as Watched").click();
-        await tv.eventually(async () => catalog.mutations.length === 1 && await menu(tv).count() === 0, "watched change lands");
-        await origin(tv, false, "series:s1").click();
-        await tv.page.locator('[data-focus="season:1"][aria-pressed="true"]').waitFor();
-        assert.equal(await tv.page.locator('[data-focus="season:2"][aria-pressed="true"]').count(), 0);
+        await row(tv, action).click();
+        await tv.eventually(async () => catalog.mutations.length === 1 && await menu(tv).count() === 0, "card change lands");
+        await opened();
+        const season = action === "Mark as Watched" ? 1 : 2;
+        await tv.page.locator(`[data-focus="season:${season}"][aria-pressed="true"]`).waitFor();
+        assert.equal(await tv.page.locator('.details-season[aria-pressed="true"], [data-focus^="season:"][aria-pressed="true"]').count(), 1);
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }
 });

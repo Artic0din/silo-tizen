@@ -253,7 +253,8 @@ export class DetailsState {
         }
         if (interrupted) this.changed();
         if (mode === "full" && (this.related === undefined || this.restored)) this.loadRelated();
-        if (this.personalSupported === undefined || (this.restored && this.changes.size === 0)) this.loadPersonal();
+        // A restored hold still lets the memberships refresh; the hold itself blocks any write until it is discarded.
+        if (this.personalSupported === undefined || (this.restored && [...this.changes.values()].every(change => change.held === true))) this.loadPersonal();
         this.restored = false;
         if (this.full && this.controller !== undefined) this.descriptions?.attach(this.controller.signal);
     }
@@ -358,8 +359,11 @@ export class DetailsState {
         this.personalSupported = previous.personalSupported;
         for (const [key, value] of previous.values) if (key !== "watched") this.values.set(key, value);
         if (this.detail.id === previous.detail.id) this.trailers.restore(previous.trailers);
-        // A hold outlives the owner: reopening the title must not let a press re-send an unanswered write.
-        if (this.detail.id === previous.detail.id) for (const [kind, change] of previous.changes) if (change.held === true) this.changes.set(kind, change);
+        // A hold outlives the owner: reopening the title must not let a press re-send an unanswered write. It arrives
+        // settled, because the old owner's discard reload (if any) stopped with it. Only Details can show its alert.
+        if (this.presentsAlerts && this.detail.id === previous.detail.id) {
+            for (const [kind, change] of previous.changes) if (change.held === true) this.changes.set(kind, { target: change.target, pending: false, failed: true, held: true });
+        }
         if (this.detail.versions.some(file => file.fileId === previous.failedPlay?.fileId)) this.failedPlay = previous.failedPlay;
         this.previousNextEpisodeState = previous.nextEpisodeState;
         this.focusedEpisodeId = previous.focusedEpisodeId;
@@ -538,7 +542,8 @@ export class DetailsState {
         this.alert = undefined;
         if (kind === undefined || change === undefined || controller === undefined) { this.changed(); return; }
         // The control stays busy until the reload settles, so no press can act on the state it is replacing.
-        const reloading: PersonalChange = { target: change.target, pending: true, failed: false };
+        // The hold stays marked until the reload succeeds, so leaving mid-reload carries it to the next owner.
+        const reloading: PersonalChange = { target: change.target, pending: true, failed: false, held: true };
         this.changes.set(kind, reloading);
         this.changed();
         void this.refresh(kind, controller, change.target, false).then(() => {
@@ -902,7 +907,7 @@ export class DetailsState {
         const controller = this.controller;
         if (controller === undefined || this.busy || !this.values.has(kind)) return;
         // PersonalStateSync.set: a held change is never sent again; the press shows the held alert instead.
-        if (this.changes.get(kind)?.held === true) { this.alert = heldAlert(kind); this.changed(); return; }
+        if (this.presentsAlerts && this.changes.get(kind)?.held === true) { this.alert = heldAlert(kind); this.changed(); return; }
         this.changes.set(kind, { target, pending: true, failed: false });
         this.changed();
         let unanswered = false;

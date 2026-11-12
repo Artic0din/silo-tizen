@@ -59,6 +59,46 @@ test("stopped uncertain owner retains its target and reconciles before an explic
     } finally { state.stop(); }
 });
 
+test("a card menu owner neither holds an unanswered write nor raises an alert it cannot show", async () => {
+    const h = await setup();
+    const state = new DetailsState(h.detail, h.core.session, () => undefined, async () => undefined);
+    try {
+        state.start();
+        await h.clock.advance(0);
+        h.fake.dropNextAnswer("/watched/movie%3Am0001");
+        state.change("watched", true);
+        await h.clock.advance(0);
+        assert.equal(state.changes.get("watched")?.failed, true);
+        assert.equal(state.changes.get("watched")?.held, undefined);
+        assert.equal(state.alert, undefined);
+    } finally { state.stop(); }
+});
+
+test("a Details owner holds an unanswered write and never sends it again until discarded", async () => {
+    const h = await setup();
+    const state = new DetailsState(h.detail, h.core.session, () => undefined, async () => undefined);
+    state.presentsAlerts = true;
+    try {
+        state.start();
+        await h.clock.advance(0);
+        h.fake.dropNextAnswer("/watched/movie%3Am0001");
+        state.change("watched", true);
+        await h.clock.advance(0);
+        assert.equal(state.changes.get("watched")?.held, true);
+        assert.equal(state.alert?.title, "Change Not Confirmed");
+        state.dismissAlert();
+        state.change("watched", true, true);
+        await h.clock.advance(0);
+        assert.equal(state.alert?.held, "watched");
+        assert.deepEqual(h.catalog.mutations, ["POST /watched/movie%3Am0001"]);
+        state.discardHeld();
+        await h.clock.advance(0);
+        assert.equal(state.changes.size, 0);
+        assert.equal(state.values.get("watched"), true);
+        assert.deepEqual(h.catalog.mutations, ["POST /watched/movie%3Am0001"]);
+    } finally { state.stop(); }
+});
+
 test("personal-only startup skips related/title-art and season membership without hiding watched", async () => {
     const h = await setup();
     for (const id of ["movie:m0001", "series:s1-S1"]) {

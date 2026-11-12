@@ -266,6 +266,34 @@ detailTest("An unanswered favourite is Apple's Change Not Confirmed alert, and D
     void details;
 });
 
+detailTest("Leaving mid-discard keeps the hold, and a reopened title still refreshes its other memberships", async (tv) => {
+    await openMovie(tv);
+    let writes = 0;
+    await tv.page.route("**/api/v2/favorites/movie%3Am0001", async route => {
+        if (route.request().method() === "GET") { await route.fallback(); return; }
+        writes++;
+        await route.abort("timedout");
+    });
+    await tv.page.locator('[data-focus="more"]').click();
+    await tv.page.locator('[data-focus="favorites"]').click();
+    const alert = tv.page.getByRole("alertdialog", { name: "Change Not Confirmed", exact: true });
+    await alert.waitFor();
+    const favoriteReads = () => tv.fake.requests.filter(request => request.path === "/favorites/movie%3Am0001/membership").length;
+    const before = favoriteReads();
+    tv.fake.hold("/favorites/movie%3Am0001/membership");
+    await alert.getByRole("button", { name: "Discard Held Change", exact: true }).click();
+    await tv.eventually(async () => favoriteReads() > before, "discard starts its reload");
+    await tv.remote(10009);
+    const watchlistReads = () => tv.fake.requests.filter(request => request.path === "/watchlist/movie%3Am0001/membership").length;
+    const watchlistBefore = watchlistReads();
+    await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().click();
+    await tv.eventually(async () => watchlistReads() > watchlistBefore, "the reopened title refreshes the watchlist beside the hold");
+    await tv.page.locator('[data-focus="more"]').click();
+    await tv.page.locator('[data-focus="favorites"]').click();
+    await alert.waitFor();
+    assert.equal(writes, 1, "the interrupted discard did not release the hold");
+});
+
 detailTest("A season watched failure that lands after switching seasons still shows its alert", async (tv, details) => {
     const seasons = details.route("GET", "/catalog/series/series%3As1/seasons", "p-owner")?.body as { items: { content_id: string; season_number: number }[] };
     const first = seasons.items.find(season => season.season_number === 1)?.content_id ?? "";

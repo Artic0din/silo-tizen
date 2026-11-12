@@ -180,7 +180,11 @@ export function artwork(className: string, reference: string | undefined, baseUr
         }
         showFallback();
     });
+    // AsyncImageView fades a loaded image in with easeOut(fastDuration) unless a decode was already in memory
+    // (silo-apple 85679e7 `Components/Images/AsyncImageView.swift:80-86`, `:123`; `Theme/SiloTheme.swift:164`).
+    image.addEventListener("load", () => image.classList.add("is-loaded"));
     image.src = src;
+    if (image.complete && image.naturalWidth > 0) image.classList.add("is-cached");
     box.appendChild(image);
     return box;
 }

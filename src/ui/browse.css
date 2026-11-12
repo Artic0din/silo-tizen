@@ -647,7 +647,10 @@
     width: 100%;
     height: 100%;
     object-fit: cover;
+    opacity: 0;
 }
+.browse-art-image.is-loaded { opacity: 1; transition: opacity var(--silo-fast) ease-out; }
+.browse-art-image.is-cached { opacity: 1; transition: none; }
 
 /* Apple EpisodeSpoilerBlur.radius is 24. The image grows by that radius on every side (48px) so the blur fringe falls outside the clip, matching SwiftUI blur(radius:opaque: true). */
 .episode-spoiler-blur > .browse-art-image,

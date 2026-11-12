@@ -786,30 +786,33 @@ journey("Home marquee text follows focus at once while only the backdrop waits o
     assert.deepEqual((await marqueeArt(tv)).map(layer => layer.art), ["movie%3Am0002.svg"]);
 }, catalog => enrichHome(catalog, marqueeBackdrops));
 
-journey("Home holds the backdrop while a row change scrolls, and its 320 ms cap releases a scroll that has not settled", async tv => {
+journey("Home holds a row change's backdrop to Apple's 320 ms cap and starts the new card's detail read at once", async tv => {
     await tv.page.emulateMedia({ reducedMotion: "no-preference" });
     await pauseTvClock(tv);
     await tv.remote(40);
     await settleMarquee(tv);
     assert.equal(await tv.focused(), "movie:m0001");
+    const reads = detailReads(tv).length;
     await tv.remote(40);
     await tv.jump(0);
     assert.equal(await tv.focused(), "movie:m0005");
     assert.deepEqual(await marqueeTitles(tv), ["Movie 0005"]);
-    await tv.jump(150);
-    assert.deepEqual((await marqueeArt(tv)).map(layer => layer.art), ["movie%3Am0001.svg"], "the rest has passed but the row is still scrolling");
-    await tv.jump(60);
-    assert.deepEqual((await marqueeArt(tv)).map(layer => layer.art), ["movie%3Am0001.svg", "movie%3Am0005.svg"], "the swap starts once the 200 ms row scroll settles");
-    await tv.jump(300);
-    // A scroll that never reports idle: the cap lets the held swap through 320 ms after the move.
-    await tv.page.locator(".skyline-content").evaluate(node => node.dispatchEvent(new Event("skyline-scroll-start")));
-    await tv.page.locator('[data-section="recent/12"] [data-focus="movie:m0004"]').focus();
-    await tv.jump(319);
-    assert.deepEqual(await marqueeTitles(tv), ["Movie 0004"]);
-    assert.deepEqual((await marqueeArt(tv)).map(layer => layer.art), ["movie%3Am0005.svg"]);
+    // restForRowChange (TVFocusMarquee.swift:818-826): the scroll is the gate, so the read skips the 150 ms rest.
+    await tv.eventually(async () => detailReads(tv).slice(reads).includes("movie:m0005"), "row-change detail read");
+    await tv.jump(210);
+    assert.deepEqual((await marqueeArt(tv)).map(layer => layer.art), ["movie%3Am0001.svg"], "Tizen's 200 ms scroll has settled; Apple's phase is still non-idle");
+    await tv.jump(109);
+    assert.deepEqual((await marqueeArt(tv)).map(layer => layer.art), ["movie%3Am0001.svg"]);
     await tv.jump(1);
-    assert.deepEqual((await marqueeArt(tv)).map(layer => layer.art), ["movie%3Am0005.svg", "movie%3Am0004.svg"]);
-    await tv.page.locator(".skyline-content").evaluate(node => node.dispatchEvent(new Event("skyline-scroll-end")));
+    assert.deepEqual((await marqueeArt(tv)).map(layer => layer.art), ["movie%3Am0001.svg", "movie%3Am0005.svg"], "the swap lands at the 320 ms cap");
+    await tv.jump(300);
+    // A sideways move after the cap rests 150 ms as usual, and waits for it before reading.
+    const before = detailReads(tv).length;
+    await tv.remote(39);
+    await tv.jump(0);
+    assert.equal(detailReads(tv).length, before, "a same-row move reads nothing before it rests");
+    await tv.jump(149);
+    assert.equal(detailReads(tv).length, before);
 }, catalog => enrichHome(catalog, marqueeBackdrops));
 
 journey("a newer focus drops the backdrop an earlier card was still waiting for, so a later scroll cannot replay it", async tv => {
@@ -824,14 +827,39 @@ journey("a newer focus drops the backdrop an earlier card was still waiting for,
     await tv.page.locator('[data-section="recent/12"] [data-focus="movie:m0002"]').focus();
     await tv.jump(50);
     await tv.page.locator('[data-section="because/opaque"] [data-focus="movie:m0005"]').focus();
-    await content.evaluate(node => node.dispatchEvent(new Event("skyline-scroll-end")));
     await settleMarquee(tv);
     assert.deepEqual((await marqueeArt(tv)).map(layer => layer.art), ["movie%3Am0005.svg"]);
-    await content.evaluate(node => { node.dispatchEvent(new Event("skyline-scroll-start")); node.dispatchEvent(new Event("skyline-scroll-end")); });
+    await content.evaluate(node => node.dispatchEvent(new Event("skyline-scroll-start")));
     await settleMarquee(tv);
     assert.deepEqual(await marqueeTitles(tv), ["Movie 0005"]);
     assert.deepEqual((await marqueeArt(tv)).map(layer => layer.art), ["movie%3Am0005.svg"], "m0002's cancelled swap never returns");
 }, catalog => enrichHome(catalog, marqueeBackdrops));
+
+let cardArtGate: () => void = () => undefined;
+journey("card artwork fades in over 0.12 s once it loads, and decoded artwork paints at once", async tv => {
+    await tv.page.emulateMedia({ reducedMotion: "no-preference" });
+    const image = tv.page.locator(`${POSTER} .browse-art-image`);
+    await image.waitFor({ state: "attached" });
+    assert.equal(await image.evaluate(node => getComputedStyle(node).opacity), "0", "nothing over the placeholder until the image decodes");
+    cardArtGate();
+    await tv.eventually(async () => await image.evaluate(node => node.classList.contains("is-loaded")), "loaded artwork");
+    assert.deepEqual(await image.evaluate(node => { const style = getComputedStyle(node); return [style.transitionProperty, style.transitionDuration, style.transitionTimingFunction]; }), ["opacity", "0.12s", "ease-out"]);
+    const cached = await tv.page.evaluate(src => {
+        const probe = document.createElement("img");
+        probe.className = "browse-art-image";
+        probe.src = src;
+        return probe.complete && probe.naturalWidth > 0;
+    }, await image.evaluate(node => (node as HTMLImageElement).src));
+    assert.equal(cached, true, "the fixture image is decoded and in memory");
+    await tv.page.evaluate(() => { window.browseHarness.destroy(); window.browseHarness.mount(); });
+    const again = tv.page.locator(`${POSTER} .browse-art-image`);
+    await again.waitFor({ state: "attached" });
+    assert.equal(await again.evaluate(node => node.classList.contains("is-cached")), true, "AsyncImageView paints a cached decode with no animation");
+    assert.equal(await again.evaluate(node => getComputedStyle(node).opacity), "1");
+}, catalog => enrichHome(catalog, { "movie:m0006": { poster_url: "/art/gated-poster.svg" } }), undefined, { beforeMount: tv => {
+    const gate = new Promise<void>(resolve => { cardArtGate = resolve; });
+    void tv.page.route("**/art/gated-poster.svg", async route => { await gate; await route.fulfill({ contentType: "image/svg+xml", headers: { "cache-control": "max-age=3600" }, body: '<svg xmlns="http://www.w3.org/2000/svg" width="2" height="3"/>' }); });
+} });
 
 let releaseBackdrop: () => void = () => undefined;
 journey("Home's backdrop shows its ThumbHash until the image decodes, and keeps it with a film mark when the image fails", async tv => {

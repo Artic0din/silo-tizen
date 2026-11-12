@@ -7,7 +7,7 @@ import { marqueeBadges, marqueeMeta, marqueeRating, marqueeTitle } from "./cardP
 import { actionButton, zoneNode } from "./browseViews.ts";
 import { el } from "./screen.ts";
 import { TMDB_LOGO_PATH } from "./acknowledgements.ts";
-import { SCROLL_END_EVENT, SCROLL_START_EVENT, SkylineScroll } from "./skylineScroll.ts";
+import { SCROLL_START_EVENT, SkylineScroll } from "./skylineScroll.ts";
 import { MARQUEE_REST_MILLISECONDS } from "./homeEnrichment.ts";
 import { profileMenuAvatar } from "./navigationAvatar.ts";
 import { navigationRoots } from "./navigation.ts";
@@ -139,8 +139,8 @@ export class Skyline {
     /** The backdrop swap waiting out the 150 ms rest, then one a row scroll holds. */
     private restingBackdrop: (() => void) | undefined;
     private heldBackdrop: (() => void) | undefined;
+    /** setBackdropDeferred: a row-change scroll holds the backdrop until its 320 ms cap. */
     private rowScrolling = false;
-    private holdCapElapsed = false;
     private cancelHoldCap = (): void => undefined;
     private readonly tints = new Map<string, Tints>();
     private selected = "home";
@@ -161,6 +161,8 @@ export class Skyline {
     /** Profile spoiler switches. Off until browse installs the owner. */
     spoilers: () => EpisodeSpoilerSettings = () => ({ hidesImages: false, hidesOverviews: false });
     filled: (card: Card) => Card = card => card;
+    /** A row change starts the focused card's detail read without the 150 ms rest (restForRowChange). */
+    rowChangeRead: () => void = () => undefined;
     /** What Home's detail reads added for a title: the aired and cast line, and Continue Watching's saved-file chips. */
     details: (card: Card, continuing: boolean) => { readonly line: string | undefined; readonly badges: readonly string[] | undefined } = () => ({ line: undefined, badges: undefined });
     translations: DescriptionTranslations | undefined;
@@ -206,7 +208,6 @@ export class Skyline {
         container.addEventListener("focusin", this.onFocus);
         container.addEventListener("keydown", this.onKey, true);
         this.body.addEventListener(SCROLL_START_EVENT, this.onRowScrollStart);
-        this.body.addEventListener(SCROLL_END_EVENT, this.onRowScrollEnd);
     }
 
     update(libraries: readonly UserLibrary[]): void {
@@ -423,8 +424,7 @@ export class Skyline {
         const swap = (): void => this.showBackdrop(card, true);
         // restForRowChange: a scroll already under way is the gate, so the rest is skipped and the scroll holds the swap.
         if (this.rowScrolling && rowChange) {
-            this.armHoldCap();
-            this.holdOrSwap(swap);
+            this.restForRowChange(swap);
             return;
         }
         this.restingBackdrop = swap;
@@ -446,47 +446,48 @@ export class Skyline {
         return this.restingBackdrop !== undefined || this.heldBackdrop !== undefined;
     }
 
-    /** updateBackdropIfReady: while a row scroll holds the backdrop (and its 320 ms cap has not passed), keep the swap. */
+    /** updateBackdropIfReady: while a row scroll holds the backdrop, keep the swap for the hold cap. */
     private holdOrSwap(swap: () => void): void {
-        if (this.rowScrolling && !this.holdCapElapsed) { this.heldBackdrop = swap; return; }
+        if (this.rowScrolling) { this.heldBackdrop = swap; return; }
         this.heldBackdrop = undefined;
         swap();
     }
 
-    private releaseHeldBackdrop(): void {
-        const swap = this.heldBackdrop;
-        this.heldBackdrop = undefined;
-        swap?.();
+    /**
+     * restForRowChange (TVFocusMarquee.swift:818-826): restart the hold cap, start the detail read without the rest,
+     * and hold the swap.
+     */
+    private restForRowChange(swap: () => void): void {
+        this.armHoldCap();
+        this.rowChangeRead();
+        this.holdOrSwap(swap);
     }
 
-    /** armBackdropHoldCap (TVFocusMarquee.swift:914-925): per row move, the longest a scroll may hold the swap. */
+    /**
+     * armBackdropHoldCap (TVFocusMarquee.swift:914-925). Home's band is tvOS's native ScrollView
+     * (TVSkylineSectionFeed.swift:159-178), whose scroll phase stays non-idle for over a second after one move
+     * (SiloTheme.swift:305-309), so Apple's swap always lands at this cap. Tizen releases at the cap as well, not when
+     * its own shorter scroll settles.
+     */
     private armHoldCap(): void {
         this.cancelHoldCap();
-        this.holdCapElapsed = false;
         this.cancelHoldCap = this.clock.schedule(() => {
             this.cancelHoldCap = () => undefined;
             if (!this.rowScrolling) return;
-            this.holdCapElapsed = true;
-            this.releaseHeldBackdrop();
+            this.rowScrolling = false;
+            const swap = this.heldBackdrop;
+            this.heldBackdrop = undefined;
+            swap?.();
         }, MARQUEE_BACKDROP_HOLD_CAP_MILLISECONDS);
     }
 
-    /** setBackdropDeferred(true) (TVFocusMarquee.swift:893-910): the row band started scrolling. */
+    /** setBackdropDeferred(true) (TVFocusMarquee.swift:893-904): the row band started scrolling. */
     private readonly onRowScrollStart = (): void => {
         this.rowScrolling = true;
-        this.armHoldCap();
         const swap = this.restingBackdrop;
-        if (swap === undefined) return;
+        if (swap === undefined) { this.armHoldCap(); return; }
         this.dropPendingBackdrop();
-        this.holdOrSwap(swap);
-    };
-
-    /** setBackdropDeferred(false): the band settled, so the latest held swap applies. */
-    private readonly onRowScrollEnd = (): void => {
-        this.rowScrolling = false;
-        this.cancelHoldCap();
-        this.holdCapElapsed = false;
-        this.releaseHeldBackdrop();
+        this.restForRowChange(swap);
     };
 
     /** TVFocusMarquee.suspend: leaving drops every pending swap and any hold an unfinished scroll left. */
@@ -494,7 +495,6 @@ export class Skyline {
         this.dropPendingBackdrop();
         this.rowScrolling = false;
         this.cancelHoldCap();
-        this.holdCapElapsed = false;
     }
 
     /**

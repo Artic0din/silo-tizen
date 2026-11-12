@@ -57,11 +57,10 @@ export function cubicBezier(x1: number, y1: number, x2: number, y2: number): (t:
 const easeOutCubic = (progress: number): number => 1 - Math.pow(1 - progress, 3);
 
 /**
- * Fired, without bubbling, on a node when an animated move starts and when it settles or stops: SwiftUI's
- * onScrollPhaseChange leaving and returning to .idle, which the Home marquee holds its backdrop on.
+ * Fired, without bubbling, on a node when an animated move starts: SwiftUI's onScrollPhaseChange leaving .idle,
+ * which the Home marquee holds its backdrop on.
  */
 export const SCROLL_START_EVENT = "skyline-scroll-start";
-export const SCROLL_END_EVENT = "skyline-scroll-end";
 /** TVDetailFocusScroll.scrollAnimation: easeInOut(duration: 0.45), SwiftUI's (0.42, 0, 0.58, 1). */
 const MOVIE_HERO_SCROLL = { duration: 450, ease: cubicBezier(0.42, 0, 0.58, 1) };
 /** TVSeriesDetailView animatePage: 0.55 s on UICubicTimingParameters (0.4, 0) (0.2, 1). */
@@ -83,7 +82,7 @@ export class SkylineScroll {
         if (immediate) {
             // Repaints must not restart the hero move from an intermediate scrollTop.
             const previous = this.frames.get(viewport);
-            if (previous !== undefined) { cancelAnimationFrame(previous); viewport.dispatchEvent(new Event(SCROLL_END_EVENT)); }
+            if (previous !== undefined) cancelAnimationFrame(previous);
             this.frames.delete(viewport);
             viewport.scrollLeft = 0;
             viewport.scrollTop = 0;
@@ -137,7 +136,6 @@ export class SkylineScroll {
         if (reduced || still) {
             node.scrollLeft = left;
             node.scrollTop = top;
-            if (previous !== undefined) node.dispatchEvent(new Event(SCROLL_END_EVENT));
             return;
         }
         if (previous === undefined) node.dispatchEvent(new Event(SCROLL_START_EVENT));
@@ -145,7 +143,6 @@ export class SkylineScroll {
         const frame = (now: number): void => {
             if (!node.isConnected) {
                 this.frames.delete(node);
-                node.dispatchEvent(new Event(SCROLL_END_EVENT));
                 return;
             }
             const progress = Math.min(1, (now - start) / duration);
@@ -153,10 +150,7 @@ export class SkylineScroll {
             node.scrollLeft = fromLeft + (left - fromLeft) * eased;
             node.scrollTop = fromTop + (top - fromTop) * eased;
             if (progress < 1) this.frames.set(node, requestAnimationFrame(frame));
-            else {
-                this.frames.delete(node);
-                node.dispatchEvent(new Event(SCROLL_END_EVENT));
-            }
+            else this.frames.delete(node);
         };
         this.frames.set(node, requestAnimationFrame(frame));
     }
@@ -317,10 +311,7 @@ export class SkylineScroll {
     }
 
     stop(): void {
-        for (const [node, frame] of this.frames) {
-            cancelAnimationFrame(frame);
-            node.dispatchEvent(new Event(SCROLL_END_EVENT));
-        }
+        for (const frame of this.frames.values()) cancelAnimationFrame(frame);
         this.frames.clear();
         this.pinnedShelf = null;
     }

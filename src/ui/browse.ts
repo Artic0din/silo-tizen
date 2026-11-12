@@ -1622,9 +1622,9 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     /** The person's own metadata read; the caller sets metadataLoading first. */
     const readPersonMetadata = (current: Extract<Route, { kind: "person" }>, signal: AbortSignal): Promise<void> =>
         read(detailOperations.person(current.id), signal).then(person => {
-            if (!signal.aborted) { current.data = { person }; current.metadataFailure = undefined; current.metadataRefresh?.start(signal); }
+            if (!signal.aborted) { current.data = { person }; current.metadataFailure = undefined; current.metadataError = undefined; current.metadataRefresh?.start(signal); }
         }, (error: unknown) => {
-            if (!signal.aborted) current.metadataFailure = failureText(error, current) ?? "Could not load metadata. Try again.";
+            if (!signal.aborted) { current.metadataFailure = failureText(error, current) ?? "Could not load metadata. Try again."; current.metadataError = errorState(error); }
         }).finally(() => { if (!signal.aborted) { current.metadataLoading = false; if (top() === current) render(); } });
 
     const availabilityPending = (current: Extract<Route, { kind: "person" }>): boolean => current.availableFilters === undefined && current.availabilityLoading !== true;
@@ -2171,6 +2171,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     const retry = (current: Route): void => {
         current.failure = undefined;
         current.error = undefined;
+        // PersonDetailViewModel.reload clears the person's error too, so the page shows loading rather than the old failure.
+        if (current.kind === "person") { current.metadataFailure = undefined; current.metadataError = undefined; }
         render();
         loadRoute(current);
     };

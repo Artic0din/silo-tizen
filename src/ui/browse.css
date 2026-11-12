@@ -1697,6 +1697,14 @@
 /* TVCatalogGrid's TVMediaCard caption: siloPosterTitle 24 and siloPosterMetadata 20 (TVMediaCard.swift:259,267), tracked as on Details. */
 .browse[data-view^="person:"] .catalog-grid .browse-card-title { font-size: calc(24px * var(--silo-sf-cap-scale)); letter-spacing: -.05px; }
 .browse[data-view^="person:"] .catalog-grid .browse-card-subtitle { font-size: calc(20px * var(--silo-sf-cap-scale)); letter-spacing: .2px; }
+/* Apple EmptyStateView in the Filmography area (EmptyStateView.swift:10-25): 44pt icon at 30%, siloSubheadline, siloCaption, 12pt apart. */
+.person-filmography-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; margin: 0; }
+.person-filmography-empty .search-state-icon { width: 48px; height: 44px; margin: 0 0 12px; color: rgba(237, 237, 237, 0.3); }
+.person-filmography-empty .search-state-icon svg { width: 100%; height: 100%; }
+.person-filmography-empty .search-state-title { margin: 0 0 12px; color: var(--silo-text); font-size: calc(28px * var(--silo-sf-cap-scale)); line-height: 33px; font-weight: 600; }
+.person-filmography-empty .search-state-description { padding: 0 60px; color: rgba(237, 237, 237, 0.6); font-size: calc(22px * var(--silo-sf-cap-scale)); line-height: 26px; }
+/* Apple ErrorView inline under the filters, not over the page: the Details failure layout in normal flow. */
+.browse .details-failure.person-filmography-failure { position: static; margin: 0; }
 
 .settings-modal-scrim { position: fixed; inset: 0; z-index: 20; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.88); }
 .settings-modal { box-sizing: border-box; width: 760px; max-height: 760px; padding: 30px; border-radius: 30px; background: #202020; border: 1px solid rgba(255,255,255,.2); box-shadow: 0 22px 48px rgba(0,0,0,.58); display: flex; flex-direction: column; }

@@ -7,7 +7,8 @@ const font = readFileSync(new URL("../../app/fonts/InterVariable.woff2", import.
 const theme = readFileSync(new URL("../../src/theme.css", import.meta.url), "utf8");
 const browse = readFileSync(new URL("../../src/ui/browse.css", import.meta.url), "utf8");
 
-/** Inter 500 at 24px. The sweep named "The Dog Stars"; the other five are the same face. */
+/** Inter 500 at Apple's 24pt times --silo-sf-cap-scale. The sweep named "The Dog Stars"; the other five are the same face. */
+const CAPTION_SIZE = `${Math.round(24 * 0.9685 * 1e4) / 1e4}px`;
 const TITLES = ["The Dog Stars", "Horrible Bosses 2", "The Last Signal", "Harbor Lights", "Archived Feature", "Atlas of Rivers"];
 
 test("one tracking token brings Inter titles to Apple's width", async () => {
@@ -54,15 +55,15 @@ test("one tracking token brings Inter titles to Apple's width", async () => {
         const dog = measured.titles[0];
         assert.ok(dog !== undefined);
         assert.equal(dog.text, "The Dog Stars");
-        assert.equal(dog.size, "24px");
+        assert.equal(dog.size, CAPTION_SIZE);
         assert.equal(dog.weight, "500");
-        assert.ok(Math.abs(Number.parseFloat(dog.spacing) - -0.36) < 0.02, dog.spacing);
-        // Apple measured 152px. Untracked Inter is 157.3px; -0.015em lands just above 152.
+        assert.equal(Number.parseFloat(dog.spacing) || 0, 0, dog.spacing);
+        // Apple measured 152px. Untracked Inter at 24px is 157.3px; at the cap-scaled size it lands just above 152.
         assert.ok(dog.width > 151.5 && dog.width < 153.5, String(dog.width));
         for (const title of measured.titles) {
-            assert.equal(title.size, "24px");
+            assert.equal(title.size, CAPTION_SIZE);
             assert.equal(title.weight, "500");
-            assert.ok(Math.abs(Number.parseFloat(title.spacing) - -0.36) < 0.02, `${title.text} ${title.spacing}`);
+            assert.equal(Number.parseFloat(title.spacing) || 0, 0, `${title.text} ${title.spacing}`);
         }
         assert.equal(measured.kitchen.text, "My Kitchen Rules");
         assert.equal(measured.kitchen.size, "28px");
@@ -120,9 +121,9 @@ test("a compact home title shows The Dog Stars and still truncates a longer line
         });
         // Home dense artwork is SiloTheme.Skyline.densePosterCardWidth 176 times the compact poster scale 0.86.
         assert.ok(Math.abs(measured.dog.card - 176 * 0.86) < 0.05, String(measured.dog.card));
-        assert.equal(measured.dog.size, "24px");
+        assert.equal(measured.dog.size, CAPTION_SIZE);
         assert.equal(measured.dog.weight, "500");
-        assert.ok(Math.abs(Number.parseFloat(measured.dog.spacing) - -0.36) < 0.02, measured.dog.spacing);
+        assert.equal(Number.parseFloat(measured.dog.spacing) || 0, 0, measured.dog.spacing);
         assert.ok(measured.dog.ink > 151.5 && measured.dog.ink < 153.5, String(measured.dog.ink));
         assert.ok(measured.dog.scroll <= measured.dog.client, JSON.stringify(measured.dog));
         assert.ok(measured.dog.inkRight <= measured.dog.boxRight + 0.5, JSON.stringify(measured.dog));

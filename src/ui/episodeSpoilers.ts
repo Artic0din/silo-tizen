@@ -49,12 +49,23 @@ function cardWatch(card: Pick<Card, "played" | "positionSeconds">): EpisodeWatch
     return card.positionSeconds === undefined ? { played: card.played === true } : { played: card.played === true, positionSeconds: card.positionSeconds };
 }
 
-/** The URL a card actually shows: the continue-watching backdrop, otherwise the poster. */
-export function hidesCardImage(card: Pick<Card, "type" | "played" | "positionSeconds" | "posterUrl" | "backdropUrl" | "posterIsEpisodeStill" | "backdropIsEpisodeStill">, settings: EpisodeSpoilerSettings, continuing: boolean): boolean {
+type CardArt = Pick<Card, "posterUrl" | "backdropUrl" | "posterThumbhash" | "backdropThumbhash">;
+const present = (value: string | undefined): value is string => value !== undefined && value !== "";
+
+/**
+ * Whether a card draws its backdrop: a thumbnail's backdrop, else its poster (EpisodeThumbCard.imageURL). A stored
+ * snapshot drops artwork URLs but keeps ThumbHashes, so without either URL the backdrop ThumbHash wins
+ * (EpisodeThumbCard.swift:165). The ThumbHash always comes from the artwork drawn, so spoiler protection covers both.
+ */
+export function cardUsesBackdrop(card: CardArt, thumbnail: boolean): boolean {
+    return thumbnail && (present(card.backdropUrl) || (!present(card.posterUrl) && present(card.backdropThumbhash)));
+}
+
+/** The artwork a card actually shows: the thumbnail backdrop, otherwise the poster, or its ThumbHash. */
+export function hidesCardImage(card: Pick<Card, "type" | "played" | "positionSeconds" | "posterIsEpisodeStill" | "backdropIsEpisodeStill"> & CardArt, settings: EpisodeSpoilerSettings, continuing: boolean): boolean {
     if (card.type !== "episode") return false;
-    const usesBackdrop = continuing && card.backdropUrl !== undefined && card.backdropUrl !== "";
-    const reference = usesBackdrop ? card.backdropUrl : card.posterUrl;
-    if (reference === undefined || reference === "") return false;
+    const usesBackdrop = cardUsesBackdrop(card, continuing);
+    if (!(usesBackdrop ? present(card.backdropUrl) || present(card.backdropThumbhash) : present(card.posterUrl) || present(card.posterThumbhash))) return false;
     return hidesEpisodeImage(settings, cardWatch(card), usesBackdrop ? card.backdropIsEpisodeStill : card.posterIsEpisodeStill);
 }
 
@@ -122,7 +133,7 @@ export function spoilerSettingsSupported(capability: SettingsCapabilities | unde
 
 /** Blurs the still and leaves badges and progress sharp. No-ops when the box is only a title placeholder. */
 export function blurEpisodeStill(box: HTMLElement): void {
-    if (box.querySelector(".browse-art-image, .skyline-backdrop, .player-next-still") === null) return;
+    if (box.querySelector(".browse-art-image, .browse-art-thumbhash, .skyline-backdrop, .player-next-still") === null) return;
     box.classList.add("episode-spoiler-blur");
 }
 

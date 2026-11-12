@@ -72,6 +72,7 @@ import { avatarReference, avatarText } from "./profilePicker.ts";
 import { ExperimentalFeatures } from "../session/experimentalFeatures.ts";
 import { WatchPartyHub, watchPartyApi } from "./watchPartyHub.ts";
 import { watchPartyScreen } from "./watchParty.ts";
+import type { MediaChoice } from "./watchPartyChoice.ts";
 
 export type { PlayRequest } from "./browseModel.ts";
 
@@ -237,7 +238,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         if (current.kind === "homeSection" || current.kind === "person" || current.kind === "personal") current.pendingIndex = undefined;
         menuOrigin = { route: current, focus: host.focused() };
         cardActions.open(card, options);
-    } };
+    }, watchParty: { offered: () => watchPartyOffered, open: choice => openWatchParty(choice) } };
     const input = el("input", "browse-input");
     input.id = "browse-search";
     input.type = "search";
@@ -1034,6 +1035,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             }
             detailsChanged(current, audioClosed);
         }, (value, signal) => refreshWatched(current, value, signal), personalPending, translations, () => resolutionCap.quality, signal => resolutionCap.ready(signal));
+        details.presentsAlerts = true;
         resolutionCap.ensure();
         return details;
     };
@@ -1566,6 +1568,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     current.data = data;
                     if (data.detail !== undefined) {
                         const details = new DetailsState(data.detail, session, (audioClosed) => detailsChanged(current, audioClosed), (detail, signal) => refreshWatched(current, detail, signal), personalPending, translations, () => resolutionCap.quality, signal => resolutionCap.ready(signal));
+                        details.presentsAlerts = true;
                         resolutionCap.ensure();
                         details.restore(previous);
                         current.data.details = details;
@@ -2357,16 +2360,23 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         if (origin !== undefined && anchor !== undefined) origin.focus = { zone: "nav", key: anchor };
     };
     // Like Requests, Watch Party from the profile menu is a root page under the bar: the tab it opened over stays selected.
-    const openWatchParty = (): void => {
+    // From Details the lobby is pushed over the title, as tvOS navigate(to: .watchParty) does, so Back returns to it.
+    const openWatchParty = (choice?: MediaChoice): void => {
         if (!watchPartyOffered) return;
-        clearPersonalRoot();
+        if (choice === undefined) clearPersonalRoot();
         const origin = top();
-        const anchor = origin === undefined ? undefined : tabFocus(origin).key;
+        const anchor = origin === undefined || choice !== undefined ? undefined : tabFocus(origin).key;
         const hub: WatchPartyHub = new WatchPartyHub(watchPartyApi(session), () => { if (!torn && top() === route) render(hub.takeRefocus() ? undefined : host.focused()); }, { supported: true, onSupport: setWatchPartyOffered, onLeave: () => host.forgetVisit("watchParty:hub"), onPlay: request => { handoff(request); } });
         const route = newRoute({ kind: "watchParty", watchParty: watchPartyScreen(hub), ...(anchor === undefined ? {} : { anchor }) });
         push(route);
         if (origin !== undefined && anchor !== undefined) origin.focus = { zone: "nav", key: anchor };
-        void hub.check();
+        if (choice === undefined) { void hub.check(); return; }
+        // WatchPartySession.create(selection:): a host-pick room that opens with the chosen title. create() reads support
+        // itself and locks the entry at once, so a press on Start a party cannot race it.
+        void (async () => {
+            await hub.create("host_pick");
+            if (hub.state.room !== undefined) await hub.stage(choice);
+        })();
     };
     const requestsHandlers = (current: Extract<Route, { kind: "requests" }>): RequestsHandlers => ({
         // List cancel/remove and detail writes share one mutation lock so navigating between them cannot duplicate a POST.

@@ -18,9 +18,10 @@ const ENTRY: Record<TvApp, string> = { signIn: "../harness.ts", browse: "../brow
 const THEME = readFileSync(new URL("../../../src/theme.css", import.meta.url), "utf8");
 const css = (names: readonly string[]): string => names.map((name) => readFileSync(new URL(`../../../src/${name}`, import.meta.url), "utf8")).join("\n");
 // confirmationDialog.css styles a component every screen can show, so each harness loads it as main.ts does.
+// signIn.css holds that component's alert style, which Details' failure alerts use.
 const CSS: Record<TvApp, string> = {
     signIn: css(["ui/signIn.css", "ui/confirmationDialog.css"]),
-    browse: css(["ui/browse.css", "ui/confirmationDialog.css"]),
+    browse: css(["ui/signIn.css", "ui/browse.css", "ui/confirmationDialog.css"]),
     application: css(["ui/signIn.css", "ui/browse.css", "ui/confirmationDialog.css", "ui/accounts.css", "player/player.css", "app.css"]),
 };
 const HTML = `<!DOCTYPE html>

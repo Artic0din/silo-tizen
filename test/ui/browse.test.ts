@@ -1844,6 +1844,14 @@ async function detailsMore(tv: Tv): Promise<void> {
     await tv.page.getByRole("dialog", { name: "More", exact: true }).waitFor();
 }
 
+/** Apple's system alert for a failed change on Details: waits for it, then presses OK. */
+async function failureAlert(tv: Tv, title: string): Promise<void> {
+    const alert = tv.page.getByRole("alertdialog", { name: title, exact: true });
+    await alert.waitFor();
+    await alert.getByRole("button", { name: "OK", exact: true }).click();
+    await alert.waitFor({ state: "detached" });
+}
+
 async function seasonDetails(tv: Tv): Promise<void> {
     await tv.page.locator('[data-focus="series:s1-S1"]').click();
     await showing(tv, "season:series:s1:1");
@@ -1925,11 +1933,12 @@ for (const kind of ["movie", "episode"]) {
         assert.equal(await tv.page.getByRole("button", { name: "Mark as Watched", exact: true }).count(), 1, "no progress is a valid unwatched state");
         catalog.mutationFailure = problem(503, "unavailable", "Unavailable");
         await tv.page.getByRole("button", { name: "Mark as Watched", exact: true }).click();
-        await detailsMore(tv);
-        await shows(tv, "Could not update watched.");
+        await failureAlert(tv, "Couldn't Update Item");
         await tv.jump(30000);
         assert.equal(catalog.mutations.length, 1);
-        await tv.page.getByRole("button", { name: "Retry watched", exact: true }).click();
+        // Apple keeps the toggle's own label after a failure; the next press reconciles, then writes.
+        await detailsMore(tv);
+        await tv.page.getByRole("button", { name: "Mark as Watched", exact: true }).click();
         await detailsMore(tv);
         await tv.page.getByRole("button", { name: "Mark as Unwatched", exact: true }).waitFor();
         assert.equal(catalog.mutations.length, 2);
@@ -1976,12 +1985,12 @@ browseTest("S-D2 failed episode reconciliation retries reads without another agg
     fail = true;
     await detailsMore(tv);
     await tv.page.getByRole("button", { name: "Mark Season Unwatched", exact: true }).click();
-        await detailsMore(tv);
-    await shows(tv, "Could not update watched.");
+    await failureAlert(tv, "Couldn't Update Watched Status");
     assert.equal(catalog.mutations.length, 1);
     assert.equal(await tv.page.locator(".browse-episode", { hasText: "Watched" }).count(), 3, "failed read retains old rows with an explicit error");
     fail = false;
-    await tv.page.getByRole("button", { name: "Retry watched", exact: true }).click();
+    await detailsMore(tv);
+    await tv.page.getByRole("button", { name: "Mark Season Unwatched", exact: true }).click();
         await detailsMore(tv);
     await tv.page.getByRole("button", { name: "Mark Season Watched", exact: true }).waitFor();
     assert.equal(await tv.page.locator(".browse-episode", { hasText: "Watched" }).count(), 0);
@@ -2091,13 +2100,13 @@ browseTest("S-D3 unknown or mismatched watched postconditions remain errors", as
         await route.fulfill({ status: 200, json: { ...fixture("get_catalog_item_ok"), content_id: "movie:m0001", user_data: undefined, user_state: unknown ? undefined : { played: false } } });
     });
     await tv.page.getByRole("button", { name: "Mark as Watched", exact: true }).click();
-        await detailsMore(tv);
-    await shows(tv, "Could not update watched.");
+    await failureAlert(tv, "Couldn't Update Item");
     unknown = true;
-    await tv.page.getByRole("button", { name: "Retry watched", exact: true }).click();
-        await detailsMore(tv);
-    await shows(tv, "Could not update watched.");
+    await detailsMore(tv);
+    await tv.page.getByRole("button", { name: "Mark as Watched", exact: true }).click();
+    await failureAlert(tv, "Couldn't Update Item");
     assert.equal(catalog.mutations.length, 1);
+    await detailsMore(tv);
     assert.equal(await tv.page.locator('[data-focus="watched"]').getAttribute("aria-pressed"), "false");
 }, { catalog: new FakeDetails() });
 
@@ -2156,8 +2165,8 @@ browseTest("personal writes require confirmed state and discard late replies aft
     });
     await detailsMore(tv);
     await tv.page.getByRole("button", { name: "Add to Favorites", exact: true }).click();
-        await detailsMore(tv);
-    await shows(tv, "Could not update favorites.");
+    await failureAlert(tv, "Couldn't Update Item");
+    await detailsMore(tv);
     assert.equal(await tv.page.locator('[data-focus="favorites"]').getAttribute("aria-pressed"), "false");
     assert.equal(catalog.mutations.length, 1);
     const held = tv.fake.hold("/watchlist/movie%3Am0001", true);
@@ -2276,11 +2285,12 @@ for (const scenario of [{ outcome: "completed", played: false }, { outcome: "los
         if (scenario.outcome === "lost") tv.fake.dropNextAnswer(path);
         await detailsMore(tv);
         await tv.page.getByRole("button", { name: scenario.played ? "Mark as Unwatched" : "Mark as Watched", exact: true }).click();
-        await detailsMore(tv);
+        // A lost answer is Apple's held change; OK leaves More closed, so one Back fewer returns Home.
+        if (scenario.outcome === "lost") await failureAlert(tv, "Change Not Confirmed");
+        else await detailsMore(tv);
         await tv.eventually(async () => catalog.mutations.length === 1, "watched mutation committed");
         if (scenario.outcome === "completed") await tv.page.getByRole("button", { name: scenario.played ? "Mark as Watched" : "Mark as Unwatched", exact: true }).waitFor();
-        if (scenario.outcome === "lost") await tv.page.getByRole("button", { name: "Retry watched", exact: true }).waitFor();
-        await tv.remote(BACK);
+        if (scenario.outcome !== "lost") await tv.remote(BACK);
         await tv.remote(BACK);
         held?.release();
         await showing(tv, "home");
@@ -2312,9 +2322,9 @@ for (const kind of ["favorites", "watchlist"]) {
         held.release();
         await showing(tv, "item:movie:m0001");
         if (kind === "favorites") await detailsMore(tv);
-        // Apple's Watchlist circle keeps its label and never disables; its failure note marks the cancelled write.
-        const retryable = kind === "watchlist" ? tv.page.getByText("Could not update watchlist.") : tv.page.getByRole("button", { name: `Retry ${kind}`, exact: true });
-        await tv.eventually(async () => await retryable.count() === 1, "cancelled action becomes visibly retryable");
+        // Apple keeps the control's own label after a cancelled write; the next press reconciles it.
+        const retryable = tv.page.getByRole("button", { name: kind === "favorites" ? "Add to Favorites" : "Add to watchlist", exact: true });
+        await tv.eventually(async () => await retryable.count() === 1, "cancelled action keeps its label");
         assert.equal(await tv.page.locator(`[data-focus="${kind}"]`).getAttribute("aria-disabled"), kind === "watchlist" ? null : "false");
         assert.equal(tv.fake.requests.filter(request => request.path === `${path}/membership`).length, 1);
         await tv.page.locator(`[data-focus="${kind}"]`).click();
@@ -2332,12 +2342,16 @@ browseTest("a lost watched answer is reconciled on Retry without repeating the n
     tv.fake.dropNextAnswer("/watched/movie%3Am0001");
     await detailsMore(tv);
     await tv.page.getByRole("button", { name: "Mark as Watched", exact: true }).click();
-        await detailsMore(tv);
-    await shows(tv, "Could not update watched.");
+    await failureAlert(tv, "Change Not Confirmed");
     assert.equal(catalog.watched, true, "server committed the lost answer");
     await tv.jump(30000);
     assert.equal(catalog.mutations.length, 1);
-    await tv.page.getByRole("button", { name: "Retry watched", exact: true }).click();
+    // A held change is never re-sent: the press shows the alert, and Discard reloads the committed state.
+    await detailsMore(tv);
+    await tv.page.getByRole("button", { name: "Mark as Watched", exact: true }).click();
+    const held = tv.page.getByRole("alertdialog", { name: "Change Not Confirmed", exact: true });
+    await held.getByRole("button", { name: "Discard Held Change", exact: true }).click();
+    await held.waitFor({ state: "detached" });
         await detailsMore(tv);
     await tv.page.getByRole("button", { name: "Mark as Unwatched", exact: true }).waitFor();
     assert.equal(catalog.mutations.length, 1, "retry reads the committed state instead of recording another watch");
@@ -2409,7 +2423,7 @@ browseTest("personal failure never repeats a write automatically and explicit re
     await tv.page.getByRole("button", { name: "Add to watchlist", exact: true }).waitFor();
     catalog.mutationFailure = problem(503, "unavailable", "Unavailable");
     await tv.page.getByRole("button", { name: "Add to watchlist", exact: true }).click();
-    await shows(tv, "Could not update watchlist.");
+    await failureAlert(tv, "Couldn't Update Item");
     await tv.jump(30000);
     assert.equal(catalog.mutations.length, 1);
     assert.equal(await tv.page.locator('[data-focus="watchlist"]').innerText(), "Watchlist");
@@ -2849,9 +2863,10 @@ for (const [kind, value, label, lost] of [["favorites", "favorited", "favorite",
         if (lost) tv.fake.dropNextAnswer(`/favorites/movie%3Am0001`);
         if (kind === "favorites") await detailsMore(tv);
         await tv.page.getByRole("button", { name: kind === "favorites" ? "Remove from Favorites" : `Remove ${label}`, exact: true }).click();
-        if (kind === "favorites") await detailsMore(tv);
-        await tv.page.getByRole("button", { name: lost ? "Retry favorites" : kind === "favorites" ? "Add to Favorites" : "Add to watchlist", exact: true }).waitFor();
-        if (kind === "favorites") await tv.remote(BACK);
+        if (lost) await failureAlert(tv, "Change Not Confirmed");
+        else if (kind === "favorites") await detailsMore(tv);
+        if (!lost) await tv.page.getByRole("button", { name: kind === "favorites" ? "Add to Favorites" : "Add to watchlist", exact: true }).waitFor();
+        if (kind === "favorites" && !lost) await tv.remote(BACK);
         await tv.remote(BACK);
         await tv.eventually(async () => await tv.page.getByText("No titles match your filters", { exact: true }).isVisible(), "membership removal refreshes Browse");
         assert.equal(await tv.page.locator('.catalog-grid .browse-card').count(), 0);

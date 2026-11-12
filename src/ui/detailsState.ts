@@ -21,10 +21,39 @@ import { matchesSubtitle, preferredCatalogSubtitle } from "../player/preplaySubt
 import { DescriptionTranslations, type ItemDescriptionTranslation } from "./descriptionTranslation.ts";
 import { TrailerFetch } from "./trailerFetch.ts";
 
+/** A failure Apple TV presents as a system alert with one OK button. */
+export interface DetailsAlert {
+    readonly id: string;
+    readonly title: string;
+    readonly message: string;
+    /** A write the server never answered; the alert also offers Discard Held Change. */
+    readonly held?: PersonalAction;
+}
+
+/** PersonalStateNotice.failed(nil) (silo-apple Components/MediaActionFeedback.swift). */
+const ITEM_UPDATE_FAILED: DetailsAlert = { id: "details-update-failed", title: "Couldn't Update Item", message: "Your change wasn't saved. Please try again." };
+/** PersonalStateNotice.held: the write may have landed without an answer, so it is never re-sent from here. */
+const HELD_MESSAGE = "Silo sent this change but the server didn't answer, so it won't be sent again. Discard the held change to reload this item and try again.";
+function heldAlert(kind: PersonalAction): DetailsAlert {
+    return { id: "details-change-held", title: "Change Not Confirmed", message: HELD_MESSAGE, held: kind };
+}
+/** TVSeriesDetailView's season watched alert (detail.watchedError). */
+const SEASON_WATCHED_FAILED: DetailsAlert = { id: "details-season-watched-failed", title: "Couldn't Update Watched Status", message: "Please check your connection and try again." };
+/** ShuffleLauncher.failureMessage under the shuffle.failedTitle alert. */
+function shuffleFailure(error: unknown): DetailsAlert {
+    // ShuffleError.classify reads Problem Details only.
+    const failure = error instanceof ApiError ? error.failure : undefined;
+    const status = failure?.kind === "problem" ? failure.problem.status : undefined;
+    const message = status === 409 ? "Nothing here can be played." : status === 404 ? "This is no longer available to shuffle." : "Couldn't start the shuffle. Try again.";
+    return { id: "details-shuffle-failed", title: "Couldn't Shuffle", message };
+}
+
 export interface PersonalChange {
     readonly target: boolean;
     readonly pending: boolean;
     readonly failed: boolean;
+    /** PersonalStateHolds: the write went unanswered, so no press sends it again until Discard Held Change. */
+    readonly held?: true;
 }
 
 const EPISODE_PREFETCH_CONCURRENCY = 4;
@@ -81,11 +110,17 @@ export class DetailsState {
     extraPending: string | undefined;
     extraFailed: string | undefined;
     shuffleSupported = false;
+    shuffleSeasonSupported = false;
     shuffleStarting = false;
-    shuffleFailed = false;
+    /** The failure on screen as an alert, until OK or Back dismisses it. */
+    alert: DetailsAlert | undefined;
+    /** Details shows personal failures as Apple's alerts and holds unanswered writes; an owner without alerts keeps inline Retry. */
+    presentsAlerts = false;
     private full = false;
     private restored = false;
     private readonly responses = new Map<string, unknown>();
+    /** Bumped when a press or discard reads or writes a kind, so an older membership load cannot overwrite it. */
+    private readonly personalGeneration = new Map<PersonalAction, number>();
     offline = false;
     private audioPick: { fileId: string; ordinal: number; inventory: string } | undefined;
     private audioAuto = false;
@@ -220,7 +255,8 @@ export class DetailsState {
         }
         if (interrupted) this.changed();
         if (mode === "full" && (this.related === undefined || this.restored)) this.loadRelated();
-        if (this.personalSupported === undefined || (this.restored && this.changes.size === 0)) this.loadPersonal();
+        // A restored hold still lets the memberships refresh; the hold itself blocks any write until it is discarded.
+        if (this.personalSupported === undefined || (this.restored && [...this.changes.values()].every(change => change.held === true))) this.loadPersonal();
         this.restored = false;
         if (this.full && this.controller !== undefined) this.descriptions?.attach(this.controller.signal);
     }
@@ -237,6 +273,7 @@ export class DetailsState {
         void this.read(operations.shuffleCapabilities(), controller).then(capability => {
             if (!this.current(controller)) return;
             this.shuffleSupported = capability.usable && capability.scopeKinds.includes("series");
+            this.shuffleSeasonSupported = capability.usable && capability.scopeKinds.includes("season");
             this.changed();
         }, () => undefined);
     }
@@ -249,6 +286,7 @@ export class DetailsState {
         this.trailers.stop();
         this.pendingEpisodePanel = undefined;
         this.shuffleStarting = false;
+        this.alert = undefined;
         for (const state of this.seasonStates.values()) state.stop();
         this.descriptions?.stop();
         this.extraPending = undefined;
@@ -323,6 +361,12 @@ export class DetailsState {
         this.personalSupported = previous.personalSupported;
         for (const [key, value] of previous.values) if (key !== "watched") this.values.set(key, value);
         if (this.detail.id === previous.detail.id) this.trailers.restore(previous.trailers);
+        // A hold outlives the owner: reopening the title must not let a press re-send an unanswered write. It arrives
+        // settled, because the old owner's discard reload (if any) stopped with it. An owner that cannot show the held
+        // alert inherits the hold as a failure that reconciles with a read before any write.
+        if (this.detail.id === previous.detail.id) {
+            for (const [kind, change] of previous.changes) if (change.held === true) this.changes.set(kind, { target: change.target, pending: false, failed: true, ...(this.presentsAlerts ? { held: true as const } : {}) });
+        }
         if (this.detail.versions.some(file => file.fileId === previous.failedPlay?.fileId)) this.failedPlay = previous.failedPlay;
         this.previousNextEpisodeState = previous.nextEpisodeState;
         this.focusedEpisodeId = previous.focusedEpisodeId;
@@ -486,25 +530,58 @@ export class DetailsState {
         }
     }
 
-    startShuffle(handoff: (request: PlayRequest) => void): void {
-        const controller = this.controller;
-        if (controller === undefined || !this.shuffleSupported || this.shuffleStarting || this.detail.type !== "series") return;
-        this.shuffleStarting = true;
-        this.shuffleFailed = false;
+    dismissAlert(): void {
+        if (this.alert === undefined) return;
+        this.alert = undefined;
         this.changed();
+    }
+
+    /** Discard Held Change: drop the unconfirmed write and reload what the server now holds for it. */
+    discardHeld(): void {
+        const held = this.alert;
+        const kind = held?.held;
+        const change = kind === undefined ? undefined : this.changes.get(kind);
+        const controller = this.controller;
+        this.alert = undefined;
+        if (kind === undefined || change === undefined || controller === undefined) { this.changed(); return; }
+        // The control stays busy until the reload settles, so no press can act on the state it is replacing.
+        // The hold stays marked until the reload succeeds, so leaving mid-reload carries it to the next owner.
+        const reloading: PersonalChange = { target: change.target, pending: true, failed: false, held: true };
+        this.personalGeneration.set(kind, (this.personalGeneration.get(kind) ?? 0) + 1);
+        this.changes.set(kind, reloading);
+        this.changed();
+        void this.refresh(kind, controller, change.target, false).then(() => {
+            if (!this.current(controller) || this.changes.get(kind) !== reloading) return;
+            this.changes.delete(kind);
+            this.changed();
+        }, () => {
+            if (!this.current(controller) || this.changes.get(kind) !== reloading) return;
+            // The server state is still unknown: keep the hold and offer the discard again.
+            this.changes.set(kind, change);
+            this.alert = held;
+            this.changed();
+        });
+    }
+
+    /** ShuffleLauncher.start: More closes at once; a failure is the Couldn't Shuffle alert. */
+    startShuffle(handoff: (request: PlayRequest) => void, season?: { readonly id: string }): void {
+        const controller = this.controller;
+        const supported = season === undefined ? this.shuffleSupported : this.shuffleSeasonSupported;
+        if (controller === undefined || !supported || this.shuffleStarting || this.detail.type !== "series") return;
+        this.shuffleStarting = true;
+        this.closePanel();
         void (async () => {
             try {
-                const shuffle = await this.session.call({ ...operations.createShuffle(this.detail.id, "series"), profileScoped: true, replayAfterRefresh: false, signal: controller.signal });
+                const shuffle = await this.session.call({ ...operations.createShuffle(season?.id ?? this.detail.id, season === undefined ? "series" : "season"), profileScoped: true, replayAfterRefresh: false, signal: controller.signal });
                 if (!this.current(controller)) return;
                 await this.capReady(controller.signal);
                 if (!this.current(controller)) return;
                 const request = await shufflePick(spec => this.read(spec, controller), shuffle, this.preferredQuality);
                 if (!this.current(controller)) return;
                 if (request === undefined) throw new Error("Shuffle has no playable file");
-                this.closePanel();
                 handoff(request);
-            } catch {
-                if (this.current(controller)) this.shuffleFailed = true;
+            } catch (error) {
+                if (this.current(controller)) this.alert = shuffleFailure(error);
             } finally {
                 if (this.current(controller)) { this.shuffleStarting = false; this.changed(); }
             }
@@ -531,6 +608,7 @@ export class DetailsState {
             const owner = new DetailsState({ ...this.detail, id: season.id, type: "season", seriesId: this.detail.id, seasonNumber: season.seasonNumber, played: this.aggregateWatched ?? season.userData?.played },
                 this.session, () => this.changed(), (detail, signal) => this.seasonWatchedChanged(detail, signal),
                 () => this.pending || this.pendingElsewhere());
+            owner.presentsAlerts = this.presentsAlerts;
             this.seasonStates.set(season.seasonNumber, owner);
             owner.start("personal");
         }
@@ -638,6 +716,7 @@ export class DetailsState {
             if (season === undefined) continue;
             const owner = new DetailsState({ ...prior.detail, played: season.userData?.played }, this.session, () => this.changed(),
                 (detail, signal) => this.seasonWatchedChanged(detail, signal), () => this.pending || this.pendingElsewhere());
+            owner.presentsAlerts = this.presentsAlerts;
             for (const [kind, change] of prior.changes) owner.changes.set(kind, { ...change, pending: false, failed: true });
             this.seasonStates.set(number, owner);
         }
@@ -798,6 +877,7 @@ export class DetailsState {
         }
         this.personalFailed = false;
         this.changed();
+        const generation = { watchlist: this.personalGeneration.get("watchlist"), favorites: this.personalGeneration.get("favorites") };
         const read = async (): Promise<void> => {
             const supported = await this.read(detailOperations.personalCapability(), controller);
             if (!this.current(controller)) return;
@@ -808,8 +888,8 @@ export class DetailsState {
             ]);
             if (!this.current(controller)) return;
             if (watchlist.id !== this.detail.id || favorites.id !== this.detail.id) throw new Error("Membership item mismatch");
-            this.values.set("watchlist", watchlist.member);
-            this.values.set("favorites", favorites.member);
+            if (this.personalGeneration.get("watchlist") === generation.watchlist) this.values.set("watchlist", watchlist.member);
+            if (this.personalGeneration.get("favorites") === generation.favorites) this.values.set("favorites", favorites.member);
             this.personalSupported = true;
         };
         read().then(() => {
@@ -831,15 +911,26 @@ export class DetailsState {
     change(kind: PersonalAction, target: boolean, reconcile = false): void {
         const controller = this.controller;
         if (controller === undefined || this.busy || !this.values.has(kind)) return;
+        // PersonalStateSync.set: a held change is never sent again; the press shows the held alert instead.
+        if (this.presentsAlerts && this.changes.get(kind)?.held === true) { this.alert = heldAlert(kind); this.changed(); return; }
+        this.personalGeneration.set(kind, (this.personalGeneration.get(kind) ?? 0) + 1);
         this.changes.set(kind, { target, pending: true, failed: false });
         this.changed();
+        let unanswered = false;
         const run = async (): Promise<void> => {
             if (reconcile) {
                 const actual = await this.refresh(kind, controller, target, false);
                 if (!this.current(controller) || actual === target) return;
             }
             if (!this.current(controller)) return;
-            await this.session.call({ ...detailOperations.setPersonal(kind, this.detail.id, target), profileScoped: true, replayAfterRefresh: false, signal: controller.signal });
+            try {
+                await this.session.call({ ...detailOperations.setPersonal(kind, this.detail.id, target), profileScoped: true, replayAfterRefresh: false, signal: controller.signal });
+            } catch (error) {
+                // MutationDelivery.unconfirmed: no answer may still mean the write landed. A network failure here
+                // cannot tell an unsent request from a lost answer, so it is held like a timeout.
+                unanswered = error instanceof ApiError && (error.failure.kind === "timeout" || error.failure.kind === "network");
+                throw error;
+            }
             if (!this.current(controller)) return;
             const actual = await this.refresh(kind, controller, target, true);
             if (actual !== target) throw new Error("Personal state was not applied");
@@ -850,7 +941,9 @@ export class DetailsState {
             this.changed();
         }, () => {
             if (!this.current(controller)) return;
-            this.changes.set(kind, { target, pending: false, failed: true });
+            const held = this.presentsAlerts && unanswered && this.detail.type !== "season";
+            this.changes.set(kind, { target, pending: false, failed: true, ...(held ? { held: true as const } : {}) });
+            if (this.presentsAlerts) this.alert = this.detail.type === "season" ? SEASON_WATCHED_FAILED : held ? heldAlert(kind) : ITEM_UPDATE_FAILED;
             this.changed();
         });
     }

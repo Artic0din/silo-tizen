@@ -59,6 +59,97 @@ test("stopped uncertain owner retains its target and reconciles before an explic
     } finally { state.stop(); }
 });
 
+test("an owner without alerts neither holds an unanswered write nor raises an alert it cannot show", async () => {
+    const h = await setup();
+    const state = new DetailsState(h.detail, h.core.session, () => undefined, async () => undefined);
+    try {
+        state.start();
+        await h.clock.advance(0);
+        h.fake.dropNextAnswer("/watched/movie%3Am0001");
+        state.change("watched", true);
+        await h.clock.advance(0);
+        assert.equal(state.changes.get("watched")?.failed, true);
+        assert.equal(state.changes.get("watched")?.held, undefined);
+        assert.equal(state.alert, undefined);
+    } finally { state.stop(); }
+});
+
+test("a Details owner holds an unanswered write and never sends it again until discarded", async () => {
+    const h = await setup();
+    const state = new DetailsState(h.detail, h.core.session, () => undefined, async () => undefined);
+    state.presentsAlerts = true;
+    try {
+        state.start();
+        await h.clock.advance(0);
+        h.fake.dropNextAnswer("/watched/movie%3Am0001");
+        state.change("watched", true);
+        await h.clock.advance(0);
+        assert.equal(state.changes.get("watched")?.held, true);
+        assert.equal(state.alert?.title, "Change Not Confirmed");
+        state.dismissAlert();
+        state.change("watched", true, true);
+        await h.clock.advance(0);
+        assert.equal(state.alert?.held, "watched");
+        assert.deepEqual(h.catalog.mutations, ["POST /watched/movie%3Am0001"]);
+        state.discardHeld();
+        await h.clock.advance(0);
+        assert.equal(state.changes.size, 0);
+        assert.equal(state.values.get("watched"), true);
+        assert.deepEqual(h.catalog.mutations, ["POST /watched/movie%3Am0001"]);
+    } finally { state.stop(); }
+});
+
+test("an owner without alerts inherits a Details hold as a failure that reconciles before any write", async () => {
+    const h = await setup();
+    const details = new DetailsState(h.detail, h.core.session, () => undefined, async () => undefined);
+    details.presentsAlerts = true;
+    const card = new DetailsState(h.detail, h.core.session, () => undefined, async () => undefined);
+    try {
+        details.start("personal");
+        await h.clock.advance(0);
+        h.fake.dropNextAnswer("/favorites/movie%3Am0001");
+        details.change("favorites", true);
+        await h.clock.advance(0);
+        assert.equal(details.changes.get("favorites")?.held, true);
+        details.stop();
+        card.restore(details);
+        assert.deepEqual(card.changes.get("favorites"), { target: true, pending: false, failed: true });
+        card.start("personal");
+        await h.clock.advance(0);
+        card.change("favorites", true, true);
+        await h.clock.advance(0);
+        assert.equal(card.values.get("favorites"), true);
+        assert.equal(card.alert, undefined);
+        assert.deepEqual(h.catalog.mutations, ["PUT /favorites/movie%3Am0001"], "the read found the lost write, so nothing is re-sent");
+    } finally { details.stop(); card.stop(); }
+});
+
+test("an older membership load never overwrites a newer change's readback", async () => {
+    const h = await setup();
+    const previous = new DetailsState(h.detail, h.core.session, () => undefined, async () => undefined);
+    previous.presentsAlerts = true;
+    const state = new DetailsState(h.detail, h.core.session, () => undefined, async () => undefined);
+    state.presentsAlerts = true;
+    try {
+        previous.start("personal");
+        await h.clock.advance(0);
+        h.fake.dropNextAnswer("/favorites/movie%3Am0001");
+        previous.change("favorites", true);
+        await h.clock.advance(0);
+        previous.stop();
+        state.restore(previous);
+        const stale = h.fake.hold("/watchlist/movie%3Am0001/membership");
+        state.start("personal");
+        await h.clock.advance(0);
+        state.change("watchlist", true);
+        await h.clock.advance(0);
+        assert.equal(state.values.get("watchlist"), true);
+        stale.release();
+        await h.clock.advance(0);
+        assert.equal(state.values.get("watchlist"), true, "the restored load's stale answer is ignored");
+    } finally { previous.stop(); state.stop(); }
+});
+
 test("personal-only startup skips related/title-art and season membership without hiding watched", async () => {
     const h = await setup();
     for (const id of ["movie:m0001", "series:s1-S1"]) {

@@ -132,3 +132,9 @@ export function lobbyItemFromDetail(detail: ItemDetail): LobbyItem {
         chips,
     };
 }
+
+/** A title chosen from its own Details page (Apple's WatchPartySelectedItem(previewing:)). */
+export function choiceFromDetail(detail: ItemDetail): MediaChoice {
+    const lobby = lobbyItemFromDetail(detail);
+    return { contentId: detail.id, type: detail.type, title: lobby.title, subtitle: lobby.subtitle, posterUrl: lobby.posterUrl, backdropUrl: lobby.backdropUrl, overview: lobby.overview, facts: lobby.facts, lobby };
+}

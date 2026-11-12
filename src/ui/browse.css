@@ -1129,28 +1129,50 @@
 .details-audio-picker { position: fixed; left: 88px; top: 420px; width: 620px; max-height: 560px; overflow-y: auto; z-index: 12; }
 .details-audio-options { display: flex; flex-direction: column; gap: 12px; }
 .details-audio-options .browse-button { width: 100%; text-align: left; }
-.details-track-popover { width: 560px; padding: 14px; border-radius: 24px; background: #28282b; box-shadow: 0 12px 40px rgba(0,0,0,.4); }
-.details-track-popover .details-audio-options { gap: 2px; }
-.details-track-popover .browse-button { box-sizing: border-box; height: 76px; padding-top: 13px; padding-bottom: 13px; font-size: 24px; line-height: 28px; }
-.details-track-popover .details-option-subtext { font-size: 17px; line-height: 20px; }
-.details-track-popover .details-option-title, .details-track-popover .details-option-subtext { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.details-more-icon { position: absolute; left: 18px; top: 50%; transform: translateY(-50%); width: 26px; height: 20px; }
-.details-track-popover .browse-button { position: relative; padding-left: 56px; }
-.details-track-popover [aria-checked="true"]::before { content: "✓"; position: absolute; left: 20px; top: 20px; }
-.skyline-selector.details-track-popover .browse-button[aria-checked="true"]:not(:focus) { background: transparent; }
-.details-track-popover .browse-section-title { font-size: 18px; letter-spacing: 2px; opacity: .6; }
-.details-more-popover .browse-button { --icon-ink: #000; height: 54px; font-size: 22px; border-radius: 14px; }
-.details-more-popover .browse-button:focus { --icon-ink: #fff; }
-.details-more-popover .browse-section-title { margin: 0; padding: 8px 16px 10px; font-family: ui-monospace, monospace; font-size: 14px; font-weight: 400; letter-spacing: 3.64px; color: rgba(255,255,255,.38); opacity: 1; }
-/* Liquid Glass has no published blur radius; reuse the sign-in glass blur. */
-.details-more-popover {
+/* TVActionPopoverMenu (silo-apple e792abd): Version, Audio, Subtitles and More share one glass panel, mono header and row.
+   Row text is Apple's points times --silo-sf-cap-scale; the monospaced header keeps Apple's points. A 28px title line makes
+   Apple's 13pt-padded row 54 tall alone and 76 with its detail line. Liquid Glass has no published blur radius; this reuses
+   the sign-in glass blur. */
+.details-track-popover {
+    width: 560px; padding: 14px; border-radius: 22px;
     background: rgba(0,0,0,.45);
     -webkit-backdrop-filter: blur(30px);
     backdrop-filter: blur(30px);
-    border: 1px solid rgba(255,255,255,.1);
-    box-shadow: 0 18px 32px rgba(0,0,0,.45);
+    /* strokeBorder is an overlay: the 1px lip takes no layout, so rows stay 532 wide. */
+    border: 0;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.1), 0 18px 32px rgba(0,0,0,.45);
+    transform-origin: top;
 }
-.details-trailer-status { display: inline-flex; align-items: center; gap: 14px; margin: 14px 0 0; padding: 14px 26px; border-radius: 40px; background: rgba(0,0,0,.55); border: 1.2px solid rgba(255,255,255,.18); color: #fff; font-size: 24px; font-weight: 600; }
+.details-track-popover .browse-section-title { margin: 0; padding: 8px 16px 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, monospace; font-size: 14px; font-weight: 400; letter-spacing: 3.64px; color: rgba(255,255,255,.38); opacity: 1; }
+.details-track-popover .details-audio-options { gap: 2px; }
+.details-popover-scroll { position: relative; max-height: 504px; overflow-y: auto; scrollbar-width: none; }
+.details-popover-scroll::-webkit-scrollbar { display: none; }
+.details-track-popover .browse-button { position: relative; box-sizing: border-box; flex-shrink: 0; padding: 13px 18px 13px 58px; border-radius: 14px; font-size: calc(22px * var(--silo-sf-cap-scale)); font-weight: 600; line-height: 28px; color: rgba(255,255,255,.9); }
+.skyline-selector.details-track-popover .browse-button:focus { background: #fff; color: #000; box-shadow: none; }
+.skyline-selector.details-track-popover .browse-button[aria-checked="true"]:not(:focus) { background: transparent; }
+.details-track-popover .browse-button[aria-disabled="true"] { opacity: .4; }
+.details-track-popover .details-option-subtext { margin-top: 2px; font-size: calc(17px * var(--silo-sf-cap-scale)); font-weight: 500; line-height: 20px; opacity: .7; }
+.details-track-popover .details-option-title, .details-track-popover .details-option-subtext { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.details-more-icon, .details-option-check { position: absolute; left: 18px; top: 50%; transform: translateY(-50%); width: 26px; height: 20px; }
+.details-more-popover .browse-button { --icon-ink: #000; }
+.details-more-popover .browse-button:focus { --icon-ink: #fff; }
+@media (prefers-reduced-motion: reduce) {
+    .details-track-popover { animation-name: skyline-appear; }
+}
+/* TVTrailerStatusPill: 24 below a movie's action row (actionColumn spacing 24), or 14 under a series' episode rail. */
+.details-trailer-status { display: inline-flex; align-items: center; gap: 14px; margin: 24px 0 0; padding: 14px 26px; border-radius: 40px; background: rgba(0,0,0,.55); border: 1.2px solid rgba(255,255,255,.18); color: #fff; font-size: calc(24px * var(--silo-sf-cap-scale)); font-weight: 600; white-space: nowrap; }
+.details-trailer-status-series { margin-top: 14px; }
+/* Apple's system alert over Details (PersonalStateNotice, Couldn't Shuffle): one OK button across the alert. */
+.browse .signin-alert { z-index: 21; }
+/* The page under the alert at .55 opacity (dialog-behind-dimmed), as a layer so cached page nodes stay untouched. */
+.details-alert-dim { position: fixed; inset: 0; z-index: 20; background: rgba(0,0,0,.45); }
+.browse .signin-alert .signin-actions .browse-button { flex: 1; height: 66px; margin: 0; padding: 0 32px; border: 2px solid transparent; border-radius: 40px; background: var(--silo-selected); color: #ededed; font-size: 30px; box-shadow: none; }
+.browse .signin-alert .signin-actions .browse-button:focus { background: #fff; color: #000; }
+/* tvOS stacks a two-button alert: the destructive Discard Held Change in system red above OK. */
+.browse .signin-alert .signin-actions:has(> .skyline-destructive) { flex-direction: column; gap: 16px; }
+.browse .signin-alert .signin-actions:has(> .skyline-destructive) .browse-button { flex: none; }
+.browse .signin-alert .signin-actions .browse-button.skyline-destructive { color: #ff453a; }
+.browse .signin-alert .signin-actions .browse-button.skyline-destructive:focus { color: #000; }
 .details-option-subtext { display: block; font-size: 20px; line-height: 26px; opacity: .65; }
 /* Detail metrics are scoped here after the shared Home card and heading rules. */
 .browse:has(.details-hero) > .browse-section-title, .browse:has(.details-hero) .details-facts > .browse-section-title { margin-left: 12px; margin-bottom: 14px; font-size: 36px; line-height: 43.2px; font-weight: 600; }

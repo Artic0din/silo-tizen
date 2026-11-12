@@ -12,7 +12,7 @@ import type { PersonMetadataRefresh } from "./personMetadataRefresh.ts";
 import type { DetailsState } from "./detailsState.ts";
 import { SessionError, SessionRefreshError } from "../session/session.ts";
 import type { FocusTarget, View } from "./browseFocus.ts";
-import { itemView, seasonView } from "./browseDetails.ts";
+import { itemView, seasonView, withDetailsAlert } from "./browseDetails.ts";
 import { detailsLoadingView } from "./detailsLoading.ts";
 import { browseCardDestination, type SearchFilter, type EpisodeSelection, type PlayRequest, type SeriesContext, type SeriesLine, type DetailSeed } from "./browseModel.ts";
 import type { CalendarState } from "./calendarState.ts";
@@ -213,7 +213,7 @@ export function routeView(current: Route, handlers: RouteHandlers): View {
                 const view = itemView(current.data.details?.detail ?? current.data.detail, current.data.seasons, {
                     ...context, open: destination => context.open(destination.kind === "season" && episodeId !== undefined ? { ...destination, episodeId } : destination),
                 }, handlers.play, pop, current.data.details, current.data.boxSet);
-                return withNote(view, current.failure);
+                return withDetailsAlert(withNote(view, current.failure), current.data.details);
             }
             break;
         case "audiobook":
@@ -232,7 +232,7 @@ export function routeView(current: Route, handlers: RouteHandlers): View {
             break;
         case "season":
             if (current.data !== undefined) {
-                return withNote(seasonView(`season:${current.seriesId}:${current.seasonNumber}`, current.title, current.data.episodes, context, pop, handlers.play, current.data.details?.detail ?? current.data.detail, current.data.details), current.failure);
+                return withDetailsAlert(withNote(seasonView(`season:${current.seriesId}:${current.seasonNumber}`, current.title, current.data.episodes, context, pop, handlers.play, current.data.details?.detail ?? current.data.detail, current.data.details), current.failure), current.data.details);
             }
     }
     if (current.kind === "item") return detailsLoadingView(current, context, pop);

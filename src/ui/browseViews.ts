@@ -13,6 +13,7 @@ import { artworkSymbol, defaultArtwork, type DefaultArtworkFactory } from "./def
 import { blurEpisodeStill, cardUsesBackdrop, hidesCardImage, type EpisodeSpoilerSettings } from "./episodeSpoilers.ts";
 import { thumbhashCanvas } from "./heroBackdrop.ts";
 import { el } from "./screen.ts";
+import type { MediaChoice } from "./watchPartyChoice.ts";
 
 /** Home artwork widths in browse.css (Apple SiloTheme poster and EpisodeThumbCard widths); badges scale from them. */
 const HOME_POSTER_WIDTH = 176;
@@ -52,6 +53,8 @@ export interface ViewContext {
     readonly cardDestination?: (card: Card) => Destination | undefined;
     /** Profile spoiler switches. Absent reads as both off. */
     readonly spoilers?: () => EpisodeSpoilerSettings;
+    /** WatchPartyEntry: offered while the experimental switch is on and the server can host a party; open starts a room with the title. */
+    readonly watchParty?: { readonly offered: () => boolean; readonly open: (choice: MediaChoice) => void };
 }
 
 function spoilerSettings(context: ViewContext): EpisodeSpoilerSettings {

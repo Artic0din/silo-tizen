@@ -111,17 +111,14 @@ detailTest("season Details automatically recovers an offline next episode", asyn
     await tv.page.locator('[data-focus="more"]').click();
     const panel = tv.page.getByRole("dialog", { name: "More", exact: true });
     await panel.locator('[data-focus="watched"]').click();
-    await tv.page.locator('[data-focus="more"]').click();
-    await panel.getByRole("button", { name: "Retry watched", exact: true }).waitFor();
-    await tv.remote(10009);
+    await dismissAlert(tv, "Couldn't Update Watched Status");
     const mutations = [...catalog.mutations];
     await tv.page.unroute("**/api/v2/catalog/items/episode%3A*");
     await tv.page.unroute("**/api/v2/catalog/series/series%3As1/seasons/1/episodes?**");
     await tv.jump(15000);
     await tv.eventually(async () => await primary.getAttribute("aria-disabled") === "false", "season next episode recovered automatically");
     assert.match(await primary.innerText(), /Play S1:E1/);
-    await tv.page.locator('[data-focus="more"]').click();
-    await panel.getByRole("button", { name: "Retry watched", exact: true }).waitFor({ timeout: 1500 });
+    assert.equal(await tv.page.getByRole("alertdialog").count(), 0, "recovery does not repeat the alert");
     assert.deepEqual(catalog.mutations, mutations, "automatic recovery never resends the failed write");
 });
 
@@ -136,9 +133,7 @@ detailTest("stale season return restarts its personal action owner", async tv =>
     const panel = tv.page.getByRole("dialog", { name: "More", exact: true });
     await tv.page.locator('[data-focus="more"]').click();
     await panel.locator('[data-focus="watched"]').click();
-    await tv.page.locator('[data-focus="more"]').click();
-    await panel.getByRole("button", { name: "Retry watched", exact: true }).waitFor();
-    await tv.remote(10009);
+    await dismissAlert(tv, "Couldn't Update Item");
     await tv.remote(10009);
     await tv.page.locator('.browse-episodes').waitFor();
     await tv.eventually(async () => /^Play S/.test(await tv.page.locator('[data-focus="next-episode"]').innerText()), "stale season refreshed");
@@ -147,6 +142,15 @@ detailTest("stale season return restarts its personal action owner", async tv =>
     await panel.locator('[data-focus="watched"]').click();
     await tv.eventually(async () => catalog.mutations.length > before, "returned season action dispatched");
 });
+
+/** Apple's system alert for a failed change: waits for it, then presses OK. */
+async function dismissAlert(tv: Tv, title: string, message?: string): Promise<void> {
+    const alert = tv.page.getByRole("alertdialog", { name: title, exact: true });
+    await alert.waitFor();
+    if (message !== undefined) assert.equal(await alert.locator(".signin-alert-text").textContent(), message);
+    await alert.getByRole("button", { name: "OK", exact: true }).click();
+    await alert.waitFor({ state: "detached" });
+}
 
 function liveScroll(_arg: null): number | null {
     const row = document.querySelector(".details-episodes");
@@ -638,9 +642,9 @@ detailTest('275 More glass obscures the page with blur and pinned Swift tint str
     });
     assert.equal(glass.blur, 'blur(30px)');
     assert.equal(glass.tint, 'rgba(0, 0, 0, 0.45)');
-    assert.equal(glass.border, 'rgba(255, 255, 255, 0.1)');
-    assert.equal(glass.width, '1px');
-    assert.equal(glass.shadow, 'rgba(0, 0, 0, 0.45) 0px 18px 32px 0px');
+    // strokeBorder is an overlay that takes no layout: an inset 1px ring, not a CSS border.
+    assert.equal(glass.width, '0px');
+    assert.equal(glass.shadow, 'rgba(255, 255, 255, 0.1) 0px 0px 0px 1px inset, rgba(0, 0, 0, 0.45) 0px 18px 32px 0px');
 });
 
 detailTest('More is an anchored popover with Apple ordering and immediate Back focus', async tv => {
@@ -747,8 +751,12 @@ detailTest('Shuffle Series leads More, reports failure, and reuses shuffle playb
     await shuffle.waitFor();
     assert.equal(await tv.focused(), 'shuffle-series');
     await shuffle.click();
-    await tv.page.getByRole('alert').filter({ hasText: "Couldn't start the shuffle. Try again." }).waitFor();
+    // ShuffleLauncher: More closes at once and focus returns to it; the failure is the Couldn't Shuffle alert.
+    assert.equal(await tv.page.getByRole('dialog', { name: 'More', exact: true }).count(), 0);
+    await dismissAlert(tv, "Couldn't Shuffle", "Couldn't start the shuffle. Try again.");
+    assert.equal(await tv.focused(), 'more');
     fail = false;
+    await tv.page.locator('[data-focus="more"]').click();
     await shuffle.click();
     await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.plays.length === 1), 'shuffle playback dispatched');
     assert.equal(await tv.page.evaluate(() => window.browseHarness.plays[0]?.shuffleId), 'series-shuffle');
@@ -855,16 +863,18 @@ detailTest('Series More keeps series and season watched writes separate and reco
     catalog.mutationFailure = problem(422, 'validation_failed', 'Unavailable action');
     await panel.locator('[data-focus="season-watched"]').click();
     assert.equal(await panel.count(), 0);
+    await dismissAlert(tv, "Couldn't Update Watched Status", 'Please check your connection and try again.');
     assert.equal(await tv.focused(), 'more');
     await tv.page.locator('[data-focus="more"]').click();
-    await panel.getByRole('button', { name: 'Retry season watched', exact: true }).waitFor();
-    await panel.getByRole('alert').filter({ hasText: 'Could not update season watched.' }).waitFor();
+    // Apple keeps the toggle's own label after a failure; the next press reconciles before it writes.
+    await panel.getByRole('button', { name: 'Mark Season Watched', exact: true }).waitFor();
+    assert.equal(await panel.getByRole('alert').count(), 0);
     await tv.remote(10009);
     await tv.page.locator('.details-people [data-focus^="credit:7:"]').first().click();
     await tv.page.locator('[data-view="person:7"]').waitFor();
     await tv.remote(10009);
     await tv.page.locator('[data-focus="more"]').click();
-    await panel.getByRole('button', { name: 'Retry season watched', exact: true }).click();
+    await panel.getByRole('button', { name: 'Mark Season Watched', exact: true }).click();
     await tv.page.locator('[data-focus="more"]').click();
     await panel.getByRole('button', { name: 'Mark Season Unwatched', exact: true }).waitFor();
     await panel.getByRole('button', { name: 'Mark Series Unwatched', exact: true }).waitFor();
@@ -917,9 +927,7 @@ detailTest('Failed season episode reconciliation keeps the existing playback own
     await tv.page.route('**/api/v2/catalog/series/series%3As1/seasons/1/episodes?**', route => route.fulfill({ status: 400, json: problem(400, 'unavailable', 'Unavailable').body }));
     await tv.page.locator('[data-focus="more"]').click();
     await tv.page.locator('[data-focus="season-watched"]').click();
-    await tv.page.locator('[data-focus="more"]').click();
-    await tv.page.getByRole('button', { name: 'Retry season watched', exact: true }).waitFor();
-    await tv.remote(10009);
+    await dismissAlert(tv, "Couldn't Update Watched Status");
     await tv.page.locator('[data-focus="next-episode"]').click();
     await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.plays.length === 1), 'retained owner still dispatches playback after reconciliation fails');
 });
@@ -1432,10 +1440,14 @@ detailTest('Details picker selection uses a check without a resting fill', async
     const selected = await readLive(tv, () => {
         const node = document.querySelector('[data-focus="audio:auto"]');
         if (node === null || !node.isConnected) return null;
-        return { fill: getComputedStyle(node).backgroundColor, mark: getComputedStyle(node, "::before").content };
-    }, null, value => value.fill === "rgba(0, 0, 0, 0)" && value.mark === '"✓"', "selected audio row");
-    assert.equal(selected.fill, "rgba(0, 0, 0, 0)");
-    assert.equal(selected.mark, '"✓"');
+        const check = node.querySelector(".details-option-check");
+        if (check === null) return { fill: getComputedStyle(node).backgroundColor, mark: "none", left: 0, width: 0 };
+        const row = node.getBoundingClientRect();
+        const box = check.getBoundingClientRect();
+        return { fill: getComputedStyle(node).backgroundColor, mark: check.getAttribute("data-symbol") ?? "none", left: box.left - row.left, width: box.width };
+    }, null, value => value.fill === "rgba(0, 0, 0, 0)" && value.mark === "checkmark" && value.width === 26, "selected audio row after the open scale");
+    // TVActionPopoverRow: the checkmark's 26pt slot starts at the 18pt row inset.
+    assert.deepEqual(selected, { fill: "rgba(0, 0, 0, 0)", mark: "checkmark", left: 18, width: 26 });
 });
 
 detailTest('Details More and Subtitles use white ellipsis and caption bubble glyphs', async tv => {
@@ -2784,9 +2796,12 @@ detailTest("More owns accessible personal-action loading and failure announcemen
     assert.ok(catalog instanceof FakeDetails);
     catalog.mutationFailure = problem(422, "validation_failed", "Unavailable action");
     await panel.locator('[data-focus="watched"]').click();
+    // PersonalStateNotice.failed(nil) is a system alert; More itself carries no failure note.
+    await dismissAlert(tv, "Couldn't Update Item", "Your change wasn't saved. Please try again.");
+    assert.equal(await tv.focused(), "more");
     await tv.page.locator('[data-focus="more"]').click();
-    await panel.getByRole("alert").filter({ hasText: "Could not update watched." }).waitFor();
-    assert.equal(await panel.getByRole("alert").count(), 1);
+    await panel.getByRole("button", { name: "Mark as Watched", exact: true }).waitFor();
+    assert.equal(await panel.getByRole("alert").count(), 0);
 });
 
 for (const kind of ["favorites", "watchlist"] as const) detailTest(`online Details preserves unresolved ${kind} through automatic recovery`, async tv => {
@@ -2802,22 +2817,22 @@ for (const kind of ["favorites", "watchlist"] as const) detailTest(`online Detai
     await tv.jump(1000);
     await tv.eventually(async () => failures >= 2, "membership retry exhausted");
     await tv.jump(0);
-    if (kind === "favorites") await tv.page.locator('[data-focus="more"]').click();
-    // Apple's Watchlist circle keeps its label, so its failure note carries the unconfirmed write.
-    const retry = kind === "watchlist" ? tv.page.getByText("Could not update watchlist.") : tv.page.getByRole("button", { name: `Retry ${kind}`, exact: true });
-    const control = kind === "watchlist" ? tv.page.locator('[data-focus="watchlist"]') : retry;
-    await retry.waitFor();
+    // The unconfirmed write is Apple's Couldn't Update Item alert; the control keeps its own label.
+    await dismissAlert(tv, "Couldn't Update Item");
     const reads = () => tv.fake.requests.filter(request => request.path.startsWith("/catalog/items/movie%3Am0001")).length;
     const before = reads();
-    if (kind === "favorites") await tv.remote(10009);
     await tv.jump(15000);
     await tv.eventually(async () => reads() > before, "automatic recovery refreshed initially online Details");
     await tv.jump(1000);
-    if (kind === "favorites") await tv.page.locator('[data-focus="more"]').click();
-    assert.equal(await retry.count(), 1, "unconfirmed write retains its failure state");
+    assert.equal(await tv.page.getByRole("alertdialog").count(), 0, "recovery does not repeat the alert");
     await tv.page.unroute(`**/api/v2/${source}/movie%3Am0001/membership`);
-    await control.click();
-    await tv.eventually(async () => !await retry.count(), "fresh membership reconciles the accepted write");
+    const membershipReads = () => tv.fake.requests.filter(request => request.path.startsWith(`/${source}/movie%3Am0001/membership`)).length;
+    const readsBefore = membershipReads();
+    if (kind === "favorites") await tv.page.locator('[data-focus="more"]').click();
+    await tv.page.locator(`[data-focus="${kind}"]`).click();
+    await tv.eventually(async () => membershipReads() > readsBefore, "the next press reconciles the unconfirmed write first");
+    await tv.jump(1000);
+    assert.equal(await tv.page.getByRole("alertdialog").count(), 0, "fresh membership reconciles the accepted write");
 });
 
 detailTest("cached Details recovery restores failed personal controls", async tv => {

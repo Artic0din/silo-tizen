@@ -6,6 +6,8 @@ export type SubtitleSignature = Pick<SubtitleTrack, "source" | "language" | "cod
 export interface CatalogSubtitleTrack extends SubtitleSignature {
     readonly selectionIndex: number | undefined;
     readonly externalPath: string;
+    /** The file marks this track default; absent when it does not. */
+    readonly isDefault?: true;
 }
 export type SubtitleIntent = { readonly kind: "auto" } | { readonly kind: "off" } | { readonly kind: "track"; readonly signature: SubtitleSignature; /** Seeded from a saved preference, not picked on Details. */ readonly saved?: true };
 export interface SubtitlePreferences {
@@ -24,7 +26,7 @@ export function decodeCatalogSubtitles(value: unknown, path: string): readonly C
         const name = `${path}.subtitle_tracks[${ordinal}]`;
         const track = object(value, name);
         const external = track.external === undefined ? false : boolean(track, "external", name);
-        return { selectionIndex: (track.index === undefined ? (external ? undefined : 0) : integer(track, "index", name)), externalPath: external ? optionalString(track, "file_name", name) ?? "" : "", source: external ? "external" : "embedded", language: optionalString(track, "language", name), codec: optionalString(track, "codec", name), label: optionalString(track, "title", name) ?? optionalString(track, "embedded_title", name), forced: track.forced === undefined ? false : boolean(track, "forced", name), hearingImpaired: track.hearing_impaired === undefined ? false : boolean(track, "hearing_impaired", name) };
+        return { selectionIndex: (track.index === undefined ? (external ? undefined : 0) : integer(track, "index", name)), externalPath: external ? optionalString(track, "file_name", name) ?? "" : "", source: external ? "external" : "embedded", language: optionalString(track, "language", name), codec: optionalString(track, "codec", name), label: optionalString(track, "title", name) ?? optionalString(track, "embedded_title", name), forced: track.forced === undefined ? false : boolean(track, "forced", name), hearingImpaired: track.hearing_impaired === undefined ? false : boolean(track, "hearing_impaired", name), ...(track.default !== undefined && boolean(track, "default", name) ? { isDefault: true as const } : {}) };
     });
 }
 

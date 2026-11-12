@@ -110,6 +110,9 @@ The #247 scroll audit at the Apple SHA above found these distinct owners, all un
 The settled running Apple app at `7baff3e` on 6 November 2026 supplies Down heading targets Cast 546, Trailers 501 and Series posters 547, and Up heading 111.
 Apple's trailer image starts 69px below its heading, matching Samsung's 69.2px; its focused frame includes about 44px of padding above the image and is not comparable to Samsung's card frame.
 Movie Related uses heading 321 and Series Cast uses 367 in both directions because the local complete section heights differ from Swift's centered anchors.
+The poster headings were measured at Compact Poster Size; Apple scales poster art by Poster Size (`MediaCard.swift:149-158`, `UICustomizationPreferences.swift:24-30`).
+Each point of extra poster height raises the Series Related Down heading by one point, because the native reveal keeps the card's bottom edge, and the Movie Related heading by half a point, because `scrollTo(id, anchor: .center)` (`TVDetailFocusScroll.swift:81,94-103`) centres the whole section.
+At Standard the headings are 500.8 and 297.9; at Large 434.8 and 264.9.
 Up resets to zero when the heading and focused artwork are fully visible there, including Movie Cast at heading 690.
 Horizontal moves preserve the section's vertical position; hero actions, season pills and episode rows stay at scroll zero.
 Details scrolls to `scrollHeight - clientHeight`, with 140px of total bottom padding from `TVDetailLayout.pageBottomPadding` and no duplicate facts margin.

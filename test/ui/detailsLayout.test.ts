@@ -481,7 +481,9 @@ for (const media of ['movie:m0001', 'series:s1']) detailTest(`${media} reveals s
     }
     await check('.details-people', series ? 367 : 546, 40);
     await check('.details-extras', 501, 40);
-    await check('[data-detail-section="related"]', series ? 547 : 321, 40);
+    // Standard posters are 46.2px taller than the Compact ones Apple was measured with.
+    const related = series ? 547 - 46.2 : 321 - 23.1;
+    await check('[data-detail-section="related"]', related, 40);
     await tv.remote(40); await tv.jump(500);
     const end = await sample('.details-facts');
     assert.equal(end.scroll, end.maximum);
@@ -489,7 +491,7 @@ for (const media of ['movie:m0001', 'series:s1']) detailTest(`${media} reveals s
     // Fake facts differ from the captured title: residuals +4.61 Movie / +5.41 Series.
     assert.ok(Math.abs(end.heading - (series ? 457.41 : 528.61)) <= 3, JSON.stringify(end));
     console.log(`${media} Details heading ${end.heading}, residual ${end.heading - (series ? 452 : 524)}, page height ${end.height}`);
-    await check('[data-detail-section="related"]', series ? 111 : 321, 38);
+    await check('[data-detail-section="related"]', series ? 111 : related, 38);
     await check('.details-extras', 111, 38);
     await check('.details-people', series ? 367 : 690, 38);
     if (!series) assert.equal((await sample('.details-people')).scroll, 0);
@@ -503,6 +505,23 @@ for (const media of ['movie:m0001', 'series:s1']) detailTest(`${media} reveals s
         return page === null ? null : page.scrollTop;
     }, null, value => value === 0, 'hero returns to scroll zero'), 0);
 });
+
+// Apple scales poster art by Poster Size (MediaCard.swift:149-158). Series Related keeps the native reveal's card bottom;
+// Movie Related centres its section (TVDetailFocusScroll.swift:81), so it moves by half the growth.
+for (const size of ['compact', 'standard', 'large'] as const) for (const media of ['movie:m0001', 'series:s1']) detailTest(`${media} ${size} Related lands at Apple's heading on Down`, async tv => {
+    const growth = 330 * ({ compact: 0.86, standard: 1, large: 1.2 })[size] - 330 * 0.86;
+    const target = media.startsWith('series') ? 547 - growth : 321 - growth / 2;
+    await tv.page.locator(`[data-section="recently_added"] [data-focus="${media}"]`).first().click();
+    await tv.page.locator('[data-detail-section="related"] [data-focus]').first().waitFor();
+    await tv.page.evaluate(() => document.fonts.ready);
+    await tv.jump(500);
+    for (let step = 0; step < 8 && await tv.page.locator('[data-detail-section="related"] :focus').count() === 0; step++) { await tv.remote(40); await tv.jump(500); }
+    const heading = await readLive(tv, () => {
+        const section = document.querySelector('[data-detail-section="related"]');
+        return section?.contains(document.activeElement) === true ? section.previousElementSibling?.getBoundingClientRect().top ?? null : null;
+    }, null, () => true, 'Related heading');
+    assert.ok(Math.abs(heading - target) <= 2, `heading ${heading} target ${target}`);
+}, size);
 
 
 // Related keeps the title on screen, as TVSimilarRail does, and picking it opens nothing (AppRouter.relatedTitleStep),

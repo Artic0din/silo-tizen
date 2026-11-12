@@ -4,10 +4,13 @@ import { episodeRailOffset } from "./episodeRail.ts";
 const HISTORY_POSTER_TOP = 554;
 
 // Measured from the running Apple TV app at 7baff3e, 6 Nov 2026: tvOS focus reveal, not Swift offsets.
+// The poster headings were measured at Compact Poster Size.
 const DETAILS_DOWN_HEADING = { cast: 546, trailers: 501, posters: 547 };
 const DETAILS_UP_HEADING = 111;
 // The local section heights differ from Swift's complete centered anchors.
 const DETAILS_CENTER_HEADING = { moviePosters: 321, seriesCast: 367 };
+/** Compact poster art height: 330 x 0.86 (MediaCard.swift:149-158, UICustomizationPreferences.swift:24-30). */
+const DETAILS_MEASURED_POSTER_HEIGHT = 330 * 0.86;
 
 /**
  * A Settings caption is not focusable. Extend the focused row through the
@@ -205,8 +208,12 @@ export class SkylineScroll {
             const series = container.querySelector('.details-hero')?.getAttribute('data-media-type') === 'series';
             const cast = section.classList.contains('details-people');
             const posters = section.hasAttribute('data-detail-section');
-            const centered = series && cast ? DETAILS_CENTER_HEADING.seriesCast : !series && posters ? DETAILS_CENTER_HEADING.moviePosters : undefined;
-            const target = centered ?? (up ? DETAILS_UP_HEADING : cast ? DETAILS_DOWN_HEADING.cast : posters ? DETAILS_DOWN_HEADING.posters : DETAILS_DOWN_HEADING.trailers);
+            // Larger posters lift the heading: Series Down keeps the native reveal's card bottom, and
+            // Movie's centred section (TVDetailFocusScroll.swift:81, 94-103) grows half above its centre.
+            const art = posters ? element.querySelector<HTMLElement>('.browse-art') : null;
+            const growth = art === null ? 0 : parseFloat(getComputedStyle(art).height) - DETAILS_MEASURED_POSTER_HEIGHT;
+            const centered = series && cast ? DETAILS_CENTER_HEADING.seriesCast : !series && posters ? DETAILS_CENTER_HEADING.moviePosters - growth / 2 : undefined;
+            const target = centered ?? (up ? DETAILS_UP_HEADING : cast ? DETAILS_DOWN_HEADING.cast : posters ? DETAILS_DOWN_HEADING.posters - growth : DETAILS_DOWN_HEADING.trailers);
             // A section fully reachable on the unscrolled page needs no upward reveal.
             const artwork = element.querySelector('.browse-art');
             const visibleAtTop = headingTop >= 0 && viewport.scrollTop + (artwork ?? element).getBoundingClientRect().bottom - bounds.top <= viewport.clientHeight;

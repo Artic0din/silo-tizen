@@ -981,7 +981,7 @@ detailTest("episode boundary failure shows Apple's text-only error and retries w
     await card(3, 13).focus(); await tv.jump(100);
     const notice = tv.page.getByText("Couldn't load more episodes. Move away and back to retry.", { exact: true });
     await notice.waitFor();
-    assert.deepEqual(await notice.evaluate(node => { const style = getComputedStyle(node); return { size: style.fontSize, color: style.color, margin: style.margin }; }), { size: "18px", color: "rgba(237, 237, 237, 0.6)", margin: "14px 0px 0px" }, "TVSeriesDetailView.swift:590-592: 18pt siloSecondaryText below the rail at the stack's spacing 14");
+    assert.deepEqual(await notice.evaluate(node => { const style = getComputedStyle(node); return { size: style.fontSize, color: style.color, margin: style.margin }; }), { size: "17.433px", color: "rgba(237, 237, 237, 0.6)", margin: "14px 0px 0px" }, "TVSeriesDetailView.swift:590-592: 18pt times --silo-sf-cap-scale, siloSecondaryText below the rail at the stack's spacing 14");
     assert.equal(await tv.page.getByRole("button", { name: /Retry more episodes/ }).count(), 0, "Apple shows text only, with no Retry button");
     assert.deepEqual(reads.slice(3), [4]);
     await card(3, 12).focus(); await card(3, 13).focus(); await tv.jump(100);
@@ -1931,7 +1931,7 @@ detailTest('Details samples the artwork tint and presents the rating badge, runt
         const node = document.querySelector(".details-rating-badge");
         if (node === null || !node.isConnected) return null;
         return getComputedStyle(node).fontSize;
-    }, null, value => value === "18px", "rating badge size"), "18px");
+    }, null, value => value === "17.433px", "rating badge size"), "17.433px");
     assert.match(await tv.page.locator('.details-editorial .browse-meta').textContent() ?? '', /1h 30m/);
     assert.equal(await tv.page.locator('.details-director').textContent(), 'Directed by River Vale');
     assert.deepEqual(await tv.page.locator('.details-playback-summary strong').allTextContents(), ['VERSION', 'AUDIO', 'SUBTITLES']);
@@ -1974,11 +1974,11 @@ detailTest('the metadata row leads with outlined rating and advisory chips, then
             factWeight: fact instanceof HTMLElement ? getComputedStyle(fact).fontWeight : '',
             genres: node.querySelector('.details-genres')?.textContent ?? '',
         };
-    }, null, value => value.order.startsWith('PG|Common Sense 13+|1991|1h 30m|TMDB|Drama, Thriller') && value.gap === '14px' && value.size === '18px' && value.rows === 1, 'outlined advisory chip in the one metadata row');
+    }, null, value => value.order.startsWith('PG|Common Sense 13+|1991|1h 30m|TMDB|Drama, Thriller') && value.gap === '14px' && value.size === '17.433px' && value.rows === 1, 'outlined advisory chip in the one metadata row');
     assert.equal(row.order, 'PG|Common Sense 13+|1991|1h 30m|TMDB|Drama, Thriller');
     assert.equal(row.rows, 1);
     assert.equal(row.gap, '14px');
-    assert.equal(row.size, '18px');
+    assert.equal(row.size, '17.433px');
     assert.equal(row.weight, '700');
     assert.equal(row.radius, '5px');
     // Swift's stroke is 1.5. Chromium's used width for that specified border is 1px.
@@ -2929,7 +2929,7 @@ for (const reducedMotion of ["reduce", "no-preference"] as const) detailTest(`ca
     await retry.waitFor();
     const notice = tv.page.locator('.details-episode-error');
     assert.equal(await notice.innerText(), "Couldn't load episodes.\nRetry");
-    assert.equal(await notice.evaluate(node => getComputedStyle(node).fontSize), "18px");
+    assert.equal(await notice.evaluate(node => getComputedStyle(node).fontSize), "17.433px");
     assert.ok((await notice.boundingBox())!.y > (await tv.page.locator('.details-episodes').boundingBox())!.y);
     await tv.page.locator('[data-focus="season:1"]').focus();
     await tv.remote(40);

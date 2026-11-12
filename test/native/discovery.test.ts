@@ -56,6 +56,11 @@ test("discovery factories encode opaque paths and only contract-supported parame
     assert.equal(api.getCatalogSearchCapabilities().path, "/catalog/search/capabilities");
 });
 
+test("catalog queries carry an artwork query and keep the small fallback", () => {
+    assert.equal(api.queryCatalogItems({ library_id: "12", limit: 1 }).path, "/catalog/query?image_size=small");
+    assert.equal(api.queryCatalogItems({ library_id: "12", limit: 1 }, { image_size: "medium", backdrop_width: "1344" }).path, "/catalog/query?image_size=medium&backdrop_width=1344");
+});
+
 test("library section artwork slots preserve the unchanged small fallback", () => {
     assert.equal(api.listLibrarySections("12", { image_size: "medium", logo_width: "880", backdrop_width: "1344" }).path,
         "/library/12/sections?image_size=medium&logo_width=880&backdrop_width=1344");

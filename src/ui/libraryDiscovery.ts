@@ -60,7 +60,7 @@ export async function readDiscovery(library: UserLibrary, mode: LibraryMode, rea
     let incomplete = false;
     if (scope !== undefined && sections.length > 0) {
         // TVLibraryBrowseView.loadContent (TVLibraryBrowseView.swift:144-167): a mixed library on a video tab shows only that tab's type.
-        const scoped = await refillSections(sections.filter(section => section.featured !== true), scope, (section, cursor) => sectionPage(library.id, section.id, cursor, read));
+        const scoped = await refillSections(sections.filter(section => section.featured !== true), scope, (section, cursor) => sectionPage(library.id, section.id, cursor, read, artwork));
         sections = scoped.map(entry => entry.section);
         incomplete = scoped.some(entry => entry.incomplete);
     }
@@ -142,14 +142,15 @@ export async function refillSections(originals: readonly HomeSection[], scope: V
 }
 
 /** A shelf's section source, 100 at a time (TVLibraryBrowseView.swift:152-155); a rejected cursor reads page one again, marked as a restart. */
-async function sectionPage(libraryId: string, sectionId: string, cursor: string | undefined, read: <T>(spec: RequestSpec<T>) => Promise<T>): Promise<ScopedPage> {
+async function sectionPage(libraryId: string, sectionId: string, cursor: string | undefined, read: <T>(spec: RequestSpec<T>) => Promise<T>, artwork: Readonly<Record<string, string>>): Promise<ScopedPage> {
     const query = { ...librarySectionQuery(libraryId, sectionId), limit: 100 };
     try {
-        const page = await read(operations.queryCatalogItems(cursor === undefined ? query : { ...query, cursor }));
+        // The refilled cards share the row's artwork sizes, which upgradeLibraryArtwork cannot repair for titles the inline row lacked.
+        const page = await read(operations.queryCatalogItems(cursor === undefined ? query : { ...query, cursor }, artwork));
         return { items: page.items, next: page.nextCursor };
     } catch (error) {
         if (cursor === undefined || !(error instanceof ApiError) || error.problemId !== "invalid_cursor") throw error;
-        const page = await read(operations.queryCatalogItems(query));
+        const page = await read(operations.queryCatalogItems(query, artwork));
         return { items: page.items, next: page.nextCursor, startsOver: true };
     }
 }

@@ -54,6 +54,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- A mixed library's Movies and Series tabs now show only movies or only series on Recommended, as on Apple TV, and say so when a shelf could not be fully loaded. Recommended and Collections now use Apple TV's loading, empty and error pages, a failed Collections read shows no collections, and collection cards and group headers match Apple TV's.
 - Title pages no longer show "Loading personal actions." under the actions or in More while your watched, favorite and watchlist state loads; as on Apple TV, the actions simply appear, and More lists Add to Favorites right away.
 - A series page now picks its season again, as Apple TV does, after you mark that series watched from a card, including when you go Back to a page that was already open, or once 20 other title pages have opened since; a favorite or watchlist change keeps the season you were viewing, and so does a series page that a related title replaced.
 - Made the fast season-walk test on a series page wait for each season read to reach the test server before the next season, so a slow runner can no longer drop one from its count.

@@ -268,7 +268,8 @@ Defined in `src/api/operations.ts` unless noted.
 | similar | `GET /recommendations/similar/{id}?limit=12&image_size=small` (`src/api/detailOperations.ts`) | safe |
 | library sections | `GET /library/{id}/sections?image_size=small` (`src/api/discoveryOperations.ts`) | safe |
 | section items | `GET /library/{id}/sections/{sectionId}/items?image_size=small` (`src/api/discoveryOperations.ts`) | safe |
-| library collections | `GET /library/{id}/collections` (`src/api/discoveryOperations.ts`) | safe |
+| mixed-library shelf refill | `POST /catalog/query` with `source: section`, `scope: library`, `library_id`, `section_id`, `limit: 100` and cursor, at the library sections read's artwork sizes (`src/ui/libraryDiscovery.ts`). Only on a Movies or Series tab showing a mixed library; up to eight pages per row and three rows at a time. A failed read keeps the row's own titles | safe |
+| library collections | `GET /library/{id}/collections` (`src/api/discoveryOperations.ts`); a failed read shows no collections, as Apple TV does | safe |
 | collection items | `POST /catalog/query` with `source: library_collection` or `user_collection`, `collection_id`, `limit: 60`, `match: all` and cursor; library/media scope only when narrowing a mixed library, no sort override (`src/api/discoveryOperations.ts`); includes profile viewer state | safe |
 | catalog filters | `GET /catalog/filters?...` (`src/api/discoveryOperations.ts`) | safe |
 | search capabilities | `GET /catalog/search/capabilities` (`src/api/discoveryOperations.ts`) | safe |
@@ -276,7 +277,7 @@ Defined in `src/api/operations.ts` unless noted.
 | searchCatalogBoxSets | `GET /catalog/box-sets?q&limit=5` (`src/api/boxSetOperations.ts`), All and Movies only, gated by `box_sets: true` | safe |
 | getCatalogBoxSet | `GET /catalog/box-sets/{id}?library_id&image_size=medium` (`src/api/boxSetOperations.ts`) | safe |
 | getCatalogItemBoxSet | `GET /catalog/items/{id}/box-set?image_size=medium` (`src/api/boxSetOperations.ts`), movie pages only, gated by `box_sets: true`. `box_set` absent means no row. Library browse does not group box sets | safe |
-| queryCatalogItems | `POST /catalog/query?image_size=small` (`src/api/discoveryOperations.ts`) | safe |
+| queryCatalogItems | `POST /catalog/query?image_size=small[&slot widths]` (`src/api/discoveryOperations.ts`) | safe |
 | queryCatalogLetters | `POST /catalog/letters` (`src/api/discoveryOperations.ts`) | safe |
 
 Notes:

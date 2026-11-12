@@ -66,6 +66,8 @@ page("a mixed library's Movies tab shows only movies on Recommended, refilled fr
     assert.equal(ids.length, 20, "the shelf is refilled to its 20-title default");
     const [query] = sectionQueries(tv);
     assert.deepEqual(query?.body, { source: "section", scope: "library", section_id: "mixed-row", library_id: "12", limit: 100 });
+    const sections = tv.fake.requests.find(request => request.path.startsWith("/library/12/sections"));
+    assert.equal(new URL(query?.path ?? "", "https://x").search, new URL(sections?.path ?? "", "https://x").search, "refilled cards use Recommended's artwork sizes");
     assert.equal(await tv.page.locator(".library-incomplete").count(), 0);
 }, mixed);
 

@@ -2798,6 +2798,50 @@ test("pickers float over the dimmed pane, track rows carry only a checkmark, and
     } finally { await page.close(); }
 });
 
+test("a Video picker closes first on Back and leaves the Subtitles pane as it was", async () => {
+    const { page } = await open();
+    const ai = { available: { translate: true, transcribe: false }, languages: ["fr"], quota: undefined, busy: false, message: "", results: [] };
+    const hud = { chapters: [], chapterState: "ready" as const, stats: [["Engine", "AVPlay"]] as const, speeds: [1, 2], aspects: ["Fit", "Stretch"] as const, speed: 1, aspect: "Fit" as const, autoNext: true, busy: false };
+    try {
+        await show(page, { ...playing({ ...TRACKS, ai, aiTranslate: true, subtitleTools: ALL_TOOLS }), hud });
+        await openPanel(page);
+        await nextTab(page, 4);
+        await page.locator('[data-focus="subtitle-appearance"]').focus();
+        await remote(page, ENTER);
+        assert.equal(await focused(page), "subtitle-appearance-back");
+        await remote(page, UP);
+        await remote(page, LEFT);
+        await remote(page, LEFT);
+        await remote(page, DOWN);
+        assert.equal(await focused(page), "video-speed");
+        await remote(page, ENTER);
+        assert.equal(await text(page, ".player-menu-picker-title"), "Playback Speed");
+        assert.equal(await page.locator('.player-menu-subtitles [data-focus="subtitle-appearance-back"]').count(), 1, "Subtitles stays on Appearance behind the Video picker");
+        await remote(page, BACK);
+        assert.equal(await focused(page), "video-speed");
+        assert.equal(await page.locator('.player-menu-subtitles [data-focus="subtitle-appearance-back"]').count(), 1, "closing the Video picker keeps Subtitles on Appearance");
+        await remote(page, UP);
+        await remote(page, RIGHT);
+        await remote(page, RIGHT);
+        await remote(page, DOWN);
+        await remote(page, BACK);
+        for (let step = 0; step < 10 && await focused(page) !== "ai-translate"; step += 1) await remote(page, UP);
+        assert.equal(await focused(page), "ai-translate");
+        await remote(page, ENTER);
+        assert.equal(await focused(page), "ai-language-back");
+        await remote(page, UP);
+        await remote(page, LEFT);
+        await remote(page, LEFT);
+        await remote(page, DOWN);
+        await remote(page, ENTER);
+        assert.equal(await text(page, ".player-menu-picker-title"), "Playback Speed");
+        await remote(page, BACK);
+        assert.equal(await focused(page), "video-speed", "Back closes the open picker before the background AI language list");
+        assert.equal(await page.locator('.player-menu-subtitles [data-focus="ai-language-back"]').count(), 1);
+        assert.deepEqual(await commands(page), []);
+    } finally { await page.close(); }
+});
+
 test("Video PLAYBACK lists Quality, Speed and Aspect as picker rows in Apple's order", async () => {
     const { page } = await open();
     const quality = { choices: [{ id: "auto", label: "Auto" }, { id: "1080p", label: "1080p" }], selectedId: "auto" };

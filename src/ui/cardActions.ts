@@ -27,8 +27,8 @@ export interface CardMenuOptions {
 }
 
 export interface CardActionsHost {
-    /** A change was applied; reread what shows it. */
-    readonly applied: (id: string) => void;
+    /** A change was applied; reread what shows it. `watched` is true for a landed watched change. */
+    readonly applied: (id: string, watched: boolean) => void;
     /** A Home dismissal was accepted; drop the card from the playback rows before the reread, as HomeViewModel does. */
     readonly dismissed?: (card: MenuCard) => void;
     /** The menu or alert took the screen; remember where focus returns. */
@@ -270,13 +270,13 @@ export class CardActions {
             if (now !== undefined) this.accepted.set(source, { played: now.played, favorite: now.favorite, watchlist: now.watchlist });
             const shown = this.shown;
             if (shown !== undefined && shown.card.id === id) this.redraw(landed(shown.card));
-            this.host.applied(id);
+            this.host.applied(id, spec.path.startsWith("/watched/"));
         }, () => {
             if (this.writes.get(id) !== controller) return;
             this.writes.delete(id);
             this.alert();
             // Even a lost answer may have landed; reread once the alert closes so the rows show what the server holds.
-            this.host.applied(id);
+            this.host.applied(id, false);
         });
     }
 

@@ -119,6 +119,8 @@ export class DetailsState {
     private full = false;
     private restored = false;
     private readonly responses = new Map<string, unknown>();
+    /** Bumped when a press or discard reads or writes a kind, so an older membership load cannot overwrite it. */
+    private readonly personalGeneration = new Map<PersonalAction, number>();
     offline = false;
     private audioPick: { fileId: string; ordinal: number; inventory: string } | undefined;
     private audioAuto = false;
@@ -360,9 +362,10 @@ export class DetailsState {
         for (const [key, value] of previous.values) if (key !== "watched") this.values.set(key, value);
         if (this.detail.id === previous.detail.id) this.trailers.restore(previous.trailers);
         // A hold outlives the owner: reopening the title must not let a press re-send an unanswered write. It arrives
-        // settled, because the old owner's discard reload (if any) stopped with it. Only Details can show its alert.
-        if (this.presentsAlerts && this.detail.id === previous.detail.id) {
-            for (const [kind, change] of previous.changes) if (change.held === true) this.changes.set(kind, { target: change.target, pending: false, failed: true, held: true });
+        // settled, because the old owner's discard reload (if any) stopped with it. A card menu cannot show the held
+        // alert, so it inherits the hold as a failure that reconciles with a read before any write.
+        if (this.detail.id === previous.detail.id) {
+            for (const [kind, change] of previous.changes) if (change.held === true) this.changes.set(kind, { target: change.target, pending: false, failed: true, ...(this.presentsAlerts ? { held: true as const } : {}) });
         }
         if (this.detail.versions.some(file => file.fileId === previous.failedPlay?.fileId)) this.failedPlay = previous.failedPlay;
         this.previousNextEpisodeState = previous.nextEpisodeState;
@@ -544,6 +547,7 @@ export class DetailsState {
         // The control stays busy until the reload settles, so no press can act on the state it is replacing.
         // The hold stays marked until the reload succeeds, so leaving mid-reload carries it to the next owner.
         const reloading: PersonalChange = { target: change.target, pending: true, failed: false, held: true };
+        this.personalGeneration.set(kind, (this.personalGeneration.get(kind) ?? 0) + 1);
         this.changes.set(kind, reloading);
         this.changed();
         void this.refresh(kind, controller, change.target, false).then(() => {
@@ -873,6 +877,7 @@ export class DetailsState {
         }
         this.personalFailed = false;
         this.changed();
+        const generation = { watchlist: this.personalGeneration.get("watchlist"), favorites: this.personalGeneration.get("favorites") };
         const read = async (): Promise<void> => {
             const supported = await this.read(detailOperations.personalCapability(), controller);
             if (!this.current(controller)) return;
@@ -883,8 +888,8 @@ export class DetailsState {
             ]);
             if (!this.current(controller)) return;
             if (watchlist.id !== this.detail.id || favorites.id !== this.detail.id) throw new Error("Membership item mismatch");
-            this.values.set("watchlist", watchlist.member);
-            this.values.set("favorites", favorites.member);
+            if (this.personalGeneration.get("watchlist") === generation.watchlist) this.values.set("watchlist", watchlist.member);
+            if (this.personalGeneration.get("favorites") === generation.favorites) this.values.set("favorites", favorites.member);
             this.personalSupported = true;
         };
         read().then(() => {
@@ -908,6 +913,7 @@ export class DetailsState {
         if (controller === undefined || this.busy || !this.values.has(kind)) return;
         // PersonalStateSync.set: a held change is never sent again; the press shows the held alert instead.
         if (this.presentsAlerts && this.changes.get(kind)?.held === true) { this.alert = heldAlert(kind); this.changed(); return; }
+        this.personalGeneration.set(kind, (this.personalGeneration.get(kind) ?? 0) + 1);
         this.changes.set(kind, { target, pending: true, failed: false });
         this.changed();
         let unanswered = false;

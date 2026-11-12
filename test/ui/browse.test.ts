@@ -504,13 +504,15 @@ for (const reduced of [false, true]) {
         assert.equal(await tv.focused(), "movie:m0001");
         const offset = await tv.page.locator('.browse').evaluate(node => node.scrollTop);
         assert.ok(offset > 0);
-        assert.equal(await tv.page.locator('.search-navigation-title').evaluate(node => getComputedStyle(node).position), "absolute", "scrolling alone does not show the navigation title");
+        assert.equal(await tv.page.locator('.search-navigation-title').count(), 0, "Search has no navigation title");
         assert.ok(await tv.page.locator('.browse-grid .browse-card').evaluate(node => node.getBoundingClientRect().bottom <= 978), "focused captions retain the native 103px bottom clearance");
         await press(tv, "Enter"); await showing(tv, "item:movie:m0001");
         await tv.remote(BACK); await showing(tv, "search"); await tv.jump(250);
         assert.equal(await tv.focused(), "movie:m0001", "Back keeps section and item identity");
         assert.equal(await tv.page.locator('.browse').evaluate(node => node.scrollTop), offset);
-        await tv.eventually(async () => tv.page.locator('.search-navigation-title').evaluate(node => getComputedStyle(node).position === "fixed" && getComputedStyle(node).color === "rgba(237, 237, 237, 0.3)"), "restored scrolled navigation title");
+        assert.ok(offset >= 85, `the restored page is scrolled past the old title threshold, got ${offset}`);
+        assert.deepEqual(await tv.page.locator('.browse h1, .browse h2').filter({ hasText: /^Search$/ }).evaluateAll(nodes => nodes.map(node => [getComputedStyle(node).clipPath, node.getBoundingClientRect().width])),
+            [["inset(50%)", 1]], "Back leaves only the hidden page heading, no Search title over the results (SearchView.swift:65-69)");
         await press(tv, "ArrowUp", "ArrowUp"); await tv.jump(250);
         assert.equal(await tv.page.locator('.browse').evaluate(node => node.scrollTop), 0, "Up to filters restores the search field");
         await tv.page.fill("#browse-search", "Tom"); await tv.remote(IME_DONE);
@@ -562,7 +564,7 @@ browseTest("Search spatial People entry chooses the title column at or past that
     // The pills stay with the first-row return above: this bottom card sits a full results column below them.
     const searchRevealTop = 495;
     assert.ok(Math.abs((revealed ?? 0) - searchRevealTop) < 1, `Search upward reveal keeps the focused poster at ${searchRevealTop}px; the old pin was 160.4px, got ${revealed}`);
-    assert.equal(await tv.page.locator('.search-navigation-title').evaluate(node => getComputedStyle(node).position), "absolute", "deep directional navigation does not show the navigation title");
+    assert.equal(await tv.page.locator('.search-navigation-title').count(), 0, "deep directional navigation shows no navigation title");
     assert.equal(tv.fake.requests.length, reads);
 }, { catalog: new SearchEdgeCatalog() });
 
@@ -900,7 +902,10 @@ browseTest("Search releases rail visibility observers after query replacement an
     await tv.page.fill("#browse-search", "Tom"); await tv.remote(IME_DONE);
     await tv.eventually(async () => await observers() === "2", "both accepted Search rails observed");
     await tv.page.fill("#browse-search", "x");
-    await tv.eventually(async () => await observers() === "0", "obsolete rails released on edit");
+    // People stays until its replacement answers; a one-letter query drops Requests at once.
+    await tv.eventually(async () => await observers() === "1" && await tv.page.locator(".search-request-rail").count() === 0 && await tv.page.locator(".search-people-rail").count() === 1, "the detached Requests rail released, the retained People rail observed once");
+    await tv.page.fill("#browse-search", "");
+    await tv.eventually(async () => await observers() === "0", "an emptied field releases every rail");
     await tv.page.fill("#browse-search", "Tom"); await tv.remote(IME_DONE);
     await tv.eventually(async () => await observers() === "2", "replacement rails observed once");
     await tv.remote(BACK); await showing(tv, "home");
@@ -971,20 +976,23 @@ test("Search shows the first People card Chromium 108 reports outside the rail",
 
 const resumedPeople = new SearchCatalog(120);
 resumedPeople.searchCapabilities = { ...resumedPeople.searchCapabilities, people_media_scope: true };
-browseTest("Search resumes interrupted People independently on a retained later catalog page", async tv => {
+browseTest("Search resumes interrupted People independently on a retained appended catalog page", async tv => {
     await tv.page.locator('[data-focus="search"]').click();
     const held = tv.fake.hold("/catalog/people", true);
     await tv.page.fill("#browse-search", "Movie"); await tv.remote(IME_DONE);
     await tv.eventually(async () => browseReads(tv, "/catalog/people").length === 1, "People started");
-    await tv.page.getByRole("button", { name: "Next page", exact: true }).click();
+    await tv.page.locator('.browse-grid [data-focus="movie:m0060"]').waitFor({ state: "attached" });
+    await tv.page.locator(".browse").evaluate(node => { node.scrollTop = node.scrollHeight; });
     await tv.eventually(async () => browseReads(tv, "/catalog").length === 2, "second page");
-    await tv.page.locator('.browse-grid .browse-card').first().click();
+    await tv.page.locator('.browse-grid [data-focus="movie:m0120"]').waitFor({ state: "attached" });
+    await tv.page.locator('.browse-grid [data-focus="movie:m0061"]').click();
     await tv.eventually(async () => (await view(tv))?.startsWith("item:") === true, "title detail");
     const reads = browseReads(tv, "/catalog").length;
     held.release(); await tv.remote(BACK);
     await tv.page.locator('[data-focus="person:7"]').waitFor();
     assert.equal(browseReads(tv, "/catalog/people").length, 2);
     assert.equal(browseReads(tv, "/catalog").length, reads, "People resume preserves the catalog page");
+    assert.equal(await tv.focused(), "movie:m0061", "Back restores the appended card");
 }, { catalog: resumedPeople });
 
 const peopleSearch = new SearchCatalog();
@@ -1376,13 +1384,16 @@ browseTest("late Search poster preferences keep the focused caption visible with
 
 const editedSupplement = new SearchCatalog();
 editedSupplement.searchCapabilities = { ...editedSupplement.searchCapabilities, people_media_scope: true };
-browseTest("Search removes rendered supplementary cards immediately on edit", async tv => {
+browseTest("Search keeps People on edit and clears Requests for a one-letter query", async tv => {
     await tv.page.locator('[data-focus="search"]').click();
     await tv.page.fill("#browse-search", "Heat"); await tv.remote(IME_DONE);
     await tv.page.locator('[data-focus="movie:949"]').waitFor();
     await tv.page.locator('[data-focus="person:7"]').waitFor();
+    await tv.page.fill("#browse-search", "Hea");
+    assert.equal(await tv.page.locator('[data-focus="movie:949"], [data-focus="person:7"]').count(), 2, "both stay until their replacements answer");
     await tv.page.fill("#browse-search", "x");
-    assert.equal(await tv.page.locator('[data-focus="movie:949"], [data-focus="person:7"]').count(), 0);
+    assert.equal(await tv.page.locator('[data-focus="movie:949"]').count(), 0, "RequestSearchSectionViewModel clears a one-letter query at once");
+    assert.equal(await tv.page.locator('[data-focus="person:7"]').count(), 1, "People stays until the new lookup answers");
     assert.equal(await tv.focused(), "query");
 }, { catalog: editedSupplement });
 
@@ -1476,22 +1487,25 @@ browseTest("Search uses shared progress and centered failure states without losi
 
 const failedCatalog = new SearchCatalog(120);
 failedCatalog.searchCapabilities = { ...failedCatalog.searchCapabilities, people_media_scope: true };
-browseTest("Search catalog failure replaces People and title count but preserves Requests", async (tv, catalog) => {
+browseTest("Search next-page failure replaces People and title count but preserves Requests", async (tv, catalog) => {
     await tv.page.locator('[data-focus="search"]').click();
     await tv.page.fill("#browse-search", "Movie"); await tv.remote(IME_DONE);
     await tv.page.locator('[data-focus="person:7"]').waitFor();
     await tv.page.locator('.search-count').waitFor();
     await tv.page.locator('.search-request-rail').waitFor();
     catalog.failNext("/catalog", problem(400, "validation_failed", "Unavailable"));
-    await tv.page.getByRole("button", { name: "Next page", exact: true }).click();
+    await tv.page.locator(".browse").evaluate(node => { node.scrollTop = node.scrollHeight; });
     await tv.page.getByRole("heading", { name: "Something went wrong", exact: true }).waitFor();
+    assert.ok(new URL(browseReads(tv, "/catalog").at(-1)?.path ?? "", "https://fake.invalid").searchParams.get("cursor") !== null, "the failed read was the next page");
     assert.equal(await tv.page.locator('.search-people-heading, .search-people-rail, .search-count').count(), 0, "failed main state replaces People and title results");
     assert.equal(await tv.page.locator('.browse-grid .browse-card').count(), 0);
     assert.equal(await tv.page.locator('.search-request-rail [data-focus="movie:949"]').count(), 1, "Requests remains independent");
+    const reads = browseReads(tv, "/catalog").length;
     await tv.page.getByRole("button", { name: "Try Again", exact: true }).click();
     await tv.page.locator('.browse-grid .browse-card').first().waitFor();
     await tv.page.locator('[data-focus="person:7"]').waitFor();
     await tv.page.locator('.search-count').waitFor();
+    assert.equal(new URL(browseReads(tv, "/catalog")[reads]?.path ?? "", "https://fake.invalid").searchParams.get("cursor"), null, "Try Again searches again from the first page (SearchView.swift:162)");
     assert.equal(await tv.page.inputValue("#browse-search"), "Movie");
 }, { catalog: failedCatalog });
 
@@ -1540,6 +1554,187 @@ browseTest("Search parity keeps the field, filters the server query and reports 
     assert.equal(await tv.page.evaluate(() => window.retainedNavigation === document.querySelector("#browse-search")), true);
     assert.equal(await tv.focused(), "search-filter:series");
 });
+const searchRequestReads = (tv: Tv): number => tv.fake.requests.filter(request => request.path.startsWith("/requests/search?")).length;
+const keptSearch = new SearchCatalog(120);
+keptSearch.searchCapabilities = { ...keptSearch.searchCapabilities, people_media_scope: true };
+browseTest("Search waits 300 ms and keeps titles, People, Requests and the count until each answer arrives", async tv => {
+    await tv.page.locator('[data-focus="search"]').click();
+    await tv.page.fill("#browse-search", "Movie"); await tv.remote(IME_DONE);
+    await tv.page.locator('[data-focus="person:7"]').waitFor();
+    await tv.page.locator('.search-request-rail [data-focus="movie:949"]').waitFor();
+    await shows(tv, "120 results");
+    const grid = await tv.page.locator(".search-scene > .browse-grid").elementHandle();
+    const kept = async (when: string): Promise<void> => {
+        assert.equal(await tv.page.locator('.browse-grid [data-focus="movie:m0001"]').count(), 1, `titles stay ${when}`);
+        assert.equal(await tv.page.locator('[data-focus="person:7"]').count(), 1, `People stays ${when}`);
+        assert.equal(await tv.page.locator('.search-request-rail [data-focus="movie:949"]').count(), 1, `Requests stays ${when}`);
+        assert.equal(await tv.page.getByText("120 results", { exact: true }).count(), 1, `the count stays ${when}`);
+        assert.equal(await tv.page.getByRole("status", { name: "Searching", exact: true }).count(), 0, `no page spinner ${when}`);
+        assert.equal(await grid?.evaluate(node => node.isConnected), true, `the grid is not rebuilt ${when}`);
+    };
+    await pauseTvClock(tv);
+    const titles = browseReads(tv, "/catalog").length, people = browseReads(tv, "/catalog/people").length, requests = searchRequestReads(tv);
+    const held = tv.fake.hold("/catalog", true);
+    await tv.page.fill("#browse-search", "Movie 000");
+    await kept("while typing");
+    await tv.jump(299);
+    assert.equal(browseReads(tv, "/catalog").length, titles, "no title read before 300 ms");
+    assert.equal(browseReads(tv, "/catalog/people").length, people, "no People read before 300 ms");
+    assert.equal(searchRequestReads(tv), requests, "no Requests read before 300 ms");
+    await tv.jump(1);
+    await tv.eventually(async () => browseReads(tv, "/catalog").length === titles + 1 && searchRequestReads(tv) === requests + 1, "title and Requests reads at 300 ms");
+    await kept("while the new titles load");
+    assert.equal(await tv.page.locator(".search-scene .section-catalog-loading").count(), 1, "a spinner sits under the kept grid");
+    held.release();
+    await shows(tv, "9 results");
+    assert.equal(await tv.page.locator('.browse-grid [data-focus="movie:m0010"]').count(), 0, "the answer replaces the titles");
+    assert.equal(await tv.page.locator(".search-scene .section-catalog-loading").count(), 0);
+    const filtered = tv.fake.hold("/catalog", true);
+    await tv.page.locator('[data-focus="search-filter:movie"]').focus();
+    await tv.eventually(async () => new URL(browseReads(tv, "/catalog").at(-1)?.path ?? "", "https://fake.invalid").searchParams.get("type") === "movie", "the Movies read");
+    assert.equal(await tv.page.locator('.browse-grid [data-focus="movie:m0001"]').count(), 1, "a filter change keeps the titles");
+    assert.equal(await tv.page.getByText("9 results", { exact: true }).count(), 1, "a filter change keeps the count");
+    assert.equal(await tv.page.locator('[data-focus="person:7"]').count(), 1, "a filter change keeps People");
+    filtered.release();
+    await tv.eventually(async () => browseReads(tv, "/catalog/people").length >= people + 2, "People reads for the new query and filter");
+    await tv.page.fill("#browse-search", "");
+    await shows(tv, "Search Silo");
+    assert.equal(await tv.page.locator('.browse-grid .browse-card, [data-focus="person:7"], .search-request-rail').count(), 0, "an emptied field resets at once");
+    assert.equal(await tv.page.locator(".search-filters").count(), 0);
+}, { catalog: keptSearch });
+
+browseTest("Emptying the field after a failed search returns to the Search prompt", async (tv, catalog) => {
+    await tv.page.locator('[data-focus="search"]').click();
+    catalog.failNext("/catalog", problem(400, "validation_failed", "Unavailable"));
+    await tv.page.fill("#browse-search", "Movie"); await tv.remote(IME_DONE);
+    await tv.page.locator(".search-failure").waitFor();
+    await tv.page.fill("#browse-search", "");
+    await shows(tv, "Search Silo");
+    assert.equal(await tv.page.locator(".search-failure").count(), 0, "SearchViewModel.resetState clears the error");
+    assert.equal(await tv.focused(), "query");
+});
+
+browseTest("Search loads the next 60 titles into the same grid when its end scrolls in, with no page buttons", async tv => {
+    await tv.page.locator('[data-focus="search"]').click();
+    await tv.page.fill("#browse-search", "Movie"); await tv.remote(IME_DONE);
+    await tv.page.locator('.browse-grid [data-focus="movie:m0060"]').waitFor({ state: "attached" });
+    await tv.jump(0);
+    assert.equal(browseReads(tv, "/catalog").length, 1, "the first screen reads one page");
+    assert.equal(await tv.page.getByRole("button", { name: "Next page", exact: true }).count(), 0);
+    assert.equal(await tv.page.getByRole("button", { name: "Previous page", exact: true }).count(), 0);
+    assert.equal(await tv.page.locator(".browse-page-status").count(), 0);
+    const first = await tv.page.locator('.browse-grid [data-focus="movie:m0001"]').elementHandle();
+    await tv.page.locator('.browse-grid [data-focus="movie:m0001"]').focus();
+    await press(tv, "ArrowRight", "ArrowRight");
+    assert.equal(browseReads(tv, "/catalog").length, 1, "moving focus in the first rows reads nothing");
+    const held = tv.fake.hold("/catalog", true);
+    await tv.page.locator(".browse").evaluate(node => { node.scrollTop = node.scrollHeight; });
+    await tv.eventually(async () => browseReads(tv, "/catalog").length === 2, "the next page as the end scrolls in");
+    assert.equal(new URL(browseReads(tv, "/catalog")[1]?.path ?? "", "https://fake.invalid").searchParams.get("limit"), "60");
+    assert.ok(new URL(browseReads(tv, "/catalog")[1]?.path ?? "", "https://fake.invalid").searchParams.get("cursor") !== null, "the read continues the first page");
+    await tv.page.locator(".search-scene .section-catalog-loading").waitFor();
+    held.release();
+    await tv.page.locator('.browse-grid [data-focus="movie:0120"], .browse-grid [data-focus="movie:m0120"]').first().waitFor({ state: "attached" });
+    assert.equal(await tv.page.locator(".search-scene > .browse-grid").count(), 1, "one grid");
+    assert.equal(await tv.page.locator(".search-scene > .browse-grid .browse-card").count(), 120);
+    assert.equal(await first?.evaluate(node => node.isConnected), true, "the first cards stay in place");
+    assert.equal(await tv.focused(), "movie:m0003", "focus stays on its card");
+    await shows(tv, "120 results");
+    await tv.jump(0);
+    assert.equal(browseReads(tv, "/catalog").length, 2, "the last page stops loading");
+}, { catalog: new SearchCatalog(120) });
+
+browseTest("Search counts results from the response total without an estimate marker", async (tv, catalog) => {
+    await tv.page.locator('[data-focus="search"]').click();
+    const items = Array.from({ length: 3 }, (_, index) => ({ content_id: `movie:estimate-${index}`, type: "movie", title: `Estimate ${index}` }));
+    catalog.failNext("/catalog", { status: 200, body: { items, total: 1200, total_exact: false, page: { has_more: false } } });
+    await tv.page.fill("#browse-search", "Estimate"); await tv.remote(IME_DONE);
+    await tv.page.locator('.browse-grid [data-focus="movie:estimate-0"]').waitFor();
+    assert.equal(await tv.page.locator(".search-count").innerText(), "1,200 results");
+});
+
+/** Apple pt sizes drawn at `--silo-sf-cap-scale`. */
+const capScaled = (points: number): number => points * 0.9685;
+const pixels = (value: string): number => Number.parseFloat(value);
+const layoutSearch = new BoxSetCatalog();
+layoutSearch.searchCapabilities = { ...layoutSearch.searchCapabilities, people_media_scope: true };
+browseTest("Search draws Apple's spacing, corners, captions, badges and scaled type", async tv => {
+    await tv.page.locator('[data-focus="search"]').click();
+    const prompt = await tv.page.locator(".search-prompt").evaluate(node => ({
+        icon: getComputedStyle(node.querySelector(".search-state-icon")!).color,
+        title: getComputedStyle(node.querySelector(".search-state-title")!).fontSize,
+        line: getComputedStyle(node.querySelector(".search-state-description")!).fontSize,
+    }));
+    assert.equal(prompt.icon, "rgba(237, 237, 237, 0.3)", "EmptyStateView icon is siloOnSurface at 0.3");
+    assert.ok(Math.abs(pixels(prompt.title) - capScaled(28)) < 0.01, prompt.title);
+    assert.ok(Math.abs(pixels(prompt.line) - capScaled(22)) < 0.01, prompt.line);
+    await tv.page.fill("#browse-search", "Movie"); await tv.remote(IME_DONE);
+    await tv.page.locator('.browse-grid [data-focus="movie:m0007"]').waitFor();
+    await tv.page.locator('.search-request-rail [data-focus="movie:949"]').waitFor();
+    await tv.page.locator('[data-focus="person:7"]').waitFor();
+    const results = await tv.page.evaluate(() => {
+        const style = (selector: string) => getComputedStyle(document.querySelector(selector)!);
+        const box = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
+        return {
+            rowGap: box('.browse-grid [data-focus="movie:m0007"]').top - box('.browse-grid [data-focus="movie:m0001"]').bottom,
+            radius: style('.browse-grid [data-focus="movie:m0001"] .browse-art').borderTopLeftRadius,
+            title: style('.browse-grid [data-focus="movie:m0001"] .browse-card-title').fontSize,
+            subtitle: style('.browse-grid [data-focus="movie:m0001"] .browse-card-subtitle').fontSize,
+            subtitleWeight: style('.browse-grid [data-focus="movie:m0001"] .browse-card-subtitle').fontWeight,
+            count: style(".search-count").fontSize,
+            people: style(".search-people-heading").fontSize,
+            person: style('[data-focus="person:7"] .browse-card-title').fontSize,
+            requestHeading: style(".search-requests-heading").fontSize,
+            requestLine: style(".search-requests-description").fontSize,
+            requestRadius: style('.search-request-rail [data-focus="movie:949"] .browse-art').borderTopLeftRadius,
+            requestSubtitle: style('.search-request-rail [data-focus="movie:949"] .browse-card-subtitle').fontSize,
+        };
+    });
+    assert.equal(results.rowGap, 60, "TVCatalogGrid rowSpacing");
+    assert.equal(results.radius, "12px", "SiloTheme.cornerRadius on result posters");
+    assert.equal(results.requestRadius, "12px", "SiloTheme.cornerRadius on request posters");
+    assert.equal(results.subtitleWeight, "400");
+    for (const [name, value, points] of [["title", results.title, 24], ["subtitle", results.subtitle, 20], ["count", results.count, 22], ["People heading", results.people, 36], ["person", results.person, 20],
+        ["request heading", results.requestHeading, 36], ["request line", results.requestLine, 20], ["request subtitle", results.requestSubtitle, 22]] as const) {
+        assert.ok(Math.abs(pixels(value) - capScaled(points)) < 0.01, `${name} ${value}`);
+    }
+    await tv.page.fill("#browse-search", "potter"); await tv.remote(IME_DONE);
+    await tv.page.locator('[data-focus="box-set:12:1241"]').waitFor();
+    await tv.page.locator(".search-people-heading").waitFor();
+    const boxSets = await tv.page.evaluate(() => {
+        const card = document.querySelector('[data-focus="box-set:12:1241"]')!;
+        const heading = document.querySelector(".search-box-sets-heading")!.getBoundingClientRect();
+        const art = card.querySelector(".browse-art")!.getBoundingClientRect();
+        const count = card.querySelector(".box-set-count")!;
+        const label = card.querySelector(".box-set-label")!;
+        const cards = [...document.querySelectorAll(".search-box-sets-heading + .browse-grid .box-set-card")].map(node => node.getBoundingClientRect().bottom);
+        return {
+            headingGap: art.top - heading.bottom,
+            nextGap: document.querySelector(".search-people-heading")!.getBoundingClientRect().top - Math.max(...cards),
+            countRight: art.right - count.getBoundingClientRect().right,
+            countBottom: art.bottom - count.getBoundingClientRect().bottom,
+            countSize: getComputedStyle(count).fontSize,
+            labelSize: getComputedStyle(label).fontSize,
+            heading: getComputedStyle(document.querySelector(".search-box-sets-heading")!).fontSize,
+            radius: getComputedStyle(card.querySelector(".browse-art")!).borderTopLeftRadius,
+            sleeve: getComputedStyle(card.querySelector(".box-set-sleeve")!).borderTopLeftRadius,
+        };
+    });
+    assert.equal(boxSets.headingGap, 14, "TVDetailLayout.sectionHeaderSpacing");
+    assert.equal(boxSets.nextGap, 48, "SiloTheme.padding to the next section");
+    assert.equal(boxSets.countRight, 12);
+    assert.equal(boxSets.countBottom, 16, "inset + 4 above the poster's bottom");
+    assert.equal(boxSets.radius, "12px");
+    assert.equal(boxSets.sleeve, "12px");
+    for (const [name, value, points] of [["film count", boxSets.countSize, 18], ["BOX SET", boxSets.labelSize, 15], ["Box Sets heading", boxSets.heading, 36]] as const) {
+        assert.ok(Math.abs(pixels(value) - capScaled(points)) < 0.01, `${name} ${value}`);
+    }
+    layoutSearch.peopleFailure = true;
+    await tv.page.fill("#browse-search", "bbbbbb"); await tv.remote(IME_DONE);
+    await shows(tv, "No results");
+    assert.equal(await tv.page.locator(".search-empty .search-state-icon").evaluate(node => getComputedStyle(node).color), "rgba(237, 237, 237, 0.3)");
+    assert.ok(Math.abs(pixels(await tv.page.locator(".search-empty .search-state-title").evaluate(node => getComputedStyle(node).fontSize)) - capScaled(28)) < 0.01);
+}, { catalog: layoutSearch });
 
 for (const withMedia of [false, true]) {
     const catalog = new FakeCatalog();
@@ -3876,7 +4071,7 @@ browseTest("episode-aware Search drops a late old-query capability before deboun
     assert.deepEqual(await cardIds(tv), []);
     assert.equal(browseReads(tv, "/catalog").length, 0, "aborted negotiation cannot send the old query");
     catalog.searchCapabilities = supported;
-    await tv.jump(600);
+    await tv.jump(300);
     await tv.eventually(async () => (await cardIds(tv)).includes("episode:s1e12"), "the new supported query");
     assert.equal(browseReads(tv, "/catalog/search/capabilities").length, 2);
     assert.equal(browseReads(tv, "/catalog").length, 1);
@@ -3921,15 +4116,17 @@ for (const path of ["/catalog/search/capabilities", "/catalog"] as const) {
     });
 }
 
-browseTest("episode-aware Search preserves opaque paging scope, invalid-cursor Retry and cached page focus", async (tv, catalog) => {
-    for (let i = 1; i <= 130; i++) catalog.add({ id: `episode:signal${i}`, title: `Signal ${String(i).padStart(3, "0")}`, type: "episode", libraryId: "13", seriesId: "series:s1", season: 3, episode: i });
+browseTest("episode-aware Search preserves opaque paging scope, restarts on an invalid cursor and keeps appended focus", async (tv, catalog) => {
+    for (let i = 1; i <= 250; i++) catalog.add({ id: `episode:signal${i}`, title: `Signal ${String(i).padStart(3, "0")}`, type: "episode", libraryId: "13", seriesId: "series:s1", season: 3, episode: i });
+    const toEnd = (): Promise<void> => tv.page.locator(".browse").evaluate(node => { node.scrollTop = node.scrollHeight; });
     await tv.page.locator('[data-focus="search"]').click();
     await tv.page.fill("#browse-search", "Signal");
     await tv.remote(IME_DONE);
     await tv.eventually(async () => (await cardIds(tv)).length === 60, "first episode page");
     catalog.searchCapabilities = { ...catalog.searchCapabilities, allowed: false };
-    await tv.page.getByRole("button", { name: "Next page", exact: true }).click();
-    await tv.eventually(async () => (await cardIds(tv))[0] === "episode:signal61", "second episode page");
+    await toEnd();
+    await tv.eventually(async () => (await cardIds(tv)).length >= 120, "second episode page appended");
+    assert.equal((await cardIds(tv))[60], "episode:signal61");
     const second = new URL(browseReads(tv, "/catalog").slice(-1)[0]?.path ?? "", "https://fake.invalid");
     assert.equal(second.searchParams.get("cursor"), "search+/= ?字:signal:video_with_episodes:60");
     assert.equal(second.searchParams.get("type"), "video_with_episodes");
@@ -3937,17 +4134,24 @@ browseTest("episode-aware Search preserves opaque paging scope, invalid-cursor R
     await tv.page.locator('[data-focus="episode:signal61"]').click({ button: "right" });
     await tv.page.locator('[data-focus="episode-information"]').click();
     await showing(tv, "item:episode:signal61");
+    const reads = browseReads(tv, "/catalog").filter(request => new URL(request.path, "https://fake.invalid").searchParams.get("cursor") === null).length;
     await tv.remote(BACK);
     await showing(tv, "search");
-    assert.equal(await tv.focused(), "episode:signal61");
-    assert.equal((await cardIds(tv))[0], "episode:signal61");
+    assert.equal(await tv.focused(), "episode:signal61", "Back restores the appended card");
+    assert.ok((await cardIds(tv)).length >= 120, "Back keeps every loaded page");
+    assert.equal(browseReads(tv, "/catalog").filter(request => new URL(request.path, "https://fake.invalid").searchParams.get("cursor") === null).length, reads, "Back does not search again");
+    // SiloAPI.nextCatalogPage: a rejected cursor reads a fresh first page in place, with no error screen.
     catalog.failNext("/catalog", problem(400, "invalid_cursor", "Invalid cursor"));
-    await tv.page.getByRole("button", { name: "Next page", exact: true }).click();
-    await tv.page.getByRole("button", { name: "Try Again", exact: true }).click();
-    await tv.eventually(async () => (await cardIds(tv))[0] === "episode:signal1", "restarted episode cursor sequence");
-    const retry = new URL(browseReads(tv, "/catalog").slice(-1)[0]?.path ?? "", "https://fake.invalid");
-    assert.equal(retry.searchParams.get("cursor"), null);
-    assert.equal(retry.searchParams.get("type"), "video_with_episodes");
+    const before = browseReads(tv, "/catalog").length;
+    await toEnd();
+    const later = (): URL[] => browseReads(tv, "/catalog").slice(before).map(request => new URL(request.path, "https://fake.invalid"));
+    await tv.eventually(async () => later().some(url => url.searchParams.get("cursor") === null), "a fresh first page after the rejected cursor");
+    assert.ok(later()[0]?.searchParams.get("cursor") !== null, "the rejected read was a next page");
+    const restart = later().find(url => url.searchParams.get("cursor") === null);
+    assert.equal(restart?.searchParams.get("q"), "Signal");
+    assert.equal(restart?.searchParams.get("type"), "video_with_episodes");
+    await tv.eventually(async () => (await cardIds(tv))[0] === "episode:signal1", "the list starts over");
+    assert.equal(await tv.page.getByRole("button", { name: "Try Again", exact: true }).count(), 0);
     assert.equal(browseReads(tv, "/catalog/search/capabilities").length, 1, "pages and Details return keep resolved route facts");
     await tv.page.fill("#browse-search", "Movie 0001");
     await tv.remote(IME_DONE);
@@ -3973,7 +4177,7 @@ browseTest("typing invalidates an in-flight search before the debounce expires",
     assert.deepEqual(await cardIds(tv), [], "an obsolete answer must not render before debounce");
     assert.equal(await tv.page.inputValue("#browse-search"), "night");
     assert.equal(browseReads(tv, "/catalog").length, 1, "replacement request is still debounced");
-    await tv.jump(600);
+    await tv.jump(300);
     await shows(tv, "Night Shift");
     assert.deepEqual(await cardIds(tv), ["series:s2"]);
     assert.equal(await tv.focused(), "query");
@@ -3986,7 +4190,7 @@ browseTest("search uses the TV keyboard, shows only the latest query's answer, a
 
     const first = tv.fake.hold("/catalog", true);
     await tv.page.keyboard.type("Movie 0001");
-    await tv.jump(600);
+    await tv.jump(300);
     await tv.eventually(async () => browseReads(tv, "/catalog").length === 1, "the first search");
     await tv.page.getByRole("status", { name: "Searching", exact: true }).waitFor();
     await tv.page.fill("#browse-search", "night");
@@ -4033,8 +4237,8 @@ browseTest("Back from a result reloads a query edited before its debounce could 
     await tv.remote(BACK);
     await showing(tv, "search");
     assert.equal(await tv.page.inputValue("#browse-search"), "night");
-    assert.deepEqual(await cardIds(tv), [], "the old query's cards cannot be restored under the edited query");
     await tv.eventually(async () => browseReads(tv, "/catalog").length === 2, "the edited query request");
+    assert.deepEqual(await cardIds(tv), ["movie:m0001"], "the shown results stay until the edited query answers (SearchViewModel.performSearch)");
     held.release();
     await shows(tv, "Night Shift");
     assert.deepEqual(await cardIds(tv), ["series:s2"]);

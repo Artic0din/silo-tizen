@@ -244,6 +244,7 @@ audiobookTest("the Audiobooks library Browse grid queries by library alone and o
 
 audiobookTest("with Show Audiobooks off, Search offers no Audiobooks filter and keeps to a video scope", async tv => {
     await tv.page.locator('[data-focus="search"]').click();
+    assert.equal(await tv.page.locator("#browse-search").getAttribute("placeholder"), "Search movies and series...", "search.fieldPrompt.video");
     await tv.page.fill("#browse-search", "Dune"); await tv.remote(IME_DONE);
     await tv.page.getByText("Try a different search term").first().waitFor();
     assert.equal(await tv.page.locator('[data-focus="search-filter:audiobook"]').count(), 0, "no Audiobooks filter while the opt-in is off");
@@ -254,6 +255,7 @@ audiobookTest("with Show Audiobooks off, Search offers no Audiobooks filter and 
 audiobookTest("with Show Audiobooks on, Search offers Audiobooks, names no scope for All, and opens a result on its detail", async tv => {
     await showAudiobooks(tv);
     await tv.page.locator('[data-focus="search"]').click();
+    assert.equal(await tv.page.locator("#browse-search").getAttribute("placeholder"), "Search movies, series, audiobooks...", "search.fieldPrompt.audiobooks (SearchView.swift:132-137)");
     await tv.page.fill("#browse-search", "Dune"); await tv.remote(IME_DONE);
     const book = tv.page.locator('.browse-grid [data-focus="audiobook:dune"]');
     await book.waitFor();

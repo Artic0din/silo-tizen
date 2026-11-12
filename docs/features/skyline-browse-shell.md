@@ -208,14 +208,22 @@ Changing text resets the cursor; late query/profile answers cannot paint or star
 Focus, render and page changes do not reread a resolved Search capability.
 
 Episode cards retain their content ID, series title and season/episode metadata and start prepared playback on Select; Card actions offers explicit Episode information.
-Back from Details restores result focus and retains the query and page; opening Search through navigation starts empty with focus on the field.
-The 600 ms debounce, TV Done key and cancellation remain unchanged.
+Back from Details restores result focus and retains the query and every loaded title; opening Search through navigation starts empty with focus on the field.
+Search waits 300 ms after the last edit, as `SearchViewModel.onQueryChanged` and `RequestSearchSectionViewModel.onQueryChanged` do; the TV Done key searches at once.
+An edit stops obsolete reads at once, but titles, People, box sets, the count and Requests stay on screen until each replacement answers.
+A spinner replaces the page only while a search runs with nothing to show; otherwise it sits under the title grid.
+An emptied field clears every section at once, and a one-letter query clears Requests.
+Titles load as one continuous grid: when a card within eight rows of the end scrolls into view, the next 60 are appended in place (`TVCatalogGrid.onNearEnd`), with no page buttons.
+A rejected next-page cursor reads a fresh first page in place (`SiloAPI.nextCatalogPage`).
+A failed search shows Apple's `ErrorView`: its headline follows the error, a 401 offers Sign In Again then Try Again, a 403 or 404 offers Go Back then Try Again, and Try Again searches again from the first page.
+Search has no visible navigation title, including after Back (`SearchView.swift:65-69`).
 Search is pushed above its originating page without invisible root-navigation targets.
 Back returns to that page; profile menus on root pages retain their own Back priority.
 
-All/Movies/Series filters apply to the whole server query and reset its cursor.
+All/Movies/Series filters apply to the whole server query and start a new search; the shown results stay until it answers.
 All retains the negotiated episode scope; Movies and Series send their literal native types.
-Search shows the server title count (with `+` for an estimate) only when titles exist, and an idle Search Silo prompt.
+Search shows the server title count as "N results", with no estimate marker, only when titles exist, and an idle Search Silo prompt.
+The field prompt names audiobooks only while they take part in Search.
 People appears before titles, using 200 px circular portraits and centered two-line names.
 People-only results omit the title count and empty-catalog message.
 Filters appear only for a nonblank query.

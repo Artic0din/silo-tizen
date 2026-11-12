@@ -26,6 +26,7 @@ import type { MediaScope } from "../contracts/v2/discovery.ts";
 import { personFilmographyView } from "./personFilmography.ts";
 import type { RecommendationLocator, RecommendationRow } from "../contracts/v2/recommendations.ts";
 import { globalSearchView, type SearchSupplement } from "./globalSearch.ts";
+import { feedGrid } from "./catalogFeed.ts";
 import { boxSetView } from "./boxSetView.ts";
 import type { BoxSetRowState } from "./boxSetRow.ts";
 import { boxSetNextMovie, type CatalogBoxSetDetail } from "../contracts/v2/boxSets.ts";
@@ -34,8 +35,12 @@ import { watchPartyView, type WatchPartyScreen } from "./watchParty.ts";
 
 /** Cards per catalog page: four grid rows. Only the shown page is kept. */
 export const PAGE_SIZE = 24;
-/** Apple's SearchViewModel.pageSize. A 25-result query is one page, with no pager. */
+/** Apple's SearchViewModel.pageSize: each read adds this many titles to the one grid. */
 export const SEARCH_PAGE_SIZE = 60;
+/** TVCatalogGrid.prefetchRowsRemaining: the next page is read once a card this many rows from the end is on screen. */
+const SEARCH_LOAD_ROWS = 8;
+/** The Search results column (browse.css `.search-scene > .browse-grid`). */
+const SEARCH_GRID_WIDTH = 1444;
 
 export interface Pages {
     page: CatalogPage | undefined;
@@ -57,7 +62,7 @@ export type RouteData =
     | { readonly kind: "library"; readonly library: UserLibrary; pages: Pages; discovery?: DiscoveryState }
     | { readonly kind: "libraryResults"; readonly library: UserLibrary; readonly title: string; readonly source: LibrarySource; pages: Pages; descending: boolean }
     /** `resultsFor`: the query the shown page answers, which typing can move ahead of. */
-    | { readonly kind: "search"; query: string; pages: Pages | undefined; resultsFor: string; searchType?: TextSearchScope; filter?: SearchFilter | undefined; peopleSupported?: boolean; boxSetsSupported?: boolean; supplement?: SearchSupplement }
+    | { readonly kind: "search"; query: string; pages: Pages | undefined; resultsFor: string; appending?: boolean; searchType?: TextSearchScope; filter?: SearchFilter | undefined; peopleSupported?: boolean; boxSetsSupported?: boolean; supplement?: SearchSupplement }
     | { readonly kind: "audiobook"; readonly id: string; readonly title: string; data: Audiobook | undefined; /** The chapter picker covers the page. */ picker?: boolean }
     | { readonly kind: "boxSet"; readonly id: string; readonly libraryId: string; readonly title: string; data: CatalogBoxSetDetail | undefined }
     | { readonly kind: "item"; readonly id: string; readonly title: string; readonly seriesContext?: SeriesContext; readonly seed?: DetailSeed; readonly fromRelated?: boolean; error?: ErrorState; data: { detail: ItemDetail; seasons: Season[]; details?: DetailsState; boxSet?: BoxSetRowState } | undefined }
@@ -120,6 +125,7 @@ export interface RouteHandlers {
     readonly requests: (route: Extract<Route, { kind: "requests" }>) => RequestsHandlers;
     readonly personFilter: (route: Extract<Route, { kind: "person" }>, filter: MediaScope) => void;
     readonly morePerson: (route: Extract<Route, { kind: "person" }>) => void;
+    readonly moreSearch: (route: Extract<Route, { kind: "search" }>) => void;
     readonly calendar: (route: Extract<Route, { kind: "calendar" }>) => CalendarHandlers;
     readonly personalFilter: (route: Extract<Route, { kind: "personal" }>, filter: PersonalFilter) => void;
     readonly audiobookPicker: (route: Extract<Route, { kind: "audiobook" }>, open: boolean) => void;
@@ -261,16 +267,14 @@ function grid(current: Route, pages: Pages, page: CatalogPage, handlers: RouteHa
         {
             page,
             index: pages.index,
-            pageSize: current.kind === "search" ? SEARCH_PAGE_SIZE : current.kind === "libraryResults" && current.source.kind === "collection" ? 60 : PAGE_SIZE,
+            pageSize: current.kind === "libraryResults" && current.source.kind === "collection" ? 60 : PAGE_SIZE,
             loading: handlers.busy,
             previous: () => handlers.turn(current, pages, -1),
             next: () => handlers.turn(current, pages, 1),
         },
-        current.kind === "search"
-            ? searchCards(handlers.context)
-            : current.kind === "libraryResults" && current.source.kind === "collection"
-                ? { ...handlers.context, overlays: handlers.context.cardOverlays?.(), posterWidth: 260 * (handlers.context.posterScale?.() ?? 1) }
-                : handlers.context,
+        current.kind === "libraryResults" && current.source.kind === "collection"
+            ? { ...handlers.context, overlays: handlers.context.cardOverlays?.(), posterWidth: 260 * (handlers.context.posterScale?.() ?? 1) }
+            : handlers.context,
     );
 }
 
@@ -279,13 +283,13 @@ function grid(current: Route, pages: Pages, page: CatalogPage, handlers: RouteHa
  * Select opens the card's detail route. It does not use the shared episode play shortcut.
  */
 function searchCards(context: ViewContext): ViewContext {
-    return { ...context, overlays: context.cardOverlays?.(), posterWidth: 220 * (context.posterScale?.() ?? 1), cardDestination: browseCardDestination };
+    return { ...context, cardDestination: browseCardDestination };
 }
 
 function searchResults(current: Extract<Route, { kind: "search" }>, handlers: RouteHandlers): SearchResults {
     const pages = current.pages;
     if (current.failure !== undefined) {
-        return { status: "failed", text: current.failure, retry: () => handlers.retry(current) };
+        return { status: "failed", error: failureError(current.failure, current.error), retry: () => handlers.retry(current), signIn: handlers.signIn };
     }
     if (pages === undefined) {
         return { status: "idle" };
@@ -293,7 +297,11 @@ function searchResults(current: Extract<Route, { kind: "search" }>, handlers: Ro
     if (pages.page === undefined) {
         return { status: "searching" };
     }
-    return { status: "ready", query: current.resultsFor, grid: grid(current, pages, pages.page, handlers) };
+    // One grid for every loaded page (TVCatalogGrid), keyed by this answer's pages so a new answer starts a new one.
+    const feed = feedGrid(pages, pages.page, searchCards(handlers.context), SEARCH_LOAD_ROWS * handlers.gridColumns, handlers.busy, () => handlers.moreSearch(current), handlers.gridColumns, 220, SEARCH_GRID_WIDTH);
+    // Search draws its own poster grid (browse.css `.search-scene > .browse-grid`), not the catalog grid's.
+    feed.content[0]?.classList.remove("catalog-grid");
+    return { status: "ready", query: current.resultsFor, grid: feed };
 }
 
 /** A failed refresh or page turn keeps what is shown and says why above it. */
@@ -333,6 +341,8 @@ export function errorState(error: unknown): ErrorState {
     if (failure.kind === "invalid_response") return generic("The server response was in an unexpected format.");
     if (failure.kind !== "problem") return generic("Can't reach the server. Check your connection and try again.");
     const { status, id, title, detail } = failure.problem;
+    // UpdateRequirement.app: only this problem is an update prompt; a bare 410 also ends playback sessions and sign-in codes.
+    if (status === 410 && id === "client_upgrade_required") return { headline: "Update required", message: "Update Silo to keep using this server.", signIn: false };
     if (status === 401 || status === 404) return forStatus(status);
     if (status === 403) return forStatus(403, id === "permission_denied" && detail?.trim() ? detail : statusMessage(403));
     return forStatus(status, detail?.trim() ? detail : title);

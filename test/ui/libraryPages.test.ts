@@ -18,7 +18,7 @@ const CAP = 0.9685;
 const capped = (points: number): string => `${Math.round(points * CAP * 10000) / 10000}px`;
 const cardIds = (tv: Tv, section: string) => tv.page.locator(`[data-section="${section}"] .browse-card`).evaluateAll(cards => cards.map(card => card.getAttribute("data-focus")).filter(id => id?.startsWith("expand:") === false));
 
-async function start(tv: Tv, catalog: FakeCatalog): Promise<void> {
+async function start(tv: Tv, catalog: FakeCatalog, homeReady = true): Promise<void> {
     tv.fake.catalog = catalog;
     new FakeSettings(tv.fake).profile().set(HIDDEN_KEY, catalog.households.get("p-owner")?.hidden ?? null);
     await tv.page.evaluate(() => window.browseHarness.connect());
@@ -28,6 +28,7 @@ async function start(tv: Tv, catalog: FakeCatalog): Promise<void> {
     await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.loginPhase === "signed_in"), "signed in");
     await tv.page.evaluate(() => window.browseHarness.selectProfile("p-owner"));
     await tv.page.evaluate(() => window.browseHarness.mount(false));
+    if (!homeReady) return;
     await tv.page.locator('.browse[data-view="home"] .browse-card').first().waitFor();
     await homeDetailsRead(tv);
 }
@@ -70,6 +71,20 @@ page("a mixed library's Movies tab shows only movies on Recommended, refilled fr
     assert.equal(new URL(query?.path ?? "", "https://x").search, new URL(sections?.path ?? "", "https://x").search, "refilled cards use Recommended's artwork sizes");
     assert.equal(await tv.page.locator(".library-incomplete").count(), 0);
 }, mixed);
+
+test("a mixed library opened before Home's rows arrive is still narrowed to the tab's type", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    const held = tv.fake.hold("/home/sections", true);
+    try {
+        const catalog = new FakeCatalog();
+        mixed(catalog);
+        await start(tv, catalog, false);
+        await tv.page.locator('.skyline-roots [data-focus="movies"]').click();
+        await tv.page.locator('[data-section="mixed-row"] .browse-card').first().waitFor();
+        assert.equal((await cardIds(tv, "mixed-row")).filter(id => id?.startsWith("series:")).length, 0);
+        assert.equal(sectionQueries(tv).length > 0, true);
+    } finally { held.release(); await tv.page.context().close(); }
+});
 
 page("a failed refill keeps the row's own titles and says some shelves could not be fully loaded", async tv => {
     await tv.page.route("**/api/v2/catalog/query**", route => route.fulfill({ status: 500, json: { type: "about:blank", title: "Server error", status: 500 } }));

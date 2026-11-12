@@ -560,8 +560,10 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             }
         })();
     };
+    // A tab narrows a mixed library to its type, so the route's library can differ from the server's. Tabs can be up before Home's rows.
+    const serverLibrary = (id: string): UserLibrary | undefined => (pendingHomeLibraries ?? (home.kind === "home" ? home.data?.libraries : undefined))?.find(library => library.id === id);
     const canShuffle = (route: Extract<Route, { kind: "library" | "libraryResults" }>): boolean => {
-        const original = home.kind === "home" ? home.data?.libraries.find(library => library.id === route.library.id) : undefined;
+        const original = serverLibrary(route.library.id);
         const kind = route.kind === "libraryResults" && route.source.kind === "collection" ? route.source.groupKind === "user_collections" ? "user_collection" : "library_collection" : "library";
         // Shuffle starts video; audiobook shuffle waits for audiobook playback.
         return route.library.type !== "audiobooks" && shuffleCapability.usable && shuffleCapability.scopeKinds.includes(kind) && (original?.type !== "mixed" || route.library.type === "mixed");
@@ -1446,7 +1448,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 load(current, async signal => {
                     const state = current.discovery ?? discoveryState();
                     const artworkQuery = homeArtworkQuery(imageCapability, window.devicePixelRatio);
-                    const original = home.kind === "home" ? home.data?.libraries.find(library => library.id === current.library.id) : undefined;
+                    const original = serverLibrary(current.library.id);
                     // TVLibraryTypeTabView.mediaScope (:77-87): only a mixed library opened from the Movies or Series tab is narrowed.
                     const scope: VideoScope | undefined = original?.type !== "mixed" ? undefined : current.library.type === "movies" ? "movie" : current.library.type === "series" ? "series" : undefined;
                     const data = await readDiscovery(current.library, state.mode, spec => read(spec, signal), artworkQuery, scope);
@@ -1734,7 +1736,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 const recent = state?.mode === "Recently Added";
                 const source = current.kind === "libraryResults" ? current.source : undefined;
                 if (source?.kind === "collection") {
-                    const original = home.kind === "home" ? home.data?.libraries.find(library => library.id === current.library.id) : undefined;
+                    const original = serverLibrary(current.library.id);
                     const narrowed = original?.type === "mixed" && current.library.type !== "mixed";
                     return read(operations.queryCatalogItems({
                         source: source.groupKind === "user_collections" ? "user_collection" : "library_collection",

@@ -258,7 +258,6 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     container.addEventListener("scroll", () => { container.classList.toggle("search-scrolled", container.scrollTop >= SEARCH_TITLE_COLLAPSE_OFFSET); });
 
     let stack: Route[] = [];
-    const seriesSeasons = new Map<string, number>();
     let loading: AbortController | undefined;
     let personRead: { route: Route; controller: AbortController } | undefined;
     let personFilterGeneration = 0;
@@ -769,7 +768,6 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         document.removeEventListener("pointerdown", recordInput, true);
         stack = [];
         roots.clear();
-        seriesSeasons.clear();
         shell.destroy();
         host.destroy();
         if (container.parentNode === root) {
@@ -1499,7 +1497,9 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     }
                     const details = createItemDetails(current, data.detail);
                     details.restore(previous);
-                    if (data.detail.type === "series") details.series = new SeriesEpisodes(session, data.detail.id, data.seasons, reason => details.warmSeriesEpisodes(reason === "load"), previous?.series?.seasonNumber ?? data.contextSeason ?? (current.seriesContext === undefined ? seriesSeasons.get(data.detail.id) : undefined), current.seriesContext?.episodeId);
+                    // Like Apple's cached page (TVItemDetailView.swift:169, ItemDetailCache.swift:34), the last season lives only on a
+                    // visited Details, so eviction or a personal change makes the next visit pick the season again.
+                    if (data.detail.type === "series") details.series = new SeriesEpisodes(session, data.detail.id, data.seasons, reason => details.warmSeriesEpisodes(reason === "load"), previous?.series?.seasonNumber ?? data.contextSeason ?? (current.seriesContext === undefined ? visitedDetails.get(data.detail.id)?.series?.seasonNumber : undefined), current.seriesContext?.episodeId);
                     details.series?.restore(previous?.series, true);
                     details.restoreSeasonStates(previous);
                     details.focusedEpisodeId ??= current.seriesContext?.episodeId;
@@ -1837,7 +1837,6 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         loading?.abort();
         loading = undefined;
         cancelSearch();
-        if (active?.kind === "item" && active.data?.details?.series?.seasonNumber !== undefined) seriesSeasons.set(active.id, active.data.details.series.seasonNumber);
         retireRoute(stack.pop());
         const current = top();
         if (current?.kind === "requests" && !requestsCapability.enabled) { closeRequests(); return; }
@@ -1925,7 +1924,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 const seasons = cache.peek(operations.listSeriesSeasons(current.id)) ?? [];
                 const details = createItemDetails(current, detail);
                 details.restore(previous);
-                if (detail.type === "series") details.series = new SeriesEpisodes(session, detail.id, seasons, reason => details.warmSeriesEpisodes(reason === "load"), current.seriesContext?.seasonNumber ?? (current.seriesContext === undefined ? seriesSeasons.get(current.id) : undefined), current.seriesContext?.episodeId);
+                if (detail.type === "series") details.series = new SeriesEpisodes(session, detail.id, seasons, reason => details.warmSeriesEpisodes(reason === "load"), current.seriesContext?.seasonNumber ?? (current.seriesContext === undefined ? previous?.series?.seasonNumber : undefined), current.seriesContext?.episodeId);
                 details.series?.restore(previous?.series, false, true);
                 if (detail.type === "series") details.focusedEpisodeId = current.seriesContext?.episodeId;
                 current.data = { detail, seasons, details };

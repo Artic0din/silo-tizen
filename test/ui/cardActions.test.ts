@@ -800,3 +800,24 @@ test("a pending card change keeps Details' own personal writes locked", async ()
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }
 });
+
+// Apple keeps a series' last season only on its cached page (TVItemDetailView.swift:169). A watched change
+// refreshes that page, which picks the season again from the server (PersonalStateSync.swift:209).
+test("a series card's watched change drops its remembered season, so Details picks the season again", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const catalog = await start(tv);
+        await origin(tv, false, "series:s1").click();
+        await tv.eventually(async () => await tv.focused() === "next-episode", "Series Play entry focus settles");
+        await tv.page.locator('[data-focus="season:2"]').focus(); await tv.jump(500);
+        await tv.page.locator('[data-focus="season:2"][aria-pressed="true"]').waitFor();
+        await tv.remote(10009);
+        await hold(tv, false, "series:s1");
+        await row(tv, "Mark as Watched").click();
+        await tv.eventually(async () => catalog.mutations.length === 1 && await menu(tv).count() === 0, "watched change lands");
+        await origin(tv, false, "series:s1").click();
+        await tv.page.locator('[data-focus="season:1"][aria-pressed="true"]').waitFor();
+        assert.equal(await tv.page.locator('[data-focus="season:2"][aria-pressed="true"]').count(), 0);
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});

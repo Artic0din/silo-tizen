@@ -1207,7 +1207,8 @@
     box-sizing: border-box;
     width: max-content;
     max-width: 1044px;
-    max-height: 72px;
+    /* Three 17px lines at 1.35 plus the plate's padding: the remote cannot scroll it while focus stays in the menu. */
+    max-height: calc(3 * 17px * 1.35 + 12px);
     overflow-y: auto;
     margin: 12px 0 0;
     padding: 6px 14px;

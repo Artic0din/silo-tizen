@@ -2187,6 +2187,11 @@ test("the menu says what is happening: loading, a failed list with Retry, a chan
         });
         assert.equal(plate.fill, "rgba(26, 26, 26, 0.88)");
         assert.ok(plate.top >= plate.panelBottom && plate.width < 1044, "a plate under the panel, sized to its text");
+        // Three lines of notices show in full: the remote cannot scroll the plate while focus stays on the menu.
+        await show(page, playing({ ...TRACKS, notices: ["Subtitles are burned into the video while this version plays, so their style and timing follow the server's render. ".repeat(3).trim()] }));
+        const fit = await page.locator(".player-menu-status").evaluate((node) => ({ scroll: node.scrollHeight, client: node.clientHeight, rows: Math.round((node.clientHeight - 12) / parseFloat(getComputedStyle(node).lineHeight)) }));
+        assert.ok(fit.scroll <= fit.client, `three lines fit without clipping (${fit.scroll} > ${fit.client})`);
+        assert.equal(fit.rows, 3);
         await show(page, playing({ ...TRACKS, change: { state: "refused", message: "The selected subtitle source cannot be burned in by the installed transport." } }));
         assert.equal(await text(page, ".player-menu-status"), "Not available: The selected subtitle source cannot be burned in by the installed transport.");
         await show(page, playing({ ...TRACKS, change: { state: "failed" } }));

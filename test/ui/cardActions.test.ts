@@ -62,6 +62,73 @@ test("a Home card menu opens at once from the row, in Apple's order, with no tit
     } finally { await tv.page.context().close(); }
 });
 
+const lifted = (tv: Tv, continuing = false, id = "movie:m0001") => origin(tv, continuing, id).evaluate(node => node.classList.contains("card-menu-lifted"));
+const rect = (tv: Tv, selector: string) => tv.page.locator(selector).first().evaluate(node => { const b = node.getBoundingClientRect(); return [Math.round(b.left), Math.round(b.top), Math.round(b.width), Math.round(b.height)]; });
+
+test("the open menu lifts its card's art as Apple's preview and places the platter beside it", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        await start(tv);
+        const art = '[data-section="continue_watching"] [data-focus="movie:m0001"] .browse-art';
+        await origin(tv, true).focus();
+        await tv.jump(300);
+        await tv.page.waitForTimeout(300);
+        await hold(tv, true);
+        await menu(tv).waitFor();
+        await tv.page.waitForTimeout(400);
+        assert.equal(await lifted(tv, true), true);
+        // Live tvOS capture: lifted art (86, 663) 396 x 220; platter left ~509, top ~597.
+        assert.deepEqual(await rect(tv, art), [86, 663, 396, 220]);
+        const platter = await rect(tv, ".card-menu");
+        assert.equal(platter[0], 509);
+        assert.ok(Math.abs((platter[1] ?? 0) - 597) <= 2, `platter top ${platter[1]}`);
+        assert.equal(await tv.page.locator(art).evaluate(node => getComputedStyle(node).outlineColor), "rgba(0, 0, 0, 0)", "no focus outline on the preview");
+        const caption = await rect(tv, '[data-section="continue_watching"] [data-focus="movie:m0001"] .browse-card-title');
+        assert.equal(caption[0], 80, "the caption does not move");
+        await tv.remote(10009);
+        assert.equal(await lifted(tv, true), false, "Back drops the lift");
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
+
+test("the lift ends on every close: a chosen row, a redraw that closes, and the alert", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const catalog = await start(tv);
+        await hold(tv);
+        const answer = tv.fake.hold("/favorites/movie%3Am0001", true);
+        await row(tv, "Add to Favorites").click();
+        assert.equal(await lifted(tv), false, "choosing a row drops the lift");
+        await tv.eventually(async () => catalog.mutations.length === 1, "favorite sent");
+        await hold(tv);
+        assert.equal(await lifted(tv), true);
+        answer.release();
+        await row(tv, "Remove from Favorites").waitFor();
+        assert.equal(await lifted(tv), true, "a redraw keeps the lift");
+        await tv.remote(10009);
+        assert.equal(await lifted(tv), false);
+        await hold(tv, true);
+        const dismissal = tv.fake.hold("/home/dismissals/continue_watching/movie%3Am0001", true);
+        await row(tv, "Remove from Continue Watching").click();
+        await tv.eventually(async () => catalog.mutations.length === 2, "dismissal sent");
+        await hold(tv, true);
+        assert.equal(await lifted(tv, true), true);
+        dismissal.release();
+        await tv.eventually(async () => await menu(tv).count() === 0, "the landed Remove closes the menu");
+        assert.equal(await tv.page.locator(".card-menu-lifted").count(), 0, "a redraw that closes drops the lift");
+        await hold(tv);
+        catalog.mutationFailure = problem(400, "validation_failed", "Not applied");
+        const write = tv.fake.hold("/watched/movie%3Am0001", true);
+        await row(tv, "Mark as Watched").click();
+        await hold(tv);
+        assert.equal(await lifted(tv), true);
+        write.release();
+        await tv.page.getByRole("alertdialog").waitFor();
+        assert.equal(await tv.page.locator(".card-menu-lifted").count(), 0, "the alert drops the lift");
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
+
 test("the menu sits beside its card and moves only Up and Down", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {
@@ -470,6 +537,29 @@ test("an accepted Remove keeps the card off Continue Watching when the reread fa
         assert.equal(await origin(tv, true).count(), 0, "HomeViewModel removes the card before reconciling");
         assert.equal(await origin(tv, true, "episode:s1e12").count(), 1, "other cards stay");
         assert.equal(await origin(tv).count(), 1, "Recently Added keeps the title");
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
+
+test("an empty Home after a remembered feed shows only the empty state, with no stale marquee or item read", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const catalog = await start(tv);
+        // Home loaded once, so the snapshot and the marquee both remember a card.
+        await origin(tv, true).focus();
+        await tv.jump(1000);
+        await tv.page.locator(".skyline-marquee .skyline-title").first().waitFor();
+        const household = catalog.households.get("p-owner");
+        assert.ok(household);
+        household.sections = [];
+        const before = tv.fake.requests.length;
+        await tv.page.evaluate(() => { window.browseHarness.destroy(); window.browseHarness.mount(); });
+        await tv.page.locator(".home-empty").waitFor();
+        await tv.jump(3000);
+        assert.equal(await tv.page.locator(".skyline-marquee .skyline-title:visible").count(), 0, "Apple's empty Home shows no marquee");
+        assert.equal(await tv.page.locator(".skyline-preview").count(), 0);
+        assert.deepEqual(tv.fake.requests.slice(before).filter(r => r.path.startsWith("/catalog/items/")).map(r => r.path), [], "the remembered item is not read");
+        assert.equal(await tv.focused(), "home-empty");
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }
 });

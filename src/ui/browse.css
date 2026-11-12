@@ -1900,3 +1900,6 @@ button.watch-party-seat-invite { box-sizing: content-box; padding: 0; margin: 0;
 .card-alert-button { width: 100%; height: 66px; margin: 0; padding: 0 32px; border: 0; border-radius: 40px; outline: none; background: var(--silo-selected); color: #ededed; font: inherit; font-size: 30px; }
 .card-alert-button:focus { background: #fff; color: #000; }
 .card-menu-loading { display: block; background: transparent; outline: none; }
+/* cardActions.ts MENU_LIFT_*: while its menu is open the card's art is Apple's lifted preview, 1.1 about its centre and a
+   fifteenth of its width to the right, with no focus outline and the focused shadow kept. The caption stays put. */
+.browse .browse-card.card-menu-lifted .browse-art, .browse .browse-card.card-menu-lifted:focus .browse-art { transform: translateX(calc(100% / 15)) scale(1.1); outline-color: transparent; box-shadow: 0 8px 36px rgba(0,0,0,.45), 0 10px 40px rgba(0,0,0,.5); }

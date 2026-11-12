@@ -64,8 +64,17 @@ const ICONS = {
     "xmark.circle": '<circle cx="12" cy="12" r="9.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="m8.6 8.6 6.8 6.8m0-6.8-6.8 6.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
 } as const;
 
-/** The gap between the focused card and the menu's rim, measured on Apple's Continue Watching capture. */
-const MENU_GAP = 25;
+/**
+ * Apple's context-menu preview, measured on the live tvOS Continue Watching capture (1920x1080, Spidey S01E25): the
+ * 360 x 200 art at rest at (80, 673) is drawn at (86, 663), 396 x 220, while the menu is open. That is a 1.1 scale about
+ * the art's centre, then a shift right of 24 px, a fifteenth of the art's width. browse.css draws the same transform.
+ */
+export const MENU_LIFT_SCALE = 1.1;
+export const MENU_LIFT_SHIFT = 1 / 15;
+/** The class that lifts the anchor card's art while its menu is open. */
+export const MENU_LIFTED_CLASS = "card-menu-lifted";
+/** The platter's rim sits 27 px right of the lifted art (art right 482, platter 509 on the same capture). */
+const MENU_GAP = 27;
 /** The safe area the menu stays inside. */
 const MENU_MARGIN = 60;
 
@@ -74,6 +83,8 @@ export class CardActions {
     private rows: HTMLButtonElement[] = [];
     private pressed = false;
     private listening = false;
+    /** The card drawn lifted while its menu is open, and its art's rest box measured before the lift. */
+    private lifted: { readonly card: HTMLElement; readonly rest: Box } | undefined;
     /** A failure that arrived while the alert could not show; it shows once the screen is free. */
     private deferredAlert = false;
     private reading: AbortController | undefined;
@@ -175,7 +186,10 @@ export class CardActions {
         this.panel = scrim;
         this.shown = { card, options, anchor, source };
         this.container.appendChild(scrim);
-        place(menu, anchor);
+        // A redraw keeps the rest box measured before the lift; the lifted art would measure moved.
+        const rest = this.lifted !== undefined && this.lifted.card === anchor ? this.lifted.rest : restArt(anchor);
+        place(menu, anchor, rest);
+        if (rest !== undefined && anchor !== undefined) { anchor.classList.add(MENU_LIFTED_CLASS); this.lifted = { card: anchor, rest }; }
         this.rows[0]?.focus({ preventScroll: true });
     }
 
@@ -291,6 +305,8 @@ export class CardActions {
     }
 
     private dismiss(): void {
+        this.lifted?.card.classList.remove(MENU_LIFTED_CLASS);
+        this.lifted = undefined;
         this.reading?.abort();
         this.reading = undefined;
         this.rows = [];
@@ -400,21 +416,46 @@ function swallowSelect(): void {
 }
 
 /** The tvOS menu opens beside the focused card, inside the safe area. */
-function place(menu: HTMLElement, anchor: HTMLElement | undefined): void {
-    const width = menu.offsetWidth;
-    const height = menu.offsetHeight;
-    const viewportWidth = window.innerWidth;
-    const viewportHeight = window.innerHeight;
+export interface Box { readonly left: number; readonly top: number; readonly width: number; readonly height: number }
+
+/** Where the art is drawn while lifted, from its rest box. */
+export function liftedArt(art: Box): Box {
+    const width = art.width * MENU_LIFT_SCALE, height = art.height * MENU_LIFT_SCALE;
+    return { left: art.left + (art.width - width) / 2 + art.width * MENU_LIFT_SHIFT, top: art.top + (art.height - height) / 2, width, height };
+}
+
+/**
+ * The platter's top-left: beside the lifted art (or the card, when it has none), centred on the card's button raised
+ * by the lift, as Apple's platter centre is the button centre less the art's 10 px rise. Kept inside the safe area.
+ */
+export function menuPosition(card: Box, art: Box | undefined, menu: { readonly width: number; readonly height: number }, viewport: { readonly width: number; readonly height: number }): { left: number; top: number } {
+    const lifted = art === undefined ? card : liftedArt(art);
+    const rise = art === undefined ? 0 : art.top - lifted.top;
+    const right = lifted.left + lifted.width + MENU_GAP;
+    const left = right + menu.width <= viewport.width - MENU_MARGIN ? right : Math.max(MENU_MARGIN, lifted.left - MENU_GAP - menu.width);
+    const centre = card.top + card.height / 2 - rise;
+    const top = Math.max(MENU_MARGIN, Math.min(viewport.height - MENU_MARGIN - menu.height, centre - menu.height / 2));
+    return { left: Math.round(left), top: Math.round(top) };
+}
+
+/** The anchor card's art at rest: its layout size about its drawn centre, which the focus scale does not move. */
+function restArt(anchor: HTMLElement | undefined): Box | undefined {
+    const art = anchor?.querySelector(".browse-art");
+    if (!(art instanceof HTMLElement) || art.offsetWidth === 0) return undefined;
+    const drawn = art.getBoundingClientRect();
+    return { left: drawn.left + drawn.width / 2 - art.offsetWidth / 2, top: drawn.top + drawn.height / 2 - art.offsetHeight / 2, width: art.offsetWidth, height: art.offsetHeight };
+}
+
+function place(menu: HTMLElement, anchor: HTMLElement | undefined, rest: Box | undefined): void {
+    const viewport = { width: window.innerWidth, height: window.innerHeight };
+    const size = { width: menu.offsetWidth, height: menu.offsetHeight };
     const rect = anchor?.getBoundingClientRect();
     if (rect === undefined || rect.width === 0) {
-        menu.style.left = `${Math.round((viewportWidth - width) / 2)}px`;
-        menu.style.top = `${Math.round((viewportHeight - height) / 2)}px`;
+        menu.style.left = `${Math.round((viewport.width - size.width) / 2)}px`;
+        menu.style.top = `${Math.round((viewport.height - size.height) / 2)}px`;
         return;
     }
-    const right = rect.right + MENU_GAP;
-    const left = right + width <= viewportWidth - MENU_MARGIN ? right : Math.max(MENU_MARGIN, rect.left - MENU_GAP - width);
-    // Centred on the card, as tvOS centres its menu on the lifted card.
-    const top = Math.max(MENU_MARGIN, Math.min(viewportHeight - MENU_MARGIN - height, rect.top + (rect.height - height) / 2));
-    menu.style.left = `${Math.round(left)}px`;
-    menu.style.top = `${Math.round(top)}px`;
+    const position = menuPosition({ left: rect.left, top: rect.top, width: rect.width, height: rect.height }, rest, size, viewport);
+    menu.style.left = `${position.left}px`;
+    menu.style.top = `${position.top}px`;
 }

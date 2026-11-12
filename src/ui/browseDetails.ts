@@ -673,7 +673,11 @@ export function withDetailsAlert(view: View, state: DetailsState | undefined): V
     // PersonalStateNoticeAlert: a held change adds the destructive Discard Held Change before OK.
     const discard = alert.held === undefined ? undefined : actionButton("alert-discard", "Discard Held Change", () => state.discardHeld());
     const buttons = discard === undefined ? [ok] : [discard, ok];
-    return { name: `${view.name}:alert`, content: centredDialog({ style: "alert", id: alert.id, title: alert.title, message: alert.message, buttons: buttons.map(item => item.element), ...(discard === undefined ? {} : { destructive: discard.element }), behind: view.content }), zones: [{ id: "alert", layout: buttons.length > 1 ? "column" : "row", items: buttons }], focus: { zone: "alert", key: ok.key }, back: dismiss };
+    // The page behind may hold cached nodes (the episode rail) that later renders reuse, so it is only made inert and
+    // covered by a dim layer; centredDialog's own treatment strips focus keys and disables buttons for good.
+    for (const node of view.content) { node.inert = true; node.setAttribute("aria-hidden", "true"); }
+    const dialog = centredDialog({ style: "alert", id: alert.id, title: alert.title, message: alert.message, buttons: buttons.map(item => item.element), ...(discard === undefined ? {} : { destructive: discard.element }), behind: [] });
+    return { name: `${view.name}:alert`, content: [...view.content, el("div", "details-alert-dim"), ...dialog], zones: [{ id: "alert", layout: buttons.length > 1 ? "column" : "row", items: buttons }], focus: { zone: "alert", key: ok.key }, back: dismiss };
 }
 
 /** TVSeriesDetailView.shuffleSeason: the season on screen, outside the series overview, once it has two episodes with files. */

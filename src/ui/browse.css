@@ -1147,6 +1147,8 @@
 .details-trailer-status-series { margin-top: 14px; }
 /* Apple's system alert over Details (PersonalStateNotice, Couldn't Shuffle): one OK button across the alert. */
 .browse .signin-alert { z-index: 21; }
+/* The page under the alert at .55 opacity (dialog-behind-dimmed), as a layer so cached page nodes stay untouched. */
+.details-alert-dim { position: fixed; inset: 0; z-index: 20; background: rgba(0,0,0,.45); }
 .browse .signin-alert .signin-actions .browse-button { flex: 1; height: 66px; margin: 0; padding: 0 32px; border: 2px solid transparent; border-radius: 40px; background: var(--silo-selected); color: #ededed; font-size: 30px; box-shadow: none; }
 .browse .signin-alert .signin-actions .browse-button:focus { background: #fff; color: #000; }
 /* tvOS stacks a two-button alert: the destructive Discard Held Change in system red above OK. */

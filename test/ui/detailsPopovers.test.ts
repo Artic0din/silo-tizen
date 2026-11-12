@@ -285,6 +285,11 @@ for (const [status, message] of [[409, "Nothing here can be played."], [404, "Th
         await dismissAlert(tv, "Couldn't Shuffle", message);
         assert.equal(await tv.focused(), "more");
         assert.equal((posts[0] as { scope: { kind: string } }).scope.kind, "season");
+        // The alert leaves the cached season pills and episode rail intact, so they still take focus.
+        const rail = await tv.page.locator(".details-episodes button").evaluateAll(nodes => nodes.map(node => ({ key: node.getAttribute("data-focus"), disabled: (node as HTMLButtonElement).disabled, dimmed: node.closest(".dialog-behind-dimmed") !== null })));
+        assert.ok(rail.length > 0 && rail.every(card => card.key !== null && !card.disabled && !card.dimmed), JSON.stringify(rail));
+        await tv.remote(DOWN); await tv.remote(DOWN);
+        await tv.eventually(async () => (await tv.focused())?.startsWith("episode:") === true, "the episode rail takes focus after the alert");
     });
 }
 

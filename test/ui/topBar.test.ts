@@ -512,3 +512,229 @@ test("For You failure has an explicit retry that waits for loaded shelves", asyn
         assert.equal(await tv.page.locator('[data-view="for_you"] [data-focus="retry"]').count(), 0);
     } finally { await tv.page.context().close(); }
 });
+
+// Issue #400: the bar, avatar and panels against silo-apple 7e478b2 tvOS (TVTopMenuBar.swift, TVMainTabView.swift).
+const SPRING_EASING = "cubic-bezier(0.3, 0.25, 0.2, 1.02)";
+
+interface LeavingCopy { kind: string | undefined; motion: string[]; focusable: number; inert: boolean | undefined; hidden: string | null | undefined }
+/** The fading copies live for 200 ms of real time, so record each one as it is inserted rather than racing the timer. */
+async function recordLeaving(tv: Tv): Promise<() => Promise<LeavingCopy[]>> {
+    await tv.page.evaluate(() => {
+        const holder = document.querySelector(".skyline-leaving");
+        if (holder === null) throw new Error("Missing leaving holder");
+        const records: LeavingCopy[] = [];
+        (window as unknown as { leavingCopies: LeavingCopy[] }).leavingCopies = records;
+        new MutationObserver(changes => {
+            for (const change of changes) for (const node of Array.from(change.addedNodes)) {
+                if (!(node instanceof HTMLElement)) continue;
+                const style = getComputedStyle(node);
+                records.push({ kind: node.classList[0], motion: [style.animationName, style.animationDuration, style.animationTimingFunction], focusable: node.querySelectorAll("[data-focus], [id]").length, inert: node.closest<HTMLElement>(".skyline-leaving")?.inert, hidden: node.closest(".skyline-leaving")?.getAttribute("aria-hidden") });
+            }
+        }).observe(holder, { childList: true });
+    });
+    return () => tv.page.evaluate(() => (window as unknown as { leavingCopies: LeavingCopy[] }).leavingCopies.splice(0));
+}
+
+test("on Home, Back from Search, a tab or the avatar returns to the Home tab before the exit prompt", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        await start(tv);
+        for (const key of ["search", "movies", "profiles"]) {
+            await tv.page.locator(`[data-focus="${key}"]`).focus();
+            await tv.remote(10009);
+            assert.equal(await tv.focused(), "home", `Back from ${key} focuses the Home tab`);
+            assert.equal(await tv.page.locator(".browse").getAttribute("data-view"), "home");
+        }
+        await tv.page.locator('[data-focus="movies"]').focus();
+        await tv.jump(250);
+        assert.equal(await tv.page.locator('[data-focus="movies"]').getAttribute("aria-expanded"), "true");
+        await tv.remote(10009);
+        assert.equal(await tv.focused(), "movies", "the first Back closes the open panel");
+        await tv.remote(10009);
+        assert.equal(await tv.focused(), "home", "the next Back reaches the Home tab");
+    } finally { await tv.page.context().close(); }
+});
+
+test("tabs use Apple's white label colours, cap-scaled size, 318 px capsule cap and spring", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        await start(tv);
+        const style = (key: string) => tv.page.locator(`[data-focus="${key}"]`).evaluate(node => {
+            const computed = getComputedStyle(node);
+            return { color: computed.color, size: computed.fontSize, tracking: computed.letterSpacing, maxWidth: computed.maxWidth, property: computed.transitionProperty, duration: computed.transitionDuration, easing: computed.transitionTimingFunction };
+        });
+        const movies = await style("movies");
+        assert.deepEqual(movies, { color: "rgba(255, 255, 255, 0.62)", size: "25.181px", tracking: "normal", maxWidth: "318px", property: "background-color, border-color, color", duration: "0.32s, 0.32s, 0.32s", easing: [SPRING_EASING, SPRING_EASING, SPRING_EASING].join(", ") });
+        assert.equal((await style("home")).color, "rgb(255, 255, 255)", "the selected tab is white");
+        assert.equal((await style("search")).color, "rgba(255, 255, 255, 0.62)", "the resting magnifier is white at 62%");
+        assert.deepEqual(await tv.page.locator(".browse-nav").evaluate(node => [getComputedStyle(node).transitionDuration, getComputedStyle(node).transitionTimingFunction]), ["0.2s", "ease-in-out"]);
+        await tv.page.locator('[data-focus="movies"]').press("Enter");
+        await tv.page.locator('.browse[data-view="library:12"]').waitFor();
+        const home = await style("home");
+        assert.deepEqual([home.duration, home.easing], ["0.18s", "ease-in-out"], "losing selection without focus eases over 0.18 s");
+        await tv.page.locator('[data-focus="home"]').focus();
+        assert.equal((await style("home")).duration, "0.32s, 0.32s, 0.32s", "a focus change springs again");
+    } finally { await tv.page.context().close(); }
+});
+
+for (const reduced of [false, true]) test(`the avatar keeps its white 18% disc on focus and ${reduced ? "snaps under Reduce Motion" : "springs to 1.05 with a 3 px ring"}`, async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        if (reduced) await tv.page.emulateMedia({ reducedMotion: "reduce" });
+        await start(tv);
+        const avatar = tv.page.locator('[data-focus="profiles"]');
+        const look = () => avatar.evaluate(node => {
+            for (const animation of document.getAnimations()) animation.finish();
+            const fallback = node.querySelector(".navigation-avatar-fallback") as HTMLElement;
+            return { fill: getComputedStyle(node).backgroundColor, ink: getComputedStyle(node).color, transform: getComputedStyle(node).transform, ring: getComputedStyle(node, "::after").borderTopWidth, initial: getComputedStyle(fallback).fontSize, weight: getComputedStyle(fallback).fontWeight };
+        });
+        assert.deepEqual(await look(), { fill: "rgba(255, 255, 255, 0.18)", ink: "rgb(255, 255, 255)", transform: "none", ring: "0px", initial: "19.72px", weight: "600" });
+        await avatar.focus();
+        assert.deepEqual(await look(), { fill: "rgba(255, 255, 255, 0.18)", ink: "rgb(255, 255, 255)", transform: reduced ? "none" : "matrix(1.05, 0, 0, 1.05, 0, 0)", ring: "3px", initial: "19.72px", weight: "600" });
+        await tv.jump(250);
+        const header = await tv.page.locator(".skyline-profile-header .navigation-avatar").evaluate(node => ({ fill: getComputedStyle(node).backgroundColor, ink: getComputedStyle(node).color, initial: getComputedStyle(node.querySelector(".navigation-avatar-fallback") as HTMLElement).fontSize }));
+        assert.deepEqual(header, { fill: "rgba(255, 255, 255, 0.16)", ink: "rgb(255, 255, 255)", initial: "14.96px" });
+    } finally { await tv.page.context().close(); }
+});
+
+test("a nameless avatar draws the person glyph at Apple's 0.36 size in secondary text", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        await start(tv);
+        const glyph = await tv.page.evaluate(() => {
+            const avatar = document.createElement("span");
+            avatar.className = "navigation-avatar";
+            avatar.style.setProperty("--avatar-size", "58px");
+            avatar.innerHTML = '<span class="navigation-avatar-fallback"><svg class="navigation-avatar-person" viewBox="0 0 92 100"></svg></span>';
+            document.querySelector(".browse-nav")?.appendChild(avatar);
+            const svg = avatar.querySelector("svg") as SVGSVGElement;
+            const box = svg.getBoundingClientRect();
+            return { width: Math.round(box.width * 100) / 100, height: Math.round(box.height * 100) / 100, color: getComputedStyle(svg).color };
+        });
+        assert.deepEqual(glyph, { width: 17.22, height: 18.72, color: "rgba(237, 237, 237, 0.6)" });
+    } finally { await tv.page.context().close(); }
+});
+
+for (const reduced of [false, true]) test(`top-bar panels use Apple's panel chrome and ${reduced ? "snap under Reduce Motion" : "grow from and shrink toward their anchor"}`, async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        if (reduced) await tv.page.emulateMedia({ reducedMotion: "reduce" });
+        await start(tv);
+        const leavingCopies = await recordLeaving(tv);
+        for (const anchor of ["movies", "profiles"]) {
+            await tv.page.locator(`[data-focus="${anchor}"]`).focus();
+            await tv.jump(250);
+            const chrome = await tv.page.evaluate(key => {
+                const panel = document.querySelector<HTMLElement>(".skyline-selector:not(.skyline-flyout)");
+                const flyout = document.querySelector<HTMLElement>(".skyline-flyout");
+                const tab = document.querySelector<HTMLElement>(`[data-focus="${key}"]`);
+                if (panel === null || flyout === null || tab === null) throw new Error("Missing panel");
+                const style = getComputedStyle(panel);
+                const hairline = getComputedStyle(panel, "::before");
+                const rect = tab.getBoundingClientRect();
+                return {
+                    background: style.backgroundImage, shadow: style.boxShadow, material: style.backdropFilter,
+                    hairline: hairline.backgroundImage, hairlineWidth: hairline.paddingTop,
+                    motion: [style.animationName, style.animationDuration, style.animationTimingFunction],
+                    flyout: [getComputedStyle(flyout).animationName, getComputedStyle(flyout).animationDuration, getComputedStyle(flyout).animationTimingFunction],
+                    origin: style.transformOrigin.split(" ").map(parseFloat), expected: [rect.left + rect.width / 2 - panel.offsetLeft, 0],
+                };
+            }, anchor);
+            assert.equal(chrome.background, "linear-gradient(rgba(35, 37, 44, 0.92), rgba(20, 21, 25, 0.95))");
+            assert.equal(chrome.shadow, "rgba(0, 0, 0, 0.35) 0px 4px 16px 0px, rgba(0, 0, 0, 0.55) 0px 24px 80px 0px");
+            assert.equal(chrome.material, "blur(30px)");
+            assert.equal(chrome.hairline, "linear-gradient(rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.05))");
+            assert.equal(chrome.hairlineWidth, "1px");
+            assert.deepEqual(chrome.motion, reduced ? ["none", "0s", "ease"] : ["skyline-panel", "0.12s", "ease-out"]);
+            if (!reduced) assert.deepEqual(chrome.flyout, ["skyline-appear", "0.16s", "ease-in-out"]);
+            assert.ok(Math.abs((chrome.origin[0] ?? Number.NaN) - (chrome.expected[0] ?? 0)) < 0.01 && chrome.origin[1] === 0, `${anchor}: the panel scales from under its anchor, ${chrome.origin.join(" ")}`);
+            await tv.remote(10009);
+            assert.equal(await tv.page.locator(".skyline-selector:not(.skyline-flyout)").isVisible(), false, "the live panel closes at once");
+            const leaving = await leavingCopies();
+            if (reduced) assert.deepEqual(leaving, [], "Reduce Motion leaves no fading copy");
+            else {
+                assert.deepEqual(leaving, [{ kind: "skyline-selector-leaving", motion: ["skyline-panel-leave", "0.12s", "ease-out"], focusable: 0, inert: true, hidden: "true" }]);
+                await tv.page.waitForFunction(() => document.querySelector(".skyline-leaving")?.childElementCount === 0);
+            }
+        }
+    } finally { await tv.page.context().close(); }
+});
+
+test("the top bar's sign-out confirmation fades in and out over Apple's easeOut(0.2)", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        await start(tv, null, new RecommendationsCatalog(), true);
+        await tv.page.locator('[data-focus="profiles"]').click();
+        await tv.page.locator('[data-focus="signout"]').click();
+        await tv.page.getByRole("alertdialog", { name: "Sign Out" }).waitFor();
+        const motion = (selector: string) => tv.page.evaluate(selector => {
+            const node = document.querySelector<HTMLElement>(selector);
+            return node === null ? null : [getComputedStyle(node).animationName, getComputedStyle(node).animationDuration, getComputedStyle(node).animationTimingFunction];
+        }, selector);
+        assert.deepEqual(await motion(".skyline-selector[data-confirmation]"), ["skyline-appear", "0.2s", "ease-out"]);
+        assert.deepEqual(await motion(".skyline-dropdown-scrim[data-confirmation]"), ["skyline-appear", "0.2s", "ease-out"]);
+        const leavingCopies = await recordLeaving(tv);
+        await tv.remote(10009);
+        assert.equal(await tv.page.getByRole("alertdialog").count(), 0);
+        // Both copies sit at z-index 6, so the backdrop has to come first to paint under its dialog.
+        const fade = { motion: ["skyline-leave", "0.2s", "ease-out"], focusable: 0, inert: true, hidden: "true" };
+        assert.deepEqual(await leavingCopies(), [{ kind: "skyline-dropdown-scrim-leaving", ...fade }, { kind: "skyline-selector-leaving", ...fade }]);
+        assert.equal(await tv.page.evaluate(() => window.browseHarness.signOutCalls), 0);
+    } finally { await tv.page.context().close(); }
+});
+
+/** Ink of each filled SF Symbol at Apple's 20 pt semibold, measured with AppKit (TVTopMenuBar.swift:1034-1037, :1183-1200). */
+const APPLE_MENU_INK: Readonly<Record<string, readonly [number, number]>> = {
+    "switch-profile": [26.8, 17.8], history: [20.4, 20.4], requests: [20.9, 20.9], settings: [21, 21],
+    watchlist: [14, 21.8], favorites: [20, 18.5], recommendations: [18.5, 22.6],
+};
+
+test("profile and For You menus draw Apple's filled glyphs at Apple's ink size in the same icon box", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        await start(tv, null, new ProfileDestinationsCatalog(), true);
+        const icons = (kind: string) => tv.page.locator(`.skyline-selector[data-menu-kind="${kind}"] [data-focus]`).evaluateAll(rows => rows.map(row => {
+            // The panel's 0.96 open scale would shrink the measured box.
+            for (const animation of document.getAnimations()) animation.finish();
+            const svg = row.querySelector("svg") as SVGSVGElement;
+            const box = svg.getBoundingClientRect();
+            const ink = svg.getBBox();
+            const scale = box.height / 24;
+            return { key: row.getAttribute("data-focus"), filled: svg.classList.contains("skyline-menu-icon-filled"), box: [box.width, box.height], ink: [Math.round(ink.width * scale * 10) / 10, Math.round(ink.height * scale * 10) / 10] };
+        }));
+        await tv.page.locator('[data-focus="profiles"]').focus();
+        await tv.jump(250);
+        const profile = await icons("profile");
+        await tv.page.locator('[data-focus="for_you"]').focus();
+        await tv.jump(250);
+        const forYou = await icons("for_you");
+        assert.deepEqual(forYou.map(icon => icon.key), ["watchlist", "favorites", "recommendations"]);
+        assert.ok(profile.some(icon => icon.key === "requests") && profile.some(icon => icon.key === "signout"), JSON.stringify(profile.map(icon => icon.key)));
+        for (const icon of [...profile, ...forYou]) {
+            assert.deepEqual(icon.box, [30, 20], `${icon.key}: the icon keeps its 30 by 20 box`);
+            const apple = APPLE_MENU_INK[icon.key ?? ""];
+            // person.3 and rectangle.portrait.and.arrow.forward are outline symbols on Apple too; Change Account mixes both.
+            if (apple === undefined) { assert.equal(icon.filled, icon.key === "switch-server", `${icon.key}: Apple draws it outlined`); continue; }
+            assert.equal(icon.filled, true, `${icon.key}: Apple draws a filled symbol`);
+            assert.ok(Math.abs((icon.ink[0] ?? 0) - apple[0]) <= 1.5 && Math.abs((icon.ink[1] ?? 0) - apple[1]) <= 1.5, `${icon.key}: ink ${icon.ink.join("×")} against Apple's ${apple.join("×")}`);
+        }
+    } finally { await tv.page.context().close(); }
+});
+
+for (const anchor of ["movies", "profiles"]) test(`a ${anchor} menu the dwell opened closes when focus is handed to the page`, async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        await start(tv);
+        await tv.page.locator(`[data-focus="${anchor}"]`).focus();
+        await tv.jump(250);
+        assert.equal(await tv.page.locator(`[data-focus="${anchor}"]`).getAttribute("aria-expanded"), "true", "the dwell opens the menu without entering it");
+        // A late load hands focus to the page the way FocusHost.focusDefault does.
+        await tv.page.locator('[data-section="continue_watching"] .browse-card').first().evaluate(card => (card as HTMLElement).focus());
+        // enterContentFromBar: closePanelForContentHandoff (TVMainTabView.swift:955-958).
+        await tv.eventually(async () => !(await tv.page.locator(".skyline-selector:not(.skyline-flyout)").isVisible()), "the menu closes");
+        assert.equal(await tv.page.locator(`[data-focus="${anchor}"]`).getAttribute("aria-expanded"), "false");
+        assert.equal(await tv.page.evaluate(() => document.activeElement?.closest("[data-section]")?.getAttribute("data-section")), "continue_watching", "focus stays on the card");
+        await tv.jump(500);
+        assert.equal(await tv.page.locator(".skyline-selector:not(.skyline-flyout)").isVisible(), false, "the menu does not reopen");
+    } finally { await tv.page.context().close(); }
+});

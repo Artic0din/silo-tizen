@@ -41,6 +41,15 @@ Fill is omitted: Samsung describes `PLAYER_DISPLAY_MODE_AUTO_ASPECT_RATIO` as fo
 Missing platform methods hide their controls; platform exceptions retain the last confirmed selection and show a message.
 Subtitle controls belong to issue #226.
 
+Issue #391 matches Apple's two-column panes (`Silo-Server/silo-apple` at `7e478b26afd88bbe8e2fec00e945f9766a4e79a3`, `Screens/Player/tvOS/TVPlayerInfoHUD.swift`):
+
+- `:1653–1659`: Subtitles has TRACKS (470 px) and OPTIONS (440 px), 58 px apart. Tracks, AI results and the series choice sit in TRACKS; AI actions, Search, Delay, Only on this TV, Size, Position and Appearance sit in OPTIONS.
+- `:821–920`: Video has equal PLAYBACK and SYNC columns, 48 px apart. SYNC holds Subtitle delay, when the overlay offers a delay, and Auto-play next.
+- `:548–593`: option rows show the value right-aligned at 72 % white, then a chevron when the row opens a picker. Toggles have no chevron. Appearance carries the `textformat` glyph, drawn as "Aa".
+- `:1054`: picker titles keep their case ("Subtitle Delay") at 30 px semibold.
+
+Still different from Apple: pickers replace the pane instead of floating over it and keep a Back row, track rows keep the selected-row wash, and Search and AI rows have no `magnifyingglass` or `sparkles` symbol.
+
 Stats display engine and playback-plan facts, including output codec, resolution and configured bitrate when supplied.
 Configured bitrate is labelled explicitly and is never presented as measured throughput.
 Buffer seconds/bytes, download speed, network throughput, FPS, dropped frames, decoder memory and engine-specific Apple metrics are omitted because this client does not measure them.

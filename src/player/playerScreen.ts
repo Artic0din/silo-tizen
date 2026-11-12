@@ -19,14 +19,14 @@ import { el } from "../ui/screen.ts";
 import { artworkUrl } from "../ui/browseModel.ts";
 import type { AVPlay } from "./avplay.ts";
 import { type PlaybackDeps, type PlaybackError, type PlaybackExits, PlaybackController, type PlaybackView, type PlayerControls, type PlayRequest, type SubtitleToolAction, type TrackView, UNSUPPORTED_FORMAT } from "./controller.ts";
-import { fillSubtitleTools, pickerFor, type SubtitlePane } from "./subtitleMenu.ts";
+import { fillSubtitlePicker, fillSubtitleTools, paneColumn, pickerFor, settingRow, type SubtitlePane } from "./subtitleMenu.ts";
 import type { AppearanceMember } from "./subtitleAppearance.ts";
 import { arrowDownCircleIcon, closeIcon, episodesIcon, infoCircleIcon, optionsIcon, pauseIcon, playIcon, skipIcon, skipToEndIcon, spinnerIcon, warningTriangleIcon } from "./playerIcons.ts";
 import { COPY as BUFFERING_COPY } from "./bufferingQuality.ts";
 import { SkipPrompt, type SkipActivity } from "./skipPrompt.ts";
 import { mountSeekThumbnail } from "./seekThumbnailView.ts";
 import { mountSubtitles } from "./subtitleView.ts";
-import { fillHUDPane } from "./hudPanes.ts";
+import { fillHUDPane, fillVideoPane } from "./hudPanes.ts";
 import { currentChapter } from "./playerHUD.ts";
 
 /** While playing, the overlay hides this long after the last key. */
@@ -188,39 +188,33 @@ function fillSubtitles(list: HTMLElement, tracks: TrackView, languages = false, 
         fillSubtitleTools(list, tracks, pane, true);
         return;
     }
-    list.appendChild(el("h2", "player-menu-heading", "TRACKS"));
-    list.appendChild(choice(OFF, "Off", tracks.selectedSubtitleId === undefined));
+    // SubtitlesPane (TVPlayerInfoHUD.swift:1620, columns at 1653-1659): TRACKS beside OPTIONS. Choices that pick a track stay in TRACKS.
+    const columns = el("div", "player-menu-columns player-menu-columns-subtitles");
+    const trackColumn = paneColumn("TRACKS", "player-menu-column-tracks");
+    const optionColumn = paneColumn("OPTIONS", "player-menu-column-options");
+    trackColumn.rows.appendChild(choice(OFF, "Off", tracks.selectedSubtitleId === undefined));
     for (const track of tracks.subtitles) {
         const row = choice(track.id, track.label, track.id === tracks.selectedSubtitleId, track.detail);
         if (track.unavailable === true) row.setAttribute("data-unavailable", "true");
-        list.appendChild(row);
+        trackColumn.rows.appendChild(row);
     }
     if (tracks.seriesSubtitle !== undefined) {
         const save = choice(SERIES_SUBTITLE, tracks.selectedSubtitleId === undefined ? "Keep subtitles off for this series" : "Use this subtitle choice for this series", false);
         save.setAttribute("aria-disabled", String(tracks.seriesSubtitle.busy));
-        list.appendChild(save);
+        trackColumn.rows.appendChild(save);
     }
     if (ai !== undefined) {
-        if (ai.available.translate && tracks.aiTranslate && ai.languages.length > 0) list.appendChild(choice("ai-translate", "Translate current subtitles", false));
-        if (ai.available.transcribe) list.appendChild(choice("ai-transcribe", "Transcribe current audio", false));
         for (const result of ai.results) {
             const row = choice(`ai-result:${result.id}`, result.label, false, result.unavailable === true ? UNSUPPORTED_FORMAT : undefined);
             if (result.unavailable === true) row.setAttribute("data-unavailable", "true");
-            list.appendChild(row);
+            trackColumn.rows.appendChild(row);
         }
+        if (ai.available.translate && tracks.aiTranslate && ai.languages.length > 0) optionColumn.rows.appendChild(settingRow("ai-translate", "Translate current subtitles", ""));
+        if (ai.available.transcribe) optionColumn.rows.appendChild(settingRow("ai-transcribe", "Transcribe current audio", "", { chevron: false }));
     }
-    fillSubtitleTools(list, tracks, pane, false);
-}
-
-function fillQuality(list: HTMLElement, tracks: TrackView): void {
-    const quality = tracks.quality;
-    if (quality === undefined || quality.choices.length < 2) {
-        return;
-    }
-    list.appendChild(el("h2", "player-menu-heading", "PLAYBACK"));
-    for (const qualityChoice of quality.choices) {
-        list.appendChild(choice(`quality:${qualityChoice.id}`, qualityChoice.label, qualityChoice.id === quality.selectedId));
-    }
+    fillSubtitleTools(optionColumn.rows, tracks, pane, false);
+    columns.append(trackColumn.column, optionColumn.column);
+    list.appendChild(columns);
 }
 
 /** Apple's seekRates ladder. A hold starts at ±1; further taps move one step. */
@@ -590,8 +584,11 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             const keep = focusedId();
             const returnFocus = menuRestoreFocus;
             menuRestoreFocus = undefined;
-            const hasQuality = (tracks.quality?.choices.length ?? 0) > 1;
+            // The Video SYNC row opens the delay picker in place of the Video columns.
+            const videoPicker = subtitlePane.kind === "picker" && subtitlePane.origin.pane === "video" ? subtitlePane : undefined;
             for (const [index, list] of lists.entries()) {
+                // Each column scrolls on its own; a redraw keeps the unfocused one where the viewer left it.
+                const offsets = new Map(Array.from(list.querySelectorAll<HTMLElement>(".player-menu-column")).map(column => [column.className, column.lastElementChild?.scrollTop ?? 0]));
                 list.textContent = "";
                 const name = tabNames[index];
                 const hud = view.phase === "playing" || view.phase === "paused" ? view.hud : undefined;
@@ -600,13 +597,18 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
                 if (hidden) continue;
                 if (name === "Info") fillInfo(list, tracks);
                 else if (name === "Audio") fillAudio(list, tracks);
-                else if (name === "Subtitles") fillSubtitles(list, tracks, aiLanguages, subtitlePane);
-                else {
-                    fillHUDPane(list, name ?? "", hud, view.phase === "playing" || view.phase === "paused" ? view.positionSeconds : 0, choice, clockText);
-                    if (name === "Video" && hasQuality) {
-                        list.querySelector('[data-focus="video-empty"]')?.remove();
-                        fillQuality(list, tracks);
-                    }
+                else if (name === "Subtitles") fillSubtitles(list, tracks, aiLanguages, videoPicker === undefined ? subtitlePane : { kind: "tracks" });
+                else if (name === "Video") {
+                    if (videoPicker === undefined) fillVideoPane(list, hud, tracks, choice);
+                    else fillSubtitlePicker(list, videoPicker);
+                } else fillHUDPane(list, name ?? "", hud, view.phase === "playing" || view.phase === "paused" ? view.positionSeconds : 0, choice, clockText);
+                for (const column of list.querySelectorAll<HTMLElement>(".player-menu-column")) {
+                    const rows = column.lastElementChild;
+                    const top = offsets.get(column.className);
+                    if (!(rows instanceof HTMLElement) || top === undefined) continue;
+                    rows.style.scrollBehavior = "auto";
+                    rows.scrollTop = top;
+                    rows.style.scrollBehavior = "";
                 }
                 for (const button of buttons(index)) {
                     const id = button.getAttribute("data-focus") ?? "";
@@ -1185,8 +1187,27 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     const restoreSubtitlePicker = (): void => {
         if (subtitlePane.kind !== "picker") return;
         const origin = subtitlePane.origin;
-        subtitlePane = { kind: origin.pane };
+        subtitlePane = { kind: origin.pane === "appearance" ? "appearance" : "tracks" };
         menuRestoreFocus = origin.focusId;
+    };
+
+    /**
+     * Left and Right cross between a pane's columns (each a `focusSection` in SubtitlesPane and VideoPane) and land on the
+     * row nearest the focused one's height, as the tvOS focus engine does. Past the last column they switch panes.
+     */
+    const crossColumn = (direction: -1 | 1): boolean => {
+        const from = document.activeElement;
+        const own = from?.closest<HTMLElement>(".player-menu-column");
+        if (from === null || from === undefined || own === null || own === undefined || own.parentElement === null) return false;
+        const columns = Array.from(own.parentElement.children).filter((node): node is HTMLElement => node instanceof HTMLElement && node.classList.contains("player-menu-column"));
+        const middle = (node: Element): number => { const box = node.getBoundingClientRect(); return box.top + box.height / 2; };
+        const height = middle(from);
+        for (let index = columns.indexOf(own) + direction; index >= 0 && index < columns.length; index += direction) {
+            const rows = Array.from(columns[index]!.querySelectorAll<HTMLElement>("[data-focus]"));
+            const nearest = rows.reduce<HTMLElement | undefined>((best, row) => best === undefined || Math.abs(middle(row) - height) < Math.abs(middle(best) - height) ? row : best, undefined);
+            if (nearest !== undefined) { nearest.focus(); return true; }
+        }
+        return false;
     };
 
     const menuKey = (key: string): void => {
@@ -1207,7 +1228,9 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             reveal();
             return;
         }
-        const all = buttons(column);
+        // Up and Down stay inside the focused column of a two-column pane.
+        const columnScope = document.activeElement?.closest<HTMLElement>(".player-menu-column");
+        const all = columnScope ? Array.from(columnScope.querySelectorAll<HTMLElement>("[data-focus]")) : buttons(column);
         const at = all.findIndex((button) => button === document.activeElement);
         const atTab = tabs.findIndex(tab => tab === document.activeElement);
         const infoPane = lists[column];
@@ -1235,6 +1258,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             all[Math.max(0, Math.min(all.length - 1, at + (key === "up" ? -1 : 1)))]?.focus();
         } else if (key === "left" || key === "right") {
             const direction = key === "left" ? -1 : 1;
+            if (crossColumn(direction)) return;
             for (let index = column + direction; index >= 0 && index < lists.length; index += direction) {
                 if (focusList(index)) break;
             }
@@ -1285,10 +1309,10 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
                 controls.subtitleTool({ kind: "search-retry" });
             } else if (id?.startsWith("subtitle-result:")) {
                 controls.subtitleTool({ kind: "search-download", key: id.slice("subtitle-result:".length) });
-            } else if (id === "subtitle-delay" || id === "subtitle-size" || id === "subtitle-position") {
-                const field = id === "subtitle-delay" ? "delay" : id === "subtitle-size" ? "fontSize" : "position";
+            } else if (id === "subtitle-delay" || id === "subtitle-video-delay" || id === "subtitle-size" || id === "subtitle-position") {
+                const field = id === "subtitle-size" ? "fontSize" : id === "subtitle-position" ? "position" : "delay";
                 const next = view.phase === "playing" || view.phase === "paused" ? pickerFor(view.tracks, field) : undefined;
-                if (next !== undefined) subtitlePane = { ...next, origin: { pane: "tracks", focusId: id } };
+                if (next !== undefined) subtitlePane = { ...next, origin: { pane: id === "subtitle-video-delay" ? "video" : "tracks", focusId: id } };
             } else if (id === "subtitle-appearance") {
                 subtitlePane = { kind: "appearance" };
             } else if (id === "subtitle-appearance-back" || id === "subtitle-picker-back") {

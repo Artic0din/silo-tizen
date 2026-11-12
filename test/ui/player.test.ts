@@ -96,7 +96,8 @@ test("chapters seek in source time, close options and retain a remote focus targ
         await show(page, { ...playing(TRACKS), hud: { chapters: [{ title: "Opening", seconds: 0 }, { title: "Second", seconds: 800 }], chapterState: "ready", stats: [["Engine", "AVPlay"]], speeds: [1, 2], aspects: ["Fit", "Stretch"], speed: 1, aspect: "Fit", autoNext: false, busy: false } });
         await openPanel(page);
         assert.deepEqual(await page.locator(".player-tab:not([hidden])").allTextContents(), ["Info", "Stats", "Video", "Audio", "Subtitles", "Chapters"]);
-        for (let n = 0; n < 5; n++) await remote(page, RIGHT);
+        // Video's SYNC column holds Auto-play next, so Right crosses it before reaching Audio.
+        for (let n = 0; n < 6; n++) await remote(page, RIGHT);
         assert.equal(await focused(page), "chapter:0");
         await remote(page, DOWN);
         await remote(page, ENTER);
@@ -126,6 +127,10 @@ test("Video actions and Stats are remote reachable and updates preserve the sele
         await remote(page, DOWN);
         await remote(page, ENTER);
         await remote(page, DOWN);
+        assert.equal(await focused(page), "aspect:Stretch", "Down stays in the PLAYBACK column");
+        await remote(page, RIGHT);
+        assert.equal(await focused(page), "auto-next");
+        assert.equal(await text(page, '[data-focus="auto-next"]'), "Auto-play next\nOff");
         await remote(page, ENTER);
         assert.deepEqual(await commands(page), ["setVideo speed 2", "setVideo aspect Stretch", "toggleAutoNext"]);
         await show(page, { ...playing(TRACKS), hud: { ...hud, busy: true } });
@@ -683,19 +688,24 @@ test("AI language, quota and result actions stay remote-reachable without stoppi
         // Old path was Down then Right, from an Audio panel. Info is the first tab now.
         await openAudio(page);
         await remote(page, RIGHT);
-        for (let index = 0; index < TRACKS.subtitles.length + 1; index++) await remote(page, DOWN);
+        // AI actions sit in OPTIONS; AI results are tracks.
+        await remote(page, RIGHT);
         assert.equal(await focused(page), "ai-translate");
         await remote(page, ENTER);
         await remote(page, DOWN);
         assert.equal(await focused(page), "ai-language:fr");
         await remote(page, ENTER);
         assert.deepEqual(await commands(page), ["startSubtitleAI translate fr"]);
-        for (let index = 0; index < TRACKS.subtitles.length + 2; index++) await remote(page, DOWN);
+        await remote(page, RIGHT);
+        await remote(page, DOWN);
         assert.equal(await focused(page), "ai-transcribe");
         await remote(page, ENTER);
         assert.deepEqual(await commands(page), ["startSubtitleAI translate fr"], "exhausted quota does not dispatch transcription");
         assert.match(await page.locator(".player-menu-status").innerText(), /Quota exhausted/);
-        await remote(page, DOWN);
+        await remote(page, LEFT);
+        assert.equal(await focused(page), "file:42:subtitle:0", "Left lands on the track row level with the focused option");
+        for (let index = 0; index < TRACKS.subtitles.length; index++) await remote(page, DOWN);
+        assert.equal(await focused(page), "ai-result:opaque-result");
         await remote(page, ENTER);
         assert.deepEqual(await commands(page), ["startSubtitleAI translate fr", "selectAIResult opaque-result"]);
     } finally { await page.close(); }
@@ -1748,6 +1758,8 @@ test("the Samsung play-pause button operates playback without changing a track s
 async function capture(page: Page, name: string): Promise<void> {
     const dir = process.env.PLAYER_CAPTURE_DIR;
     if (dir !== undefined) {
+        // Let focus colour transitions finish so the capture shows the settled state.
+        await page.waitForTimeout(300);
         await page.screenshot({ path: `${dir}/${name}.png` });
     }
 }
@@ -2169,12 +2181,13 @@ test("long track lists scroll within the panel and keep the focused choice and s
         const geometry = await page.evaluate(() => {
             const player = document.querySelector(".player");
             const list = document.querySelector(".player-menu-subtitles");
+            const rows = document.querySelector(".player-menu-column-tracks .player-menu-column-rows");
             const status = document.querySelector(".player-menu-status");
             const focus = document.activeElement;
-            if (!(player instanceof HTMLElement) || !(list instanceof HTMLElement) || status === null || focus === null) {
+            if (!(player instanceof HTMLElement) || !(list instanceof HTMLElement) || !(rows instanceof HTMLElement) || status === null || focus === null) {
                 throw new Error("Missing track menu");
             }
-            return { playerScroll: player.scrollTop, listScroll: list.scrollTop, list: list.getBoundingClientRect().toJSON(), status: status.getBoundingClientRect().toJSON(), focus: focus.getBoundingClientRect().toJSON() };
+            return { playerScroll: player.scrollTop, listScroll: rows.scrollTop, list: list.getBoundingClientRect().toJSON(), status: status.getBoundingClientRect().toJSON(), focus: focus.getBoundingClientRect().toJSON() };
         });
         assert.equal(geometry.playerScroll, 0, "the player surface must not scroll");
         assert.ok(geometry.listScroll > 0, "only the track list scrolls");
@@ -2345,7 +2358,9 @@ test("long server quality lists scroll within the menu with focus and status kep
             assertElement(status);
             const focus = document.activeElement;
             assertElement(focus);
-            return { list: list.getBoundingClientRect().toJSON(), focus: focus.getBoundingClientRect().toJSON(), status: status.getBoundingClientRect().toJSON(), scroll: list.scrollTop };
+            const rows = list.querySelector(".player-menu-column-playback .player-menu-column-rows");
+            assertElement(rows);
+            return { list: list.getBoundingClientRect().toJSON(), focus: focus.getBoundingClientRect().toJSON(), status: status.getBoundingClientRect().toJSON(), scroll: rows.scrollTop };
             function assertElement(value: Element | null): asserts value is HTMLElement {
                 if (!(value instanceof HTMLElement)) throw new Error("missing element");
             }
@@ -2434,7 +2449,7 @@ test("subtitle search remains remote reachable without existing subtitle tracks"
         assert.equal(await page.getByRole("tab", { name: "Subtitles", exact: true }).isVisible(), true);
         for (let index = 0; index < 4; index++) await remote(page, RIGHT);
         assert.equal(await focused(page), "subtitles-off");
-        await remote(page, DOWN);
+        await remote(page, RIGHT);
         assert.equal(await focused(page), "subtitle-search");
         await remote(page, ENTER);
         assert.deepEqual(await commands(page), ['subtitleTool {"kind":"search-open"}']);
@@ -2461,6 +2476,8 @@ test("subtitle search stays reachable under a long track list and after a prefer
         assert.match(await text(page, ".player-menu-status"), /Could not load subtitle preferences/);
         assert.equal(await focused(page), "subtitles-off");
         for (let index = 0; index < subtitles.length + 1; index += 1) await remote(page, DOWN);
+        assert.equal(await focused(page), `file:42:subtitle:${subtitles.length - 1}`, "Down stays in the TRACKS column");
+        await remote(page, RIGHT);
         assert.equal(await focused(page), "subtitle-search");
         assert.equal(await page.locator('[data-focus="subtitle-search"]').getAttribute("aria-disabled"), "false");
         await page.clock.resume();
@@ -2524,7 +2541,7 @@ for (const origin of ["tracks", "appearance"] as const) for (const field of ["fo
             await page.locator(`[data-focus="${trigger}"]`).focus();
             await remote(page, ENTER);
             assert.equal(await focused(page), field === "fontSize" ? "subtitle-picker:large" : "subtitle-picker:bottom");
-            assert.equal(await text(page, ".player-menu-subtitles .player-menu-heading"), field === "fontSize" ? "SUBTITLE SIZE" : "SUBTITLE POSITION");
+            assert.equal(await text(page, ".player-menu-subtitles .player-menu-picker-title"), field === "fontSize" ? "Subtitle Size" : "Subtitle Position");
             if (ending === "select") await remote(page, ENTER);
             else if (ending === "remote-back") await remote(page, BACK);
             else await page.locator('[data-focus="subtitle-picker-back"]').click();
@@ -2556,15 +2573,17 @@ test("subtitle search and the delay, size, position and appearance rows are remo
         await remote(page, RIGHT);
         await remote(page, RIGHT);
         await remote(page, RIGHT);
-        assert.equal(await page.locator('[data-focus="subtitle-search"] .player-choice-label').textContent(), "Search Subtitles…");
+        assert.equal(await page.locator('[data-focus="subtitle-search"] .player-setting-label').textContent(), "Search Subtitles…");
         assert.match(await text(page, ".player-menu-subtitles"), /Delay[\s\S]*0 ms/);
         assert.match(await text(page, ".player-menu-subtitles"), /Size[\s\S]*Large/);
         assert.match(await text(page, ".player-menu-subtitles"), /Position[\s\S]*Bottom/);
         assert.match(await text(page, ".player-menu-subtitles"), /Appearance[\s\S]*Box, Large, Bottom/);
-        for (let step = 0; step < 5; step += 1) await remote(page, DOWN);
+        await remote(page, RIGHT);
+        assert.equal(await focused(page), "subtitle-search");
+        await remote(page, DOWN);
         assert.equal(await focused(page), "subtitle-delay");
         await remote(page, ENTER);
-        assert.equal(await text(page, ".player-menu-subtitles .player-menu-heading"), "SUBTITLE DELAY");
+        assert.equal(await text(page, ".player-menu-subtitles .player-menu-picker-title"), "Subtitle Delay");
         assert.equal(await focused(page), "subtitle-picker:0");
         await remote(page, DOWN);
         assert.equal(await focused(page), "subtitle-picker:100");
@@ -2577,7 +2596,156 @@ test("subtitle search and the delay, size, position and appearance rows are remo
     }
 });
 
-for (const [trigger, heading] of [["subtitle-delay", "SUBTITLE DELAY"], ["subtitle-size", "SUBTITLE SIZE"], ["subtitle-position", "SUBTITLE POSITION"], ["subtitle-appearance:fontColor", "TEXT COLOR"]] as const) {
+const ALL_TOOLS: NonNullable<TrackView["subtitleTools"]> = {
+    search: CLOSED_SEARCH,
+    display: { delay: true, styling: true, deviceScope: true, textOpacity: true, delayMs: 0, appearance: DEFAULT_APPEARANCE, deviceOverride: false, busy: false, message: "" },
+    overlay: true,
+};
+
+test("Subtitles lays out TRACKS and OPTIONS like Apple TV, with right-aligned values, chevrons and the Aa glyph", async () => {
+    const { page } = await open();
+    try {
+        await page.emulateMedia({ reducedMotion: "reduce" });
+        await show(page, playing({ ...TRACKS, subtitleTools: ALL_TOOLS }));
+        await page.evaluate(() => document.fonts.ready);
+        await openPanel(page);
+        for (let step = 0; step < 4; step += 1) await remote(page, RIGHT);
+        assert.equal(await focused(page), "subtitles-off");
+        const layout = await page.evaluate(() => {
+            const pane = document.querySelector(".player-menu-subtitles");
+            const box = (selector: string): DOMRect => {
+                const node = pane?.querySelector(selector);
+                if (!(node instanceof HTMLElement)) throw new Error(`missing ${selector}`);
+                return node.getBoundingClientRect();
+            };
+            const row = (id: string): { label: DOMRect; value: DOMRect | undefined; chevron: DOMRect | undefined; glyph: string | undefined; row: DOMRect } => {
+                const button = pane?.querySelector(`[data-focus="${id}"]`);
+                if (!(button instanceof HTMLElement)) throw new Error(`missing ${id}`);
+                const part = (name: string): DOMRect | undefined => button.querySelector(name)?.getBoundingClientRect();
+                return { label: part(".player-setting-label")!, value: part(".player-setting-value"), chevron: part(".player-setting-chevron"), glyph: button.querySelector(".player-setting-glyph")?.textContent ?? undefined, row: button.getBoundingClientRect() };
+            };
+            return {
+                headings: Array.from(pane?.querySelectorAll(".player-menu-column > .player-menu-heading") ?? []).map(node => node.textContent),
+                tracks: box(".player-menu-column-tracks"),
+                options: box(".player-menu-column-options"),
+                panel: document.querySelector(".player-menu")!.getBoundingClientRect(),
+                trackIds: Array.from(pane?.querySelectorAll(".player-menu-column-tracks [data-focus]") ?? []).map(node => node.getAttribute("data-focus")),
+                optionIds: Array.from(pane?.querySelectorAll(".player-menu-column-options [data-focus]") ?? []).map(node => node.getAttribute("data-focus")),
+                delay: row("subtitle-delay"), device: row("subtitle-device"), size: row("subtitle-size"), appearance: row("subtitle-appearance"),
+            };
+        });
+        assert.deepEqual(layout.headings, ["TRACKS", "OPTIONS"]);
+        assert.deepEqual(layout.trackIds, ["subtitles-off", "file:42:subtitle:0", "file:42:subtitle:1", "file:42:subtitle:2"]);
+        assert.deepEqual(layout.optionIds, ["subtitle-search", "subtitle-delay", "subtitle-device", "subtitle-size", "subtitle-position", "subtitle-appearance"]);
+        // SubtitlesPane: 470pt TRACKS, 58pt apart from 440pt OPTIONS, centred in the 28pt-padded panel.
+        assert.equal(layout.tracks.width, 470);
+        assert.equal(layout.options.width, 440);
+        assert.equal(layout.options.left - layout.tracks.right, 58);
+        assert.equal(layout.tracks.left - (layout.panel.left + 28), layout.panel.right - 28 - layout.options.right);
+        assert.equal(layout.tracks.top, layout.options.top);
+        for (const row of [layout.delay, layout.size, layout.appearance]) {
+            assert.ok(row.value && row.chevron, "picker rows show a value and a chevron");
+            assert.equal(Math.round(row.row.right - 14 - row.chevron.right), 0, "the chevron ends at the row's trailing padding");
+            assert.equal(Math.round(row.chevron.left - row.value.right), 10, "the value sits 10px before the chevron");
+        }
+        assert.ok(layout.device.value && layout.device.chevron === undefined, "the device toggle has no chevron");
+        assert.equal(Math.round(layout.device.row.right - 14 - layout.device.value.right), 0, "the toggle value is right-aligned");
+        assert.equal(layout.appearance.glyph, "Aa");
+        assert.equal(await text(page, '[data-focus="subtitle-delay"]'), "Delay\n0 ms");
+        await capture(page, "player-subtitles-two-columns");
+    } finally { await page.close(); }
+});
+
+test("remote focus moves within each Subtitles column and Left/Right cross between them", async () => {
+    const { page } = await open();
+    try {
+        await page.emulateMedia({ reducedMotion: "reduce" });
+        await show(page, playing({ ...TRACKS, subtitleTools: ALL_TOOLS }));
+        await openPanel(page);
+        for (let step = 0; step < 4; step += 1) await remote(page, RIGHT);
+        assert.equal(await focused(page), "subtitles-off");
+        for (let step = 0; step < 6; step += 1) await remote(page, DOWN);
+        assert.equal(await focused(page), "file:42:subtitle:2", "Down stops at the last track");
+        await remote(page, RIGHT);
+        assert.equal(await focused(page), "subtitle-size", "Right lands on the option level with the track");
+        for (let step = 0; step < 6; step += 1) await remote(page, DOWN);
+        assert.equal(await focused(page), "subtitle-appearance", "Down stops at the last option");
+        await remote(page, LEFT);
+        assert.equal(await focused(page), "file:42:subtitle:2");
+        const trackMiddle = await page.evaluate(() => { const box = document.activeElement!.getBoundingClientRect(); return box.top + box.height / 2; });
+        await remote(page, RIGHT);
+        const nearest = await page.evaluate((middle) => {
+            const gap = (node: Element): number => { const box = node.getBoundingClientRect(); return Math.abs(box.top + box.height / 2 - middle); };
+            const rows = Array.from(document.querySelectorAll(".player-menu-column-options [data-focus]"));
+            return rows.reduce((best, row) => gap(row) < gap(best) ? row : best).getAttribute("data-focus");
+        }, trackMiddle);
+        assert.equal(await focused(page), nearest, "Right picks the row level with the track, not the last-focused one");
+        for (let step = 0; step < 6 && await focused(page) !== "subtitle-search"; step += 1) await remote(page, UP);
+        assert.equal(await focused(page), "subtitle-search");
+        await remote(page, UP);
+        assert.equal(await focused(page), "tab-subtitles", "Up from the top of OPTIONS returns to its tab");
+        await remote(page, DOWN);
+        await remote(page, LEFT);
+        assert.equal(await focused(page), "file:42:audio:0", "Left past TRACKS switches to Audio");
+        assert.deepEqual(await commands(page), []);
+    } finally { await page.close(); }
+});
+
+test("a menu update keeps the unfocused column's scroll position", async () => {
+    const { page } = await open();
+    const subtitles = Array.from({ length: 30 }, (_, index) => ({ id: `file:42:subtitle:${index}`, label: `Subtitle ${index + 1}` }));
+    try {
+        await page.emulateMedia({ reducedMotion: "reduce" });
+        await show(page, playing({ ...TRACKS, subtitles, subtitleTools: ALL_TOOLS }));
+        await openPanel(page);
+        for (let step = 0; step < 4; step += 1) await remote(page, RIGHT);
+        for (let step = 0; step < subtitles.length; step += 1) await remote(page, DOWN);
+        await remote(page, RIGHT);
+        const rows = page.locator(".player-menu-column-tracks .player-menu-column-rows");
+        const before = await rows.evaluate(node => node.scrollTop);
+        assert.ok(before > 0);
+        await show(page, playing({ ...TRACKS, subtitles, subtitleTools: { ...ALL_TOOLS, display: { ...ALL_TOOLS.display!, delayMs: 100 } } }));
+        assert.equal(await rows.evaluate(node => node.scrollTop), before, "the TRACKS column stays where it was");
+        await remote(page, LEFT);
+        const landed = await focused(page);
+        assert.ok(landed !== null && Number(landed.split(":").pop()) > 20, `Left lands on a visible track, not ${landed}`);
+    } finally { await page.close(); }
+});
+
+test("Video SYNC offers Subtitle delay, which opens the Subtitle Delay picker and returns to its row", async () => {
+    const { page } = await open();
+    try {
+        const hud = { chapters: [], chapterState: "ready" as const, stats: [["Engine", "AVPlay"]] as const, speeds: [1, 2], aspects: ["Fit", "Stretch"] as const, speed: 1, aspect: "Fit" as const, autoNext: true, busy: false };
+        await page.emulateMedia({ reducedMotion: "reduce" });
+        await show(page, { ...playing({ ...TRACKS, subtitleTools: ALL_TOOLS }), hud });
+        await openPanel(page);
+        await remote(page, RIGHT);
+        await remote(page, RIGHT);
+        assert.equal(await focused(page), "speed:1");
+        assert.deepEqual(await page.locator(".player-menu-quality .player-menu-column > .player-menu-heading").allTextContents(), ["PLAYBACK", "SYNC"]);
+        assert.deepEqual(await page.locator(".player-menu-column-sync [data-focus]").evaluateAll(nodes => nodes.map(node => node.getAttribute("data-focus"))), ["subtitle-video-delay", "auto-next"]);
+        assert.equal(await text(page, '[data-focus="subtitle-video-delay"]'), "Subtitle delay\n0 ms");
+        assert.equal(await page.locator('[data-focus="subtitle-video-delay"] .player-setting-chevron').count(), 1);
+        assert.equal(await page.locator('[data-focus="auto-next"] .player-setting-chevron').count(), 0);
+        await remote(page, RIGHT);
+        assert.equal(await focused(page), "subtitle-video-delay");
+        await capture(page, "player-video-sync");
+        await remote(page, ENTER);
+        assert.equal(await text(page, ".player-menu-quality .player-menu-picker-title"), "Subtitle Delay");
+        await capture(page, "player-subtitle-delay-picker");
+        assert.equal(await focused(page), "subtitle-picker:0");
+        await remote(page, DOWN);
+        await remote(page, ENTER);
+        assert.deepEqual(await commands(page), ['subtitleTool {"kind":"delay","milliseconds":100}']);
+        assert.equal(await focused(page), "subtitle-video-delay");
+        await remote(page, ENTER);
+        await remote(page, BACK);
+        assert.equal(await focused(page), "subtitle-video-delay", "Back closes the picker onto its row");
+        assert.equal((await commands(page)).length, 1);
+    } finally { await page.close(); }
+});
+
+for (const [trigger, heading] of [["subtitle-delay", "Subtitle Delay"], ["subtitle-size", "Subtitle Size"], ["subtitle-position", "Subtitle Position"], ["subtitle-appearance:fontColor", "Text Color"]] as const) {
     test(`the ${heading} picker keeps its heading in the panel while its options scroll`, async () => {
         const { page } = await open();
         const tracks: TrackView = { ...TRACKS, subtitleTools: {
@@ -2601,10 +2769,10 @@ for (const [trigger, heading] of [["subtitle-delay", "SUBTITLE DELAY"], ["subtit
                 const box = (node: Element | null): DOMRect | undefined => node?.getBoundingClientRect();
                 const panel = box(document.querySelector(".player-menu"));
                 const pane = document.querySelector(".player-menu-subtitles");
-                const heading = box(pane?.querySelector(".player-menu-heading") ?? null);
+                const heading = box(pane?.querySelector(".player-menu-picker-title") ?? null);
                 const focus = box(document.activeElement);
                 const options = pane?.querySelector(".player-menu-picker-options");
-                return { panel, heading, focus, headingText: pane?.querySelector(".player-menu-heading")?.textContent, paneScroll: pane?.scrollTop ?? -1, scrolled: (options?.scrollTop ?? 0) > 0, overflows: options !== null && options !== undefined && options.scrollHeight > options.clientHeight };
+                return { panel, heading, focus, headingText: pane?.querySelector(".player-menu-picker-title")?.textContent, paneScroll: pane?.scrollTop ?? -1, scrolled: (options?.scrollTop ?? 0) > 0, overflows: options !== null && options !== undefined && options.scrollHeight > options.clientHeight };
             });
             assert.equal(geometry.headingText, heading);
             assert.ok(geometry.panel && geometry.heading && geometry.focus);

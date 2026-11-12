@@ -274,6 +274,7 @@ Playback has these differences from browse:
   A hold that paused a pending resume returns that resume on cancellation only if no newer Play or Pause superseded it.
 - The track menu opens on the active tab.
   Down enters its pane, Up at the top returns to its tab, Left/Right switches panes, Enter chooses and Back closes.
+  Subtitles (TRACKS, OPTIONS) and Video (PLAYBACK, SYNC) have two columns, as Apple's `focusSection` columns: Up and Down stay in the focused column, and Left/Right first cross to the row level with focus in the next column, then switch panes past the last one.
 - Play/Pause, Play, Pause, Stop, Rewind and Fast Forward act directly.
   Stop leaves playback.
 - Back from the overlay leaves playback (`controls.back()`), which restores the originating browse view and focus.

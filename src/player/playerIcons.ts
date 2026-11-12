@@ -66,3 +66,8 @@ export function skipIcon(direction: "backward" | "forward", seconds: number): st
     const number = NUMBERED_SECONDS.has(seconds) ? `<text x="12" y="15.2" text-anchor="middle" font-size="8.88" font-weight="600" fill="currentColor">${seconds}</text>` : "";
     return svg(`${arc}${number}`);
 }
+
+/** `chevron.forward` at `HUDSettingRowLabel`'s 15pt bold. */
+export function chevronForwardIcon(): string {
+    return svg(`<path fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" d="M9 4.5 16.5 12 9 19.5"/>`);
+}

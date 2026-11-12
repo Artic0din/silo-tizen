@@ -6,9 +6,9 @@ All paths below are relative to `iosApp/iosApp/`.
 More reuses the Versions, Audio and Subtitles popover.
 Movies offer Add to Favorites / Remove from Favorites, then Mark as Watched / Mark as Unwatched (`tvOS/Screens/Detail/TVMovieDetailView.swift:210-265`).
 Series add Show Series Info only while an episode is active, then Favorites, Mark Series Watched / Unwatched and the selected season's Mark Season Watched / Unwatched (`TVSeriesDetailView.swift:942-1037` in the same directory).
-Actions retain confirmed-state loading, failure and explicit reconciliation before retry.
+Actions retain confirmed-state loading and explicit reconciliation before retry; a failure is an alert, not a relabelled button (see below).
 The season Watched action stays hidden if the season response omits watch state.
-Selection closes More and restores its trigger; Back, Left and Right also dismiss.
+Selection closes a popover and restores its trigger; Back, Left and Right also dismiss Version, Audio, Subtitles and More.
 Apple's popover width is 560, and its initial target is the first selected enabled option or the first enabled option (`TVActionPopoverMenu.swift:33-76`).
 
 Find Trailers queues discovery and polls refreshed item detail; it does not play an existing trailer (`Screens/Detail/ItemDetailViewModel.swift:753-815`).
@@ -22,10 +22,10 @@ Only new supported-video identities or local extra IDs finish discovery; existin
 Cooldown, disabled, exhausted, transport failure and rate limit use Apple's status copy, dismissed after three seconds.
 Leaving Details cancels observation; returning resumes an interrupted run without another POST, while an authority change discards it.
 The found payload updates the rail without resetting the selected season or overwriting newer watch state.
-The Details Watch Party action is not built yet (#54). Its capability and opt-in gates now exist as the profile menu entry's ([Watch Party](watch-party.md)).
+Watch Party ends More while the experimental switch is on and the server can host a party, as `WatchPartyEntry.isAvailable` requires; it pushes the lobby over Details and creates a host-pick room holding the title ([Watch Party](watch-party.md)).
 Shuffle Series leads More when the capability supports series and the hierarchy has at least two episodes.
 It creates a series-scoped shuffle and uses the existing shuffle pick and player continuation owners (`TVSeriesDetailView.swift:923-928,954-966,1016-1021`).
-Season Shuffle remains outside this change.
+Shuffle Season leads More when the capability supports seasons, an episode or the season pill owns the hero, and that season has two episodes with files (`TVSeriesDetailView.swift:944-951`).
 Translate Description follows the existing server and language gates.
 The trailers rail and episode row are unchanged here.
 
@@ -140,3 +140,20 @@ Samsung removes its inherited caption inset and medium-weight override rather th
 Samsung uses that translucent tint as the substitute; it does not reproduce Apple's Liquid Glass sampling and refraction.
 Desktop Chromium fake-server checks establish CSS values and ordering only.
 Signed Samsung and same-state Apple TV acceptance remain outstanding on the other Mac.
+
+## Popovers and failure alerts (#397)
+
+Source: silo-apple `7e478b2`, `tvOS/Screens/Detail/TVActionPopoverMenu.swift`, `DetailPlaybackFormatting.swift`, `Components/MediaActionFeedback.swift` and `Screens/Shuffle/ShuffleLauncher.swift`.
+Version, Audio, Subtitles and More share one surface: black 45% glass, a 1px white 10% inner lip, a black 45% shadow at y18 r32, radius 22 and a monospaced 14px header with 3.64px tracking.
+Rows have radius 14, 13px vertical padding, 22pt semibold titles, a 70% detail line and a 26px checkmark slot at 18, with text starting at 58.
+A popover opens on the selected enabled row, otherwise the first enabled row, and scales from 0.96 at the edge nearest its trigger over 180ms.
+More than seven rows scroll inside a 504px list that opens with the initial row centred.
+Audio rows lead with the language; a track's own title moves to the detail line before codec, layout, Default and Preferred.
+Embedded subtitles without a codec read "Unsupported format" and sidecars without a stream index read "Available in player"; both stay dimmed at 40% and take no focus.
+A failed favourite, watched or watchlist change is the "Couldn't Update Item" alert; a write with no answer (timeout or network failure) is "Change Not Confirmed" with Discard Held Change, which reloads that state and never re-sends.
+Tizen cannot tell an unsent request from a lost answer, so every network failure on a write is held.
+A failed season watched change is "Couldn't Update Watched Status"; a failed shuffle is "Couldn't Shuffle" with Apple's 409, 404 and default messages.
+Find Trailers keeps Apple's movie-and-series gate; Samsung's rail already displays remote cards, which is the tvOS YouTube-app condition.
+The pill sits 24 under a movie's action row and 14 under a series' episode rail.
+Apple's "Update Required" alert is not built: Tizen has no update-requirement classification.
+Validation is fake-server and desktop Chromium only; signed Samsung and same-state Apple TV captures are pending.

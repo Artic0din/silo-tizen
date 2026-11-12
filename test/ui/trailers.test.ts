@@ -88,6 +88,11 @@ trailerTest("discovered trailers survive a late watched season readback", async 
     holdEpisodes = false;
     releaseEpisodes?.();
     await tv.jump(0);
+    // This fixture's series readback never confirms the watched write; its Couldn't Update Item alert covers the rail.
+    const alert = tv.page.getByRole("alertdialog", { name: "Couldn't Update Item", exact: true });
+    await alert.waitFor();
+    await alert.getByRole("button", { name: "OK", exact: true }).click();
+    await alert.waitFor({ state: "detached" });
     assert.equal(await tv.page.locator('[data-focus="remote:YouTube:abc_def-1"]').count(), 1, "late watched assignment must not wipe discovered trailers");
 });
 

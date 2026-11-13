@@ -11,7 +11,7 @@ import { requestCard, requestsState } from "./requests.ts";
 import { requestProgress } from "./requestProgress.ts";
 import { el } from "./screen.ts";
 import { searchRail } from "./searchRail.ts";
-import { balanceTwoLineText } from "./textLayout.ts";
+import { balanceTwoLineText, fitCentredLines } from "./textLayout.ts";
 
 export interface SearchSupplement {
     people?: readonly Person[];
@@ -25,14 +25,19 @@ export interface SearchSupplement {
 }
 
 /**
- * Search columns keep the measured 247.333px pitch (1484 / 6). The track is
- * the poster itself, so the TV's browser cannot grow a `minmax(0, 1fr)` column
- * and open that pitch to 287px. The count is a literal so `repeat(var())`
- * cannot drop the declaration.
+ * TVCatalogGrid: poster-wide columns 40 apart (TVCatalogGrid.swift:39), 260px apart at the standard size. The track is
+ * the poster itself, so the TV's browser cannot grow a `minmax(0, 1fr)` column, and the grid is as wide as its columns.
+ * The count is a literal so `repeat(var())` cannot drop the declaration.
  */
 function lockSearchColumns(node: HTMLElement, columns: number): void {
     node.style.setProperty("--search-columns", String(columns));
     node.style.gridTemplateColumns = `repeat(${columns}, calc(220px * var(--poster-scale, 1)))`;
+    node.style.width = "max-content";
+    // A full row is wider than its cards' column in SwiftUI only when it cannot shrink; browse.css centres it then.
+    // A short last row is its own HStack with flexible spacers, so it keeps the column's edge under the centred rows.
+    const count = node.childElementCount, shortFrom = count >= columns && count % columns !== 0 ? count - (count % columns) : count;
+    node.dataset.fullRow = String(count >= columns);
+    for (const [index, card] of [...node.children].entries()) card.classList.toggle("search-last-row", index >= shortFrom);
 }
 
 export function searchRequestCatalogId(title: RequestTitle): string | undefined {
@@ -57,13 +62,13 @@ export function globalSearchView(view: View, route: Extract<Route, { kind: "sear
         content.push(zoneNode("browse-actions search-filters", filters));
         zones.push({ id: "search-filters", layout: "row", items: filters });
     }
-    const current = route.query === route.resultsFor;
     const supplement = route.supplement;
     const people = supplement?.people ?? [];
     const boxSets = supplement?.boxSets ?? [];
     const titleCount = route.pages?.page?.items.length ?? 0;
+    // SearchViewModel.contentState: a spinner only while a search runs with nothing to show; shown results stay until replaced.
     const waitingForSupplement = route.failure === undefined && titleCount === 0 && people.length === 0 && boxSets.length === 0
-        && (supplement?.peoplePending === true || supplement?.boxSetsPending === true);
+        && (h.busy || supplement?.peoplePending === true || supplement?.boxSetsPending === true);
     if (waitingForSupplement && !view.content.some(node => node.classList.contains("search-progress"))) content.push(searchLoading());
     if (route.failure === undefined && boxSets.length > 0) {
         const items = boxSets.map(set => boxSetSearchCard(set, h.context.baseUrl, () => h.push(newRoute({ kind: "boxSet", id: set.id, libraryId: set.libraryId, title: set.title, data: undefined }))));
@@ -89,16 +94,16 @@ export function globalSearchView(view: View, route: Extract<Route, { kind: "sear
         content.push(el("h2", "browse-section-title search-people-heading", "People"), rail);
         zones.push({ id: "search-people", layout: "row", spatial: true, items });
     }
-    if (route.failure === undefined && current && (route.pages?.page?.items.length ?? 0) > 0 && route.pages?.page !== undefined) {
-        const total = route.pages.page.total;
-        content.push(el("p", "browse-text search-count", `${total}${route.pages.page.totalExact ? "" : "+"} ${total === 1 ? "result" : "results"}`));
+    const page = route.pages?.page;
+    if (route.failure === undefined && page !== undefined && page.items.length > 0) {
+        // SearchViewModel.total: the response total, or the loaded count when the server sends none (search.resultCount).
+        const total = page.total ?? page.items.length;
+        content.push(el("p", "browse-text search-count", `${total.toLocaleString("en-US")} ${total === 1 ? "result" : "results"}`));
     }
-    const hasPager = view.zones.some(zone => zone.id === "pager" && zone.items.length > 0);
     content.push(...view.content.slice(h.searchHead.length).filter(node => {
         if (node.classList.contains("search-empty") && (people.length > 0 || boxSets.length > 0 || waitingForSupplement)) return false;
         if (node.classList.contains("browse-grid")) lockSearchColumns(node, h.gridColumns);
-        if (node.classList.contains("browse-page-status") && !hasPager) return false;
-        return !((node.classList.contains("browse-grid") || node.classList.contains("browse-actions")) && node.childElementCount === 0);
+        return !(node.classList.contains("browse-grid") && node.childElementCount === 0);
     }));
     zones.push(...view.zones.slice(1).map(zone => zone.id === "grid" ? { ...zone, spatial: true, columns: h.gridColumns } : zone));
     if ((supplement?.requests?.length ?? 0) > 0) {
@@ -117,6 +122,12 @@ export function globalSearchView(view: View, route: Extract<Route, { kind: "sear
             el("p", "search-requests-description", "Not in the library yet · tap to request"), rail);
         zones.push({ id: "search-requests", layout: "row", spatial: true, items });
     }
+    const grids = content.filter(node => node.classList.contains("browse-grid"));
+    const fit = (): void => fitCentredLines(grids.filter(grid => grid.isConnected).flatMap(grid => [...grid.querySelectorAll<HTMLElement>(".browse-card-title, .browse-card-subtitle")]));
+    requestAnimationFrame(() => {
+        fit();
+        if (document.fonts.status !== "loaded") void document.fonts.ready.then(fit);
+    });
     return { ...view, content, zones };
 }
 

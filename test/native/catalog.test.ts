@@ -97,6 +97,7 @@ test("browse fixtures decode with the production decoders", () => {
         studios: undefined,
         networks: undefined,
         showStatus: undefined,
+        lastAirDate: undefined,
     });
 
     const page = decodeCatalogPage(fixture("list_catalog_items_ok"));

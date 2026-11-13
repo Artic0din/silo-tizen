@@ -258,7 +258,7 @@ export function overlayLayer(card: Card, prefs: CardOverlayPrefs, variant: "post
         const node = el("span", `card-overlay-stack card-overlay-${name}`);
         node.style.gap = px(preset.gap);
         node.style.alignItems = align;
-        for (const badge of badges) node.appendChild(badgeNode(badge, preset, px, rail));
+        for (const badge of badges) node.appendChild(badgeNode(badge, preset, scale, px, rail));
         return layer.appendChild(node);
     };
     const topLeft = at("top-left", MAX_BADGES_PER_CORNER);
@@ -290,15 +290,15 @@ export function overlayLayer(card: Card, prefs: CardOverlayPrefs, variant: "post
             row.style.rowGap = px(preset.gap);
             const leading = left[left.length - levels + level];
             const trailing = right[right.length - levels + level];
-            if (leading !== undefined) row.appendChild(badgeNode(leading, preset, px));
-            if (trailing !== undefined) row.appendChild(badgeNode(trailing, preset, px)).classList.add("card-overlay-trailing");
+            if (leading !== undefined) row.appendChild(badgeNode(leading, preset, scale, px));
+            if (trailing !== undefined) row.appendChild(badgeNode(trailing, preset, scale, px)).classList.add("card-overlay-trailing");
         }
     }
     return layer.childElementCount === 0 ? undefined : layer;
 }
 
 /** OverlayBadgeView (CardOverlays.swift:364-439): padding, then the border outside it; a rail tab is open on its flush side. */
-function badgeNode(badge: Resolved, preset: Preset, px: (value: number) => string, rail?: Rail): HTMLElement {
+function badgeNode(badge: Resolved, preset: Preset, scale: number, px: (value: number) => string, rail?: Rail): HTMLElement {
     const paint = preset.paint(badge.accent);
     const node = el("span", "card-overlay");
     const style = node.style;
@@ -309,7 +309,6 @@ function badgeNode(badge: Resolved, preset: Preset, px: (value: number) => strin
     // The web's leading-none: the line is as tall as the font size, so padding alone sets the height.
     style.lineHeight = px(preset.fontSize);
     style.fontWeight = String(preset.weight);
-    style.letterSpacing = px(preset.tracking * preset.fontSize);
     // The border sits outside the padding and the leading side takes the wider of it and the accent bar.
     style.padding = `${px(preset.padY + border)} ${px(preset.padX + (rail === "right" ? 0 : border))} ${px(preset.padY + border)} ${px(preset.padX + (rail === "left" ? 0 : Math.max(border, bar)))}`;
     if (border > 0) {
@@ -346,10 +345,21 @@ function badgeNode(badge: Resolved, preset: Preset, px: (value: number) => strin
     }
     if (label !== "") {
         const text = node.appendChild(el("span", "card-overlay-label", label));
+        // Set on the label itself: theme.css gives every element its own tracking, so it would not inherit.
+        text.style.letterSpacing = px((preset.tracking + interShortfall(preset.fontSize * scale, preset.weight)) * preset.fontSize);
         // The text shadow lifts the label only, not the icon (CardOverlays.swift:385-390).
         if (preset.textShadow !== undefined) text.style.textShadow = `0 ${px(preset.textShadow.y)} ${px(preset.textShadow.blur)} ${preset.textShadow.color}`;
     }
     return node;
+}
+
+/**
+ * Inter's per-letter shortfall against SF Pro Text at badge sizes, in em of Apple's point size. SF Pro Text spaces
+ * small sizes wider than Inter at the cap-scaled size: measured with CoreText (macOS SF Pro) against InterVariable
+ * over twelve badge labels from 8 to 14pt, fitted within 0.002em. Larger text uses theme.css's tracking instead.
+ */
+function interShortfall(points: number, weight: number): number {
+    return Math.max(0, (weight >= 700 ? 0.051 : 0.044) - 0.0062 * (points - 10));
 }
 
 /** OverlayIcon draws a generic symbol at this share of the icon size. */

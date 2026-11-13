@@ -6,7 +6,8 @@ import { build } from "esbuild";
 import type { Browser, Page } from "playwright";
 import { launchBrowser } from "./support/tv.ts";
 
-const theme = readFileSync(new URL("../../src/theme.css", import.meta.url), "utf8");
+// theme.css's Inter face points at the package path, which fails here and would shadow the embedded face.
+const theme = readFileSync(new URL("../../src/theme.css", import.meta.url), "utf8").replace(/@font-face\s*\{[^}]*\}/, "");
 const browse = readFileSync(new URL("../../src/ui/browse.css", import.meta.url), "utf8");
 const font = readFileSync(new URL("../../app/fonts/InterVariable.woff2", import.meta.url)).toString("base64");
 const CAP_SCALE = 0.9685;
@@ -23,17 +24,22 @@ before(async () => {
 });
 after(async () => { await browser.close(); });
 
-interface Badge { readonly text: string; readonly left: number; readonly right: number; readonly top: number; readonly bottom: number; readonly style: Record<string, string>; readonly ring: Record<string, string>; readonly labelShadow: string; readonly icon?: { readonly width: number; readonly height: number } }
+interface Badge { readonly text: string; readonly left: number; readonly right: number; readonly top: number; readonly bottom: number; readonly style: Record<string, string>; readonly ring: Record<string, string>; readonly labelShadow: string; readonly labelSpacing: string; readonly labelWidth: number; readonly icon?: { readonly width: number; readonly height: number } }
 interface Render { readonly badges: Badge[]; readonly stacks: Record<string, { left: number; right: number; top: number; bottom: number }> }
 
 /** Renders one card's badge layer on a `width` × `height` artwork at the page origin. */
 async function render(doc: unknown, card: Record<string, unknown>, width: number, height: number, variant: "poster" | "wide" = "poster"): Promise<Render> {
     const page: Page = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
     try {
-        await page.setContent(`<!doctype html><style>@font-face { font-family: Inter; src: url(data:font/woff2;base64,${font}) format("woff2"); font-weight: 100 900; }</style><main><div class="browse-art" id="art" style="position:absolute;left:0;top:0;width:${width}px;height:${height}px"></div></main>`);
+        await page.setContent(`<!doctype html><style>@font-face { font-family: Inter; src: url(data:font/woff2;base64,${font}) format("woff2"); font-weight: 100 900; }</style><main style="font-family:var(--silo-font)"><div class="browse-art" id="art" style="position:absolute;left:0;top:0;width:${width}px;height:${height}px"></div></main>`);
         await page.addStyleTag({ content: `${theme}\n${browse}\n* { transition: none !important; } body { margin: 0; }` });
         await page.addScriptTag({ content: bundle });
-        await page.evaluate(() => document.fonts.ready);
+        // fonts.ready resolves before anything uses Inter, so load it: labels must measure in Inter, not a fallback.
+        const loaded = await page.evaluate(async () => {
+            await Promise.all(["600 12px Inter", "700 12px Inter"].map(spec => document.fonts.load(spec)));
+            return [...document.fonts].some(face => face.family.replace(/"/g, "") === "Inter" && face.status === "loaded");
+        });
+        assert.equal(loaded, true, "Inter loaded");
         return await page.evaluate(({ doc, card, width, variant }) => {
             const api = window as unknown as { overlayLayer: (card: unknown, prefs: unknown, variant: string, width: number) => HTMLElement | undefined; parseOverlayPrefs: (raw: unknown) => unknown };
             const layer = api.overlayLayer({ id: "series:1", type: "series", title: "Show", ...card }, api.parseOverlayPrefs(doc), variant, width);
@@ -47,7 +53,7 @@ async function render(doc: unknown, card: Record<string, unknown>, width: number
                 const icon = node.querySelector("svg")?.getBoundingClientRect();
                 const ring = getComputedStyle(node, "::before");
                 const label = node.querySelector(".card-overlay-label");
-                return { text: node.textContent ?? "", left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, style: Object.fromEntries(props.map(prop => [prop, style[prop]])), ring: { content: ring.content, boxShadow: ring.boxShadow, left: ring.left, right: ring.right, clipPath: ring.clipPath }, labelShadow: label === null ? "" : getComputedStyle(label).textShadow, ...(icon === undefined ? {} : { icon: { width: icon.width, height: icon.height } }) };
+                return { text: node.textContent ?? "", left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, style: Object.fromEntries(props.map(prop => [prop, style[prop]])), ring: { content: ring.content, boxShadow: ring.boxShadow, left: ring.left, right: ring.right, clipPath: ring.clipPath }, labelShadow: label === null ? "" : getComputedStyle(label).textShadow, labelSpacing: label === null ? "" : getComputedStyle(label).letterSpacing, labelWidth: label?.getBoundingClientRect().width ?? 0, ...(icon === undefined ? {} : { icon: { width: icon.width, height: icon.height } }) };
             });
             const stacks = Object.fromEntries([...layer.querySelectorAll<HTMLElement>(".card-overlay-stack")].map(stack => {
                 const name = [...stack.classList].find(cls => cls !== "card-overlay-stack" && cls.startsWith("card-overlay-"))?.slice("card-overlay-".length) ?? "";
@@ -63,6 +69,11 @@ const near = (actual: number | undefined, expected: number, message: string, tol
 const px = (value: string | undefined): number => parseFloat(value ?? "");
 const only = (items: Record<string, unknown>) => ({ version: 2, preset: "classic", order: [], items: { resolution: { enabled: false, position: "top-left" }, hdr: { enabled: false, position: "top-left" }, audio: { enabled: false, position: "top-left" }, release_type: { enabled: false, position: "bottom-left" }, ...items } });
 const RETURNING = { showStatus: "returning series" };
+/**
+ * Inter's per-letter shortfall against SF Pro Text at badge sizes, in em of Apple's point size: CoreText SF Pro
+ * advances against InterVariable at the cap-scaled size, over twelve badge labels from 8 to 14pt.
+ */
+const interShortfall = (points: number, weight: 600 | 700): number => Math.max(0, (weight === 600 ? 0.044 : 0.051) - 0.0062 * (points - 10));
 
 // Search's 220 × 330 poster (issue #453): Apple draws the badge about 165 below the top.
 test("a stored top-right status badge is a classic tab flush on the right rail, centred down the poster", async () => {
@@ -78,7 +89,10 @@ test("a stored top-right status badge is a classic tab flush on the right rail, 
     near((badge?.bottom ?? 0) - (badge?.top ?? 0), (10 + 2 * 2 + 1 * 2) * scale, "font line, padding and border (CardOverlays.swift:392-398, :430-438)", 0.05);
     near(px(badge?.style.fontSize), 10 * scale * CAP_SCALE, "font size", 0.02);
     near(px(badge?.style.lineHeight), 10 * scale, "leading-none line", 0.02);
-    near(px(badge?.style.letterSpacing), 0.025 * 10 * scale, "tracking-wide", 0.01);
+    // CardOverlays.swift:433 tracks every label by trackingEm × the font size; the label must not take theme.css's -0.015em.
+    near(px(badge?.labelSpacing), (0.025 + interShortfall(10 * scale, 600)) * 10 * scale, "tracking-wide plus Inter's shortfall", 0.01);
+    // SF Pro semibold 11.89pt "RETURNING" with 0.3pt tracking is 73.43pt wide (CoreText, macOS SF Pro); the S95C drew ≈60.
+    near(badge?.labelWidth, 73.43, "Apple's word width", 1.5);
     assert.equal(badge?.style.fontWeight, "600");
     assert.equal(badge?.style.textTransform, "uppercase");
     near(px(badge?.style.paddingLeft), (8 + 1) * scale, "inline padding and the border outside it", 0.02);
@@ -151,12 +165,13 @@ test("minimal keeps its rails inset with the text shadow; vibrant and pill paint
     const minimal = await render({ ...only({ show_status: { enabled: true } }), preset: "minimal" }, RETURNING, 220, 330);
     near(minimal.badges[0]?.right, 220 - 8 * scale, "a transparent badge keeps the corner inset (CardOverlays.swift:75-78)");
     assert.equal(minimal.badges[0]?.style.color, "rgba(255, 255, 255, 0.85)");
-    near(px(minimal.badges[0]?.style.letterSpacing), 0.1 * 9 * scale, "tracking-widest", 0.01);
+    near(px(minimal.badges[0]?.labelSpacing), (0.1 + interShortfall(9 * scale, 600)) * 9 * scale, "tracking-widest", 0.01);
     assert.match(minimal.badges[0]?.labelShadow ?? "", /rgba\(0, 0, 0, 0\.85\) 0px 1\.19px 2\.38px/);
     const vibrant = await render({ ...only({ show_status: { enabled: true } }), preset: "vibrant" }, RETURNING, 220, 330);
     assert.equal(vibrant.badges[0]?.style.backgroundColor, "rgba(220, 220, 220, 0.95)");
     assert.equal(vibrant.badges[0]?.style.color, "rgb(0, 0, 0)");
     assert.equal(vibrant.badges[0]?.style.fontWeight, "700");
+    near(px(vibrant.badges[0]?.labelSpacing), (0.025 + interShortfall(10 * scale, 700)) * 10 * scale, "bold tracking-wide", 0.01);
     assert.match(vibrant.badges[0]?.style.boxShadow ?? "", /rgba\(0, 0, 0, 0\.25\) 0px 1\.19px 2\.38px/);
     near(px(vibrant.badges[0]?.style.borderTopLeftRadius), 10 * scale, "the web default theme's vibrant radius", 0.02);
     // OverlayIcon.swift:29-36: the symbol at 85% of iconSize, at least iconSize wide.

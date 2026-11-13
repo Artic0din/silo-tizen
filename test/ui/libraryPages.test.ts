@@ -632,3 +632,27 @@ page("the Sort panel keeps Apple's stack: 4 between parts, 58-point rows and SF 
         family: '"Roboto Mono"', tracking: "2.33px", width: 91.9,
     });
 });
+
+page("choosing a letter keeps the open rail's size and scroll while the grid reloads", async tv => {
+    // TVAlphabetRail.swift:42-72: the rail is one view that stays expanded under focus; choosing a letter does not rebuild it.
+    await browseReady(tv);
+    const letter = tv.page.locator('[data-focus="letter:Z"]');
+    await tv.page.locator('[data-focus="letter:Y"]').focus();
+    await tv.page.waitForTimeout(400);
+    await tv.remote(40);
+    await tv.eventually(async () => { const box = await letter.boundingBox(); return box !== null && box.height === 38 && box.y + box.height <= 1020; }, "the rail scrolls to Z");
+    await tv.page.waitForTimeout(300);
+    // Layout boxes, not client rects: Select's 0.96 press scale is a transform and may still be easing back.
+    const chip = () => tv.page.evaluate(() => {
+        const node = document.querySelector<HTMLElement>('[data-focus="letter:Z"]')!;
+        const rail = node.parentElement!;
+        return { top: node.offsetTop - rail.scrollTop, height: node.offsetHeight, scroll: rail.scrollTop, focused: document.activeElement === node };
+    });
+    const before = await chip();
+    assert.equal(before.height, 38);
+    await tv.page.keyboard.press("Enter");
+    await tv.page.waitForTimeout(50);
+    assert.deepEqual(await chip(), before);
+    await tv.eventually(async () => await letter.getAttribute("aria-pressed") === "true", "Z is chosen");
+    assert.deepEqual(await chip(), before);
+});

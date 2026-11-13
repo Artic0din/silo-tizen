@@ -18,7 +18,7 @@ export const BROWSE_LOAD_ROWS = 8;
 const LETTERS = ["All", "#", ..."ABCDEFGHIJKLMNOPQRSTUVWXYZ"];
 
 type LibraryRoute = Extract<Route, { kind: "library" }>;
-const railLetters = new WeakMap<LibraryRoute, FocusItem[]>();
+const railLetters = new WeakMap<LibraryRoute, { readonly node: HTMLElement; readonly items: FocusItem[] }>();
 /** The panel each Browse route last drew, so only opening or switching a panel fades it in. */
 const shownPanels = new WeakMap<LibraryRoute, "sort" | "filter" | undefined>();
 /** minimumScaleFactor (TVBrowseFilterUI.swift:284-285, :480-481 and :346-347). */
@@ -155,17 +155,20 @@ export function browsePage(route: LibraryRoute, state: DiscoveryState, handlers:
         if (handlers.shuffle.starting) shuffle.element.classList.add("browse-control-starting");
         controls.push(shuffle);
     }
-    // The rail's letters outlive a render, so a held Select stays drawn pressed while its choice reloads the grid.
-    let letters = railLetters.get(route);
-    if (letters === undefined) {
-        letters = LETTERS.map(letter => {
+    // The rail and its letters outlive a render, so a held Select stays drawn pressed and the open rail keeps its width
+    // and scroll while its choice reloads the grid.
+    let rail = railLetters.get(route);
+    if (rail === undefined) {
+        const items = LETTERS.map(letter => {
             const value = letter === "All" ? undefined : letter;
             const item = actionButton(`letter:${letter}`, letter, () => handlers.browse(route, { filter: { ...(route.discovery?.filter ?? filter), prefix: value } }));
             item.element.setAttribute("aria-label", letter === "All" ? "All titles" : letter === "#" ? "Titles starting with a number or symbol" : `Titles starting with ${letter}`);
             return item;
         });
-        railLetters.set(route, letters);
+        rail = { node: zoneNode("browse-letters", items), items };
+        railLetters.set(route, rail);
     }
+    const letters = rail.items;
     for (const item of letters) item.element.setAttribute("aria-pressed", String(filter.prefix === (item.key === "letter:All" ? undefined : item.key.slice("letter:".length))));
     const content: HTMLElement[] = [zoneNode("browse-controls", controls)];
     // TVLibraryGridView's control row onMoveUp is the top bar, not a pill row.
@@ -213,8 +216,7 @@ export function browsePage(route: LibraryRoute, state: DiscoveryState, handlers:
         empty.append(emptyState(symbol, "This library is empty", "There is nothing in this library yet."));
         content.push(empty);
     }
-    const rail = zoneNode("browse-letters", letters);
-    content.push(rail);
+    content.push(rail.node);
     zones.push({ id: "letters", layout: "column", left: railLeft, up: "letters", down: "letters", items: letters });
     const failure = handlers.shuffle?.failure;
     for (const node of content) {

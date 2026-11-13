@@ -29,7 +29,7 @@ Each card uses the single poster or collage supplied by the server, without inve
 Standard collection artwork is 260×390 with a 12px radius, 40px column spacing, 60px row spacing, and centered 24px title / 20px metadata captions.
 Missing or failed artwork uses a stack glyph over a stable collection-id gradient.
 Collection entry focuses the first non-empty group; Back from members restores the collection by id.
-Empty lists say “No collections yet”; failed reads offer Retry.
+An empty list, or a failed read, shows Apple's “No collections yet” empty state (`TVLibraryCollectionsView.swift:139-151`, `:183-191`).
 Empty members say “Collection is empty”.
 Named groups keep the server heading; the anonymous bucket has none.
 Count captions follow Apple's `collection_type` mapping; management types such as manual and smart use ITEM/ITEMS.
@@ -122,7 +122,7 @@ The Browse port references Apple commit `1a7cceeaf3b2bfc4f889c00487d19b2c6f84394
 The Collections port references Apple commit `bef81e8652a89c23a1c3cf07e312e9444baa6c4c`: `TVLibraryCollectionsView`, `TVCollectionPosterCard`, `TVLibraryTypeTabView`, `LibraryCollectionDetailView` and `TVCardFocusStyle`.
 This is a source reference, not an assertion about the installed Apple build.
 Collection members use 60-member pages, matching Apple, including the personal collection catalog query.
-List and member failures retain explicit Retry.
+Member failures retain explicit Retry; a failed list read shows the empty state.
 Collection detail uses a centered title and the Swift tvOS 260×390 poster default.
 Its count uses loaded membership plus a continuation suffix when query totals are inexact.
 Capability-gated Shuffle initially owns focus and uses the shared launch, cancellation and playback owners with the collection scope.

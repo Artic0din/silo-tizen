@@ -4,7 +4,8 @@ import { test } from "node:test";
 import { fixture } from "./support/fakeSilo.ts";
 import { discoveryOperations as api } from "../../src/api/discoveryOperations.ts";
 import { decodeCatalogFilters, decodeCatalogLetters, decodeCatalogQueryPage, decodeCatalogSearchCapabilities, decodeLibraryCollections, decodeLibrarySection } from "../../src/contracts/v2/discovery.ts";
-import { decodeHomeSections, decodeCatalogPage, decodeCollectionItemsPage } from "../../src/contracts/v2/catalog.ts";
+import { decodeHomeSections, decodeCatalogPage, decodeCollectionItemsPage, type Card, type HomeSection } from "../../src/contracts/v2/catalog.ts";
+import { inVideoScope, refillSection, refillSections } from "../../src/ui/libraryDiscovery.ts";
 import { WireError } from "../../src/contracts/v2/wire.ts";
 import { connected, signIn } from "./support/harness.ts";
 import { ApiError } from "../../src/api/errors.ts";
@@ -53,6 +54,11 @@ test("discovery factories encode opaque paths and only contract-supported parame
     assert.equal(api.getCatalogFilters({ library_id: "a/b", type: "movie", skip_technical: true }).path,
         "/catalog/filters?library_id=a%2Fb&type=movie&skip_technical=true");
     assert.equal(api.getCatalogSearchCapabilities().path, "/catalog/search/capabilities");
+});
+
+test("catalog queries carry an artwork query and keep the small fallback", () => {
+    assert.equal(api.queryCatalogItems({ library_id: "12", limit: 1 }).path, "/catalog/query?image_size=small");
+    assert.equal(api.queryCatalogItems({ library_id: "12", limit: 1 }, { image_size: "medium", backdrop_width: "1344" }).path, "/catalog/query?image_size=medium&backdrop_width=1344");
 });
 
 test("library section artwork slots preserve the unchanged small fallback", () => {
@@ -203,4 +209,108 @@ test("discovery POST reads carry session profile headers, retry identically and 
     h.core.profiles.clear();
     hold.release();
     await canceled;
+});
+
+// Ported from silo-apple 5780c84 iosApp/Tests/LibraryVideoScopeTests.swift.
+type ScopedPage = { items: Card[]; next: string | undefined; startsOver?: boolean };
+const scopedCard = (id: string, type: string, progress = 0): Card => {
+    const card = decodeHomeSections({ sections: [{ id: "x", section_type: "x", title: "x", items: [{ content_id: id, type, title: id, position_seconds: progress }] }] })[0]?.items[0];
+    assert.ok(card);
+    return card;
+};
+const scopedRow = (items: Card[], total: number, limit = 20, id = "recent"): HomeSection => ({ id, sectionType: "recently_added", title: "Recent", featured: false, itemLimit: limit, totalCount: total, isCustom: false, customized: false, items });
+
+test("library sections decode the server's shelf limits and customization flags", () => {
+    const [section] = decodeHomeSections(fixture("list_library_sections_ok"));
+    assert.deepEqual({ itemLimit: section?.itemLimit, totalCount: section?.totalCount, isCustom: section?.isCustom, customized: section?.customized }, { itemLimit: 20, totalCount: 1, isCustom: false, customized: false });
+});
+
+test("a movie tab keeps only movies and a series tab keeps series and episodes", () => {
+    assert.deepEqual(["movie", "series", "episode", "season", "audiobook"].map(type => inVideoScope("movie", scopedCard("a", type))), [true, false, false, false, false]);
+    assert.deepEqual(["movie", "series", "episode", "season", "audiobook"].map(type => inVideoScope("series", scopedCard("a", type))), [false, true, true, false, false]);
+});
+
+test("a series shelf refills beyond a first page of movies and drops the unfiltered total", async () => {
+    const film = scopedCard("film", "movie"), show = scopedCard("show", "series");
+    const cursors: (string | undefined)[] = [];
+    const result = await refillSection(scopedRow([film], 2, 1), "series", async cursor => { cursors.push(cursor); return cursor === undefined ? { items: [film], next: "1" } : { items: [show], next: undefined }; });
+    assert.deepEqual(cursors, [undefined, "1"]);
+    assert.deepEqual(result.section.items.map(item => item.id), ["show"]);
+    assert.equal(result.incomplete, false);
+    assert.equal(result.section.totalCount, undefined);
+});
+
+test("an inline total equal to the slice still pages, and the inline copy keeps its progress", async () => {
+    const film = scopedCard("film", "movie"), episode = scopedCard("episode", "episode", 73);
+    const result = await refillSection(scopedRow([film, episode], 2), "series", async () => ({ items: [film, scopedCard("episode", "episode"), scopedCard("older", "series")], next: undefined }));
+    assert.deepEqual(result.section.items.map(item => item.id), ["episode", "older"]);
+    assert.equal(result.section.items[0]?.positionSeconds, 73);
+    assert.equal(result.incomplete, false);
+});
+
+test("a full scoped inline slice is not read again", async () => {
+    const shows = [scopedCard("show0", "series"), scopedCard("show1", "series")];
+    const result = await refillSection(scopedRow(shows, 50, 2), "series", async () => { throw new Error("no refill"); });
+    assert.deepEqual(result.section.items.map(item => item.id), ["show0", "show1"]);
+    assert.equal(result.incomplete, false);
+});
+
+test("a profile-customized shelf keeps its own items and is complete only when its window is", async () => {
+    const film = scopedCard("film", "movie"), show = scopedCard("show", "series");
+    for (const [customized, isCustom, total, incomplete] of [[true, false, 21, true], [false, true, 21, true], [true, false, 2, false], [false, true, 2, false]] as const) {
+        const result = await refillSection({ ...scopedRow([film, show], total), customized, isCustom }, "series", async () => { throw new Error("no refill"); });
+        assert.deepEqual(result.section.items.map(item => item.id), ["show"]);
+        assert.equal(result.incomplete, incomplete);
+    }
+});
+
+test("an empty page with a continuation keeps paging, and paging stops after eight reads", async () => {
+    const film = scopedCard("film", "movie"), show = scopedCard("show", "series");
+    const kept = await refillSection(scopedRow([film], 1), "series", async cursor => cursor === undefined ? { items: [], next: "1" } : { items: [show], next: undefined });
+    assert.deepEqual(kept.section.items.map(item => item.id), ["show"]);
+    let reads = 0;
+    const bounded = await refillSection(scopedRow([film], 10000), "series", async () => { reads += 1; return { items: [film], next: String(reads) }; });
+    assert.equal(reads, 8);
+    assert.equal(bounded.incomplete, true);
+    assert.deepEqual(bounded.section.items, []);
+});
+
+test("a restart then a failure does not bring back the old window", async () => {
+    const removed = scopedCard("removed", "series"), current = scopedCard("retained", "episode", 90);
+    const cursors: (string | undefined)[] = [];
+    const result = await refillSection(scopedRow([removed, scopedCard("retained", "episode", 10), scopedCard("film", "movie")], 10), "series", async (cursor): Promise<ScopedPage> => {
+        cursors.push(cursor);
+        if (cursor === undefined) return { items: [removed], next: "1" };
+        if (cursor === "1") return { items: [current], next: "2", startsOver: true };
+        throw new Error("timed out");
+    });
+    assert.deepEqual(cursors, [undefined, "1", "2"]);
+    assert.equal(result.incomplete, true);
+    assert.deepEqual(result.section.items.map(item => [item.id, item.positionSeconds]), [["retained", 90]]);
+});
+
+test("a failed shelf keeps its inline titles and an aborted read is not a partial shelf", async () => {
+    const film = scopedCard("film", "movie"), show = scopedCard("show", "series");
+    const results = await refillSections([scopedRow([film, show], 3, 20, "failed"), scopedRow([film], 2, 20, "healthy")], "series", async row => {
+        if (row.id === "failed") throw new Error("timed out");
+        return { items: [show], next: undefined };
+    });
+    assert.deepEqual(results.map(result => [result.section.id, result.incomplete, result.section.items.map(item => item.id)]), [["failed", true, ["show"]], ["healthy", false, ["show"]]]);
+    const aborted = new ApiError({ kind: "aborted" });
+    await assert.rejects(refillSection(scopedRow([film], 2), "series", async () => { throw aborted; }), error => error === aborted);
+});
+
+test("shelves refill three at a time in layout order", async () => {
+    const film = scopedCard("film", "movie"), show = scopedCard("show", "series");
+    let active = 0, peak = 0;
+    const rows = Array.from({ length: 6 }, (_, index) => scopedRow([film], 2, 1, String(index)));
+    const results = await refillSections(rows, "series", async (_row, cursor) => {
+        active += 1; peak = Math.max(peak, active);
+        await new Promise(resolve => setTimeout(resolve, 1));
+        active -= 1;
+        return cursor === undefined ? { items: [film], next: "1" } : { items: [show], next: undefined };
+    });
+    assert.equal(peak, 3);
+    assert.deepEqual(results.map(result => result.section.id), rows.map(row => row.id));
+    assert.deepEqual(results.flatMap(result => result.section.items.map(item => item.id)), Array(6).fill("show"));
 });

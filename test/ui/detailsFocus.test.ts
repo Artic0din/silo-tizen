@@ -4,7 +4,6 @@ import type { Browser } from "playwright";
 import { FakeDetails } from "../native/support/fakeDetails.ts";
 import { launchBrowser, openTv, pauseTvClock, type Tv } from "./support/tv.ts";
 
-const IME_DONE = 65376;
 const ENTER = 13;
 
 function owner(tv: Tv): Promise<{ tag: string | null; key: string | null; play: boolean; body: boolean }> {
@@ -28,8 +27,8 @@ async function signedIn(tv: Tv): Promise<void> {
 
 async function searchFor(tv: Tv, query: string, key: string): Promise<void> {
     await tv.page.locator('[data-focus="search"]').click();
-    await tv.page.fill("#browse-search", query);
-    await tv.remote(IME_DONE);
+    await tv.search(query);
+    await tv.jump(300);
     const card = tv.page.locator(`.browse-grid [data-focus="${key}"]`);
     await card.waitFor();
     await card.focus();

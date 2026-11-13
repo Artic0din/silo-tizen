@@ -35,6 +35,7 @@ import type { TizenKeyManager } from "../session/secretStore.ts";
 import { Skyline } from "./skyline.ts";
 import { decodeImageCapabilities, type ImageCapabilities, homeArtworkQuery } from "../contracts/v2/images.ts";
 import { FocusHost, type FocusTarget } from "./browseFocus.ts";
+import { searchKeyboard } from "./searchKeyboard.ts";
 import { type Destination, type PlayRequest, type SearchFilter, applySeriesLine, artworkUrl, destinationOf, searchScope, seriesLineFor, playChoices, visibleLibraries, withStartAudioLanguage } from "./browseModel.ts";
 import { errorState, unconfirmedWriteMessage, writeFailureMessage, writeMayHaveApplied, failureText, hasData, newPages, newRoute, PAGE_SIZE, SEARCH_PAGE_SIZE, type Pages, type Route, routeView } from "./browseRoutes.ts";
 import { browsableRows, shownRows } from "./recommendationsView.ts";
@@ -250,17 +251,23 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     input.spellcheck = false;
     input.autocomplete = "off";
     input.placeholder = "Search movies and series...";
-    input.setAttribute("data-focus", "query");
+    // Search types on its own keyboard row. The field only shows the query, so the TV keyboard never covers the results.
+    input.readOnly = true;
+    input.tabIndex = -1;
     const searchLabel = el("label", "browse-label", "Search titles");
     searchLabel.htmlFor = input.id;
-    // Kept across renders so the field, and the TV keyboard open on it, are never detached.
+    // Kept across renders so the field and its keyboard are never detached and a focused key keeps focus.
     const searchField = el("div", "search-field");
     const searchIcon = el("span", "search-field-icon");
     searchIcon.setAttribute("aria-hidden", "true");
     searchIcon.innerHTML = '<svg viewBox="0 0 48 48" fill="none"><circle cx="20" cy="20" r="15" stroke="currentColor" stroke-width="5"/><path d="m31 31 12 12" stroke="currentColor" stroke-width="6" stroke-linecap="round"/></svg>';
     searchField.append(searchIcon, input);
+    const keyboard = searchKeyboard(change => {
+        input.value = change(input.value);
+        input.dispatchEvent(new Event("input"));
+    }, () => { if (top()?.kind === "search") render(host.focused()); });
     // Apple hides Search's navigation bar (SearchView.swift:65-69); the title stays only as the page's hidden heading.
-    const searchHead = [el("h1", "browse-title", "Search"), searchLabel, searchField];
+    const searchHead = [el("h1", "browse-title", "Search"), searchLabel, searchField, keyboard.element];
 
     let stack: Route[] = [];
     const seriesSeasons = new Map<string, number>();
@@ -767,6 +774,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             return;
         }
         torn = true;
+        keyboard.destroy();
         translations.reset();
         stopSearchSupplement();
         presentation.stop();
@@ -1897,15 +1905,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         render(host.focused());
         if (current.query.trim() !== "") cancelSearch = clock.schedule(() => search(current), SEARCH_DELAY_MS);
     });
-    input.addEventListener("blur", () => { searchReturnFocus = undefined; });
-    input.addEventListener("keydown", (event) => {
-        const current = top();
-        // The TV keyboard's Done key, or Enter on a desktop keyboard: search now.
-        if (current?.kind === "search" && (event.keyCode === 65376 || event.key === "Enter") && input.value !== "") {
-            current.query = input.value;
-            search(current);
-        }
-    });
+    // A remote move off the keyboard outranks a refresh that would return focus to a result.
+    keyboard.element.addEventListener("focusout", () => { searchReturnFocus = undefined; });
 
     const pop = (): void => {
         stopSearchSupplement();
@@ -2159,7 +2160,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             loading?.abort(); loading = undefined; cancelSlow();
             route.filter = filter; search(route);
         };
-        const handlers = { context, focusDefault: () => host.focusDefault(), busy: loading !== undefined, searchHead, input, searchFilter, audiobooksEnabled: audiobooksInSearch(), push, pop, play, chooseProfile, retry, turn, audiobookPicker, mode, personalFilter, morePersonal, morePerson, moreSearch, signIn: options.onSignOut, personFilter, calendar: calendarHandlers, requests: requestsHandlers, browse: changeBrowse, more: moreBrowse, preserve: (route: Extract<Route, { kind: "library" }>) => browsePrefs.preserve(route.library), gridColumns: presentation.posterScale > 1 ? 5 : 6, shuffle: (current.kind === "library" || current.kind === "libraryResults" && current.source.kind === "collection") && canShuffle(current) ? { starting: shuffleStarting, failure: shuffleFailure?.route === current ? shuffleFailure.text : undefined, start: startShuffle, dismiss: () => { shuffleFailure = undefined; render({ zone: "controls", key: "shuffle" }); } } : undefined };
+        const handlers = { context, focusDefault: () => host.focusDefault(), busy: loading !== undefined, searchHead, searchKeys: keyboard.items(), searchFilter, audiobooksEnabled: audiobooksInSearch(), push, pop, play, chooseProfile, retry, turn, audiobookPicker, mode, personalFilter, morePersonal, morePerson, moreSearch, signIn: options.onSignOut, personFilter, calendar: calendarHandlers, requests: requestsHandlers, browse: changeBrowse, more: moreBrowse, preserve: (route: Extract<Route, { kind: "library" }>) => browsePrefs.preserve(route.library), gridColumns: presentation.posterScale > 1 ? 5 : 6, shuffle: (current.kind === "library" || current.kind === "libraryResults" && current.source.kind === "collection") && canShuffle(current) ? { starting: shuffleStarting, failure: shuffleFailure?.route === current ? shuffleFailure.text : undefined, start: startShuffle, dismiss: () => { shuffleFailure = undefined; render({ zone: "controls", key: "shuffle" }); } } : undefined };
         container.classList.toggle("section-catalog", isSectionRoute(current));
         const browsing = current.kind === "library" && current.discovery?.mode === "Browse";
         container.classList.toggle("library-browse", browsing);
@@ -2708,7 +2709,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         if (route.kind === "search") {
             route = newRoute({ kind: "search", query: "", pages: undefined, resultsFor: "" });
             roots.set(key, route);
-            push(route, { zone: "field", key: "query" });
+            push(route, { zone: "keyboard", key: "key:a" });
             if (current !== undefined) current.focus = tabFocus(current);
             return;
         }

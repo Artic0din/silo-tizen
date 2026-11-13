@@ -11,7 +11,7 @@ import type { Person } from "../contracts/v2/details.ts";
 import type { PersonMetadataRefresh } from "./personMetadataRefresh.ts";
 import type { DetailsState } from "./detailsState.ts";
 import { SessionError, SessionRefreshError } from "../session/session.ts";
-import type { FocusTarget, View } from "./browseFocus.ts";
+import type { FocusItem, FocusTarget, View } from "./browseFocus.ts";
 import { itemView, seasonView, withDetailsAlert } from "./browseDetails.ts";
 import { detailsLoadingView } from "./detailsLoading.ts";
 import { browseCardDestination, type SearchFilter, type EpisodeSelection, type PlayRequest, type SeriesContext, type SeriesLine, type DetailSeed } from "./browseModel.ts";
@@ -133,7 +133,8 @@ export interface RouteHandlers {
     readonly busy: boolean;
     /** The search heading, label and field, kept across renders. */
     readonly searchHead: readonly HTMLElement[];
-    readonly input: HTMLInputElement;
+    /** Search's keyboard keys on screen, left to right. */
+    readonly searchKeys: readonly FocusItem[];
     readonly searchFilter: (route: Extract<Route, { kind: "search" }>, filter: SearchFilter | undefined) => void;
     /** Audiobooks take part in Search: the opt-in is on and an audiobook library is visible. */
     readonly audiobooksEnabled: boolean;
@@ -164,7 +165,7 @@ export function routeView(current: Route, handlers: RouteHandlers): View {
         return discoveryView(current, current.discovery, handlers);
     }
     if (current.kind === "search") {
-        return globalSearchView(searchView(handlers.searchHead, handlers.input, searchResults(current, handlers), pop), current, handlers);
+        return globalSearchView(searchView(handlers.searchHead, handlers.searchKeys, searchResults(current, handlers), pop), current, handlers);
     }
     if (current.failure !== undefined && !hasData(current)) {
         return errorView(`${current.kind}:failed`, failureError(current.failure, current.error), () => handlers.retry(current), back, handlers.signIn, current.kind === "home" ? handlers.manageServers : undefined);

@@ -245,7 +245,7 @@ export class SkylineScroll {
             return;
         }
         if (element.closest(".person-filmography-filters") !== null ||
-            (container.dataset.view === "search" && element.closest(".search-filters, .search-field") !== null)) {
+            (container.dataset.view === "search" && element.closest(".search-filters, .search-field, .search-keyboard") !== null)) {
             this.move(viewport, 0, 0);
             return;
         }

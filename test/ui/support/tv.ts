@@ -95,6 +95,8 @@ export interface Tv {
     jump(ms: number): Promise<void>;
     /** Sends a key code the way the TV remote does (Back is 10009). */
     remote(keyCode: number): Promise<void>;
+    /** Replaces Search's query as its on-screen keyboard edits it: focus stays where it is, the debounce still runs. */
+    search(query: string): Promise<void>;
     down(keyCode: number, repeat?: boolean): Promise<boolean>;
     up(keyCode: number): Promise<boolean>;
     screen(): Promise<string | null>;
@@ -139,6 +141,13 @@ export async function openTv(
         async jump(ms) {
             await clock.advance(ms);
             await page.clock.fastForward(ms);
+        },
+        async search(query) {
+            await page.locator("#browse-search").evaluate((input, value) => {
+                if (!(input instanceof HTMLInputElement)) throw new Error("Search field is not an input");
+                input.value = value;
+                input.dispatchEvent(new Event("input"));
+            }, query);
         },
         async remote(keyCode) {
             await tv.down(keyCode);

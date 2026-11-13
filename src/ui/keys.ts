@@ -40,3 +40,22 @@ const BY_NAME: Readonly<Record<string, RemoteKey>> = {
 export function remoteKey(event: KeyboardEvent): RemoteKey | undefined {
     return BY_CODE[event.keyCode] ?? BY_NAME[event.key];
 }
+
+const NUMBER_KEYS = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"];
+
+/**
+ * The remote's number keys reach the app only while registered. Search claims them while its keyboard has focus and
+ * releases them after, so the TV keyboard on a text field still receives them.
+ */
+export function claimNumberKeys(claim: boolean): void {
+    const tizen: unknown = Reflect.get(globalThis, "tizen");
+    const input: unknown = typeof tizen === "object" && tizen !== null ? Reflect.get(tizen, "tvinputdevice") : undefined;
+    if (typeof input !== "object" || input === null) return;
+    const change: unknown = Reflect.get(input, claim ? "registerKey" : "unregisterKey");
+    if (typeof change !== "function") return;
+    for (const name of NUMBER_KEYS) {
+        try { change.call(input, name); } catch {
+            // A refused key must not stop the others.
+        }
+    }
+}

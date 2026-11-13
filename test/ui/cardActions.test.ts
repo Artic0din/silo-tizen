@@ -647,7 +647,7 @@ for (const surface of ["library-shelf", "library-grid", "collection", "search", 
             }
         } else if (surface === "search") {
             await tv.page.locator('[data-focus="search"]').click();
-            await tv.page.fill("#browse-search", "Movie");
+            await tv.search("Movie");
             await tv.down(13); await tv.jump(700); await tv.up(13);
             assert.equal(await menu(tv).count(), 0);
             await tv.page.locator('.browse .browse-grid .browse-card').first().waitFor();

@@ -12,7 +12,6 @@ import { launchBrowser, openTv, type Tv } from "./support/tv.ts";
 
 const BACK = 10009;
 const ENTER = 13;
-const IME_DONE = 65376;
 const TIDE = "audiobook:tide";
 
 let browser: Browser;
@@ -245,7 +244,7 @@ audiobookTest("the Audiobooks library Browse grid queries by library alone and o
 audiobookTest("with Show Audiobooks off, Search offers no Audiobooks filter and keeps to a video scope", async tv => {
     await tv.page.locator('[data-focus="search"]').click();
     assert.equal(await tv.page.locator("#browse-search").getAttribute("placeholder"), "Search movies and series...", "search.fieldPrompt.video");
-    await tv.page.fill("#browse-search", "Dune"); await tv.remote(IME_DONE);
+    await tv.search("Dune"); await tv.jump(300);
     await tv.page.getByText("Try a different search term").first().waitFor();
     assert.equal(await tv.page.locator('[data-focus="search-filter:audiobook"]').count(), 0, "no Audiobooks filter while the opt-in is off");
     const types = tv.fake.requests.filter(request => request.path.startsWith("/catalog?")).map(request => new URL(request.path, "https://fake.invalid").searchParams.get("type"));
@@ -256,7 +255,7 @@ audiobookTest("with Show Audiobooks on, Search offers Audiobooks, names no scope
     await showAudiobooks(tv);
     await tv.page.locator('[data-focus="search"]').click();
     assert.equal(await tv.page.locator("#browse-search").getAttribute("placeholder"), "Search movies, series, audiobooks...", "search.fieldPrompt.audiobooks (SearchView.swift:132-137)");
-    await tv.page.fill("#browse-search", "Dune"); await tv.remote(IME_DONE);
+    await tv.search("Dune"); await tv.jump(300);
     const book = tv.page.locator('.browse-grid [data-focus="audiobook:dune"]');
     await book.waitFor();
     assert.ok((await book.getAttribute("class"))?.includes("browse-card-square"));

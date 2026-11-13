@@ -170,7 +170,7 @@ for (const [status, problem, headline, message, buttons, keys] of [
         ? route.fulfill({ status, contentType: "application/problem+json", body: JSON.stringify(problem) })
         : route.fallback());
     await tv.page.locator('[data-focus="search"]').click();
-    await tv.page.fill("#browse-search", "Movie"); await tv.page.keyboard.press("Enter");
+    await tv.search("Movie"); await tv.jump(300);
     const page = tv.page.locator(".search-failure");
     await page.waitFor();
     assert.equal(await page.getAttribute("role"), "alert");

@@ -550,7 +550,7 @@ test("a returning Search supplement preserves focus moved during its refresh", a
     try {
         const fake = await start(tv);
         await leaveRequests(tv); await button(tv, "search").click();
-        await tv.page.getByRole("searchbox").fill("Heat"); await tv.page.getByRole("searchbox").press("Enter");
+        await tv.search("Heat"); await tv.jump(300);
         await button(tv, "movie:949").click(); await button(tv, "create").click();
         await tv.eventually(async () => fake.created && await button(tv, "create").count() === 0, "created");
         const before = tv.fake.paths().filter(path => path.startsWith("GET /requests/search?")).length;
@@ -639,7 +639,7 @@ test("Search request writes restore the result, then Back returns to the root be
         const fake = await start(tv);
         await button(tv, "search").click();
         const input = tv.page.getByRole("searchbox");
-        await input.fill("Heat"); await input.press("Enter");
+        await tv.search("Heat"); await tv.jump(300);
         await button(tv, "movie:949").click(); await view(tv, "media");
         await button(tv, "create").click();
         await tv.eventually(async () => fake.created && await button(tv, "create").count() === 0, "created");
@@ -1063,7 +1063,7 @@ test("shared Search returns to Home and Requests reopens from its profile row", 
         await button(tv, "request-one").focus();
 
         await leaveRequests(tv); await button(tv, "search").click();
-        await tv.page.getByRole("searchbox").fill("Heat"); await tv.page.getByRole("searchbox").press("Enter");
+        await tv.search("Heat"); await tv.jump(300);
         await tv.page.locator('.search-request-rail [data-focus="movie:949"]').waitFor();
         await tv.remote(10009);
         assert.equal(await tv.focused(), "home");
@@ -1655,24 +1655,24 @@ test("hub marquee uses Apple's title width, synopsis rhythm, rating row and focu
     } finally { await tv.page.context().close(); }
 });
 
-test("typing in shared Search after leaving Requests keeps the field attached and focused", async () => {
+test("typing in shared Search after leaving Requests keeps the keyboard attached and focused", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {
         await start(tv); await openRequests(tv); await leaveRequests(tv); await button(tv, "search").click(); await tv.page.getByRole("searchbox").waitFor();
         const input = tv.page.getByRole("searchbox");
-        await input.focus();
+        assert.equal(await tv.focused(), "key:a");
         await tv.page.evaluate(() => {
-            const field = document.activeElement as HTMLInputElement & { blurs?: number };
-            field.blurs = 0; field.addEventListener("blur", () => { field.blurs = (field.blurs ?? 0) + 1; });
+            const key = document.activeElement as HTMLElement & { blurs?: number };
+            key.blurs = 0; key.addEventListener("blur", () => { key.blurs = (key.blurs ?? 0) + 1; });
         });
-        const blurs = () => tv.page.evaluate(() => (document.querySelector('input[type="search"]') as HTMLInputElement & { blurs?: number }).blurs);
-        await input.pressSequentially("Hea");
-        assert.equal(await blurs(), 0, "editing never detaches the field");
-        await input.press("Enter"); await button(tv, "movie:949").waitFor();
-        await input.pressSequentially("t");
+        const blurs = () => tv.page.evaluate(() => (document.querySelector('[data-focus="key:a"]') as HTMLElement & { blurs?: number }).blurs);
+        await tv.page.keyboard.type("Hea");
+        assert.equal(await blurs(), 0, "editing never detaches the focused key");
+        await tv.jump(300); await button(tv, "movie:949").waitFor();
+        await tv.page.keyboard.type("t");
         assert.equal(await input.inputValue(), "Heat");
-        assert.equal(await blurs(), 0, "results and edits never detach the field");
-        assert.equal(await input.evaluate(field => field === document.activeElement), true);
+        assert.equal(await blurs(), 0, "results and edits never detach the focused key");
+        assert.equal(await tv.focused(), "key:a");
     } finally { await tv.page.context().close(); }
 });
 
@@ -1682,13 +1682,13 @@ test("editing search fences late results and a held write fences profile changes
     try {
         await start(tv); await openRequests(tv); await leaveRequests(tv); await button(tv, "search").click();
         const input = tv.page.getByRole("searchbox");
-        await input.fill("Heat");
+        await tv.search("Heat");
         const held = tv.fake.hold("/requests/search", true);
-        await tv.page.getByRole("searchbox").press("Enter");
+        await tv.jump(300);
         await tv.eventually(async () => tv.fake.paths().includes("GET /requests/search?q=Heat&media_type=all&page=1"), "search held");
-        await input.fill("Other"); held.release(); await tv.jump(1);
+        await tv.search("Other"); held.release(); await tv.jump(1);
         assert.equal(await button(tv, "movie:949").count(), 0);
-        await tv.page.getByRole("searchbox").press("Enter"); await button(tv, "movie:949").click(); await button(tv, "create").waitFor();
+        await tv.jump(300); await button(tv, "movie:949").click(); await button(tv, "create").waitFor();
         const write = tv.fake.hold("/requests", true);
         await button(tv, "create").click();
         await tv.eventually(async () => tv.fake.paths().includes("POST /requests"), "write held");
@@ -2015,7 +2015,7 @@ test("Requests closing over Search returns to Search without a Search title", as
         const fake = await start(tv);
         await button(tv, "search").click();
         const input = tv.page.getByRole("searchbox");
-        await input.fill("Heat"); await input.press("Enter");
+        await tv.search("Heat"); await tv.jump(300);
         await button(tv, "movie:949").waitFor();
         await button(tv, "movie:949").click(); await view(tv, "media");
         fake.enabled = false;

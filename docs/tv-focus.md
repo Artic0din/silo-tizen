@@ -185,7 +185,11 @@ Other layers:
   It registers Play/Pause, Play, Pause, Stop, Rewind and Fast Forward one at a time, only if the TV lists them as supported, and a refusal does not stop the others.
   Add any new remote key to `BY_CODE`/`BY_NAME` in `keys.ts` and, if it needs registration, to that list.
 - The on-screen keyboard's Done and Cancel arrive as `ime_done` (65376) and `ime_cancel` (65385).
-  Down and Done advance a form; search treats Done as "search now".
+  Down and Done advance a form.
+- Search never opens the TV keyboard.
+  It draws Apple TV's one-row keyboard (`src/ui/searchKeyboard.ts`) as the `keyboard` zone: Left and Right move along it, Select types, Down leaves for the filters and results, and Up returns to the key last focused.
+  The field only shows the query.
+  While a key has focus, a hardware keyboard types into the query, and the remote's number keys are registered (`claimNumberKeys` in `keys.ts`) and type digits; focus anywhere else releases them so a text field's TV keyboard still receives them.
 - `config.xml` sets `hwkey-event="enable"` and the `tv.inputdevice` privilege.
 - Hold-to-act: `FocusHost` turns a 650 ms Enter hold on a card into its quick action (`SELECT_HOLD_MS`).
   A quick press clicks on key release.

@@ -481,11 +481,11 @@ export type SearchResults =
     | { readonly status: "failed"; readonly error: ShownError; readonly retry: () => void; readonly signIn: (() => void) | undefined }
     | { readonly status: "ready"; readonly query: string; readonly grid: { content: HTMLElement[]; zones: Zone[] } };
 
-/** `head` ends with the field and is the same nodes on every render. */
-export function searchView(head: readonly HTMLElement[], input: HTMLInputElement, results: SearchResults, back: () => void): View {
-    const field: FocusItem = { key: "query", element: input };
+/** `head` ends with the field and its keyboard and is the same nodes on every render. */
+export function searchView(head: readonly HTMLElement[], keys: readonly FocusItem[], results: SearchResults, back: () => void): View {
     const content: HTMLElement[] = [...head];
-    const zones: Zone[] = [{ id: "field", layout: "row", items: [field] }];
+    // The focus engine returns to the key last focused, as tvOS does from the filters or results.
+    const zones: Zone[] = [{ id: "keyboard", layout: "row", restoreEntry: "key:a", items: keys }];
     switch (results.status) {
         case "idle":
             content.push(searchState("Search Silo", "Find movies, series, and people", "search-prompt"));
@@ -515,7 +515,7 @@ export function searchView(head: readonly HTMLElement[], input: HTMLInputElement
             content.push(...results.grid.content);
             zones.push(...results.grid.zones);
     }
-    return { name: "search", content, zones, focus: { zone: "field", key: "query" }, back };
+    return { name: "search", content, zones, focus: { zone: "keyboard", key: "key:a" }, back };
 }
 
 export const FAILURE_ICON = '<svg viewBox="0 0 48 48"><path fill="currentColor" d="M20 5a4.6 4.6 0 0 1 8 0l19 33a4.6 4.6 0 0 1-4 7H5a4.6 4.6 0 0 1-4-7Z"/><path d="M24 16v12m0 7v1" stroke="#000" stroke-width="4" stroke-linecap="round"/></svg>';

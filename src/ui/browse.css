@@ -277,7 +277,16 @@
 .search-scene .search-field .browse-input:focus { outline: none; box-shadow: none; }
 .search-scene .search-field .browse-input::-webkit-search-cancel-button,
 .search-scene .search-field .browse-input::-webkit-search-decoration { -webkit-appearance: none; }
-.search-scene .search-filters { display: flex; align-items: center; gap: 10px; width: 760px; height: 84px; margin: 224px auto 47px; padding: 8px 4px; border: 1px solid rgba(255,255,255,.1); border-radius: 42px; background: #161616; }
+/* tvOS's Search keyboard row: keys between x 104 and 1816 (delete centred at ~1776) over a divider at y ~274. */
+.search-scene .search-keyboard { display: flex; align-items: center; gap: 4px; margin: 30px 28px 0; padding: 0 0 33px; border-bottom: 1px solid rgba(255,255,255,.2); }
+.search-scene .search-key { flex: 0 0 49px; height: 80px; margin: 0; padding: 0; border: 0; border-radius: 12px; background: transparent; color: rgba(255,255,255,.6); font-size: 38px; font-weight: 500; line-height: 80px; text-align: center; transition: transform .15s ease-out, background-color .15s ease-out, color .15s ease-out; }
+.search-scene .search-key-label { flex-basis: 96px; font-size: 24px; font-weight: 600; letter-spacing: .04em; }
+.search-scene .search-key-space { flex-basis: 140px; }
+.search-scene .search-key-delete { flex-basis: 80px; margin-left: auto; }
+.search-scene .search-key-delete svg { display: block; width: 40px; height: 29px; margin: 0 auto; }
+.search-scene .search-key:focus { outline: none; background: #ededed; color: #000; transform: scale(1.2); box-shadow: 0 12px 24px rgba(0,0,0,.5); }
+@media (prefers-reduced-motion: reduce) { .search-scene .search-key { transition: none; } }
+.search-scene .search-filters { display: flex; align-items: center; gap: 10px; width: 760px; height: 84px; margin: 80px auto 47px; padding: 8px 4px; border: 1px solid rgba(255,255,255,.1); border-radius: 42px; background: #161616; }
 .search-scene .search-filters .browse-button { flex: 1; margin: 0; padding: 0 12px; height: 68px; min-height: 68px; border: solid transparent; border-width: 1px 4px; border-radius: 34px; background: transparent; font-size: 29px; font-weight: 600; }
 .search-scene .search-filters .browse-button[aria-pressed="true"] { background: #454545; background-clip: padding-box; }
 .search-scene .search-filters .browse-button:focus { transform: none; color: #000; background: #ededed; }
@@ -342,7 +351,7 @@
 .search-scene .search-request-rail .browse-card-title { position: relative; margin: 22px 0 0; padding: 0; font-size: 27px; line-height: 34px; font-weight: 600; white-space: nowrap; }
 .search-scene .search-request-rail .browse-card-subtitle { margin: 4px 0 0; padding: 0; font-size: calc(22px * var(--silo-sf-cap-scale)); line-height: 27px; }
 .search-state { text-align: center; margin: 80px auto; }
-.search-prompt { margin-top: 308px; }
+.search-prompt { margin-top: 164px; }
 .search-empty { margin-top: 130px; }
 /* EmptyStateView: the icon is siloOnSurface at 0.3; the title and line are siloSubheadline and siloCaption. */
 .search-prompt .search-state-icon, .search-empty .search-state-icon { color: rgba(237,237,237,.3); }

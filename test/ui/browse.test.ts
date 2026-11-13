@@ -353,7 +353,7 @@ browseTest("Collections keeps Apple's neutral management-type counts and hides t
     await tv.page.locator('[data-focus="collection:loose"] .browse-art-missing svg').waitFor();
 });
 
-// TVLibraryCollectionsView.loadCollections (silo-apple 48a197d :183-191): a failed read shows no collections; opening Collections again reads again.
+// TVLibraryCollectionsView.loadCollections (silo-apple 5780c84 :183-191): a failed read shows no collections; opening Collections again reads again.
 browseTest("a failed Collections read shows Apple's empty state and the next visit reads again", async (tv, catalog) => {
     await tv.page.locator('[data-focus="movies"]').click();
     await showing(tv, "library:12");

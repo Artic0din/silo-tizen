@@ -277,13 +277,15 @@
 .search-scene .search-field .browse-input:focus { outline: none; box-shadow: none; }
 .search-scene .search-field .browse-input::-webkit-search-cancel-button,
 .search-scene .search-field .browse-input::-webkit-search-decoration { -webkit-appearance: none; }
-/* tvOS's Search keyboard row: keys between x 104 and 1816 (delete centred at ~1776) over a divider at y ~274. */
-.search-scene .search-keyboard { display: flex; align-items: center; gap: 4px; margin: 30px 28px 0; padding: 0 0 33px; border-bottom: 1px solid rgba(255,255,255,.2); }
-.search-scene .search-key { flex: 0 0 49px; height: 80px; margin: 0; padding: 0; border: 0; border-radius: 12px; background: transparent; color: rgba(255,255,255,.6); font-size: 38px; font-weight: 500; line-height: 80px; text-align: center; transition: transform .15s ease-out, background-color .15s ease-out, color .15s ease-out; }
-.search-scene .search-key-label { flex-basis: 96px; font-size: 24px; font-weight: 600; letter-spacing: .04em; }
-.search-scene .search-key-space { flex-basis: 140px; }
-.search-scene .search-key-delete { flex-basis: 80px; margin-left: auto; }
-.search-scene .search-key-delete svg { display: block; width: 40px; height: 29px; margin: 0 auto; }
+/* tvOS's Search keyboard row, measured on the Apple TV simulator at 1920x1080: 123 at x 117-176 and SPACE at 206-295
+   (y 177-214), letters a at x 350 to z at 1700 on a 54 px pitch, delete at 1755-1797, and a rule from x 80 to 1840 at y 274. */
+.search-scene .search-keyboard { display: flex; align-items: center; margin: 26px 4px 0; padding: 0 37px 38px; border-bottom: 1px solid rgba(255,255,255,.2); }
+.search-scene .search-key { display: flex; align-items: center; justify-content: center; flex: 0 0 54px; height: 79px; margin: 0; padding: 0; border: 0; border-radius: 12px; background: transparent; color: #8a8a8a; font-size: 38px; font-weight: 400; line-height: 1; transition: transform .15s ease-out, background-color .15s ease-out, color .15s ease-out; }
+.search-scene .search-key-label { height: 37px; border-radius: 6px; background: #8e8e8e; color: #000; font-size: 22px; font-weight: 500; }
+.search-scene .search-key-mode { flex-basis: 59px; margin-right: 30px; }
+.search-scene .search-key-space { flex-basis: 89px; margin-right: 28px; }
+.search-scene .search-key-delete { margin-left: auto; color: #8e8e8e; }
+.search-scene .search-key-delete svg { display: block; width: 42px; height: 32px; }
 .search-scene .search-key:focus { outline: none; background: #ededed; color: #000; transform: scale(1.2); box-shadow: 0 12px 24px rgba(0,0,0,.5); }
 @media (prefers-reduced-motion: reduce) { .search-scene .search-key { transition: none; } }
 .search-scene .search-filters { display: flex; align-items: center; gap: 10px; width: 760px; height: 84px; margin: 80px auto 47px; padding: 8px 4px; border: 1px solid rgba(255,255,255,.1); border-radius: 42px; background: #161616; }

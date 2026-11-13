@@ -8,7 +8,8 @@ import { el } from "./screen.ts";
 const LETTERS = [..."abcdefghijklmnopqrstuvwxyz"];
 /** The standard Apple 123 page: digits, then the symbols beneath them. */
 const SYMBOLS = [..."1234567890-/:;()$&@\".,?!'"];
-const DELETE_ICON = '<svg viewBox="0 0 44 32" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"><path d="M14 3h26a2 2 0 0 1 2 2v22a2 2 0 0 1-2 2H14L2 16Z"/><path d="m20 10 12 12m0-12L20 22"/></svg>';
+/** SF Symbols `delete.left.fill`: a filled key with the cross cut out, so it shows the key colour behind it when focused. */
+const DELETE_ICON = '<svg viewBox="0 0 42 32" aria-hidden="true"><mask id="search-delete-cut"><rect width="42" height="32" fill="#fff"/><path d="m21 10 11 12m0-12-11 12" stroke="#000" stroke-width="3.4" stroke-linecap="round"/></mask><path fill="currentColor" mask="url(#search-delete-cut)" d="M13 1h24a5 5 0 0 1 5 5v20a5 5 0 0 1-5 5H13a3 3 0 0 1-2.2-1L.7 17.3a2 2 0 0 1 0-2.6L10.8 2a3 3 0 0 1 2.2-1Z"/></svg>';
 
 export interface SearchKeyboard {
     readonly element: HTMLElement;
@@ -32,7 +33,7 @@ export function searchKeyboard(edit: (change: (query: string) => string) => void
         return { key: id, element: button };
     };
     let symbols = false;
-    const mode = key("key:mode", "search-key-label", "123", "Numbers and symbols", () => {
+    const mode = key("key:mode", "search-key-label search-key-mode", "123", "Numbers and symbols", () => {
         symbols = !symbols;
         mode.element.textContent = symbols ? "abc" : "123";
         mode.element.setAttribute("aria-label", symbols ? "Letters" : "Numbers and symbols");

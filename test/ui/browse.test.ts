@@ -472,6 +472,36 @@ browseTest("Search types on Apple's inline single-row keyboard, never the TV key
     assert.deepEqual([layout.names[0], layout.names[1], layout.names.at(-1)], ["Numbers and symbols", "Space", "Delete"]);
     assert.ok(Math.abs(layout.deleteX - 1776) < 2, `delete sits at Apple's x≈1776, got ${layout.deleteX}`);
     assert.ok(Math.abs((layout.divider ?? 0) - 274) < 2, `the divider sits at Apple's y≈274, got ${layout.divider}`);
+    // Pixels measured on the Apple TV simulator's 1920×1080 Search (silo-apple 5780c84).
+    const measured = await tv.page.evaluate(() => {
+        const box = (selector: string): number[] => {
+            const rect = document.querySelector(selector)?.getBoundingClientRect();
+            return rect === undefined ? [] : [rect.left, rect.right, rect.top, rect.bottom].map(Math.round);
+        };
+        const centre = (selector: string): number => {
+            const rect = document.querySelector(selector)?.getBoundingClientRect();
+            return rect === undefined ? 0 : Math.round(rect.left + rect.width / 2);
+        };
+        const style = (selector: string): CSSStyleDeclaration => getComputedStyle(document.querySelector(selector) ?? document.body);
+        const mode = style('[data-focus="key:mode"]'), letter = style('[data-focus="key:b"]'), glyph = document.querySelector('[data-focus="key:delete"] svg > path');
+        return {
+            mode: box('[data-focus="key:mode"]'), space: box('[data-focus="key:space"]'),
+            labelKey: [mode.backgroundColor, mode.borderRadius, mode.color],
+            a: centre('[data-focus="key:a"]'), z: centre('[data-focus="key:z"]'), pitch: centre('[data-focus="key:c"]') - centre('[data-focus="key:b"]'),
+            letter: [letter.color, letter.fontSize, letter.fontWeight],
+            deleteGlyph: box('[data-focus="key:delete"] svg'), deleteFill: glyph === null ? "" : getComputedStyle(glyph).fill, deleteColor: style('[data-focus="key:delete"]').color,
+            rule: box(".search-keyboard"),
+        };
+    });
+    assert.deepEqual(measured.mode, [117, 176, 177, 214], "Apple's 123 key frame");
+    assert.deepEqual(measured.space, [206, 295, 177, 214], "Apple's SPACE key frame");
+    assert.deepEqual(measured.labelKey, ["rgb(142, 142, 142)", "6px", "rgb(0, 0, 0)"], "123 and SPACE are filled grey keys with dark text");
+    assert.deepEqual([measured.a, measured.z, measured.pitch], [350, 1700, 54], "letters run a at x 350 to z at x 1700, 54 apart");
+    assert.deepEqual(measured.letter, ["rgb(138, 138, 138)", "38px", "400"], "resting letters are mid-grey SF Pro regular at 38");
+    assert.deepEqual(measured.deleteGlyph, [1755, 1797, 180, 212], "Apple's delete glyph frame");
+    assert.notEqual(measured.deleteFill, "none", "delete is the filled delete.left.fill glyph");
+    assert.equal(measured.deleteColor, "rgb(142, 142, 142)", "the resting delete glyph is light grey");
+    assert.deepEqual([measured.rule[0], measured.rule[1], measured.rule[3]], [80, 1840, 274], "the divider spans x 80 to 1840 at y 274");
     assert.equal(layout.inputTab, -1, "the query field is never a D-pad stop, so the TV keyboard never opens");
     const query = (): Promise<string> => tv.page.locator("#browse-search").inputValue();
     for (let step = 0; step < 12; step++) await press(tv, "ArrowRight");

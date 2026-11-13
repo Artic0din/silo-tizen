@@ -69,6 +69,19 @@ const MOVIE_HERO_SCROLL = { duration: 450, ease: cubicBezier(0.42, 0, 0.58, 1) }
 /** TVSeriesDetailView animatePage: 0.55 s on UICubicTimingParameters (0.4, 0) (0.2, 1). */
 const SERIES_HERO_SCROLL = { duration: 550, ease: cubicBezier(0.4, 0, 0.2, 1) };
 
+/** One animated scroll: where it started, where it goes, and its curve. */
+export interface Motion {
+    readonly fromLeft: number;
+    readonly fromTop: number;
+    readonly left: number;
+    readonly top: number;
+    readonly start: number;
+    readonly duration: number;
+    readonly ease: (progress: number) => number;
+    /** Whether focus moved up, for a reveal that chose its anchor by that direction. */
+    readonly up?: boolean;
+}
+
 export class SkylineScroll {
     /** TVSeriesDetailView.swift:653-674 centers the selected mode. */
     static seasonOffset(row: HTMLElement, element: HTMLElement): number {
@@ -76,6 +89,11 @@ export class SkylineScroll {
     }
     private readonly frames = new Map<HTMLElement, number>();
     private readonly targets = new WeakMap<HTMLElement, { left: number; top: number }>();
+    private readonly motions = new WeakMap<HTMLElement, Motion>();
+    /** The focus direction of the reveal now calling `move`, when it chose its anchor by it. */
+    private revealUp: boolean | undefined;
+    /** While set, `move` records each target here instead of moving. */
+    private planned: Map<HTMLElement, { left: number; top: number }> | undefined;
     /** Shelf already bottom-aligned. Horizontal moves inside it do not scroll again. */
     private pinnedShelf: HTMLElement | null = null;
 
@@ -125,6 +143,7 @@ export class SkylineScroll {
     }
 
     move(node: HTMLElement, left: number, top: number, duration = 200, ease: (progress: number) => number = easeOutCubic): void {
+        if (this.planned !== undefined) { this.planned.set(node, { left, top }); return; }
         const previous = this.frames.get(node);
         const target = this.targets.get(node);
         const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -142,7 +161,25 @@ export class SkylineScroll {
             return;
         }
         if (previous === undefined) node.dispatchEvent(new Event(SCROLL_START_EVENT));
-        const start = performance.now();
+        this.run(node, { fromLeft, fromTop, left, top, start: performance.now(), duration, ease, ...(this.revealUp === undefined ? {} : { up: this.revealUp }) });
+    }
+
+    /** The move `node` is making now. */
+    motion(node: HTMLElement): Motion | undefined {
+        return this.frames.has(node) ? this.motions.get(node) : undefined;
+    }
+
+    /** Carries on `motion` on `node` from where its own curve is now, replacing any other move there. */
+    resume(node: HTMLElement, motion: Motion): void {
+        const previous = this.frames.get(node);
+        if (previous !== undefined) cancelAnimationFrame(previous);
+        this.targets.set(node, { left: motion.left, top: motion.top });
+        this.run(node, motion);
+    }
+
+    private run(node: HTMLElement, motion: Motion): void {
+        const { fromLeft, fromTop, left, top, start, duration, ease } = motion;
+        this.motions.set(node, motion);
         const frame = (now: number): void => {
             if (!node.isConnected) {
                 this.frames.delete(node);
@@ -158,7 +195,19 @@ export class SkylineScroll {
         this.frames.set(node, requestAnimationFrame(frame));
     }
 
-    reveal(element: HTMLElement, container: HTMLElement, previous?: Element | null): void {
+    /**
+     * Where `reveal` would move `viewport` for `element` now, without moving anything. `up` stands in for the
+     * previous focus, which a repaint has already removed.
+     */
+    revealTarget(element: HTMLElement, container: HTMLElement, viewport: HTMLElement, up: boolean): { left: number; top: number } | undefined {
+        const planned = new Map<HTMLElement, { left: number; top: number }>();
+        const pinned = this.pinnedShelf;
+        this.planned = planned;
+        try { this.reveal(element, container, undefined, up); } finally { this.planned = undefined; this.pinnedShelf = pinned; }
+        return planned.get(viewport);
+    }
+
+    reveal(element: HTMLElement, container: HTMLElement, previous?: Element | null, movingUp?: boolean): void {
         if (element.closest(".settings-categories") !== null) return;
         if (element.closest(".browse-nav, .skyline-selector:not(.details-audio-picker)") !== null) return;
         const viewport = element.closest<HTMLElement>(".browse-panel-list, .details-popover-scroll, .details-audio-picker, .settings-modal-options, .settings-pane, .skyline-content, .accounts-rail, .accounts-pane, .accounts-settings") ?? container;
@@ -213,7 +262,7 @@ export class SkylineScroll {
             const header = section.previousElementSibling?.getBoundingClientRect();
             if (header === undefined) return;
             const headingTop = viewport.scrollTop + header.top - bounds.top;
-            const up = previous?.isConnected === true && previous.getBoundingClientRect().top > rect.top;
+            const up = movingUp ?? (previous?.isConnected === true && previous.getBoundingClientRect().top > rect.top);
             const series = container.querySelector('.details-hero')?.getAttribute('data-media-type') === 'series';
             const cast = section.classList.contains('details-people');
             const posters = section.hasAttribute('data-detail-section');
@@ -226,7 +275,8 @@ export class SkylineScroll {
             // A section fully reachable on the unscrolled page needs no upward reveal.
             const artwork = element.querySelector('.browse-art');
             const visibleAtTop = headingTop >= 0 && viewport.scrollTop + (artwork ?? element).getBoundingClientRect().bottom - bounds.top <= viewport.clientHeight;
-            this.move(viewport, 0, up && visibleAtTop ? 0 : Math.max(0, headingTop - target));
+            this.revealUp = up;
+            try { this.move(viewport, 0, up && visibleAtTop ? 0 : Math.max(0, headingTop - target)); } finally { this.revealUp = undefined; }
             return;
         }
         const shelf = element.closest<HTMLElement>('[data-scroll-align="bottom"]');

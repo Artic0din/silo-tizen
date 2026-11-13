@@ -227,6 +227,7 @@ export function mountApp(root: HTMLElement, options: AppOptions): SiloApp {
             ...(avatar === undefined ? {} : { profileAvatarUrl: avatar }),
             ...(text === undefined ? {} : { profileAvatarText: text }),
             ...(activeCore.publicStorage === undefined ? {} : { publicStorage: activeCore.publicStorage }),
+            ...(activeCore.keyManager === undefined ? {} : { keyManager: activeCore.keyManager }),
             onSignOut: () => {
                 stopContent();
                 profiles?.signOut();

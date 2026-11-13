@@ -270,16 +270,25 @@ Home, For You and Search open an audiobook card on its own detail: cover, author
 Play, Resume and Start Over are drawn but inert until the player can open an audiobook.
 Watch Party requires both local opt-in (Settings › Server › Extra Features) and synchronized-party support, and sits after Requests in the profile menu only when both hold ([Watch Party](watch-party.md)).
 Search is 58 px wide with an 8 px gap before the roots and an invisible equal-width balance after them, keeping the roots centered at x960.
-Labels retain Apple's 29 px horizontal inset (including the CSS border), 26 px semibold type and 8 px gaps.
+Labels retain Apple's 29 px horizontal inset (including the CSS border), 26 pt semibold type scaled by `--silo-sf-cap-scale` and 8 px gaps.
+Resting labels and the magnifier are white at 62% and the selected tab is white; a capsule reaches 318 px before its label truncates.
+Tab and Search capsules spring into focus, a selection change alone eases over 0.18 s, and the bar dims with a 0.2 s ease-in-out.
 Removing Requests lets the shared flex row recalculate every horizontal anchor from the remaining labels.
 
 The avatar uses the server-resolved image through the existing artwork URL policy, keeping the initial visible until loading succeeds or if it fails.
 Its focused ring is opaque white, 3 px wide and inset within the avatar edge, matching Apple's `strokeBorder`.
+The avatar sits on a white 18% disc with a white initial at 0.34 of its size; focus keeps that disc, adds the ring and scales it to 1.05, and Reduce Motion drops the scale.
+A profile with no name shows a person glyph in secondary text.
+The menu header's 44 px avatar sits on white 16%.
 The anchored profile menu includes Switch Profile, History, capability-gated Requests, Settings, Change Account and a red, unfocused Sign Out row.
 Watchlist and Favorites remain under For You.
 Requests pushes a screen without the top bar.
 Back from Requests, History or Settings keeps the profile menu closed and restores the selected tab.
 Back from the open profile menu itself still restores avatar focus.
+Every top-bar menu uses Apple's `TVSkylinePanelChrome`: a top-lit gradient, a frosted backdrop, a white hairline that fades down the edge and two shadows.
+A menu grows from 0.96 under its tab or avatar over 0.12 s and fades back toward it when it closes; the modes flyout only fades, over 0.16 s.
+The Sign Out confirmation and its backdrop fade in and out over 0.2 s.
+Profile and For You rows use original filled glyphs for Apple's filled symbols (people, clock, paper plane, gear, bookmark, heart, sparkles), sized to Apple's measured ink in the same 30 × 20 icon box; Change Account is a person in a circle with a tick badge, and Watch Party and Sign Out stay outlined as on Apple TV.
 The header uses the confirmed server branding name, falling back to the host when none is cached.
 Every focused menu row uses a white platter and black text, including Sign Out.
 Change Account opens saved accounts without logging out or deleting saved sign-ins.
@@ -289,6 +298,7 @@ Sign Out requires confirmation; Cancel and Back preserve the session and restore
 Its two-action layout follows `TVSettingsConfirmationOverlay`: centered surface, 48/42 px padding, 38 px title, 22 px message, horizontal 260 px buttons with 16 px spacing and a 0.62 black backdrop.
 The existing focus host owns that row; Up/Down stay inside it, Left/Right select an action, and tapping the backdrop cancels without activating the covered page.
 Back dismisses either anchored menu until focus leaves its anchor or the viewer presses it again.
+A menu the dwell opened, and not yet entered, closes when focus moves from the bar into the page, as when a late load hands the page focus (`enterContentFromBar`).
 Up from the first dropdown row returns to its anchor, and Down from the last For You action returns to content.
 
 For You reuses Home's Skyline artwork, marquee and shelf renderers.
@@ -383,7 +393,7 @@ This preserves server-resolved membership, preferences, episode cards and cursor
 
 Home's row band begins at y596 with height 484, and the bottom-anchored marquee frame is at x88/y256, 880×280, at the 1920×1080 logical viewport.
 Rows start at x80 and retain an 80 px trailing reveal clearance.
-The top bar uses the packaged 96 px wordmark, 26 px semibold labels, 56 px tab capsules and 58 px icon targets; this slice preserves its existing destinations and ordering.
+The top bar uses the packaged 96 px wordmark, 26 pt semibold labels, 56 px tab capsules and 58 px icon targets; this slice preserves its existing destinations and ordering.
 The backdrop follows `TVRootHeroBackdrop`: a top-right 1228.8×756 artwork block with multiplied horizontal/vertical masks, a 190 px top scrim and sampled base/accent/shadow washes over black.
 Home immediately uses small artwork while an optional cold-start probe runs, then upgrades once through its existing load owner when the answer advertises better artwork sizing.
 The upgrade merges only artwork for retained section/card identities, preserving focus, content, hidden-library choices and in-flight metadata reads.

@@ -5,7 +5,7 @@
 import type { FocusItem, Zone } from "./browseFocus.ts";
 import type { Route, RouteHandlers } from "./browseRoutes.ts";
 import { actionButton, errorView, failureError, zoneNode } from "./browseViews.ts";
-import { feedGrid } from "./catalogFeed.ts";
+import { feedGrid, feedGridWidth } from "./catalogFeed.ts";
 import { activeFacetCount, canReset, cleared, directionLabel, effectiveOrder, FACETS, facetSummary, options, reset, selected, sortKey, sortKeysFor, toggled, withSort, type BrowseFilter } from "./libraryBrowse.ts";
 import type { DiscoveryState } from "./libraryDiscovery.ts";
 import { emptyState, type StateSymbol } from "./libraryStates.ts";
@@ -121,8 +121,10 @@ export function browsePage(route: LibraryRoute, state: DiscoveryState, handlers:
         zones[0] = { ...controlZone, down: "status" };
         railLeft = "status";
     } else if (page === undefined) {
-        // TVLibraryGridView.swift:188-203, PosterSkeletons.swift:3-12: twelve static placeholders, no shimmer.
+        // TVLibraryGridView.swift:188-203, PosterSkeletons.swift:3-12: twelve static placeholders, no shimmer, in the loaded grid's columns.
         const skeleton = el("div", "catalog-grid catalog-skeleton");
+        skeleton.style.setProperty("--grid-columns", String(handlers.gridColumns));
+        skeleton.style.width = `${feedGridWidth(handlers.gridColumns, handlers.context.posterScale?.() ?? 1)}px`;
         skeleton.setAttribute("role", "status");
         skeleton.setAttribute("aria-label", "Loading");
         for (let index = 0; index < 12; index++) skeleton.appendChild(el("div", "poster-skeleton"));

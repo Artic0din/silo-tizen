@@ -37,6 +37,11 @@ export interface FeedGrid {
  * `owner` keys the node (one per route list); `lead` is how many cards from the end must be on
  * screen before `more` runs. A list that is not an extension of the shown one is rebuilt.
  */
+/** The catalog grid's width for its columns at a poster scale; the Browse placeholders use it too. */
+export function feedGridWidth(columns: number, scale: number): number {
+    return Math.max(1710, columns * 260 * scale + (columns - 1) * 40);
+}
+
 export function feedGrid(owner: object, page: CatalogPage, context: ViewContext, lead: number, busy: boolean, more: () => void, columns = FEED_COLUMNS, posterWidth = 260, gridWidth?: number): FeedGrid {
     let feed = feeds.get(owner);
     const scale = context.posterScale?.() ?? 1;
@@ -49,7 +54,7 @@ export function feedGrid(owner: object, page: CatalogPage, context: ViewContext,
         feeds.set(owner, feed);
     }
     feed.node.style.setProperty("--grid-columns", String(columns));
-    feed.node.style.width = `${gridWidth ?? Math.max(1710, columns * 260 * scale + (columns - 1) * 40)}px`;
+    feed.node.style.width = `${gridWidth ?? feedGridWidth(columns, scale)}px`;
     feed.more = more;
     const added = page.items.slice(feed.cards.length);
     for (const card of added) {

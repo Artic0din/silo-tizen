@@ -338,12 +338,18 @@ export class Skyline {
             this.container.classList.toggle("skyline-home", this.sharedScene);
             this.container.classList.toggle("skyline-library", preview && libraryRoot && !this.sharedScene);
             this.container.classList.toggle("skyline-grid", !preview && (libraryRoot || selected === "profiles" || view.name.startsWith("personal:")));
-            // Remove replaced siblings first, as FocusHost's place() does, so a retained node (Browse's letter rail) is never moved:
-            // a move blurs its focused child and resets its scroll.
+            // A retained node (Browse's letter rail) must not move: a move blurs its focused child and resets its scroll. Replaced
+            // siblings in front of its slot go instead. Removing every replaced sibling first would empty a scrolling page for a
+            // moment and clamp its offset, which moves Search's spatial navigation.
             const retained = new Set<Element>(view.content);
-            for (const child of Array.from(this.body.children)) if (!retained.has(child)) child.remove();
             view.content.forEach((node, index) => {
-                const existing = this.body.children[index];
+                let existing = this.body.children[index];
+                if (existing !== node && node.parentElement === this.body) {
+                    while (existing !== undefined && existing !== node && !retained.has(existing)) {
+                        existing.remove();
+                        existing = this.body.children[index];
+                    }
+                }
                 if (existing !== node) this.body.insertBefore(node, existing ?? null);
             });
             while (this.body.children.length > view.content.length) this.body.lastElementChild?.remove();

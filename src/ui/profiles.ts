@@ -281,14 +281,16 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
         }));
     };
 
-    const createProfile = (list: readonly ProfileSummary[]): void => {
+    /** `cancelled` runs when the flow ends with nothing sent; the picker's Add returns to the picker. */
+    const createProfile = (list: readonly ProfileSummary[], cancelled = (): void => showList("add-profile")): void => {
         const token = begin();
         const flow = createProfileFlow({ server, profiles: list,
             show: (screen, focus) => { if (!destroyed && token === view) show(screen, focus); }, finished: (id, uncertain) => {
             if (destroyed || token !== view) return;
             creation = undefined;
             if (uncertain) message("profile-create-uncertain", "Check profiles", ["A creation request was sent. Check the profile list before trying again."], [button("retry", "Check profiles", () => showList("add-profile"))], () => showList("add-profile"));
-            else showList(id ?? "add-profile");
+            else if (id === undefined) cancelled();
+            else showList(id);
         } });
         if (!destroyed && token === view) creation = flow;
         else flow.destroy();
@@ -305,7 +307,9 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
             return;
         }
         shownList = list;
-        createProfile(list);
+        // AddProfileFromMenuModifier (AddProfileFromMenu.swift:3-7): closing without creating leaves the open profile's screen.
+        const back = resume();
+        createProfile(list, back ?? (() => showList("add-profile")));
     }, addProfile);
 
     const picker = (list: readonly ProfileSummary[], focus?: string): void => {

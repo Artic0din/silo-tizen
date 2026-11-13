@@ -432,6 +432,18 @@ appTest("an account with one profile offers Add Profile in Switch Profile's plac
     assert.equal(await tv.page.locator(".browse").count(), 0, "Browse has left the screen");
 });
 
+// AddProfileFromMenuModifier (silo-apple 5780c84 `Screens/Profiles/AddProfileFromMenu.swift:3-7`): closing it without
+// creating a profile leaves the screen it was opened from as it was.
+appTest("Back from Add Profile's form returns to Home with the open profile", async tv => {
+    await signInWithOneProfile(tv);
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.locator('[data-focus="add-profile"]').click();
+    await tv.page.locator('[data-screen="profile-create"]').waitFor();
+    await tv.remote(10009);
+    await tv.page.locator('[data-view="home"] [data-focus="movie:m0001"]').first().waitFor();
+    assert.equal(await tv.page.locator('[data-screen="profiles"]').count(), 0, "the picker does not open");
+});
+
 // AddProfileRequest.start (silo-apple 5780c84 `Navigation/AppRouter+Accounts.swift:87-91`): the fresh list decides. A
 // profile added elsewhere since the count was cached opens the picker, as Switch Profile does.
 appTest("Add Profile opens the picker when the fresh list holds more than one profile", async tv => {

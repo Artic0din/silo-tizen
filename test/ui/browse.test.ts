@@ -1664,10 +1664,15 @@ browseTest("Search stops loading pages when the restarted list rejects its curso
     const firstGrid = await tv.page.locator(".search-scene > .browse-grid").elementHandle();
     await tv.page.locator(".browse").evaluate(node => { node.scrollTop = node.scrollHeight; });
     await tv.eventually(async () => cursorReads() >= 1 && browseReads(tv, "/catalog").length === 2, "one rejection and one fresh first page");
-    // The fresh first page draws a new grid. If its end is already in view the second rejection comes on its own; otherwise scroll it in.
+    // The fresh first page draws a new grid. Keep its end in view, as a viewer would: a scroll before its end is watched,
+    // or while a read runs, is not acted on. The second rejection then stops paging with Try Again.
     const failed = (): Promise<boolean> => tv.page.locator(".search-failure").count().then(count => count > 0);
-    await tv.eventually(async () => await firstGrid?.evaluate(node => !node.isConnected) === true && (await failed() || await tv.page.locator('.search-scene > .browse-grid [data-focus="movie:m0060"]').count() === 1), "the restarted grid replaced the first");
-    if (!await failed()) await tv.page.locator(".browse").evaluate(node => { node.scrollTop = node.scrollHeight; });
+    await tv.eventually(async () => await firstGrid?.evaluate(node => !node.isConnected) === true, "the restarted grid replaced the first");
+    await tv.eventually(async () => {
+        if (await failed()) return true;
+        await tv.page.locator(".browse").evaluate(node => { node.scrollTop = node.scrollHeight; });
+        return false;
+    }, "the second rejection's error");
     await tv.page.getByRole("button", { name: "Try Again", exact: true }).waitFor();
     await tv.jump(2000);
     assert.equal(cursorReads(), 2, "a second rejection stops automatic paging until Try Again");

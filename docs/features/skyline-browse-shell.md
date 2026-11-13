@@ -391,7 +391,8 @@ The 38 px added artwork height is the measured native-card substitute, not a uni
 The [current signed scene evidence](../evidence/screenshots/152-library-skyline/README.md) records shared-scene calibration, corrected Collections-to-row artwork clearance, reduced motion, expansion and controlled failure recovery, with historical Apple and simulator limits disclosed.
 Other legacy card owners, detail backgrounds and the historical Home row alignment remain separate investigations.
 Continue Watching's heading carries a drawn play-circle mark; Apple's SF Symbol is not bundled.
-Watched titles show a check disc on every card.
+Posters draw Apple `CardWatchStatus` in the top-right corner whether or not badges are on: a 22 px emerald disc with a white check on a watched title, or the episodes a started series or season has left in a dark capsule, both scaled from the 185 px poster reference.
+An untouched series shows nothing there. Stills keep Apple `EpisodeThumbCard`'s check disc.
 Home cards draw the profile's poster badges (Apple `CardOverlays`): the profile's `ui.card_overlays` document wins outright, else the administrator's baseline from `/settings/overlay-config`, else the registry defaults.
 The profile's `ui.card_overlays_enabled` choice overrides the server-wide default in either direction.
 As in Apple `OverlayPrefsStore`, the registry defaults show until the reads answer; a failed read keeps that half's last answer, so a known administrator or profile off stays off.

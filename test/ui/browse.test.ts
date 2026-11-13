@@ -89,10 +89,28 @@ browseTest("collection watched badge uses Apple's catalog source and contract vi
     await tv.page.locator('[data-focus="collection:highlights"]').click();
     const card = tv.page.locator('.collection-detail-grid [data-focus="movie:heat-1995"]');
     await card.waitFor({ timeout: 3000 });
-    assert.equal(await card.locator('.browse-watched').count(), 1);
+    assert.equal(await card.locator('.card-watch-status-played').count(), 1);
     assert.deepEqual(tv.fake.requests.filter(request => request.body?.source === "library_collection").at(-1)?.body,
         { limit: 60, match: "all", source: "library_collection", collection_id: "highlights" });
     assert.equal(tv.fake.requests.filter(request => request.path.includes("/collections/highlights/items")).length, 0);
+});
+
+browseTest("a started series poster shows its episodes left in the watch-status corner; a watched one the check", async (tv, catalog) => {
+    await tv.page.locator('[data-focus="movies"]').click();
+    await showing(tv, "library:12");
+    await selectLibraryMode(tv, "Collections");
+    const watched = fixture("get_catalog_item_ok");
+    const page = fixture("list_catalog_items_ok");
+    // user_state.watched_count and unplayed_count, as silo-server 3f1081bd's CatalogItemUserState sends them.
+    const started = { ...watched, content_id: "series:started", type: "series", title: "Started", user_state: { played: false, is_favorite: false, in_watchlist: false, not_interested: false, watched_count: 4, unplayed_count: 6 } };
+    catalog.failNext("/catalog/query", { status: 200, body: { ...page, items: [watched, started], total: 2, page: { has_more: false } } });
+    await tv.page.locator('[data-focus="collection:highlights"]').click();
+    const series = tv.page.locator('.collection-detail-grid [data-focus="series:started"]');
+    await series.waitFor({ timeout: 3000 });
+    assert.equal(await series.locator(".card-watch-status").innerText(), "6");
+    assert.equal(await series.locator(".card-watch-status").getAttribute("aria-hidden"), "true", "the count is decoration (CardWatchStatus.swift:63-64)");
+    assert.equal(await tv.page.locator('.collection-detail-grid [data-focus="movie:heat-1995"] .card-watch-status-played svg').count(), 1);
+    assert.equal(await tv.page.locator(".collection-detail-grid .browse-watched").count(), 0, "posters no longer draw the old tick");
 });
 
 browseTest("collection detail preserves server member order across pages without a sort override", async (tv, catalog) => {
@@ -137,7 +155,7 @@ for (const check of ["icon", "title", "badges", "focus"] as const) browseTest(`c
         assert.equal(await tv.page.locator('.collection-detail-title').evaluate(node => getComputedStyle(node).color), "rgb(64, 64, 64)");
     } else if (check === "badges") {
         await tv.eventually(async () => await card.locator('.card-overlay').count() > 0, "collection profile badges");
-        assert.equal(await card.locator('.browse-watched').count(), 1);
+        assert.equal(await card.locator('.card-watch-status-played').count(), 1);
     }
 });
 
@@ -605,6 +623,7 @@ browseTest("Related shelf omits the watched badge Apple leaves off the similar c
             title: index === 0 ? "Mercy" : `Movie ${String(index + 2).padStart(4, "0")}`,
             poster_url: `/art/movie-${index + 2}.svg`,
             ...(index === 0 ? { user_state: { played: true } } : {}),
+            ...(index === 1 ? { type: "series", user_state: { played: false, is_favorite: false, in_watchlist: false, not_interested: false, watched_count: 2, unplayed_count: 5 } } : {}),
         }));
         await route.fulfill({ json: { items } });
     });
@@ -612,8 +631,10 @@ browseTest("Related shelf omits the watched badge Apple leaves off the similar c
     await showing(tv, "item:movie:m0001");
     const mercy = tv.page.locator('[data-detail-section="related"] [data-focus="movie:m0002"]');
     await mercy.waitFor();
-    assert.equal(await mercy.locator(".browse-watched").count(), 0, "user_state.played is set, and the related card still has no watched badge");
+    assert.equal(await mercy.locator(".card-watch-status").count(), 0, "user_state.played is set, and the related card still has no watched badge");
     assert.match(await mercy.innerText(), /Mercy/);
+    // TVSimilarRail.swift:72-82 passes TVMediaCard no userState, so a started series shows no count either.
+    assert.equal(await tv.page.locator('[data-detail-section="related"] .card-watch-status').count(), 0, "no episodes-left count on Related");
 });
 
 for (const visit of ["warm", "cold", "rounded square"] as const) {

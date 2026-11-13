@@ -138,6 +138,8 @@ export interface Card {
     readonly overlay?: CardOverlay | undefined;
     /** `user_state.played`; absent without a profile. */
     readonly played?: boolean | undefined;
+    /** The episodes a started, unfinished series or season has left (`user_state.unplayed_count`). */
+    readonly episodesLeft?: number | undefined;
     /** `user_state.is_favorite` and `user_state.in_watchlist`; absent without a profile or on an older server. */
     readonly favorite?: boolean | undefined;
     readonly watchlist?: boolean | undefined;
@@ -199,6 +201,18 @@ function listMembership(obj: WireObject, path: string): { favorite?: boolean; wa
     return { ...(favorite === undefined ? {} : { favorite }), ...(watchlist === undefined ? {} : { watchlist }) };
 }
 
+/**
+ * MediaItemUserState.episodesLeft (silo-apple 5780c84 `Networking/Models.swift:108-114`): none on an untouched or
+ * finished title, so new shows carry no count. The counts are newer than `SOURCE` (see README).
+ */
+function episodesLeft(obj: WireObject, path: string): number | undefined {
+    if (obj.user_state === undefined) return undefined;
+    const state = object(obj.user_state, `${path}.user_state`);
+    const watched = optionalInteger(state, "watched_count", `${path}.user_state`) ?? 0;
+    const unplayed = optionalInteger(state, "unplayed_count", `${path}.user_state`);
+    return state.played === true || watched <= 0 || unplayed === undefined || unplayed <= 0 ? undefined : unplayed;
+}
+
 function optionalBoolean(obj: WireObject, key: string, path: string): boolean | undefined {
     return obj[key] === undefined ? undefined : boolean(obj, key, path);
 }
@@ -222,6 +236,7 @@ export function decodeCard(value: unknown, path: string): Card {
         genres: obj.genres === undefined ? undefined : stringArray(obj, "genres", path),
         overlay: decodeCardOverlay(obj.overlay_summary, `${path}.overlay_summary`),
         played: obj.user_state === undefined ? undefined : boolean(object(obj.user_state, `${path}.user_state`), "played", `${path}.user_state`),
+        episodesLeft: episodesLeft(obj, path),
         ...listMembership(obj, path),
         logoUrl: optionalString(obj, "logo_url", path),
         ratingImdb: optionalNumber(obj, "rating_imdb", path),

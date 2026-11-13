@@ -24,7 +24,7 @@ import { discoveryView, resultsView } from "./libraryDiscoveryViews.ts";
 import { personalView, type PersonalFilter, type PersonalSource, type PersonalListCapability } from "./personalLists.ts";
 import type { MediaScope } from "../contracts/v2/discovery.ts";
 import { personFilmographyView } from "./personFilmography.ts";
-import type { RecommendationLocator, RecommendationRow } from "../contracts/v2/recommendations.ts";
+import type { RecommendationRow } from "../contracts/v2/recommendations.ts";
 import { globalSearchView, type SearchSupplement } from "./globalSearch.ts";
 import { feedGrid } from "./catalogFeed.ts";
 import { boxSetView } from "./boxSetView.ts";
@@ -49,7 +49,6 @@ export interface Pages {
 
 export type RouteData =
     | { readonly kind: "for_you"; data: RecommendationRow[] | undefined }
-    | { readonly kind: "recommendationSection"; readonly locator: RecommendationLocator; readonly title: string; pages: Pages }
     | { readonly kind: "requests"; readonly requests: RequestsState; readonly anchor?: string }
     | { readonly kind: "watchParty"; readonly watchParty: WatchPartyScreen; readonly anchor?: string }
     | { readonly kind: "calendar"; readonly calendar: CalendarState }
@@ -103,7 +102,6 @@ export function hasData(current: Route): boolean {
         case "person": return current.data !== undefined || current.pages.page !== undefined;
         case "libraryResults":
         case "homeSection":
-        case "recommendationSection":
             return current.pages.page !== undefined;
         case "search":
             return current.pages?.page !== undefined;
@@ -154,7 +152,7 @@ export interface RouteHandlers {
 }
 
 export function routeView(current: Route, handlers: RouteHandlers): View {
-    if (current.kind === "for_you" || current.kind === "recommendationSection") return recommendationsView(current, handlers);
+    if (current.kind === "for_you") return recommendationsView(current, handlers);
     if (current.kind === "requests") return requestsView(current.requests, handlers.requests(current), handlers.context.baseUrl);
     if (current.kind === "watchParty") return watchPartyView(current.watchParty, handlers.pop, handlers.context.baseUrl);
     const { context, pop } = handlers;
@@ -176,7 +174,7 @@ export function routeView(current: Route, handlers: RouteHandlers): View {
     }
     switch (current.kind) {
         case "home": {
-            if (current.data === undefined) return homeLoadingView();
+            if (current.data === undefined) return pageLoadingView("home:loading", "Loading home");
             const view = homeView(current.data.libraries, current.data.sections, context, {
                 expand: section => handlers.push(newRoute({ kind: "homeSection", id: section.id, title: section.title, continuing: section.sectionType === "continue_watching", pages: newPages(), pendingIndex: undefined })),
                 search: () => handlers.push(newRoute({ kind: "search", query: "", pages: undefined, resultsFor: "" })),
@@ -245,14 +243,14 @@ export function routeView(current: Route, handlers: RouteHandlers): View {
     return statusView(`${current.kind}:loading`, "Loading", waiting, [escape], back);
 }
 
-/** Apple tvOS HomeView while sections are empty and loading: a clear page, accessibility label "Loading home". */
-function homeLoadingView(): View {
+/** Apple tvOS HomeView and RecommendationsView while loading with nothing to show: a clear `tvPageFocusOwner` page that is only spoken. */
+export function pageLoadingView(name: string, label: string): View {
     const page = el("div", "home-loading");
     page.tabIndex = 0;
-    page.setAttribute("aria-label", "Loading home");
+    page.setAttribute("aria-label", label);
     page.setAttribute("data-focus", "loading");
     return {
-        name: "home:loading",
+        name,
         content: [page],
         zones: [{ id: "loading", layout: "row", items: [{ key: "loading", element: page }] }],
         focus: { zone: "loading", key: "loading" },

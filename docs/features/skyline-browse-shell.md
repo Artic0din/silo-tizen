@@ -314,7 +314,9 @@ Up from the first dropdown row returns to its anchor, and Down from the last For
 For You reuses Home's Skyline artwork, marquee and shelf renderers.
 Returning to a retained Home or For You feed restarts only unfinished enrichment through the existing cache owner.
 Its rows come from `/recommendations/discover`; nonempty rows titled “For You” are stably placed first.
-Explore All is offered only for a supported recommendation `kind`/`key` and uses `/recommendations/section/{kind}` with its terminal 60-card contract.
+As in Apple `RecommendationsView`, For You rows have no Explore all tile and there is no row page.
+Each selection of For You from another root starts at its first row and reads `/recommendations/discover` again over the cached rows; a failed read keeps rows already on screen.
+With no rows, the page is Apple's: a blank focus owner spoken as "Loading recommendations", then `ErrorView` by status (Sign In Again for a 401, no Go Back) or the centred empty state.
 Recommendation identities are namespaced separately from Home sections; no continuation or exact total is invented.
 The server web client's recommendation adapter was checked, but importing its React/legacy-card layer would add a second transport and model without reducing this port.
 

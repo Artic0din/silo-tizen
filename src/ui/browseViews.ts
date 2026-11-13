@@ -412,13 +412,9 @@ export function homeView(libraries: readonly UserLibrary[], sections: readonly H
     }
     if (zones.length === 0 && handlers.dismisses === true) {
         // Apple HomeView: EmptyStateView under a page focus owner whose Up goes to the top bar.
-        const page = searchState("Nothing to watch yet", "Add media to your libraries or start watching to see it here.", "home-empty", PLAY_RECTANGLES_ICON);
-        page.tabIndex = -1;
-        page.setAttribute("role", "status");
-        page.setAttribute("aria-label", "Nothing to watch yet");
-        page.setAttribute("data-focus", "home-empty");
-        content.push(page);
-        zones.push({ id: "empty", layout: "row", items: [{ key: "home-empty", element: page }] });
+        const empty = emptyStateOwner("Nothing to watch yet", "Add media to your libraries or start watching to see it here.", "home-empty", PLAY_RECTANGLES_ICON);
+        content.push(empty.element);
+        zones.push({ id: "empty", layout: "row", items: [empty] });
     } else if (zones.length === 0) {
         content.push(...lines(["There is nothing to watch on this profile yet."]));
     }
@@ -528,6 +524,16 @@ export function searchLoading(): HTMLElement {
     progress.setAttribute("aria-label", "Searching");
     progress.appendChild(el("span", "search-progress-icon"));
     return progress;
+}
+
+/** Apple EmptyStateView under `tvPageFocusOwner`: a passive page that owns focus and is spoken as its title. */
+export function emptyStateOwner(title: string, subtitle: string, key: string, iconMarkup: string): FocusItem {
+    const page = searchState(title, subtitle, key, iconMarkup);
+    page.tabIndex = -1;
+    page.setAttribute("role", "status");
+    page.setAttribute("aria-label", title);
+    page.setAttribute("data-focus", key);
+    return { key, element: page };
 }
 
 /** Apple EmptyStateView and ErrorView: an icon, a title and a line, sized by `className`. */

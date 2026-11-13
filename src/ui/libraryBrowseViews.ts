@@ -91,12 +91,14 @@ export function icon(name: keyof typeof ICONS): HTMLElement {
 
 /**
  * SF Symbols traced in Apple's image frames, so each pill and Sort row keeps Apple's widths: TVBrowseControlRow's at 24pt
- * medium (TVBrowseFilterUI.swift:33-66, :77) and the Sort panel's checkmark at 26pt regular (:134-147).
+ * medium (TVBrowseFilterUI.swift:33-66, :77), Clear filters' at 24pt medium (TVLibraryGridView.swift:276-283) and the Sort
+ * panel's checkmark at 26pt regular (:134-147).
  */
 const SYMBOLS = {
     "arrow.up.arrow.down": [35, 28, '<path stroke-width="2.5" d="M10.5 24.6V3.6M4.25 9.85L10.5 3.6L16.75 9.85M24.5 3.6V24.4M18.25 18.15L24.5 24.4L30.75 18.15"/>'],
     "line.3.horizontal.decrease": [31, 19, '<path stroke-width="2.3" d="M4.15 3.4H26.6M6.65 9.55H24.1M9.15 15.7H21.6"/>'],
     shuffle: [34, 27, '<path stroke-width="2.41" d="M4.08 6.99H6.88C9.07 6.99 10.55 8.88 12.11 10.8L16.39 16.2C17.95 18.12 19.43 20.01 21.62 20.01H24.5M4.08 20.01H6.88C9.07 20.01 10.55 18.12 12.11 16.2L16.39 10.8C17.95 8.88 19.43 6.99 21.62 6.99H24.5"/><path fill="currentColor" stroke-width="2.08" d="M25.27 3.14L29.76 6.99L25.27 10.84ZM25.27 16.16L29.76 20.01L25.27 23.86Z"/>'],
+    "xmark.circle": [29, 29, '<circle cx="14.48" cy="14.53" r="11.27" stroke-width="2.44"/><path stroke-width="2.13" d="M10.48 10.54L18.47 18.53M18.47 10.54L10.48 18.53"/>'],
     checkmark: [28, 27, '<path stroke-width="2.42" d="M4.19 14.36L11.28 24.09L23.53 3.62"/>'],
 } as const;
 
@@ -116,7 +118,7 @@ function symbol(name: keyof typeof SYMBOLS, drawn = true): HTMLElement {
  */
 function roundLabels(pills: readonly HTMLElement[]): void {
     const round = (): void => {
-        const labels = pills.filter(pill => pill.isConnected).flatMap(pill => [...pill.querySelectorAll<HTMLElement>(".browse-panel-text, .browse-control-detail")]);
+        const labels = pills.filter(pill => pill.isConnected).flatMap(pill => [...pill.querySelectorAll<HTMLElement>(".browse-panel-text, .browse-control-detail, .browse-control-count")]);
         for (const label of labels) label.style.width = "";
         const widths = labels.map(label => Math.ceil(label.getBoundingClientRect().width / scaleOf(label)));
         labels.forEach((label, index) => { label.style.width = `${widths[index]}px`; });
@@ -231,9 +233,10 @@ export function browsePage(route: LibraryRoute, state: DiscoveryState, handlers:
         content.push(skeleton);
     } else if (state.emptyReason === "noFilterMatches") {
         // TVLibraryGridView.emptyState .noFilterMatches (:268-284): Clear filters keeps the sort.
-        const clear = row("clear-filters", [icon("clear"), "Clear filters"], () => handlers.browse(route, { filter: { ...reset(filter), prefix: undefined }, focus: { zone: "controls", key: "sort" } }));
+        const clear = row("clear-filters", [symbol("xmark.circle"), "Clear filters"], () => handlers.browse(route, { filter: { ...reset(filter), prefix: undefined }, focus: { zone: "controls", key: "sort" } }));
         const empty = el("div", "browse-empty-state");
         empty.append(emptyState("line.3.horizontal.decrease.circle", "No titles match your filters"), zoneNode("browse-empty-actions", [clear]));
+        roundLabels([clear.element]);
         content.push(empty);
         zones.push({ id: "empty", layout: "row", up: "controls", right: "letters", items: [clear] });
         zones[0] = { ...controlZone, down: "empty" };
@@ -248,11 +251,17 @@ export function browsePage(route: LibraryRoute, state: DiscoveryState, handlers:
     // TVLibraryGridView.swift:98-108, :185, :230: the column is at least the grid plus 80 + 80 padding. With the rail (18 closed,
     // 96 open, TVAlphabetRail.swift:67) and 32 trailing it can overflow the 1920 screen, and the HStack centres, so the column
     // moves left by half the overflow and the rail right by the same.
-    const minimum = feedGridMinWidth(handlers.gridColumns, handlers.context.posterScale?.() ?? 1) + 160;
-    const shift = (railWidth: number): string => `${Math.max(0, minimum + railWidth + 32 - 1920) / 2}px`;
+    // Only the grid's fixed cards (and their placeholders) hold the column that wide. Without them the column is the screen less
+    // the rail and nothing overflows: the controls and rail stay put, and a full-width centred block moves to the column's centre.
+    const fixed = (page !== undefined && page.items.length > 0) || (page === undefined && route.failure === undefined);
+    const minimum = fixed ? feedGridMinWidth(handlers.gridColumns, handlers.context.posterScale?.() ?? 1) + 160 : 0;
+    const shift = (node: HTMLElement, railWidth: number): string => {
+        const overflow = Math.max(0, minimum + railWidth + 32 - 1920) / 2;
+        return `${fixed || node === content[0] || node === rail.node ? overflow : (railWidth + 32) / 2}px`;
+    };
     for (const node of [...content, rail.node]) {
-        node.style.setProperty("--browse-shift", shift(18));
-        node.style.setProperty("--browse-shift-open", shift(96));
+        node.style.setProperty("--browse-shift", shift(node, 18));
+        node.style.setProperty("--browse-shift-open", shift(node, 96));
     }
     content.push(rail.node);
     zones.push({ id: "letters", layout: "column", left: railLeft, up: "letters", down: "letters", items: letters });

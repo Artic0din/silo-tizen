@@ -1571,7 +1571,11 @@ svg.library-empty-icon { width: auto; }
    Apple's 22pt padding sits inside a 1pt strokeBorder (:588, :598-603), so the CSS border takes 1 of the 22. The labels keep Inter's
    own spacing: at the capped size it sets "Sort · Title A–Z", "Filter" and "Shuffle" within 1px of SF Pro, where the app's tighter tracking runs 2 to 3px short. */
 .browse .browse-controls .browse-button { display: flex; align-items: center; height: 53px; margin: 0 16px 0 0; padding: 0 21px; border: 1px solid rgba(255,255,255,.09); border-radius: 27px; background: rgba(255,255,255,.07); color: #ededed; font-size: calc(24px * var(--silo-sf-cap-scale)); font-weight: 500; transition: transform 120ms ease-out, background-color 120ms ease-out, color 120ms ease-out; }
-.browse .browse-controls .browse-button > * { letter-spacing: 0; }
+.browse .browse-controls .browse-button > *, .browse .browse-empty-actions .browse-button > * { letter-spacing: 0; }
+/* SF Mono advances 0.618em and Roboto Mono 0.6em, so the count takes the difference as tracking (TVBrowseFilterUI.swift:51). */
+.browse .browse-controls .browse-button > .browse-control-count { letter-spacing: .33px; }
+/* Inter sets "Clear filters" 1.6px wider than SF Pro's 121.6, which rounds it up two points; -0.13px keeps Apple's 122 (205 pill). */
+.browse .browse-empty-actions [data-focus="clear-filters"] .browse-panel-text { letter-spacing: -.13px; }
 /* Inter sets "Shuffle" 0.67px narrower than SF Pro, which rounds it down a whole point; 0.1px keeps Apple's 77 (165 pill). */
 .browse .browse-controls [data-focus="shuffle"] .browse-panel-text { letter-spacing: .1px; }
 .browse .browse-controls .browse-button[aria-pressed="true"] { background: rgba(255,255,255,.14); }
@@ -1579,7 +1583,7 @@ svg.library-empty-icon { width: auto; }
 .browse-icon { display: inline-block; width: 24px; height: 24px; margin-right: 10px; flex-shrink: 0; }
 .browse-icon svg { display: block; width: 100%; height: 100%; }
 /* TVBrowseControlRow's HStack(spacing: 10) between symbol and text (TVBrowseFilterUI.swift:34, :46, :65); the panel rows' 14 is the Sort panel's. */
-.browse-controls .browse-panel-row .browse-icon { margin-right: 10px; }
+.browse-controls .browse-panel-row .browse-icon, .browse-empty-actions .browse-panel-row .browse-icon { margin-right: 10px; }
 /* TVBrowseControlRow keeps sortDirection in siloSecondaryText (#99EDEDED).
    The focused pill fill is siloOnSurface (#EDEDED), so that direction disappears. */
 .browse-control-detail { margin-left: 10px; color: rgba(237,237,237,.6); }
@@ -1604,7 +1608,7 @@ svg.library-empty-icon { width: auto; }
    0.125px apart, sets the same width where the app's tighter tracking ran 15px short. */
 .browse-empty-state .library-empty-title { letter-spacing: .125px; }
 .browse-empty-actions { display: flex; justify-content: center; }
-.browse .browse-empty-actions .browse-button { display: flex; align-items: center; height: 53px; margin: 0; padding: 0 22px; border: 1px solid rgba(255,255,255,.09); border-radius: 27px; background: rgba(255,255,255,.07); color: #ededed; font-size: calc(24px * var(--silo-sf-cap-scale)); font-weight: 500; transition: transform 120ms ease-out, background-color 120ms ease-out, color 120ms ease-out; }
+.browse .browse-empty-actions .browse-button { display: flex; align-items: center; height: 53px; margin: 0; padding: 0 21px; border: 1px solid rgba(255,255,255,.09); border-radius: 27px; background: rgba(255,255,255,.07); color: #ededed; font-size: calc(24px * var(--silo-sf-cap-scale)); font-weight: 500; transition: transform 120ms ease-out, background-color 120ms ease-out, color 120ms ease-out; }
 .browse .browse-empty-actions .browse-button:focus { background: #ededed; color: #000; border-color: transparent; transform: scale(1.04); }
 /* TVAlphabetRail: collapsed width 18, centred in the 1020pt column. Each LetterButton is a 10×10
    monospaced semibold 10pt glyph at opacity 0.35 (SiloTheme.Skyline, LetterButton). The selected

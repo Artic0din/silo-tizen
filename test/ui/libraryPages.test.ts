@@ -509,6 +509,53 @@ page("Sort keeps Apple's text: monospaced eyebrow, capped rows and a quiet direc
     assert.deepEqual(await style(tv, '[data-focus="sort:title"] .browse-panel-detail + .browse-icon', "width", "opacity"), { width: "26px", opacity: "1" });
 });
 
+page("with no grid, Browse keeps the plain 1870 column: pills at 80, the rail at its edge, the block at the column's centre", async (tv, catalog) => {
+    // TVLibraryGridView.swift:98-108, :206-213 (5780c84): only the grid's 260 cards hold the column at 1920. A no-matches page
+    // has nothing that wide, so the column is 1920 - 18 - 32 and nothing overflows; its centred block follows the column.
+    await tv.page.emulateMedia({ reducedMotion: "reduce" });
+    await openBrowse(tv);
+    await tv.page.locator(".catalog-grid .browse-card").first().waitFor();
+    catalog.failNext("/catalog/query", { status: 200, body: emptyPage });
+    await chooseLetter(tv, "Q");
+    await tv.page.locator(".browse-empty-state .library-empty").waitFor();
+    const layout = () => tv.page.evaluate(() => {
+        const box = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
+        const icon = box(".browse-empty-state .library-empty-icon"), rail = box(".browse-letters");
+        return { controls: box(".browse-controls").left, rail: [rail.left, rail.right], centre: (icon.left + icon.right) / 2 };
+    });
+    await tv.page.locator('[data-focus="clear-filters"]').focus();
+    assert.deepEqual(await layout(), { controls: 80, rail: [1870, 1888], centre: 935 });
+    await tv.page.locator('[data-focus="letter:Q"]').focus();
+    await tv.page.waitForTimeout(300);
+    assert.deepEqual(await layout(), { controls: 80, rail: [1792, 1888], centre: 896 });
+});
+
+page("Clear filters and a counted Filter pill keep Apple's widths", async (tv, catalog) => {
+    // TVLibraryGridView.swift:276-283: xmark.circle and "Clear filters" at 24pt medium, 22 + 29 + 10 + 122 + 22 = 205.
+    // TVBrowseFilterUI.swift:46-56: the count is 18pt bold SF Mono, 8 either side, so "1" makes a 28 badge and a 177 pill.
+    await openBrowse(tv);
+    await tv.page.locator(".catalog-grid .browse-card").first().waitFor();
+    await tv.page.locator('[data-focus="filter"]').focus();
+    await tv.page.keyboard.press("Enter");
+    await tv.page.locator('[data-focus="facet:genre"]').focus();
+    await tv.page.keyboard.press("Enter");
+    catalog.failNext("/catalog/query", { status: 200, body: emptyPage });
+    await tv.page.locator('[data-focus="value:Drama"]').focus();
+    await tv.page.keyboard.press("Enter");
+    await tv.remote(37);
+    await tv.page.locator('[data-focus="done"]').focus();
+    await tv.page.keyboard.press("Enter");
+    await tv.page.locator('[data-focus="clear-filters"]').waitFor();
+    await tv.page.locator(".browse-letters .browse-button").first().focus();
+    await tv.page.waitForTimeout(300);
+    const widths = await tv.page.evaluate(() => {
+        const width = (selector: string) => document.querySelector(selector)!.getBoundingClientRect().width;
+        const icon = document.querySelector('[data-focus="clear-filters"] .browse-icon')!.getBoundingClientRect();
+        return { clear: width('[data-focus="clear-filters"]'), clearSymbol: [icon.width, icon.height], filter: width('[data-focus="filter"]'), badge: width(".browse-control-count") };
+    });
+    assert.deepEqual(widths, { clear: 205, clearSymbol: [29, 29], filter: 177, badge: 28 });
+});
+
 page("Sort rows keep Apple's 26pt checkmark frame, so labels start 58 into the row", async tv => {
     // TVBrowseFilterUI.swift:132-147 (5780c84): HStack(spacing: 14) { checkmark, label } inside 16 padding. The 26pt regular
     // checkmark's image is 28×27, and rows without it keep the same frame at opacity 0.

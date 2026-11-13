@@ -373,6 +373,29 @@ for (const move of ["down", "up"] as const) detailTest(`a Details repaint during
     assert.ok(Math.abs(heading - expected) <= 3, `the Cast heading rests at ${expected} px, not ${heading}`);
 });
 
+detailTest("a Details repaint during an Up move to Trailers that interrupted a move down keeps Trailers at its Up anchor", async tv => {
+    const catalog = tv.fake.catalog; assert.ok(catalog instanceof FakeDetails);
+    catalog.videos = [{ site_key: "trailer-key", site: "YouTube", kind: "trailer", name: "Trailer" }];
+    // A held answer repaints Details when it is released, which here lands while the focus scroll runs.
+    const late = tv.fake.hold("/favorites/movie%3Am0001/membership");
+    await tv.page.locator(MOVIE).first().click();
+    await tv.page.locator('[data-detail-section="related"] [data-focus]').first().waitFor();
+    await tv.page.locator('.details-extras [data-focus]').first().waitFor();
+    await tv.eventually(() => tv.page.evaluate(() => document.activeElement?.closest(".details-editorial") !== null), "the hero actions take focus");
+    await tv.remote(40); await tv.jump(500);
+    assert.match(await tv.focused() ?? "", /^credit:/);
+    // Down to Trailers and Related, then Up to Trailers, before a frame runs: the page still has to scroll down to
+    // reach Trailers, although focus moved up.
+    await pauseTvClock(tv);
+    await tv.remote(40); await tv.remote(40); await tv.remote(38);
+    assert.equal(await tv.page.evaluate(() => document.activeElement?.closest(".details-extras") !== null), true, "Trailers has focus");
+    late.release();
+    await tv.eventually(async () => tv.fake.paths().some(path => path.startsWith("GET /favorites/movie%3Am0001/membership")) && tv.pendingReplies === 0, "the favorite answer");
+    await tv.jump(1000);
+    const heading = await tv.page.evaluate(() => (document.querySelector(".details-extras")?.previousElementSibling?.getBoundingClientRect().top ?? 0) - (document.querySelector(".browse")?.getBoundingClientRect().top ?? 0));
+    assert.ok(Math.abs(heading - 111) <= 3, `the Trailers heading rests at Apple's 111 px Up anchor, not ${heading}`);
+});
+
 detailTest("a box set row that lands above Related during the move down to it still leaves Related at its anchor", async tv => {
     const catalog = tv.fake.catalog; assert.ok(catalog instanceof FakeDetails);
     catalog.searchCapabilities = { ...catalog.searchCapabilities, box_sets: true };

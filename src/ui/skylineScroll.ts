@@ -78,6 +78,8 @@ export interface Motion {
     readonly start: number;
     readonly duration: number;
     readonly ease: (progress: number) => number;
+    /** Whether focus moved up, for a reveal that chose its anchor by that direction. */
+    readonly up?: boolean;
 }
 
 export class SkylineScroll {
@@ -88,6 +90,8 @@ export class SkylineScroll {
     private readonly frames = new Map<HTMLElement, number>();
     private readonly targets = new WeakMap<HTMLElement, { left: number; top: number }>();
     private readonly motions = new WeakMap<HTMLElement, Motion>();
+    /** The focus direction of the reveal now calling `move`, when it chose its anchor by it. */
+    private revealUp: boolean | undefined;
     /** While set, `move` records each target here instead of moving. */
     private planned: Map<HTMLElement, { left: number; top: number }> | undefined;
     /** Shelf already bottom-aligned. Horizontal moves inside it do not scroll again. */
@@ -157,7 +161,7 @@ export class SkylineScroll {
             return;
         }
         if (previous === undefined) node.dispatchEvent(new Event(SCROLL_START_EVENT));
-        this.run(node, { fromLeft, fromTop, left, top, start: performance.now(), duration, ease });
+        this.run(node, { fromLeft, fromTop, left, top, start: performance.now(), duration, ease, ...(this.revealUp === undefined ? {} : { up: this.revealUp }) });
     }
 
     /** The move `node` is making now. */
@@ -271,7 +275,8 @@ export class SkylineScroll {
             // A section fully reachable on the unscrolled page needs no upward reveal.
             const artwork = element.querySelector('.browse-art');
             const visibleAtTop = headingTop >= 0 && viewport.scrollTop + (artwork ?? element).getBoundingClientRect().bottom - bounds.top <= viewport.clientHeight;
-            this.move(viewport, 0, up && visibleAtTop ? 0 : Math.max(0, headingTop - target));
+            this.revealUp = up;
+            try { this.move(viewport, 0, up && visibleAtTop ? 0 : Math.max(0, headingTop - target)); } finally { this.revealUp = undefined; }
             return;
         }
         const shelf = element.closest<HTMLElement>('[data-scroll-align="bottom"]');

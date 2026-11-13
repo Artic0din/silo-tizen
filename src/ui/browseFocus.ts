@@ -248,9 +248,10 @@ export class FocusHost {
             this.applyVisit(visit);
             if (revealing !== undefined) {
                 // Rows the repaint added or removed above the focused one move its anchor: aim there, shifting the whole
-                // curve so the move keeps its remaining time.
+                // curve so the move keeps its remaining time. The reveal's own focus direction wins over the scroll's:
+                // an Up move that interrupted a move down can still scroll down.
                 const element = this.locate(document.activeElement)?.item.element;
-                const aim = element === undefined ? undefined : this.scroll.revealTarget(element, this.container, revealViewport, revealing.top < revealing.fromTop);
+                const aim = element === undefined ? undefined : this.scroll.revealTarget(element, this.container, revealViewport, revealing.up ?? revealing.top < revealing.fromTop);
                 this.scroll.resume(revealViewport, aim === undefined ? revealing : { ...revealing, fromLeft: revealing.fromLeft + aim.left - revealing.left, fromTop: revealing.fromTop + aim.top - revealing.top, left: aim.left, top: aim.top });
             }
             const element = this.locate(document.activeElement)?.item.element;

@@ -566,6 +566,12 @@ browseTest("Search keyboard starts each Search on letters, types AltGr character
     assert.equal(await query(), "ł");
     await keydown({ key: "l", code: "KeyL", ctrlKey: true });
     assert.equal(await query(), "ł", "a Ctrl shortcut types nothing");
+    // Delete removes whole characters: a supplementary-plane character and a letter with a combining accent.
+    await tv.search("ł𠮷e\u0301");
+    await press(tv, "Backspace");
+    assert.equal(await query(), "ł𠮷");
+    await press(tv, "Backspace");
+    assert.equal(await query(), "ł");
     // The 123 page ends with tvOS's keyboard switch before delete.
     await press(tv, "ArrowLeft", "ArrowLeft", "Enter");
     for (let step = 0; step < 27; step++) await press(tv, "ArrowRight");

@@ -18,6 +18,14 @@ const IME_CANCEL = 65385;
 const REMOTE_BACK = 10009;
 /** What Chromium reports for a key press an input method is processing. */
 const IME_PROCESSING = 229;
+const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
+/** The query without its last character as a reader sees it, never half of a surrogate pair or accent sequence. */
+function withoutLast(query: string): string {
+    let last = 0;
+    for (const { index } of graphemes.segment(query)) last = index;
+    return query.slice(0, last);
+}
 
 export interface SearchKeyboard {
     readonly element: HTMLElement;
@@ -97,7 +105,7 @@ export function searchKeyboard(input: HTMLInputElement, repaint: (focus?: FocusT
     const space = key("key:space", "search-key-label search-key-space", "SPACE", "Space", () => type(" "));
     const language = key("key:language", "search-key-language", "", "Other languages", () => startEditing("key:language"));
     language.element.innerHTML = GLOBE_ICON;
-    const remove = key("key:delete", "search-key-delete", "", "Delete", () => edit(query => query.slice(0, -1)));
+    const remove = key("key:delete", "search-key-delete", "", "Delete", () => edit(withoutLast));
     remove.element.innerHTML = DELETE_ICON;
     const letters = LETTERS.map(letter => key(`key:${letter}`, "", letter, undefined, () => type(letter)));
     const marks = [...SYMBOLS.map(mark => key(`key:${mark}`, "", mark, undefined, () => type(mark))), language];
@@ -129,7 +137,7 @@ export function searchKeyboard(input: HTMLInputElement, repaint: (focus?: FocusT
         // The remote's number keys arrive with only a key code.
         const text = event.key.length === 1 ? event.key : event.keyCode >= 48 && event.keyCode <= 57 ? String(event.keyCode - 48) : undefined;
         if (text !== undefined) { event.preventDefault(); type(text); }
-        else if (event.key === "Backspace") { event.preventDefault(); edit(query => query.slice(0, -1)); }
+        else if (event.key === "Backspace") { event.preventDefault(); edit(withoutLast); }
     });
     let claimed = false;
     const claim = (on: boolean): void => {

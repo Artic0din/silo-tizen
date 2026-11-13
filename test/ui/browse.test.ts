@@ -842,10 +842,12 @@ for (const size of ["compact", "standard", "large"] as const) {
         }));
         assert.equal(geometry.filter(card => card.top === geometry[0]?.top).length, columns);
         for (let index = 1; index < columns; index++) assert.ok(geometry[index]!.left >= geometry[index - 1]!.right, "adjacent posters do not overlap");
-        // TVCatalogGrid.columnSpacing 40 between cards; the column starts at the tvOS safe area 80 + SearchView's 110 + SiloTheme.padding 48.
+        // TVCatalogGrid.columnSpacing 40 between cards. A full row is an HStack of cards no narrower than they are, so a row
+        // wider than the 1444 px column (from x 238) is centred on it: standard 1520 px rows start at 200, large 1480 px at 220.
         for (let index = 1; index < columns; index++) assert.ok(Math.abs(geometry[index]!.left - geometry[index - 1]!.right - 40) < 0.5, `gap ${geometry[index]!.left - geometry[index - 1]!.right}`);
-        assert.ok(Math.abs(geometry[0]!.left - 238) < 0.5, `leading edge ${geometry[0]!.left}`);
-        if (size === "standard") assert.deepEqual(geometry.slice(0, 4).map(card => Math.round(card.left)), [238, 498, 758, 1018], "Apple's measured 260 px pitch");
+        const leading = { compact: 238, standard: 200, large: 220 }[size];
+        assert.ok(Math.abs(geometry[0]!.left - leading) < 0.5, `leading edge ${geometry[0]!.left}, expected ${leading}`);
+        if (size === "standard") assert.deepEqual(geometry.slice(0, 4).map(card => Math.round(card.left)), [200, 460, 720, 980], "Apple's centred 260 px pitch for full rows");
         const reads = tv.fake.requests.length;
         await cards.first().focus(); await press(tv, "ArrowDown");
         assert.equal(await tv.focused(), await cards.nth(columns).getAttribute("data-focus"));
@@ -1827,6 +1829,20 @@ browseTest("Search centres a truncated caption under its poster and keeps the fu
     await tv.page.getByRole("button", { name: /Law & Order: Special Victims Unit/ }).waitFor();
     assert.equal(await tv.page.evaluate(() => (window as unknown as { scrollWidthReads: number }).scrollWidthReads), 0, "fitting measures off the DOM instead of reflowing the grid per step");
 });
+
+browseTest("Search starts a grid with fewer cards than a row at x 238 and a grid of full rows at x 200", async tv => {
+    await tv.page.locator('[data-focus="search"]').click();
+    // A short row's empty columns are flexible spacers, so its cards keep the column's leading edge (TVCatalogGrid.swift:135-141).
+    await tv.page.fill("#browse-search", "Movie 000"); await tv.remote(IME_DONE);
+    await tv.page.locator('.search-scene > .browse-grid [data-focus="movie:m0003"]').waitFor();
+    const lefts = (): Promise<number[]> => tv.page.locator(".search-scene > .browse-grid .browse-card").evaluateAll(nodes => nodes.slice(0, 3).map(node => Math.round(node.getBoundingClientRect().left)));
+    await tv.page.fill("#browse-search", "Movie 0001"); await tv.remote(IME_DONE);
+    await tv.eventually(async () => await tv.page.locator(".search-scene > .browse-grid .browse-card").count() === 1, "a one-card result");
+    assert.deepEqual(await lefts(), [238], "a row with empty columns starts at the column's edge");
+    await tv.page.fill("#browse-search", "Movie 00"); await tv.remote(IME_DONE);
+    await tv.eventually(async () => await tv.page.locator(".search-scene > .browse-grid .browse-card").count() > 6, "full rows");
+    assert.deepEqual(await lefts(), [200, 460, 720], "full rows are centred");
+}, { catalog: new SearchCatalog(60) });
 
 browseTest("Search counts results from the response total without an estimate marker", async (tv, catalog) => {
     await tv.page.locator('[data-focus="search"]').click();

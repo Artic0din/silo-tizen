@@ -280,6 +280,10 @@
 .search-scene .search-filters .browse-button:focus { transform: none; color: #000; background: #ededed; }
 .search-scene .search-count { margin: 0 162px 24px; font-size: calc(22px * var(--silo-sf-cap-scale)); line-height: 27px; }
 /* The first poster sits at x 238: the tvOS safe area 80, SearchView's 110 and SiloTheme.padding 48 (SearchView.swift:52, :64, :337). */
+/* TVCatalogGrid rows are HStacks of cards that cannot shrink. A full row wider than the 1444 px column (x 238 to 1682) overflows
+   it equally on both sides, as SwiftUI centres an oversized child; a row with empty columns fills them with flexible spacers
+   and keeps the column's edge (TVCatalogGrid.swift:100-144). */
+.search-scene > .browse-grid[data-full-row="true"] { margin-left: calc(153px - max(0px, (var(--search-columns, 6) * 220px * var(--poster-scale, 1) + (var(--search-columns, 6) - 1) * 40px - 1444px) / 2)); }
 .search-scene > .browse-grid { width: max-content; margin: 0 153px; padding: 24px 9px 20px; grid-template-columns: repeat(var(--search-columns, 6), calc(220px * var(--poster-scale, 1))); column-gap: 40px; row-gap: 60px; justify-content: start; }
 .search-scene .browse-grid .browse-card { width: calc(220px * var(--poster-scale, 1)); margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
 .search-scene .browse-grid .browse-art { width: calc(220px * var(--poster-scale, 1)); height: calc(330px * var(--poster-scale, 1)); border-radius: 12px; }

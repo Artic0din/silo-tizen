@@ -231,7 +231,8 @@ People uses profile-scoped `GET /catalog/people?q&media_scope&limit=20` only aft
 Its independent read cannot hide usable titles on failure and shows no separate error or retry control; a new query tries People again.
 Pending People prevents premature No results but never hides a catalog error or Try Again.
 The title grid and remote row navigation use five columns for large posters and six for standard or compact posters.
-Cards sit 40 px apart, 260 px from one card's leading edge to the next at the standard size, with the first at x 238, as `TVCatalogGrid` places them inside Search's column.
+Cards sit 40 px apart, 260 px from one card's leading edge to the next at the standard size, as `TVCatalogGrid` places them inside Search's 1444 px column (x 238 to 1682).
+A grid with fewer cards than a row starts at x 238; a grid of full rows wider than the column (standard 1520 px, large 1480 px) is centred on it, starting at x 200 or 220, as SwiftUI centres a row that cannot shrink.
 People cards use real person IDs, with no reads on focus.
 People and supplementary Requests retain the logical scroll frame while painting whole cards that intersect its edges, matching the native lazy rails.
 Remote navigation reaches all loaded cards; visibility observers are released when the query or route replaces a rail.

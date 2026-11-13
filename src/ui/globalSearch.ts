@@ -33,6 +33,8 @@ function lockSearchColumns(node: HTMLElement, columns: number): void {
     node.style.setProperty("--search-columns", String(columns));
     node.style.gridTemplateColumns = `repeat(${columns}, calc(220px * var(--poster-scale, 1)))`;
     node.style.width = "max-content";
+    // A full row is wider than its cards' column in SwiftUI only when it cannot shrink; browse.css centres it then.
+    node.dataset.fullRow = String(node.childElementCount >= columns);
 }
 
 export function searchRequestCatalogId(title: RequestTitle): string | undefined {

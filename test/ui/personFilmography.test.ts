@@ -236,9 +236,12 @@ journey("card quick-actions refresh full Filmography's committed page and retain
 
     await grid(tv).nth(5).focus();
     await tv.down(13); await tv.jump(650); await tv.up(13);
-    // The person grid reads the card's item before its menu opens; the removal lands before the change's reread.
+    // The person grid reads the card's item before its menu opens. Wait for the menu, so the removal lands after that read
+    // and before the change's reread: on a slow runner the read would otherwise find the title gone and show an alert.
+    const favorite = tv.page.getByRole("menu").getByRole("menuitem", { name: "Add to Favorites", exact: true });
+    await favorite.waitFor();
     catalog.removed.add(id);
-    await tv.page.getByRole("menu").getByRole("menuitem", { name: "Add to Favorites", exact: true }).click();
+    await favorite.click();
     await tv.eventually(async () => await tv.focused() === nearby, "nearby Filmography focus");
     assert.equal(queries(tv).slice(-2)[0]?.body?.cursor, undefined, "refresh starts at page one and retains loaded depth");
     assert.equal(lastQuery(tv)?.body?.person_id, "7");

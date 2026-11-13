@@ -156,7 +156,8 @@ For browse roots the chain is (`Skyline.back`, `Skyline.onKey`):
    Focus returns to the anchoring bar item, and the menu stays dismissed until focus leaves that anchor or the viewer presses Down again.
 2. Focus inside content moves to the selected tab in the navigation bar.
 3. Focus on the bar, on any root other than Home, switches to Home.
-4. Focus on the bar at Home: `back()` returns `false`, nothing prevents the event, and `app.ts` opens the Exit dialog.
+4. Focus on the bar at Home, on Search, another tab or the avatar, moves to the Home tab (`handleExitPress`).
+5. Focus on the Home tab at Home: `back()` returns `false`, nothing prevents the event, and `app.ts` opens the Exit dialog.
 
 Other layers:
 

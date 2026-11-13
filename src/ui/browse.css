@@ -898,7 +898,8 @@
 .skyline-profile-header .navigation-avatar { background: rgba(255,255,255,.16); color: #fff; }
 .skyline-profile-labels { min-width: 0; }
 .skyline-profile-title { font-size: 24px; font-weight: 600; line-height: 29px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.skyline-profile-server { font-family: monospace; font-size: 14px; line-height: 18px; letter-spacing: 1.4px; color: rgba(255,255,255,.38); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* SF Mono 14 tracked 1.4 (TVTopMenuBar.swift:1240-1245 at silo-apple 5780c84). Roboto Mono advances 0.6em to SF Mono's 0.618em, so the line adds the 0.25 px difference. */
+.skyline-profile-server { font-family: var(--silo-mono); font-size: 14px; line-height: 18px; letter-spacing: 1.65px; color: rgba(255,255,255,.38); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .skyline-menu-divider { height: 1px; background: rgba(255,255,255,.12); margin: 10px 12px; }
 :is(.skyline-selector, .skyline-selector-leaving) .skyline-destructive { color: #ff453a; }
 :is(.skyline-selector, .skyline-selector-leaving) .skyline-destructive:focus { background: #fff; color: #000; }

@@ -27,7 +27,7 @@ test("profile Requests is gated by the server and its row disappears when reques
         const fake = await start(tv, new FakeRequests(), true);
         assert.equal(await tv.page.locator('.browse-nav [data-focus="requests"]').count(), 0);
         await button(tv, "profiles").click();
-        assert.deepEqual(await tv.page.locator('.skyline-selector [role="menuitem"]').allTextContents(), ["Switch Profile", "History", "Requests", "Settings", "Sign Out"]);
+        assert.deepEqual(await tv.page.locator('.skyline-selector [role="menuitem"]').allTextContents(), ["History", "Requests", "Settings", "Switch Profile", "Sign Out"]);
         await openRequests(tv);
         await button(tv, "movie:949").waitFor();
         fake.enabled = false;

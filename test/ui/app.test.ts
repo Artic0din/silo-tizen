@@ -406,6 +406,26 @@ appTest("Switch Profile still shows one PIN-less profile", async tv => {
     assert.equal(await tv.page.locator(".profile-avatar").count(), 1);
 });
 
+// ProfileMenuRow.row (silo-apple 5780c84 `Components/ProfileMenuRow.swift:22-28`): an account whose cached list holds one
+// profile has nothing to switch to, so the menu offers Add Profile, which opens profile creation.
+appTest("an account with one profile offers Add Profile in Switch Profile's place, and it opens profile creation", async tv => {
+    const owner = profileItems(tv).find(item => item.id === "p-owner");
+    assert.ok(owner);
+    tv.fake.profiles = { ...tv.fake.profiles, items: [owner] };
+    await tv.page.fill("#signin-address", "silo.example.test");
+    await tv.page.getByRole("button", { name: "Connect", exact: true }).click();
+    await tv.page.locator('[data-screen="code"]').waitFor();
+    // A single PIN-less profile skips the picker.
+    await approveSignIn(tv, [...tv.fake.devices.keys()].pop()!, '[data-view="home"], [data-screen="remember-profile"]');
+    if (await tv.screen() === "remember-profile") await tv.page.locator('[data-focus="ask-every-launch"]').click();
+    await tv.page.locator('[data-view="home"] [data-focus="movie:m0001"]').first().waitFor();
+    await tv.page.locator('[data-focus="profiles"]').click();
+    assert.deepEqual(await tv.page.locator('.skyline-selector [role="menuitem"]').allTextContents(), ["History", "Settings", "Add Profile", "Change Account", "Sign Out"]);
+    await tv.page.locator('[data-focus="add-profile"]').click();
+    await tv.page.locator('[data-screen="profile-create"]').waitFor();
+    assert.equal(await tv.page.locator(".browse").count(), 0, "Browse has left the screen");
+});
+
 appTest("an expired session opens Change Account while another account is signed in", async tv => {
     await signIn(tv);
     await addAlex(tv);
@@ -758,7 +778,7 @@ appTest("an emoji avatar shows in the top bar, the profile menu and Settings ins
     assert.equal(await avatar.locator(".navigation-avatar-fallback").evaluate(node => getComputedStyle(node).fontSize), "26.1px", "ProfileAvatarView draws text at 45% of the 58 px avatar");
     await tv.page.locator('[data-focus="profiles"]').click();
     assert.equal(await tv.page.locator(".skyline-profile-header .navigation-avatar-fallback").textContent(), "\u{1F98A}");
-    assert.equal(await tv.focused(), "switch-profile", "opening the menu keeps focus on its first row");
+    assert.equal(await tv.focused(), "profiles", "opening the menu keeps focus on the avatar");
 });
 
 appTest("a 200-character server name keeps every sign-out dialog's buttons on screen and focusable", async tv => {
@@ -822,7 +842,7 @@ appTest("Sign Out confirmation traps focus and cancellation preserves the sessio
     const writes = tv.fake.requests.filter(request => request.method !== "GET").length;
     await tv.page.locator('[data-focus="profiles"]').click();
     assert.equal(await tv.page.locator(".skyline-profile-server").textContent(), "LIVING ROOM LIBRARY");
-    assert.equal(await tv.focused(), "switch-profile");
+    assert.equal(await tv.focused(), "profiles");
     await tv.page.locator('[data-focus="signout"]').focus();
     const focusColors = await tv.page.locator('[data-focus="signout"]').evaluate(node => [getComputedStyle(node).backgroundColor, getComputedStyle(node).color]);
     assert.deepEqual(focusColors, ["rgb(255, 255, 255)", "rgb(0, 0, 0)"], "Apple uses the common white focus platter for destructive menu rows");
@@ -1079,7 +1099,7 @@ for (const origin of ["home", "movies"] as const) appTest(`Change Account return
     const writes = tv.fake.requests.filter(request => request.method !== "GET").length;
     const sessions = tv.fake.devices.size;
     await tv.page.locator('[data-focus="profiles"]').click();
-    assert.deepEqual(await tv.page.locator('.skyline-selector [role="menuitem"]').allTextContents(), ["Switch Profile", "History", "Settings", "Change Account", "Sign Out"]);
+    assert.deepEqual(await tv.page.locator('.skyline-selector [role="menuitem"]').allTextContents(), ["History", "Settings", "Switch Profile", "Change Account", "Sign Out"]);
     assert.equal(await tv.page.getByRole("menuitem", { name: "Switch Server", exact: true }).count(), 0);
     await tv.page.getByRole("menuitem", { name: "Change Account", exact: true }).click();
     await tv.page.locator('[data-view="change-account"]').waitFor();
@@ -2003,14 +2023,14 @@ appTest("the profile menu opens without changing content, stays dismissed after 
     assert.equal(await tv.focused(), "profiles");
     assert.equal(tv.fake.requests.length, requests);
     await tv.page.keyboard.press("ArrowDown");
-    assert.equal(await tv.focused(), "switch-profile");
+    assert.equal(await tv.focused(), "history");
     await tv.remote(10009);
     await tv.jump(500);
     assert.equal(await tv.page.locator(".skyline-selector").first().isVisible(), false);
     assert.equal(await tv.focused(), "profiles");
     await tv.page.keyboard.press("Enter");
-    assert.equal(await tv.focused(), "switch-profile", "Select enters the menu immediately");
-    for (const destination of ["history", "settings", "switch-server"]) {
+    assert.equal(await tv.focused(), "profiles", "Select opens the menu and keeps focus on the avatar");
+    for (const destination of ["history", "settings", "switch-profile", "switch-server"]) {
         await tv.page.keyboard.press("ArrowDown");
         assert.equal(await tv.focused(), destination);
     }

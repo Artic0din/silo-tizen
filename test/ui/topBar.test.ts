@@ -129,7 +129,7 @@ test("Down from the avatar enters the open profile menu and leaves it for Contin
         await tv.jump(250);
         assert.equal(await tv.page.locator('[data-focus="profiles"]').getAttribute("aria-expanded"), "true", "focus opens the profile menu");
         await tv.page.keyboard.press("ArrowDown");
-        assert.equal(await tv.focused(), "switch-profile", "Down enters Switch Profile while the menu is open");
+        assert.equal(await tv.focused(), "history", "Down enters History, the first row, while the menu is open");
         await tv.remote(10009);
         assert.equal(await tv.focused(), "profiles");
         assert.equal(await tv.page.locator('[data-focus="profiles"]').getAttribute("aria-expanded"), "false");
@@ -141,15 +141,63 @@ test("Down from the avatar enters the open profile menu and leaves it for Contin
     } finally { await tv.page.context().close(); }
 });
 
-test("Down from the avatar before the dwell opens Switch Profile", async () => {
+test("Down from the avatar before the dwell opens the menu on History", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {
         await start(tv);
         await tv.page.locator('[data-focus="profiles"]').focus();
         assert.equal(await tv.page.locator('[data-focus="profiles"]').getAttribute("aria-expanded"), "false", "the dwell has not opened the menu");
         await tv.page.keyboard.press("ArrowDown");
-        assert.equal(await tv.focused(), "switch-profile", "Down before the dwell still enters Switch Profile");
+        assert.equal(await tv.focused(), "history", "Down before the dwell still enters History");
         assert.equal(await tv.page.locator('[data-focus="profiles"]').getAttribute("aria-expanded"), "true");
+    } finally { await tv.page.context().close(); }
+});
+
+// TVProfileDropdown.panel (silo-apple 5780c84 `tvOS/Navigation/TVTopMenuBar.swift:1185-1215`): History, Requests and
+// Watch Party, a divider, then Settings, the profile row, Change Account and Sign Out.
+test("the profile menu lists Apple's rows in Apple's order with the divider before Settings", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        await start(tv, null, new ProfileDestinationsCatalog(), true);
+        await tv.page.locator('[data-focus="profiles"]').focus();
+        await tv.jump(250);
+        const rows = await tv.page.locator(".skyline-selector[data-menu-kind=\"profile\"] > *").evaluateAll(nodes => nodes.map(node =>
+            node.classList.contains("skyline-menu-divider") ? "divider" : node.classList.contains("skyline-profile-header") ? "header" : node.textContent ?? ""));
+        assert.deepEqual(rows, ["header", "History", "Requests", "divider", "Settings", "Switch Profile", "Sign Out"]);
+    } finally { await tv.page.context().close(); }
+});
+
+for (const how of ["Select", "the dwell"] as const) test(`opening the profile menu with ${how} keeps focus on the avatar until Down`, async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        await start(tv);
+        const avatar = tv.page.locator('[data-focus="profiles"]');
+        await avatar.focus();
+        if (how === "Select") await tv.page.keyboard.press("Enter");
+        else await tv.jump(250);
+        assert.equal(await avatar.getAttribute("aria-expanded"), "true", "the menu is open");
+        await tv.jump(500);
+        assert.equal(await tv.focused(), "profiles", "the avatar keeps focus");
+        assert.equal(await tv.page.locator(".skyline-selector .skyline-menu-item:focus").count(), 0, "no row is highlighted");
+        if (how === "Select") {
+            await tv.page.keyboard.press("Enter");
+            assert.equal(await tv.focused(), "profiles", "a second Select leaves focus on the avatar");
+        }
+        await tv.page.keyboard.press("ArrowDown");
+        assert.equal(await tv.focused(), "history", "Down enters the first row");
+    } finally { await tv.page.context().close(); }
+});
+
+// The header's server line is SF Mono 14 with tracking 1.4 (TVTopMenuBar.swift:1240-1245). Roboto Mono advances 0.6em
+// to SF Mono's 0.618em, so the line adds the 0.25 px difference to Apple's tracking.
+test("the profile header's server line is the bundled mono face at Apple's tracking", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        await start(tv);
+        await tv.page.locator('[data-focus="profiles"]').focus();
+        await tv.jump(250);
+        const style = await tv.page.locator(".skyline-profile-server").evaluate(node => { const css = getComputedStyle(node); return [css.fontFamily.split(",")[0]?.replace(/"/g, ""), css.fontSize, css.letterSpacing]; });
+        assert.deepEqual(style, ["Roboto Mono", "14px", "1.65px"]);
     } finally { await tv.page.context().close(); }
 });
 

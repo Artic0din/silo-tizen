@@ -24,7 +24,7 @@ test("the profile menu hides Watch Party until the device turns it on", async ()
     const tv = await openTv(browser, { app: "browse" });
     try {
         await start(tv, new FakeWatchParty(), false);
-        assert.deepEqual(await menuTitles(tv), ["Switch Profile", "History", "Requests", "Settings", "Sign Out"]);
+        assert.deepEqual(await menuTitles(tv), ["History", "Requests", "Settings", "Switch Profile", "Sign Out"]);
     } finally { await tv.page.context().close(); }
 });
 
@@ -33,7 +33,7 @@ test("with the toggle on and the server allowing it, Watch Party sits after Requ
     try {
         const fake = await start(tv);
         await tv.eventually(async () => (await menuTitles(tv)).includes("Watch Party"), "Watch Party offered");
-        assert.deepEqual(await menuTitles(tv), ["Switch Profile", "History", "Requests", "Watch Party", "Settings", "Sign Out"]);
+        assert.deepEqual(await menuTitles(tv), ["History", "Requests", "Watch Party", "Settings", "Switch Profile", "Sign Out"]);
         assert.deepEqual([...new Set(fake.capabilityReads)].sort(), ["playback", "watch-together"]);
     } finally { await tv.page.context().close(); }
 });
@@ -54,7 +54,7 @@ test("the entry stays hidden unless the server gate, the room socket and both pl
             await start(tv, fake);
             await tv.eventually(async () => fake.capabilityReads.length >= 2, `${name}: probed`);
             await tv.jump(100);
-            assert.deepEqual(await menuTitles(tv), ["Switch Profile", "History", "Requests", "Settings", "Sign Out"], name);
+            assert.deepEqual(await menuTitles(tv), ["History", "Requests", "Settings", "Switch Profile", "Sign Out"], name);
         } finally { await tv.page.context().close(); }
     }
 });

@@ -58,6 +58,8 @@ export interface ProfileOptions {
 export interface ProfileScreens {
     /** Shows the profiles over the caller's content; the current profile acts until another is chosen. */
     switchProfile(): void;
+    /** Opens profile creation over the caller's content, from a fresh list; it ends on the profiles. */
+    addProfile(): void;
     signOut(): void;
     destroy(): void;
 }
@@ -275,20 +277,26 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
         show(profilePickerScreen({ profiles: list, baseUrl: server.server.http.base.baseUrl,
             accountName: session.account?.username, rememberedId: options.launch?.rememberedProfileId,
             focus: focusKey,
-            choose, changeServer: options.onChangeServer, signOut: () => askSignOut(() => showPicker(list, "signout")), back: resume(), add: () => {
-                const token = begin();
-                const flow = createProfileFlow({ server, profiles: list,
-                    show: (screen, focus) => { if (!destroyed && token === view) show(screen, focus); }, finished: (id, uncertain) => {
-                    if (destroyed || token !== view) return;
-                    creation = undefined;
-                    if (uncertain) message("profile-create-uncertain", "Check profiles", ["A creation request was sent. Check the profile list before trying again."], [button("retry", "Check profiles", () => showList("add-profile"))], () => showList("add-profile"));
-                    else showList(id ?? "add-profile");
-                } });
-                if (!destroyed && token === view) creation = flow;
-                else flow.destroy();
-            },
+            choose, changeServer: options.onChangeServer, signOut: () => askSignOut(() => showPicker(list, "signout")), back: resume(), add: () => createProfile(list),
         }));
     };
+
+    const createProfile = (list: readonly ProfileSummary[]): void => {
+        const token = begin();
+        const flow = createProfileFlow({ server, profiles: list,
+            show: (screen, focus) => { if (!destroyed && token === view) show(screen, focus); }, finished: (id, uncertain) => {
+            if (destroyed || token !== view) return;
+            creation = undefined;
+            if (uncertain) message("profile-create-uncertain", "Check profiles", ["A creation request was sent. Check the profile list before trying again."], [button("retry", "Check profiles", () => showList("add-profile"))], () => showList("add-profile"));
+            else showList(id ?? "add-profile");
+        } });
+        if (!destroyed && token === view) creation = flow;
+        else flow.destroy();
+    };
+
+    // AppRouter.beginAddProfile (silo-apple 5780c84 `Navigation/AppRouter+Accounts.swift:220-245`): a fresh list, so a PIN
+    // set on another device is asked for.
+    const addProfile = (): void => load(list => { shownList = list; createProfile(list); }, addProfile);
 
     const picker = (list: readonly ProfileSummary[], focus?: string): void => {
         begin();
@@ -575,6 +583,9 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
                 if (session.activeProfile === undefined) current = undefined;
                 showList(current?.id);
             }
+        },
+        addProfile() {
+            if (!destroyed && host === undefined && session.activeProfile !== undefined) addProfile();
         },
         destroy,
     };

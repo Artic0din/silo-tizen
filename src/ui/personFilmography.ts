@@ -54,7 +54,7 @@ export function personFilmographyView(route: Extract<Route, { kind: "person" }>,
             state.style.minHeight = `${MIN_FILMOGRAPHY_HEIGHT_PX}px`;
             content.push(state);
         }
-        const grid = feedGrid(route.pages, page, handlers.context, LOAD_MORE_ROWS * columns, handlers.busy, () => handlers.morePerson(route), columns, 260, 1600);
+        const grid = feedGrid(route.pages, page, handlers.context, LOAD_MORE_ROWS * columns, handlers.busy, () => handlers.morePerson(route), columns);
         const scale = handlers.context.posterScale?.() ?? 1;
         const node = grid.content[0];
         node?.classList.add("catalog-grid");

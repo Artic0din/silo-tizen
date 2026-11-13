@@ -266,8 +266,8 @@ function grid(current: Route, pages: Pages, page: CatalogPage, handlers: RouteHa
             next: () => handlers.turn(current, pages, 1),
         },
         current.kind === "libraryResults" && current.source.kind === "collection"
-            ? { ...handlers.context, overlays: handlers.context.cardOverlays?.(), posterWidth: 260 * (handlers.context.posterScale?.() ?? 1) }
-            : handlers.context,
+            ? { ...handlers.context, seriesYears: true, overlays: handlers.context.cardOverlays?.(), posterWidth: 260 * (handlers.context.posterScale?.() ?? 1) }
+            : { ...handlers.context, seriesYears: true },
     );
 }
 

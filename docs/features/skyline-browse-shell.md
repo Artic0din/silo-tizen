@@ -369,6 +369,7 @@ The effective `ui.card_presentation` value is read for the `tv` client family th
 The last confirmed size is cached per server/profile, a transient failure keeps it, an older incompatible server restores Standard, and optional storage failure does not block a successful in-memory answer.
 Poster badge sizes use the actual scaled artwork width; still badges retain their fixed wide-card size.
 Episode cards are captioned with their series and an `S01E02 · Pilot` line.
+A series card on Home rows and on catalog grids (library Recommended and Browse, collections, box sets, Explore all, person filmography, History and the Watch Party picker) is captioned with the years it ran, as Apple's `CardYears` does; Watchlist, Favorites and More Like This show its first year, as Apple's tvOS cards there do.
 Unfocused captions dim; focus brightens and drops the caption below a lift of the artwork only.
 Cards use Apple's shared 1.05 artwork lift and 4px white outline at 70% opacity.
 The focused shadow uses SwiftUI radius 18, converted to CSS box-shadow blur 36 px, with an 8 px vertical offset and 45% black opacity, with 120ms ease-out timing.

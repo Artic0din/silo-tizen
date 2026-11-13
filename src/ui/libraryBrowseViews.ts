@@ -210,7 +210,7 @@ export function browsePage(route: LibraryRoute, state: DiscoveryState, handlers:
     if (page !== undefined && page.items.length > 0) {
         const { preview, ...context } = handlers.context;
         void preview;
-        const grid = feedGrid(route.pages, page, context, BROWSE_LOAD_ROWS * handlers.gridColumns, handlers.busy, () => handlers.more(route), handlers.gridColumns);
+        const grid = feedGrid(route.pages, page, { ...context, seriesYears: true }, BROWSE_LOAD_ROWS * handlers.gridColumns, handlers.busy, () => handlers.more(route), handlers.gridColumns);
         content.push(...grid.content);
         // TVLibraryGridViewModel.swift:337-339: a failed later page keeps the grid and shows nothing.
         zones.push(...grid.zones.map(zone => ({ ...zone, up: "controls", down: "grid", right: "letters" })));

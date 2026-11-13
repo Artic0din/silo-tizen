@@ -1438,6 +1438,14 @@ detailTest('Related posters omit status overlays enabled in profile settings', a
     assert.equal(await tv.page.locator('[data-detail-section="related"]').getByText('RETURNING', { exact: false }).count(), 0);
 });
 
+// TVSimilarRail's TVMediaCard gets only the year (tvOS/Screens/Detail/TVSimilarRail.swift:72-76), unlike Home and catalog cards.
+detailTest('More Like This keeps a series to its first year', async tv => {
+    await tv.page.route('**/api/v2/recommendations/similar/**', route => route.fulfill({ json: { items: [{ content_id: 'series:related', type: 'series', title: 'Related Series', year: 2019, show_status: 'ended', last_air_date: '2023-05-28' }] } }));
+    await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
+    await tv.page.locator('[data-detail-section="related"] .browse-card').waitFor();
+    assert.equal(await tv.page.locator('[data-detail-section="related"] .browse-card-subtitle').textContent(), '2019');
+});
+
 detailTest('Series episode captions leave the measured 79px heading clearance', async tv => {
     await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
     await tv.page.locator('.details-episodes .browse-card-subtitle').first().waitFor();

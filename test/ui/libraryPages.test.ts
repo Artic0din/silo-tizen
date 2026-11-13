@@ -266,7 +266,8 @@ page("Browse's placeholders sit in the loaded grid's columns", async tv => {
     } finally { held.release(); }
     await tv.page.locator(".catalog-grid .browse-card").first().waitFor();
     const loaded = await geometry(".catalog-grid .browse-card .browse-art");
-    assert.deepEqual(loaded, { lefts: [80, 380, 680, 980, 1280, 1580, 80], widths: [260, 260, 260, 260, 260, 260, 260], grid: [80, 1840] });
+    // Apple TV at 5780c84 with the rail closed: columns from x55 on a 300 pitch, the last ending at x1815.
+    assert.deepEqual(loaded, { lefts: [55, 355, 655, 955, 1255, 1555, 55], widths: [260, 260, 260, 260, 260, 260, 260], grid: [55, 1815] });
     assert.deepEqual(skeleton, loaded);
 });
 
@@ -549,23 +550,40 @@ async function pixel(tv: Tv, x: number, y: number): Promise<number[]> {
 }
 const painted = (rgb: number[]) => rgb.some(channel => channel > 24);
 
-page("the open letter rail clips the grid at its left edge, as Apple's rail column does", async tv => {
-    // TVLibraryGridView.swift:98-108: the grid column and the rail share an HStack, so the open rail's 96 + 32 takes 128 from the grid.
+page("Browse sits in Apple's overflowing column and slides left as the letter rail opens", async tv => {
+    // TVCatalogGrid.swift:102-143: each cell is at least its 260 card, so the 1760 grid and TVLibraryGridView's 80 + 80 padding
+    // (:185, :230) make a 1920 column. The column, rail and 32 trailing overflow the screen in an HStack (:98-108) and centre:
+    // 50 over with the 18 rail (content from x55), 128 over with the open 96 rail (content from x16, rail chips at the edge).
     await tv.page.emulateMedia({ reducedMotion: "reduce" });
     await browseReady(tv);
-    const sixth = tv.page.locator(".catalog-grid .browse-card .browse-art").nth(5);
-    const art = await sixth.boundingBox();
-    assert.ok(art !== null);
-    assert.equal(art.x + art.width, 1840);
-    const y = Math.round(art.y + 40);
+    const layout = () => tv.page.evaluate(() => {
+        const box = (node: Element | null | undefined) => { const rect = node?.getBoundingClientRect(); return rect === undefined ? undefined : [Math.round(rect.left * 100) / 100, Math.round(rect.right * 100) / 100]; };
+        const arts = [...document.querySelectorAll(".catalog-grid .browse-card .browse-art")];
+        return { controls: box(document.querySelector(".browse-controls"))?.[0], first: box(arts[0]), sixth: box(arts[5]), rail: box(document.querySelector(".browse-letters")) };
+    });
+    assert.deepEqual(await layout(), { controls: 55, first: [55, 315], sixth: [1555, 1815], rail: [1895, 1913] });
     await tv.page.locator('[data-focus="letter:A"]').focus();
     await tv.page.waitForTimeout(300);
-    assert.deepEqual(await tv.page.locator(".browse-letters").evaluate(node => { const box = node.getBoundingClientRect(); return [box.left, box.right]; }), [1792, 1888]);
-    assert.ok(painted(await pixel(tv, 1790, y)), "the sixth card shows up to the rail");
-    assert.deepEqual(await pixel(tv, 1794, y), [0, 0, 0], "no card draws under the open rail");
+    assert.deepEqual(await layout(), { controls: 16, first: [16, 276], sixth: [1516, 1776], rail: [1856, 1952] });
+    const chips = await tv.page.evaluate(() => Object.fromEntries(["All", "#", "A", "N", "X"].map(letter => {
+        const rect = document.querySelector(`[data-focus="letter:${letter}"]`)!.getBoundingClientRect();
+        return [letter, [rect.left, rect.right, rect.top + rect.height / 2]];
+    })));
+    // Apple TV at 5780c84: All, # and A centred at y19, 61 and 103 on a 42 pitch, against the screen edge; X shows below the 1020 frame.
+    assert.deepEqual(chips, { All: [1885, 1923, 19], "#": [1885, 1923, 61], A: [1885, 1923, 103], N: [1885, 1923, 649], X: [1885, 1923, 1069] });
     await tv.page.locator(".catalog-grid .browse-card").nth(5).focus();
     await tv.page.waitForTimeout(300);
-    assert.ok(painted(await pixel(tv, 1830, y)), "the closed rail gives the grid back");
+    assert.deepEqual(await layout(), { controls: 55, first: [55, 315], sixth: [1555, 1815], rail: [1895, 1913] });
+});
+
+page("the Browse column slides with the rail's easeOut(0.18)", async tv => {
+    // TVAlphabetRail.swift:67-71: the rail's width animates, and the centred HStack moves the column with it.
+    await browseReady(tv);
+    const timing = await tv.page.evaluate(() => [".browse-controls", ".catalog-grid"].map(selector => {
+        const style = getComputedStyle(document.querySelector(selector)!);
+        return [style.transitionProperty, style.transitionDuration, style.transitionTimingFunction];
+    }));
+    assert.deepEqual(timing, [["translate", "0.18s", "ease-out"], ["translate", "0.18s", "ease-out"]]);
 });
 
 page("open rail letters draw in the packaged monospaced face", async tv => {
@@ -604,7 +622,8 @@ page("Browse pills keep Apple's padding, symbol frames and spacing", async tv =>
         { key: "shuffle", lead: 22, trail: 22, symbol: [34, 27], gaps: [10], strokes: ["2.41", "2.08"] },
     ]);
     assert.deepEqual(pills.slice(1).map((pill, index) => pill.left - pills[index]!.right), [16, 16]);
-    // Apple TV, unfocused: Sort 251, Filter 138 and Shuffle 164 wide. Inter stands in for SF Pro, so allow a pixel.
+    // Apple TV at 5780c84, unfocused: Sort 252, Filter 139 and Shuffle 165 by its edge pixels; the S95C draws 251, 138 and 164.
+    // Inter stands in for SF Pro, so allow a pixel.
     for (const [index, width] of [251, 138, 164].entries()) assert.ok(Math.abs(pills[index]!.right - pills[index]!.left - width) < 1, `${pills[index]?.key}: ${pills[index]!.right - pills[index]!.left}`);
 });
 

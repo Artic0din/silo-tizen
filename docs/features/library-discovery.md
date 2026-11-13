@@ -102,7 +102,7 @@ All 14 unpacked files matched the installed simulator files; their complete hash
 The later append-404 correction is covered by native regression tests; it changes error handling without changing this screen geometry.
 
 The library tabs offer only Apple's three destinations, Recommended, Collections and Browse (`TVLibraryPillRow.swift:7-10`); genre, A–Z and date added are Browse's filter, letter rail and sort.
-The open letter rail takes its 96 + 32 points from the grid, which ends at x1792 as Apple's grid column does (`TVLibraryGridView.swift:98-108`).
+Browse's 1920 column, the letter rail and its 32 trailing overflow the screen and centre, as Apple's HStack does at silo-apple `5780c84` (`TVLibraryGridView.swift:98-108`, `TVCatalogGrid.swift:102-143`): the pills and grid start at x55 with the rail closed and slide to x16 as it opens, and the open rail draws on through the bottom safe area.
 The rail's letters, the Sort panel's heading and the filter count use the packaged Roboto Mono in place of SF Mono, because the TV has no monospaced system face (`app/fonts/README.md`).
 All requests use the existing operations/session/NativeHttp owners and active profile authority.
 Changing mode, scope or sort starts a fresh page sequence; Back restores the previous collection or section focus.

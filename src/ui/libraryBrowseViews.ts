@@ -5,7 +5,7 @@
 import type { FocusItem, Zone } from "./browseFocus.ts";
 import type { Route, RouteHandlers } from "./browseRoutes.ts";
 import { actionButton, errorView, failureError, zoneNode } from "./browseViews.ts";
-import { feedGrid, feedGridWidth } from "./catalogFeed.ts";
+import { feedGrid, feedGridMinWidth, feedGridWidth } from "./catalogFeed.ts";
 import { activeFacetCount, canReset, cleared, directionLabel, effectiveOrder, FACETS, facetSummary, options, reset, selected, sortKey, sortKeysFor, toggled, withSort, type BrowseFilter } from "./libraryBrowse.ts";
 import type { DiscoveryState } from "./libraryDiscovery.ts";
 import { emptyState, type StateSymbol } from "./libraryStates.ts";
@@ -215,6 +215,15 @@ export function browsePage(route: LibraryRoute, state: DiscoveryState, handlers:
         const empty = el("div", "browse-empty-state");
         empty.append(emptyState(symbol, "This library is empty", "There is nothing in this library yet."));
         content.push(empty);
+    }
+    // TVLibraryGridView.swift:98-108, :185, :230: the column is at least the grid plus 80 + 80 padding. With the rail (18 closed,
+    // 96 open, TVAlphabetRail.swift:67) and 32 trailing it can overflow the 1920 screen, and the HStack centres, so the column
+    // moves left by half the overflow and the rail right by the same.
+    const minimum = feedGridMinWidth(handlers.gridColumns, handlers.context.posterScale?.() ?? 1) + 160;
+    const shift = (railWidth: number): string => `${Math.max(0, minimum + railWidth + 32 - 1920) / 2}px`;
+    for (const node of [...content, rail.node]) {
+        node.style.setProperty("--browse-shift", shift(18));
+        node.style.setProperty("--browse-shift-open", shift(96));
     }
     content.push(rail.node);
     zones.push({ id: "letters", layout: "column", left: railLeft, up: "letters", down: "letters", items: letters });

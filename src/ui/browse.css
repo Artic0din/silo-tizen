@@ -1579,18 +1579,23 @@ svg.library-empty-icon { width: auto; }
    are 15pt in 38px chips, 4 apart, in a column that scrolls to the focused letter (TVAlphabetRail.swift:43-44).
    Unfocused, unselected letters stay siloSecondaryText (:154-159). Focus and a 0.96 press animate with
    easeOut(0.12), and the chips grow with the rail's easeOut(0.18) (:71, :148-151). Monospaced text keeps Apple's points. */
-.browse-letters { position: fixed; z-index: 3; top: 0; right: 32px; width: 18px; height: 1020px; display: flex; flex-direction: column; align-items: center; justify-content: center; overflow: hidden auto; scrollbar-width: none; transition: width 180ms ease-out; }
+.browse-letters { position: fixed; z-index: 3; top: 0; right: calc(32px - var(--browse-shift, 0px)); width: 18px; height: 1020px; display: flex; flex-direction: column; align-items: center; justify-content: center; overflow: hidden auto; scrollbar-width: none; transition: width 180ms ease-out, right 180ms ease-out; }
 .browse-letters::-webkit-scrollbar { display: none; }
-/* TVLibraryGridView.swift:98-108: the grid column and the rail share an HStack, so the open rail's 96 + 32 trailing ends the grid at x1792
-   and no card draws under the letters. The grid starts at x80, so 1712 of it stays visible. */
-.library-browse .skyline-content:has(> .browse-letters:focus-within) > .catalog-grid { clip-path: inset(0 max(0px, calc(100% - 1712px)) 0 0); }
+/* TVLibraryGridView.swift:98-108 (5780c84): the 1920 column, the rail and its 32 trailing overflow the screen and centre, so the
+   column sits left by half the overflow (libraryBrowseViews.ts sets the shifts) and slides with the rail's easeOut(0.18) (TVAlphabetRail.swift:67-71).
+   translate, not transform, so the page's entrance rise still composes. Panels stay centred on the screen. */
+.library-browse .skyline-content > :not(.browse-letters, .browse-panel-scrim, .browse-panel) { translate: calc(-1 * var(--browse-shift, 0px)) 0; transition: translate 180ms ease-out; }
+.library-browse .skyline-content:has(> .browse-letters:focus-within) > :not(.browse-letters, .browse-panel-scrim, .browse-panel) { translate: calc(-1 * var(--browse-shift-open, 0px)) 0; }
+@media (prefers-reduced-motion: reduce) { .library-browse .skyline-content > * { transition-duration: 0s; } }
 .browse-letters .browse-button { flex-shrink: 0; width: 10px; height: 10px; min-height: 0; margin: 2px 0; padding: 0; border: 0; border-radius: 8px; background: transparent; color: rgba(237, 237, 237, 0.6); font-family: var(--silo-mono); font-size: 10px; font-weight: 600; line-height: 10px; opacity: 0.35; overflow: hidden; transition: background-color 120ms ease-out, color 120ms ease-out, transform 120ms ease-out, width 180ms ease-out, height 180ms ease-out, font-size 180ms ease-out, line-height 180ms ease-out; }
 .browse-letters .browse-button[data-pressed] { transform: scale(.96); }
 @media (prefers-reduced-motion: reduce) { .browse-letters, .browse-letters .browse-button { transition-duration: 0s; } .browse-letters .browse-button[data-pressed] { transform: none; } }
-.browse-letters[data-open], .browse-letters:focus-within { width: 96px; justify-content: flex-start; }
-.browse-letters:focus-within .browse-button { width: 38px; height: 38px; margin: 2px 0; border-radius: 8px; font-size: 15px; line-height: 38px; opacity: 1; }
+/* Open, the rail moves out with the overflow and, like Apple's ScrollView, draws on through the 60pt bottom safe area. */
+.browse-letters[data-open], .browse-letters:focus-within { right: calc(32px - var(--browse-shift-open, 0px)); width: 96px; padding-bottom: 60px; justify-content: flex-start; }
+.browse-letters:focus-within .browse-button { width: 38px; height: 38px; margin: 4px 0 0; border-radius: 8px; font-size: 15px; line-height: 38px; opacity: 1; }
 /* Collapsed selected chip is a plain siloOnSurface circle. The 10px box clips the glyph, and transparent ink keeps "All" from painting inside it. */
 .browse-letters .browse-button[aria-pressed="true"] { background: #ededed; color: transparent; opacity: 1; }
+.browse-letters:focus-within .browse-button:first-child { margin-top: 0; }
 .browse-letters:focus-within .browse-button[aria-pressed="true"], .browse .browse-letters:focus-within .browse-button:focus { background: #ededed; color: #000; opacity: 1; }
 /* Sort and Filter panels over a dimmed page (TVSkylinePanelChrome), centred on y510 as measured
    on the Apple TV (the tab body sits under the top bar). */

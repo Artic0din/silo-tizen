@@ -120,3 +120,24 @@ test("creation uses the borrowed profile and closing prevents another submission
     await assert.rejects(() => management.create({ name: "Another" }, new AbortController().signal), /context changed/);
     assert.equal(requests().length, 1);
 });
+
+// AddProfileFromMenu (silo-apple 5780c84 `Screens/Profiles/AddProfileFromMenu.swift:32-47, 70-83`): the form waits for
+// the primary's PIN whenever the fresh list says it has one, also when the primary is already open, and the open
+// profile stays open while the proof is renewed.
+test("an open primary whose fresh list shows a PIN asks for it before management, and stays open", async () => {
+    const { h, kid } = await household();
+    // Opened before its PIN was set: no proof.
+    h.core.profiles.select({ ...kid, hasPin: false });
+    assert.equal(activeId(h), kid.id);
+    const management = new ProfileManagement(h.core);
+    assert.equal(management.begin([{ ...kid, isPrimary: true }]), "pin_required");
+    assert.equal(activeId(h), kid.id, "the open profile stays open while the PIN is asked for");
+    await assert.rejects(management.create({ name: "Guest" }, new AbortController().signal), /context changed/);
+    const signal = new AbortController().signal;
+    assert.equal((await management.verifyPin("0000", signal)).status, "wrong_pin");
+    assert.equal(activeId(h), kid.id);
+    assert.equal((await management.verifyPin("2468", signal)).status, "verified");
+    assert.equal(activeId(h), kid.id);
+    management.close();
+    assert.equal(activeId(h), kid.id, "closing keeps the profile that was open before management");
+});

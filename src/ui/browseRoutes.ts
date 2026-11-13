@@ -39,8 +39,6 @@ export const PAGE_SIZE = 24;
 export const SEARCH_PAGE_SIZE = 60;
 /** TVCatalogGrid.prefetchRowsRemaining: the next page is read once a card this many rows from the end is on screen. */
 const SEARCH_LOAD_ROWS = 8;
-/** The Search results column (browse.css `.search-scene > .browse-grid`). */
-const SEARCH_GRID_WIDTH = 1444;
 
 export interface Pages {
     page: CatalogPage | undefined;
@@ -298,7 +296,7 @@ function searchResults(current: Extract<Route, { kind: "search" }>, handlers: Ro
         return { status: "searching" };
     }
     // One grid for every loaded page (TVCatalogGrid), keyed by this answer's pages so a new answer starts a new one.
-    const feed = feedGrid(pages, pages.page, searchCards(handlers.context), SEARCH_LOAD_ROWS * handlers.gridColumns, handlers.busy, () => handlers.moreSearch(current), handlers.gridColumns, 220, SEARCH_GRID_WIDTH);
+    const feed = feedGrid(pages, pages.page, searchCards(handlers.context), SEARCH_LOAD_ROWS * handlers.gridColumns, handlers.busy, () => handlers.moreSearch(current), handlers.gridColumns, 220);
     // Search draws its own poster grid (browse.css `.search-scene > .browse-grid`), not the catalog grid's.
     feed.content[0]?.classList.remove("catalog-grid");
     return { status: "ready", query: current.resultsFor, grid: feed };

@@ -842,7 +842,10 @@ for (const size of ["compact", "standard", "large"] as const) {
         }));
         assert.equal(geometry.filter(card => card.top === geometry[0]?.top).length, columns);
         for (let index = 1; index < columns; index++) assert.ok(geometry[index]!.left >= geometry[index - 1]!.right, "adjacent posters do not overlap");
-        if (size === "standard") assert.ok(Math.abs(geometry[1]!.left - geometry[0]!.left - 247) < 1, `pitch ${geometry[1]!.left - geometry[0]!.left}`);
+        // TVCatalogGrid.columnSpacing 40 between cards; the column starts at the tvOS safe area 80 + SearchView's 110 + SiloTheme.padding 48.
+        for (let index = 1; index < columns; index++) assert.ok(Math.abs(geometry[index]!.left - geometry[index - 1]!.right - 40) < 0.5, `gap ${geometry[index]!.left - geometry[index - 1]!.right}`);
+        assert.ok(Math.abs(geometry[0]!.left - 238) < 0.5, `leading edge ${geometry[0]!.left}`);
+        if (size === "standard") assert.deepEqual(geometry.slice(0, 4).map(card => Math.round(card.left)), [238, 498, 758, 1018], "Apple's measured 260 px pitch");
         const reads = tv.fake.requests.length;
         await cards.first().focus(); await press(tv, "ArrowDown");
         assert.equal(await tv.focused(), await cards.nth(columns).getAttribute("data-focus"));
@@ -1714,6 +1717,28 @@ browseTest("Changing an appended card's state keeps every loaded Search page and
     await tv.eventually(async () => firstPages() === before + 1, "the refresh after the change");
     await tv.eventually(async () => await tv.page.locator(".search-scene > .browse-grid .browse-card").count() >= 120 && !(await tv.page.locator(".search-scene .section-catalog-loading").count()), "the refresh reads every loaded page");
     assert.equal(await tv.focused(), "movie:m0100", "focus stays on the changed card");
+}, { catalog: new SearchCatalog(120) });
+
+browseTest("A card change refresh keeps the fresh first page when a later cursor is rejected", async tv => {
+    await tv.page.locator('[data-focus="search"]').click();
+    await tv.page.fill("#browse-search", "Movie"); await tv.remote(IME_DONE);
+    await tv.page.locator('.browse-grid [data-focus="movie:m0060"]').waitFor({ state: "attached" });
+    await tv.page.locator(".browse").evaluate(node => { node.scrollTop = node.scrollHeight; });
+    await tv.page.locator('.browse-grid [data-focus="movie:m0100"]').waitFor({ state: "attached" });
+    await tv.page.route(url => url.pathname === "/api/v2/catalog" && url.searchParams.has("cursor"), route => route.fulfill({
+        status: 400, contentType: "application/problem+json",
+        body: JSON.stringify({ type: "https://siloserver.org/docs/api/v2/problems/invalid_cursor", title: "Invalid cursor", status: 400 }),
+    }));
+    let rejected = 0;
+    tv.page.on("response", response => { if (response.status() === 400 && new URL(response.url()).searchParams.has("cursor")) rejected++; });
+    await tv.page.locator('.browse-grid [data-focus="movie:m0001"]').focus();
+    await tv.down(13); await tv.jump(650); await tv.up(13);
+    await tv.page.locator('[data-focus="watched"]').click();
+    await tv.eventually(async () => rejected >= 1, "the refresh's rejected continuation");
+    await tv.jump(500);
+    assert.equal(await tv.page.locator(".search-failure").count(), 0, "a rejected continuation does not replace the results with an error");
+    assert.ok(await tv.page.locator(".search-scene > .browse-grid .browse-card").count() >= 60, "the fresh first page stays");
+    assert.equal(await tv.focused(), "movie:m0001");
 }, { catalog: new SearchCatalog(120) });
 
 browseTest("Search counts results from the response total without an estimate marker", async (tv, catalog) => {

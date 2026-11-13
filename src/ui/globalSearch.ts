@@ -25,14 +25,14 @@ export interface SearchSupplement {
 }
 
 /**
- * Search columns keep the measured 247.333px pitch (1484 / 6). The track is
- * the poster itself, so the TV's browser cannot grow a `minmax(0, 1fr)` column
- * and open that pitch to 287px. The count is a literal so `repeat(var())`
- * cannot drop the declaration.
+ * TVCatalogGrid: poster-wide columns 40 apart (TVCatalogGrid.swift:39), 260px apart at the standard size. The track is
+ * the poster itself, so the TV's browser cannot grow a `minmax(0, 1fr)` column, and the grid is as wide as its columns.
+ * The count is a literal so `repeat(var())` cannot drop the declaration.
  */
 function lockSearchColumns(node: HTMLElement, columns: number): void {
     node.style.setProperty("--search-columns", String(columns));
     node.style.gridTemplateColumns = `repeat(${columns}, calc(220px * var(--poster-scale, 1)))`;
+    node.style.width = "max-content";
 }
 
 export function searchRequestCatalogId(title: RequestTitle): string | undefined {

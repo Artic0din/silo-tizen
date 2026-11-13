@@ -279,7 +279,8 @@
 .search-scene .search-filters .browse-button[aria-pressed="true"] { background: #454545; background-clip: padding-box; }
 .search-scene .search-filters .browse-button:focus { transform: none; color: #000; background: #ededed; }
 .search-scene .search-count { margin: 0 162px 24px; font-size: calc(22px * var(--silo-sf-cap-scale)); line-height: 27px; }
-.search-scene > .browse-grid { width: 1444px; margin: 0 162px; padding: 24px 9px 20px; grid-template-columns: repeat(var(--search-columns, 6), calc(220px * var(--poster-scale, 1))); column-gap: calc((1484px / var(--search-columns, 6)) - 220px * var(--poster-scale, 1)); row-gap: 60px; justify-content: start; }
+/* The first poster sits at x 238: the tvOS safe area 80, SearchView's 110 and SiloTheme.padding 48 (SearchView.swift:52, :64, :337). */
+.search-scene > .browse-grid { width: max-content; margin: 0 153px; padding: 24px 9px 20px; grid-template-columns: repeat(var(--search-columns, 6), calc(220px * var(--poster-scale, 1))); column-gap: 40px; row-gap: 60px; justify-content: start; }
 .search-scene .browse-grid .browse-card { width: calc(220px * var(--poster-scale, 1)); margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
 .search-scene .browse-grid .browse-art { width: calc(220px * var(--poster-scale, 1)); height: calc(330px * var(--poster-scale, 1)); border-radius: 12px; }
 .search-scene .browse-grid .browse-card-title { margin: 16px 0 0; padding: 0; font-size: calc(24px * var(--silo-sf-cap-scale)); line-height: 29px; font-weight: 600; }

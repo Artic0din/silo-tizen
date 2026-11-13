@@ -1824,7 +1824,13 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             const cursors: (string | undefined)[] = [undefined, page.nextCursor];
             const items = [...page.items], seen = new Set(items.map(item => item.id));
             while (cursors.length - 1 < depth && page.nextCursor !== undefined) {
-                page = await read(operations.listCatalogItems({ q: query.trim(), type: searchTypeFor(current, type), limit: SEARCH_PAGE_SIZE, cursor: page.nextCursor }), signal);
+                try {
+                    page = await read(operations.listCatalogItems({ q: query.trim(), type: searchTypeFor(current, type), limit: SEARCH_PAGE_SIZE, cursor: page.nextCursor }), signal);
+                } catch (error) {
+                    // The list changed under the refresh: keep the fresh pages read so far, as a restarted list does.
+                    if (signal.aborted || !(error instanceof ApiError) || error.problemId !== "invalid_cursor") throw error;
+                    break;
+                }
                 if (page.nextCursor !== undefined && cursors.includes(page.nextCursor)) throw new ApiError({ kind: "invalid_response", path: "search.page.next_cursor" });
                 for (const item of page.items) if (!seen.has(item.id)) { seen.add(item.id); items.push(item); }
                 cursors.push(page.nextCursor);

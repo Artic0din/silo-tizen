@@ -5,9 +5,24 @@ import { actionButton, artwork, errorView, failureError, homeView, homeRows, lin
 import { emptyState, pageOwner, recommendedLoading, type StateSymbol } from "./libraryStates.ts";
 import type { DiscoveryState, LibrarySource } from "./libraryDiscovery.ts";
 import { el } from "./screen.ts";
+import { fitCentredLines } from "./textLayout.ts";
 import { browsePage, icon, panelFocus, shuffleAlert } from "./libraryBrowseViews.ts";
 
 type LibraryRoute = Extract<Route, { kind: "library" }>;
+
+/**
+ * Collections and Browse captions are one tail-truncated line centred under the card (TVCollectionPosterCard.swift:108-123,
+ * TVMediaCard.swift:258-276 at silo-apple 5780c84), so they are fitted once the page is laid out and again when the font loads.
+ * Recommended's MediaCard captions are leading (MediaCard.swift:632-650), where Chromium's own ellipsis already matches.
+ */
+function fitCaptions(content: readonly HTMLElement[]): void {
+    const fit = (): void => fitCentredLines(content.filter(node => node.isConnected).flatMap(node => [...node.querySelectorAll<HTMLElement>(".catalog-grid .browse-card-title, .catalog-grid .browse-card-subtitle")]));
+    requestAnimationFrame(() => {
+        fit();
+        if (document.fonts.status !== "loaded") void document.fonts.ready.then(fit);
+    });
+}
+
 export function discoveryView(route: LibraryRoute, state: DiscoveryState, handlers: RouteHandlers): View {
     const content: HTMLElement[] = [];
     const zones: Zone[] = [];
@@ -15,6 +30,7 @@ export function discoveryView(route: LibraryRoute, state: DiscoveryState, handle
     // TVLibraryGridView draws no mode pills; Up from Sort is the top bar.
     if (state.mode === "Browse") {
         const page = browsePage(route, state, handlers);
+        fitCaptions(page.content);
         return { name: `library:${route.library.id}`, content: page.content, zones: page.zones, focus: panelFocus(state) ?? { zone: "controls", key: "sort" }, back: page.back ?? handlers.pop, ready: state.snapshot !== undefined };
     }
     const name = route.library.name;
@@ -69,6 +85,7 @@ export function discoveryView(route: LibraryRoute, state: DiscoveryState, handle
     }
     const firstZone = zones.find(zone => zone.id.startsWith("section:") && zone.items.length > 0) ?? zones.find(zone => zone.items.length > 0);
     const first = firstZone?.items[0];
+    fitCaptions(content);
     return { name: state.data === undefined && route.failure === undefined ? "library:loading" : `library:${route.library.id}`, content, zones, focus: first === undefined ? { zone: "nav", key: route.library.type === "series" ? "series" : "movies" } : { zone: firstZone?.id ?? "nav", key: first.key }, back: handlers.pop };
 
     function collectionRow(id: string, title: string, collections: readonly CollectionSummary[], groupKind: "admin" | "user_collections", grid: boolean, types: ReadonlyMap<string, string | undefined>): void {

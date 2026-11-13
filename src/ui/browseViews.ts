@@ -51,6 +51,8 @@ export interface ViewContext {
     /** Home's own rows, whose Continue Watching and Next Up cards can be removed. */
     readonly homeDismissals?: boolean;
     readonly cardDestination?: (card: Card) => Destination | undefined;
+    /** Captions a series with the years it ran (Apple CardYears), as Search's grid does. */
+    readonly seriesYears?: boolean;
     /** Profile spoiler switches. Absent reads as both off. */
     readonly spoilers?: () => EpisodeSpoilerSettings;
     /** WatchPartyEntry: offered while the experimental switch is on and the server can host a party; open starts a room with the title. */
@@ -246,7 +248,7 @@ export function cardItem(card: Card, context: ViewContext): FocusItem | undefine
         tick.appendChild(el("span", "silo-sr-only", "Watched"));
         element.firstElementChild?.appendChild(tick);
     }
-    const caption = homeCaption(card, context.homeCaptions === true && thumbnail);
+    const caption = homeCaption(card, context.homeCaptions === true && thumbnail, context.seriesYears === true);
     element.appendChild(el("span", "browse-card-title", caption.title));
     if (caption.line !== undefined) {
         element.appendChild(el("span", "browse-card-subtitle", caption.line));
@@ -476,7 +478,7 @@ export function libraryView(library: UserLibrary, grid: { content: HTMLElement[]
 export type SearchResults =
     | { readonly status: "idle" }
     | { readonly status: "searching" }
-    | { readonly status: "failed"; readonly text: string; readonly retry: () => void }
+    | { readonly status: "failed"; readonly error: ShownError; readonly retry: () => void; readonly signIn: (() => void) | undefined }
     | { readonly status: "ready"; readonly query: string; readonly grid: { content: HTMLElement[]; zones: Zone[] } };
 
 /** `head` ends with the field and is the same nodes on every render. */
@@ -492,12 +494,18 @@ export function searchView(head: readonly HTMLElement[], input: HTMLInputElement
             content.push(searchLoading());
             break;
         case "failed": {
-            const retry = actionButton("retry", "Try Again", results.retry);
-            const failure = searchState("Something went wrong", results.text, "search-failure");
+            // Search is a pushed page, so Back is available and a 403 or 404 offers Go Back (ErrorView.swift:77-97).
+            const items = recoveryActions(
+                results.error,
+                actionButton("retry", "Try Again", results.retry),
+                actionButton("go-back", "Go Back", back),
+                results.signIn === undefined ? undefined : actionButton("sign-in", "Sign In Again", results.signIn),
+            );
+            const failure = searchState(results.error.headline, results.error.message, "search-failure");
             failure.setAttribute("role", "alert");
-            failure.appendChild(zoneNode("browse-actions", [retry]));
+            failure.appendChild(zoneNode("browse-actions", items));
             content.push(failure);
-            zones.push({ id: "status", layout: "row", items: [retry] });
+            zones.push({ id: "status", layout: "column", items });
             break;
         }
         case "ready":

@@ -1857,6 +1857,72 @@ browseTest("Search captions a series with the years it ran", async (tv, catalog)
     assert.equal(await line("movie:dated"), "2021");
 });
 
+/** Harbor Lights (2020) is returning, Night Shift (2021) ended in 2024 and Quiet Hills (2022) was cancelled the year it began. */
+function airingSeries(catalog: FakeCatalog): void {
+    const airing: Record<string, { showStatus: string; lastAirDate: string }> = {
+        "series:s1": { showStatus: "returning", lastAirDate: "2026-02-01" },
+        "series:s2": { showStatus: "ended", lastAirDate: "2024-03-17" },
+        "series:s3": { showStatus: "cancelled", lastAirDate: "2022-11-30" },
+    };
+    for (const [id, fields] of Object.entries(airing)) {
+        const title = catalog.titles.get(id);
+        assert.ok(title);
+        catalog.add({ ...title, ...fields });
+    }
+}
+
+/** A card's second line; Search keeps the unfitted text in `data-full-text`. */
+function cardLine(tv: Tv, scope: string, id: string): Promise<string | null> {
+    return tv.page.locator(`${scope} [data-focus="${id}"] .browse-card-subtitle`).first().evaluate(node => (node as HTMLElement).dataset.fullText ?? node.textContent);
+}
+
+// CardYears.caption (Components/CardYears.swift:14-35): SectionRow's MediaRow (Components/MediaRow.swift:521-522) and
+// SectionCatalogView's CatalogGrid (Screens/Browse/CatalogGrid.swift:263-264) caption a series with the years it ran.
+browseTest("Home rows and Explore all caption a series with the years it ran", async (tv, catalog) => {
+    const row = '[data-section="recently_added"]';
+    assert.equal(await cardLine(tv, row, "series:s1"), "2020 – Present");
+    assert.equal(await cardLine(tv, row, "series:s2"), "2021 – 2024");
+    assert.equal(await cardLine(tv, row, "movie:m0001"), String(catalog.titles.get("movie:m0001")?.year));
+    // The Movies library's section read: serve the row's series in it.
+    const items = ["series:s1", "series:s2"].map(id => ({ content_id: id, type: "series", title: catalog.titles.get(id)?.title, year: catalog.titles.get(id)?.year, show_status: catalog.titles.get(id)?.showStatus, last_air_date: catalog.titles.get(id)?.lastAirDate }));
+    catalog.failNext("/catalog/query", { status: 200, body: { window_cursor: "section-window", items, total: 2, total_exact: true, page: { has_more: false } } });
+    await tv.page.locator('[data-focus="expand:recently_added"]').click();
+    await tv.page.locator('.section-catalog-grid [data-focus="series:s2"]').waitFor();
+    assert.equal(await cardLine(tv, ".section-catalog-grid", "series:s1"), "2020 – Present");
+    assert.equal(await cardLine(tv, ".section-catalog-grid", "series:s2"), "2021 – 2024");
+}, { catalog: (() => { const catalog = new FakeCatalog(); airingSeries(catalog); return catalog; })() });
+
+// TVLibraryBrowseView's TVSkylineSectionFeed rows, TVLibraryGridView's TVCatalogGrid (tvOS/Screens/Components/TVCatalogGrid.swift:115-117)
+// and CollectionDetailView's CatalogGrid all caption with CardYears.
+browseTest("Series Recommended, Browse and a collection caption a series with the years it ran", async (tv, catalog) => {
+    airingSeries(catalog);
+    const household = catalog.households.get("p-owner");
+    assert.ok(household);
+    household.librarySections = [{ id: "recent", sectionType: "recently_added", title: "Recently Added", items: ["series:s1", "series:s2"] }];
+    await tv.page.locator('[data-focus="series"]').click();
+    await showing(tv, "library:13");
+    await tv.page.locator('[data-section="recent"] [data-focus="series:s2"]').waitFor();
+    assert.equal(await cardLine(tv, '[data-section="recent"]', "series:s1"), "2020 – Present");
+    assert.equal(await cardLine(tv, '[data-section="recent"]', "series:s2"), "2021 – 2024");
+    await selectLibraryMode(tv, "Browse");
+    await tv.page.locator('.browse-grid [data-focus="series:s3"]').waitFor();
+    assert.equal(await cardLine(tv, ".browse-grid", "series:s1"), "2020 – Present");
+    assert.equal(await cardLine(tv, ".browse-grid", "series:s2"), "2021 – 2024");
+    assert.equal(await cardLine(tv, ".browse-grid", "series:s3"), "2022", "a series that ended the year it began shows one year");
+    const collection = { id: "highlights", library_id: "13", library_ids: ["13"], group_id: null, title: "Shows Highlights", poster_url: "", item_count: 2, poster_is_collage: false };
+    catalog.failNext("/library/13/collections", { status: 200, body: { library_id: "13", collections: [collection], groups: [], ungrouped: { sort_order: 1, collections: [collection] } } });
+    await selectLibraryMode(tv, "Collections");
+    const items = [
+        { content_id: "series:c1", type: "series", title: "Returning", year: 2024, show_status: "returning" },
+        { content_id: "series:c2", type: "series", title: "Ended", year: 2019, show_status: "ended", last_air_date: "2023-05-28" },
+    ];
+    catalog.failNext("/catalog/query", { status: 200, body: { window_cursor: "collection-window", items, total: 2, total_exact: true, page: { has_more: false } } });
+    await tv.page.locator('[data-focus="collection:highlights"]').click();
+    await tv.page.locator('.collection-detail-grid [data-focus="series:c2"]').waitFor();
+    assert.equal(await cardLine(tv, ".collection-detail-grid", "series:c1"), "2024 – Present");
+    assert.equal(await cardLine(tv, ".collection-detail-grid", "series:c2"), "2019 – 2023");
+}, { multipleLibraries: true });
+
 browseTest("Search starts a short last row at x 238 under full rows centred at x 200", async tv => {
     await tv.page.locator('[data-focus="search"]').click();
     await tv.page.fill("#browse-search", "Movie"); await tv.remote(IME_DONE);

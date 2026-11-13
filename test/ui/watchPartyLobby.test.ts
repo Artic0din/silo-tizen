@@ -111,6 +111,25 @@ test("Choose a title opens the picker with the group's shelves, read once with t
     } finally { await tv.page.context().close(); }
 });
 
+// WatchPartyMediaPicker's shelves are a TVSkylineSectionFeed (Screens/WatchParty/WatchPartyMediaPicker.swift:372), whose MediaRow captions with CardYears.
+test("the picker's shelves caption a series with the years it ran", async () => {
+    const { tv } = await inLobby("host", fake => {
+        for (const [id, fields] of [["series:s1", { showStatus: "returning" }], ["series:s2", { showStatus: "ended", lastAirDate: "2024-03-17" }]] as const) {
+            const title = fake.titles.get(id);
+            assert.ok(title);
+            fake.add({ ...title, ...fields });
+        }
+    });
+    try {
+        await button(tv, "choose").click();
+        await view(tv, "watchParty:picker:shelves").waitFor();
+        await tv.page.locator('.watch-party-shelf [data-focus="series:s2"]').waitFor();
+        const line = (id: string) => tv.page.locator(`.watch-party-shelf [data-focus="${id}"] .browse-card-subtitle`).textContent();
+        assert.equal(await line("series:s1"), "2020 – Present");
+        assert.equal(await line("series:s2"), "2021 – 2024");
+    } finally { await tv.page.context().close(); }
+});
+
 test("choosing a movie confirms it, stages it with the staged-selection call and shows it in the lobby with Start for everyone", async () => {
     const { tv, fake } = await inLobby();
     try {

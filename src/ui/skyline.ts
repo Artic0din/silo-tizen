@@ -236,6 +236,8 @@ export class Skyline {
             });
             item.element.setAttribute("role", "tab");
             if (root.key === "movies" || root.key === "series" || root.key === "audiobooks" || root.key === "for_you") item.element.setAttribute("aria-haspopup", "menu");
+            // topBar.hint.forYou (TVTopMenuBar.swift:484, :501-502).
+            if (root.key === "for_you") item.element.setAttribute("aria-description", "Rest to choose Watchlist, Favorites, or Recommendations");
             return item;
         });
         const searchItem = actionButton("search", "", () => this.commit("search"));
@@ -803,7 +805,10 @@ export class Skyline {
     }
 
     private renderPanel(): void {
-        replaceNodes(this.selector, [el("div", "skyline-menu-header", this.panelTitle), ...this.panel.map(item => item.element)]);
+        const header = el("div", "skyline-menu-header", this.panelTitle);
+        // The For You header is hidden from VoiceOver; the panel is spoken as "For You menu" (TVTopMenuBar.swift:1045, :1050).
+        if (this.panelAnchor === "for_you") header.setAttribute("aria-hidden", "true");
+        replaceNodes(this.selector, [header, ...this.panel.map(item => item.element)]);
     }
 
     private openRootPanel(item: FocusItem): void {
@@ -815,6 +820,8 @@ export class Skyline {
             const personal = this.profiles.personal;
             this.panel = personal === undefined ? [] : (["watchlist", "favorites"] as const).map(source => this.menuItem(source, PERSONAL_TITLES[source], () => { this.close(); personal(source, "for_you"); }));
             this.panel.push(this.menuItem("recommendations", "Recommendations", () => this.commit("for_you"), "Recommended"));
+            // bookmark.fill, heart.fill and sparkles are solid glyphs (TVTopMenuBar.swift:1034-1037).
+            for (const row of this.panel) row.element.querySelector("svg")?.setAttribute("fill", "currentColor");
         } else {
             const shortcut = this.libraries.find(library => item.key === `library:${library.id}`);
             const type = item.key === "music" ? "music" : item.key === "audiobooks" || shortcut?.type === "audiobooks" ? "audiobooks" : item.key === "series" || shortcut?.type === "series" ? "series" : "movies";
@@ -832,7 +839,7 @@ export class Skyline {
         }
         this.renderPanel();
         this.selector.hidden = false;
-        this.selector.setAttribute("aria-label", `${this.panelTitle} menu`);
+        this.selector.setAttribute("aria-label", item.key === "for_you" ? "For You menu" : `${this.panelTitle} menu`);
         const anchor = item.element.getBoundingClientRect();
         this.selector.style.left = `${Math.max(88, Math.min(1372, anchor.left + anchor.width / 2 - 230))}px`;
         this.selector.style.right = "auto";

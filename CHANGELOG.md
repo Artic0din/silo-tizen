@@ -55,6 +55,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- For You now matches Apple TV: its rows end at their last card with no Explore all page, each visit reads it again while the last rows stay on screen, a refused read keeps the rows, loading is a blank page, the empty state is Apple's centred one with no Home button, and an expired session offers Sign In Again. The For You menu is 460 wide under its tab, with filled icons, Apple's text sizes, a pressed state and Apple's spoken name and hint.
 - The Person page's Filmography posters are now spaced as on Apple TV: 40px apart, with the first poster lined up under the filter chips instead of 13px apart and slightly to their left.
 - On a movie's page, moving down to Cast & Crew now always scrolls the page there. An answer that redrew the page during that scroll could stop it, leaving the row low on the screen.
 - Home now keeps its posters, backdrop and title art when it opens from the saved snapshot and the first live read fails, as on Apple TV. The signed artwork links are kept in the TV's protected key store, never in ordinary app storage.

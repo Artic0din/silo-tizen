@@ -1,6 +1,8 @@
-// Poster badges (`ui.card_overlays`): the document parser, the badge registry and the corner renderer.
+// Poster badges (`ui.card_overlays`): the document parser, the badge registry and the layout renderer.
 // Ported (AGPL-3.0-or-later) from silo-apple 1a7cceeaf3b2bfc4f889c00487d19b2c6f843940:
 // iosApp/iosApp/Overlays/{OverlayTypes,OverlaySchema,OverlayRegistry,OverlayExtractors,OverlayPresets,CardOverlays,OverlayIcon}.swift.
+// Positions, presets and layout follow silo-apple 5780c84f4a9c1e2bff006e653dd787e01ca24480 (#1117). Its plate and
+// band presets, style overrides and uploaded badge images are not drawn here.
 // Generic badge icons are SF Symbols there and are not drawn here, except the
 // series-status tv glyph: OverlayIcon's semibold "tv", outline and foot opaque,
 // screen fill at the monochrome secondary opacity.
@@ -10,7 +12,8 @@ import type { Card } from "../contracts/v2/catalog.ts";
 import { resolutionLabel, runtimeText } from "./cardPresentation.ts";
 import { el } from "./screen.ts";
 
-type Position = "top-left" | "top-right" | "bottom-left" | "bottom-right";
+/** OverlayTypes.swift:44-65: the top-right corner belongs to the watch status, so badges use the side rails. */
+type Position = "top-left" | "bottom-left" | "bottom-right" | "left-edge" | "right-edge";
 type PresetId = "minimal" | "classic" | "vibrant" | "pill" | "square";
 type Icon = "generic" | "tv" | "HDR" | "HDR10" | "DV" | "ATMOS" | "AV1";
 
@@ -82,10 +85,10 @@ const REGISTRY: readonly OverlayDef[] = [
     { id: "edition", position: "bottom-left", enabled: false, iconCapable: false, value: card => nonEmpty(card.overlay?.edition) },
     { id: "multi_audio", position: "bottom-right", enabled: false, iconCapable: true, staticIcon: "generic", value: card => card.overlay?.multiAudio === true ? "Multi-Audio" : undefined },
     { id: "multi_sub", position: "bottom-right", enabled: false, iconCapable: true, staticIcon: "generic", value: card => card.overlay?.multiSub === true ? "CC" : undefined },
-    { id: "rating_imdb", position: "top-right", enabled: false, accent: "#f5c518", iconCapable: false, value: card => decimalRating("IMDb", card.ratingImdb) },
-    { id: "rating_tmdb", position: "top-right", enabled: false, accent: "#01b4e4", iconCapable: false, value: card => decimalRating("TMDB", card.ratingTmdb) },
-    { id: "rating_rt", position: "top-right", enabled: false, accent: "#fa320a", iconCapable: false, value: card => percentRating("RT", card.ratingRtCritic) },
-    { id: "rating_rt_audience", position: "top-right", enabled: false, accent: "#fa6400", iconCapable: false, value: card => percentRating("RT Audience", card.ratingRtAudience) },
+    { id: "rating_imdb", position: "left-edge", enabled: false, accent: "#f5c518", iconCapable: false, value: card => decimalRating("IMDb", card.ratingImdb) },
+    { id: "rating_tmdb", position: "left-edge", enabled: false, accent: "#01b4e4", iconCapable: false, value: card => decimalRating("TMDB", card.ratingTmdb) },
+    { id: "rating_rt", position: "left-edge", enabled: false, accent: "#fa320a", iconCapable: false, value: card => percentRating("RT", card.ratingRtCritic) },
+    { id: "rating_rt_audience", position: "left-edge", enabled: false, accent: "#fa6400", iconCapable: false, value: card => percentRating("RT Audience", card.ratingRtAudience) },
     { id: "content_rating", position: "bottom-right", enabled: false, iconCapable: true, staticIcon: "generic", value: card => card.contentRating },
     { id: "advisory_age", position: "bottom-right", enabled: false, iconCapable: true, staticIcon: "generic", value: card => card.advisoryAge !== undefined && card.advisoryAge > 0 ? `${card.advisoryAge}+` : undefined },
     { id: "year", position: "bottom-left", enabled: false, iconCapable: false, value: card => card.year !== undefined && card.year > 0 ? String(card.year) : undefined },
@@ -93,13 +96,18 @@ const REGISTRY: readonly OverlayDef[] = [
     { id: "original_language", position: "bottom-left", enabled: false, iconCapable: true, staticIcon: "generic", value: card => languageName(card.originalLanguage) },
     { id: "studio", position: "bottom-right", enabled: false, iconCapable: true, staticIcon: "generic", value: card => firstNonEmpty(card.studios) },
     { id: "network", position: "bottom-right", enabled: false, iconCapable: true, staticIcon: "generic", value: card => firstNonEmpty(card.networks) },
-    { id: "show_status", position: "top-right", enabled: false, iconCapable: true, staticIcon: "tv", value: card => showStatus(card.showStatus) },
+    { id: "show_status", position: "right-edge", enabled: false, iconCapable: true, staticIcon: "tv", value: card => showStatus(card.showStatus) },
     // Ribbons whose data the server does not send yet; kept so stored documents keep their entries.
-    { id: "imdb_top_250", position: "top-right", enabled: false, accent: "#f5c518", iconCapable: true, staticIcon: "generic", value: () => undefined },
-    { id: "rt_certified_fresh", position: "top-right", enabled: false, accent: "#fa320a", iconCapable: false, value: () => undefined },
+    { id: "imdb_top_250", position: "right-edge", enabled: false, accent: "#f5c518", iconCapable: true, staticIcon: "generic", value: () => undefined },
+    { id: "rt_certified_fresh", position: "right-edge", enabled: false, accent: "#fa320a", iconCapable: false, value: () => undefined },
 ];
 
-const POSITIONS: readonly Position[] = ["top-left", "top-right", "bottom-left", "bottom-right"];
+const POSITIONS: readonly Position[] = ["top-left", "bottom-left", "bottom-right", "left-edge", "right-edge"];
+
+/** OverlayTypes.swift:58-64: a badge stored at top-right, from before that corner held watch status, draws on the right rail. */
+function storedPosition(value: unknown): Position | undefined {
+    return value === "top-right" ? "right-edge" : POSITIONS.find(position => position === value);
+}
 const PRESETS: readonly PresetId[] = ["minimal", "classic", "vibrant", "pill", "square"];
 
 function registryDefaults(): Map<string, ItemConfig> {
@@ -111,7 +119,7 @@ function patch(base: ItemConfig, raw: unknown): ItemConfig {
     const entry = raw as Record<string, unknown>;
     return {
         enabled: typeof entry.enabled === "boolean" ? entry.enabled : base.enabled,
-        position: POSITIONS.find(position => position === entry.position) ?? base.position,
+        position: storedPosition(entry.position) ?? base.position,
         accentColor: typeof entry.accentColor === "string" && /^#[0-9a-fA-F]{6}$/.test(entry.accentColor) ? entry.accentColor : undefined,
         showIcon: typeof entry.showIcon === "boolean" ? entry.showIcon : undefined,
     };
@@ -153,109 +161,213 @@ function enabledAt(position: Position, prefs: CardOverlayPrefs): OverlayDef[] {
     return candidates.map((def, index) => ({ def, index })).sort((a, b) => rank(a.def.id) - rank(b.def.id) || a.index - b.index).map(entry => entry.def);
 }
 
+/** A straight-alpha sRGB colour: channels 0–255, alpha 0–1. */
+type Rgba = readonly [number, number, number, number];
+const css = ([r, g, b, a]: Rgba): string => `rgba(${Math.round(r)},${Math.round(g)},${Math.round(b)},${Math.round(a * 1000) / 1000})`;
+/** OverlayColor.swift:52-67, CSS `color-mix(in srgb, color share, other)` on premultiplied channels. */
+function mixed(color: Rgba, share: number, other: Rgba): Rgba {
+    const rest = 1 - share;
+    const alpha = color[3] * share + other[3] * rest;
+    if (alpha <= 0) return [0, 0, 0, 0];
+    const channel = (index: 0 | 1 | 2): number => (color[index] * color[3] * share + other[index] * other[3] * rest) / alpha;
+    return [channel(0), channel(1), channel(2), alpha];
+}
+const WHITE: Rgba = [255, 255, 255, 1];
+const BLACK_60: Rgba = [0, 0, 0, 0.6];
+const PILL_BASE: Rgba = [20, 20, 30, 0.7];
+const WHITE_BORDER = "rgba(255,255,255,0.15)";
+
+/** An offset shadow in points at the reference width. CSS blur is twice SwiftUI's radius (CardOverlays.swift:501-519). */
+interface Shadow { readonly y: number; readonly blur: number; readonly color: string }
+interface Paint { readonly background: string; readonly foreground: string; readonly border?: string; readonly bar?: string }
 interface Preset {
-    readonly fontSize: number; readonly weight: number; readonly tracking: number; readonly padX: number; readonly padY: number;
+    readonly fontSize: number; readonly weight: number;
+    /** Letter spacing as a share of the font size. */
+    readonly tracking: number;
+    readonly padX: number; readonly padY: number;
     /** Undefined is a capsule. */
     readonly radius: number | undefined;
-    readonly iconSize: number; readonly preferIcon: boolean; readonly gap: number;
-    readonly background: (accent: Rgb | undefined) => string;
-    readonly foreground: (accent: Rgb | undefined) => string;
-    readonly border: (accent: Rgb | undefined) => string | undefined;
-    readonly blur: boolean; readonly shadow: boolean;
+    readonly border: number | undefined;
+    /** The accent bar on the badge's left side. */
+    readonly bar: number | undefined;
+    readonly textShadow: Shadow | undefined; readonly boxShadow: Shadow | undefined;
+    readonly iconSize: number; readonly iconGap: number; readonly preferIcon: boolean; readonly gap: number;
+    /** A filled badge on a rail is a tab flush against the card edge; a transparent one keeps the corner inset. */
+    readonly flushRails: boolean;
+    readonly paint: (accent: Rgba | undefined) => Paint;
 }
-type Rgb = readonly [number, number, number];
-const rgba = ([r, g, b]: Rgb, alpha = 1): string => `rgba(${Math.round(r)},${Math.round(g)},${Math.round(b)},${alpha})`;
-const mix = (from: Rgb, to: Rgb, by: number): Rgb => [from[0] + (to[0] - from[0]) * by, from[1] + (to[1] - from[1]) * by, from[2] + (to[2] - from[2]) * by];
-const BLACK: Rgb = [0, 0, 0];
-const PILL_BASE: Rgb = [20, 20, 30];
-const WHITE = "#fff";
-const BORDER = "rgba(255,255,255,.15)";
 
+/** Tailwind's `tracking-wide` and `tracking-widest` (OverlayPresets.swift:26-28). */
+const TRACKING_WIDE = 0.025;
+const TRACKING_WIDEST = 0.1;
+
+/** OverlayPresets.swift:32-172 at 5780c84, the web's numbers with its default theme's radii. */
 const PRESET_STYLES: Readonly<Record<PresetId, Preset>> = {
-    minimal: { fontSize: 9, weight: 600, tracking: 1.2, padX: 4, padY: 1, radius: 2, iconSize: 10, preferIcon: false, gap: 2, background: () => "transparent", foreground: accent => accent === undefined ? "rgba(255,255,255,.85)" : rgba(accent), border: () => undefined, blur: false, shadow: true },
-    classic: { fontSize: 10, weight: 600, tracking: 0.6, padX: 8, padY: 3, radius: undefined, iconSize: 11, preferIcon: false, gap: 4, background: accent => accent === undefined ? "rgba(0,0,0,.6)" : rgba(mix(accent, BLACK, 0.28), 0.888), foreground: () => WHITE, border: () => BORDER, blur: false, shadow: false },
-    vibrant: { fontSize: 10, weight: 700, tracking: 0.6, padX: 8, padY: 3, radius: 6, iconSize: 12, preferIcon: true, gap: 4, background: accent => accent === undefined ? rgba([219.3, 219.3, 219.3]) : rgba(accent), foreground: accent => accent === undefined ? "#000" : WHITE, border: () => undefined, blur: false, shadow: false },
-    pill: { fontSize: 10, weight: 600, tracking: 0.6, padX: 10, padY: 4, radius: undefined, iconSize: 12, preferIcon: true, gap: 4, background: accent => accent === undefined ? rgba(PILL_BASE, 0.7) : rgba(mix(accent, PILL_BASE, 0.2), 0.94), foreground: () => WHITE, border: () => BORDER, blur: true, shadow: false },
-    square: { fontSize: 9, weight: 700, tracking: 1.2, padX: 6, padY: 2, radius: 2, iconSize: 10, preferIcon: false, gap: 2, background: () => "rgba(0,0,0,.8)", foreground: accent => accent === undefined ? WHITE : rgba(accent), border: accent => accent === undefined ? undefined : rgba(accent), blur: false, shadow: false },
+    minimal: { fontSize: 9, weight: 600, tracking: TRACKING_WIDEST, padX: 4, padY: 0, radius: 8, border: undefined, bar: undefined, textShadow: { y: 1, blur: 2, color: "rgba(0,0,0,0.85)" }, boxShadow: undefined, iconSize: 10, iconGap: 4, preferIcon: false, gap: 2, flushRails: false,
+        paint: accent => ({ background: "transparent", foreground: accent === undefined ? "rgba(255,255,255,0.85)" : css(accent) }) },
+    classic: { fontSize: 10, weight: 600, tracking: TRACKING_WIDE, padX: 8, padY: 2, radius: undefined, border: 1, bar: undefined, textShadow: undefined, boxShadow: undefined, iconSize: 11, iconGap: 4, preferIcon: false, gap: 4, flushRails: true,
+        paint: accent => ({ background: css(accent === undefined ? BLACK_60 : mixed(accent, 0.28, BLACK_60)), foreground: css(WHITE), border: WHITE_BORDER }) },
+    vibrant: { fontSize: 10, weight: 700, tracking: TRACKING_WIDE, padX: 8, padY: 2, radius: 10, border: undefined, bar: undefined, textShadow: undefined, boxShadow: { y: 1, blur: 2, color: "rgba(0,0,0,0.25)" }, iconSize: 12, iconGap: 4, preferIcon: true, gap: 4, flushRails: true,
+        paint: accent => ({ background: css(accent ?? [220, 220, 220, 0.95]), foreground: accent === undefined ? "#000" : css(WHITE) }) },
+    pill: { fontSize: 10, weight: 600, tracking: TRACKING_WIDE, padX: 10, padY: 4, radius: undefined, border: 1, bar: undefined, textShadow: undefined, boxShadow: undefined, iconSize: 12, iconGap: 4, preferIcon: true, gap: 4, flushRails: true,
+        paint: accent => ({ background: css(accent === undefined ? PILL_BASE : mixed(accent, 0.2, PILL_BASE)), foreground: css(WHITE), border: WHITE_BORDER }) },
+    square: { fontSize: 9, weight: 700, tracking: TRACKING_WIDEST, padX: 6, padY: 2, radius: 8, border: undefined, bar: 2, textShadow: undefined, boxShadow: undefined, iconSize: 10, iconGap: 4, preferIcon: false, gap: 2, flushRails: true,
+        paint: accent => ({ background: "rgba(0,0,0,0.8)", foreground: css(accent ?? WHITE), ...(accent === undefined ? {} : { bar: css(accent) }) }) },
 };
 
-function hex(value: string): Rgb {
-    return [parseInt(value.slice(1, 3), 16), parseInt(value.slice(3, 5), 16), parseInt(value.slice(5, 7), 16)];
+function hex(value: string): Rgba {
+    return [parseInt(value.slice(1, 3), 16), parseInt(value.slice(3, 5), 16), parseInt(value.slice(5, 7), 16), 1];
 }
 
-/** Apple scales poster badges from the 185pt web poster; wide (Continue Watching) badges stay at 1. */
+/** CardOverlays.swift:29-38: lengths are points at the 185pt web poster; wide (Continue Watching) badges stay at 1. */
 const POSTER_REFERENCE_WIDTH = 185;
+const EDGE_INSET = 8;
+const EDGE_GAP = 8;
+/** CardWatchStatus.size: the top row stops short of the watch-status corner on poster cards. */
+const WATCH_STATUS_SIZE = 22;
+const MAX_BADGES_PER_CORNER = 3;
+const MAX_BADGES_PER_RAIL = 4;
+const RAIL_MAX_WIDTH = "60%";
+/** Wide cards leave room under the badges for a title block or progress bar (CardOverlays.swift:137-144). */
+const WIDE_BOTTOM_INSET = 24;
+
+type Rail = "left" | "right";
+interface Resolved { readonly label: string; readonly mark: Icon | undefined; readonly tv: boolean; readonly accent: Rgba | undefined }
+
+function resolve(card: Card, prefs: CardOverlayPrefs, preset: Preset, position: Position, limit: number): Resolved[] {
+    return enabledAt(position, prefs).flatMap(def => {
+        const label = def.value(card);
+        if (label === undefined) return [];
+        const config = prefs.items.get(def.id);
+        const icon = def.icon?.(card) ?? def.staticIcon;
+        const showIcon = icon !== undefined && def.iconCapable && (config?.showIcon ?? preset.preferIcon);
+        const accent = config?.accentColor ?? def.accent;
+        return [{ label, mark: showIcon && icon !== "generic" && icon !== "tv" ? icon : undefined, tv: showIcon && icon === "tv", accent: accent === undefined ? undefined : hex(accent) }];
+    }).slice(0, limit);
+}
 
 /** The badge layer for one card's artwork, or undefined when no badge has a value. */
 export function overlayLayer(card: Card, prefs: CardOverlayPrefs, variant: "poster" | "wide", artWidth: number): HTMLElement | undefined {
     const preset = PRESET_STYLES[prefs.preset];
     const scale = variant === "poster" ? artWidth / POSTER_REFERENCE_WIDTH : 1;
     const px = (value: number): string => `${Math.round(value * scale * 100) / 100}px`;
+    const at = (position: Position, limit: number): Resolved[] => resolve(card, prefs, preset, position, limit);
     const layer = el("span", "card-overlays");
     layer.setAttribute("aria-hidden", "true");
-    for (const position of POSITIONS) {
-        const badges = enabledAt(position, prefs).flatMap(def => {
-            const label = def.value(card);
-            if (label === undefined) return [];
-            const config = prefs.items.get(def.id);
-            const icon = def.icon?.(card) ?? def.staticIcon;
-            const showIcon = icon !== undefined && def.iconCapable && (config?.showIcon ?? preset.preferIcon);
-            const accent = config?.accentColor ?? def.accent;
-            return [{ label, mark: showIcon && icon !== undefined && icon !== "generic" && icon !== "tv" ? icon : undefined, tv: showIcon && icon === "tv", accent: accent === undefined ? undefined : hex(accent) }];
-        });
+    const stack = (name: string, badges: readonly Resolved[], align: "flex-start" | "flex-end" | "stretch", rail?: Rail): HTMLElement => {
+        const node = el("span", `card-overlay-stack card-overlay-${name}`);
+        node.style.gap = px(preset.gap);
+        node.style.alignItems = align;
+        for (const badge of badges) node.appendChild(badgeNode(badge, preset, scale, px, rail));
+        return layer.appendChild(node);
+    };
+    const topLeft = at("top-left", MAX_BADGES_PER_CORNER);
+    if (topLeft.length > 0) {
+        const node = stack("top-left", topLeft, "flex-start");
+        node.style.top = px(EDGE_INSET);
+        node.style.left = px(EDGE_INSET);
+        node.style.right = px(variant === "poster" ? EDGE_INSET + WATCH_STATUS_SIZE + EDGE_GAP : EDGE_INSET);
+    }
+    for (const side of ["left", "right"] as const) {
+        const badges = at(`${side}-edge`, MAX_BADGES_PER_RAIL);
         if (badges.length === 0) continue;
-        const stack = el("span", `card-overlay-stack card-overlay-${position}`);
-        const [vertical, horizontal] = position.split("-") as ["top" | "bottom", "left" | "right"];
-        // Wide cards leave room under the badges for the progress bar.
-        stack.style.setProperty(vertical, vertical === "bottom" && variant === "wide" ? "24px" : px(8));
-        stack.style.setProperty(horizontal, px(8));
-        stack.style.alignItems = horizontal === "left" ? "flex-start" : "flex-end";
-        for (const badge of badges) {
-            const node = el("span", "card-overlay");
-            const style = node.style;
-            style.marginTop = stack.childElementCount === 0 ? "0" : px(preset.gap);
-            style.padding = `${px(preset.padY)} ${px(preset.padX)}`;
-            style.borderRadius = preset.radius === undefined ? "999px" : px(preset.radius);
-            style.background = preset.background(badge.accent);
-            style.color = preset.foreground(badge.accent);
-            // Apple's point size times --silo-sf-cap-scale, as Home's other text (Typography rule in theme.css).
-            style.fontSize = `calc(${px(preset.fontSize)} * var(--silo-sf-cap-scale))`;
-            style.fontWeight = String(preset.weight);
-            style.letterSpacing = px(preset.tracking);
-            const border = preset.border(badge.accent);
-            // CardOverlays.swift:181-182, :220 strokes `scale` wide on the edge, then clips it: half the stroke shows.
-            if (border !== undefined) style.boxShadow = `inset 0 0 0 ${px(0.5)} ${border}`;
-            if (preset.blur) style.setProperty("backdrop-filter", "blur(20px)");
-            if (preset.shadow) style.textShadow = `0 ${px(1)} ${px(1)} rgba(0,0,0,.85)`;
-            // A brand mark draws its own token, so the label drops it ("DV HDR10" with the DV mark reads "HDR10").
-            const label = badge.mark === undefined ? badge.label : badge.label.split(" ").filter(word => word.toLowerCase() !== badge.mark?.toLowerCase()).join(" ");
-            if (badge.tv) {
-                const glyph = tvIcon();
-                // OverlayIcon draws SF Symbol "tv" at iconSize * scale. That image is not a
-                // square of the point size: at 48pt the symbol's layout box is 73×58.
-                glyph.style.width = px(preset.iconSize * TV_SYMBOL_WIDTH);
-                glyph.style.height = px(preset.iconSize * TV_SYMBOL_HEIGHT);
-                // OverlayBadgeView's HStack spacing, 4, separate from the stack gap.
-                if (label !== "") glyph.style.marginRight = px(4);
-                node.appendChild(glyph);
-            }
-            if (badge.mark !== undefined) {
-                const mark = el("span", "card-overlay-mark", badge.mark);
-                mark.style.fontSize = px(preset.iconSize * 0.78);
-                if (label !== "") mark.style.marginRight = px(4);
-                node.appendChild(mark);
-            }
-            if (label !== "") node.appendChild(document.createTextNode(label));
-            stack.appendChild(node);
+        const node = stack(`${side}-edge`, badges, side === "left" ? "flex-start" : "flex-end", preset.flushRails ? side : undefined);
+        node.style.setProperty(side, preset.flushRails ? "0" : px(EDGE_INSET));
+        node.style.maxWidth = RAIL_MAX_WIDTH;
+    }
+    const left = at("bottom-left", MAX_BADGES_PER_CORNER);
+    const right = at("bottom-right", MAX_BADGES_PER_CORNER);
+    const levels = Math.max(left.length, right.length);
+    if (levels > 0) {
+        // BottomRows: one row per level from the bottom up, the shorter corner aligned with the bottom; a pair too wide wraps.
+        const node = stack("bottom", [], "stretch");
+        node.style.left = px(EDGE_INSET);
+        node.style.right = px(EDGE_INSET);
+        node.style.bottom = variant === "wide" ? `${WIDE_BOTTOM_INSET}px` : px(EDGE_INSET);
+        for (let level = 0; level < levels; level += 1) {
+            const row = node.appendChild(el("span", "card-overlay-row"));
+            row.style.columnGap = px(EDGE_GAP);
+            row.style.rowGap = px(preset.gap);
+            const leading = left[left.length - levels + level];
+            const trailing = right[right.length - levels + level];
+            if (leading !== undefined) row.appendChild(badgeNode(leading, preset, scale, px));
+            if (trailing !== undefined) row.appendChild(badgeNode(trailing, preset, scale, px)).classList.add("card-overlay-trailing");
         }
-        layer.appendChild(stack);
     }
     return layer.childElementCount === 0 ? undefined : layer;
 }
 
+/** OverlayBadgeView (CardOverlays.swift:364-439): padding, then the border outside it; a rail tab is open on its flush side. */
+function badgeNode(badge: Resolved, preset: Preset, scale: number, px: (value: number) => string, rail?: Rail): HTMLElement {
+    const paint = preset.paint(badge.accent);
+    const node = el("span", "card-overlay");
+    const style = node.style;
+    const border = preset.border ?? 0;
+    const bar = rail === "left" || paint.bar === undefined ? 0 : preset.bar ?? 0;
+    // Apple's point size times --silo-sf-cap-scale, as Home's other text (Typography rule in theme.css).
+    style.fontSize = `calc(${px(preset.fontSize)} * var(--silo-sf-cap-scale))`;
+    // The web's leading-none: the line is as tall as the font size, so padding alone sets the height.
+    style.lineHeight = px(preset.fontSize);
+    style.fontWeight = String(preset.weight);
+    // The border sits outside the padding and the leading side takes the wider of it and the accent bar.
+    style.padding = `${px(preset.padY + border)} ${px(preset.padX + (rail === "right" ? 0 : border))} ${px(preset.padY + border)} ${px(preset.padX + (rail === "left" ? 0 : Math.max(border, bar)))}`;
+    if (border > 0) {
+        // Drawn as a ring, not a CSS border, which Chromium snaps to whole pixels.
+        node.classList.add("card-overlay-framed");
+        if (rail !== undefined) node.classList.add(`card-overlay-tab-${rail}`);
+        style.setProperty("--card-overlay-border", px(border));
+        style.setProperty("--card-overlay-border-color", paint.border ?? paint.foreground);
+    }
+    const radius = preset.radius === undefined ? "999px" : px(preset.radius);
+    style.borderRadius = rail === "left" ? `0 ${radius} ${radius} 0` : rail === "right" ? `${radius} 0 0 ${radius}` : radius;
+    style.backgroundColor = paint.background;
+    if (bar > 0 && paint.bar !== undefined) style.backgroundImage = `linear-gradient(to right, ${paint.bar} ${px(bar)}, transparent ${px(bar)})`;
+    style.color = paint.foreground;
+    if (preset.boxShadow !== undefined) style.boxShadow = `0 ${px(preset.boxShadow.y)} ${px(preset.boxShadow.blur)} ${preset.boxShadow.color}`;
+    // A brand mark draws its own token, so the label drops it ("DV HDR10" with the DV mark reads "HDR10").
+    const label = badge.mark === undefined ? badge.label : badge.label.split(" ").filter(word => word.toLowerCase() !== badge.mark?.toLowerCase()).join(" ");
+    if (badge.tv) {
+        const glyph = tvIcon();
+        // OverlayIcon.swift:29-36: the symbol at 85% of iconSize in an iconSize-high frame. "tv" is wider than the
+        // frame's minimum width and a little taller than it, so the frame keeps the symbol's width and iconSize's height.
+        const height = preset.iconSize * TV_SYMBOL_SCALE * TV_SYMBOL_HEIGHT;
+        glyph.style.width = px(preset.iconSize * TV_SYMBOL_SCALE * TV_SYMBOL_WIDTH);
+        glyph.style.height = px(height);
+        glyph.style.marginTop = glyph.style.marginBottom = px((preset.iconSize - height) / 2);
+        if (label !== "") glyph.style.marginRight = px(preset.iconGap);
+        node.appendChild(glyph);
+    }
+    if (badge.mark !== undefined) {
+        const mark = el("span", "card-overlay-mark", badge.mark);
+        mark.style.fontSize = px(preset.iconSize * 0.78);
+        if (label !== "") mark.style.marginRight = px(preset.iconGap);
+        node.appendChild(mark);
+    }
+    if (label !== "") {
+        const text = node.appendChild(el("span", "card-overlay-label", label));
+        // Set on the label itself: theme.css gives every element its own tracking, so it would not inherit.
+        text.style.letterSpacing = px((preset.tracking + interShortfall(preset.fontSize * scale, preset.weight)) * preset.fontSize);
+        // The text shadow lifts the label only, not the icon (CardOverlays.swift:385-390).
+        if (preset.textShadow !== undefined) text.style.textShadow = `0 ${px(preset.textShadow.y)} ${px(preset.textShadow.blur)} ${preset.textShadow.color}`;
+    }
+    return node;
+}
+
+/**
+ * Inter's per-letter shortfall against SF Pro Text at badge sizes, in em of Apple's point size. SF Pro Text spaces
+ * small sizes wider than Inter at the cap-scaled size: measured with CoreText (macOS SF Pro) against InterVariable
+ * over twelve badge labels from 8 to 14pt, fitted within 0.002em. Larger text uses theme.css's tracking instead.
+ */
+function interShortfall(points: number, weight: number): number {
+    return Math.max(0, (weight >= 700 ? 0.051 : 0.044) - 0.0062 * (points - 10));
+}
+
+/** OverlayIcon draws a generic symbol at this share of the icon size. */
+const TV_SYMBOL_SCALE = 0.85;
+
 /**
  * SF Symbol "tv" layout box divided by the font point size (`OverlayIcon` at 48pt
- * is 73×58). CardOverlays passes `iconSize * scale` as that point size.
+ * is 73×58).
  */
 const TV_SYMBOL_WIDTH = 73 / 48;
 const TV_SYMBOL_HEIGHT = 58 / 48;

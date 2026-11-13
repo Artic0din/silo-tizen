@@ -24,7 +24,7 @@ test("a version 2 document patches known ids only and keeps valid accents", () =
     assert.equal(prefs.preset, "pill");
     assert.deepEqual(prefs.order, ["rating_imdb", "resolution"]);
     assert.deepEqual(prefs.items.get("rating_imdb"), { enabled: true, position: "bottom-left", accentColor: "#ABCDEF", showIcon: true });
-    assert.deepEqual(prefs.items.get("rating_tmdb"), { enabled: true, position: "top-right", accentColor: undefined, showIcon: undefined }, "an invalid position keeps the default and a non-hex accent is dropped");
+    assert.deepEqual(prefs.items.get("rating_tmdb"), { enabled: true, position: "left-edge", accentColor: undefined, showIcon: undefined }, "an invalid position keeps the default and a non-hex accent is dropped");
     assert.equal(prefs.items.has("request_status"), false);
     assert.deepEqual(parseOverlayPrefs(JSON.stringify(doc)), prefs, "the administrator's baseline arrives as a JSON string");
 });
@@ -34,6 +34,18 @@ test("a version 1 flat document migrates and ignores preset and order", () => {
     assert.equal(prefs.preset, "classic");
     assert.deepEqual(prefs.order, []);
     assert.deepEqual(enabled({ year: { enabled: true, position: "top-right" }, audio: { enabled: false, position: "top-left" } }), ["resolution", "hdr", "release_type", "year"]);
+});
+
+// OverlayRegistry.swift:275-292, :436-466 and OverlayTypes.swift:44-65 at silo-apple 5780c84.
+test("ratings default to the left rail, ribbons to the right rail, and a stored top-right badge draws on the right rail", () => {
+    const defaults = parseOverlayPrefs(undefined).items;
+    for (const id of ["rating_imdb", "rating_tmdb", "rating_rt", "rating_rt_audience"]) assert.equal(defaults.get(id)?.position, "left-edge", id);
+    for (const id of ["show_status", "imdb_top_250", "rt_certified_fresh"]) assert.equal(defaults.get(id)?.position, "right-edge", id);
+    const stored = parseOverlayPrefs({ version: 2, items: { show_status: { enabled: true, position: "top-right" }, rating_imdb: { enabled: true, position: "right-edge" }, year: { enabled: true, position: "left-edge" } } }).items;
+    assert.equal(stored.get("show_status")?.position, "right-edge");
+    assert.equal(stored.get("rating_imdb")?.position, "right-edge");
+    assert.equal(stored.get("year")?.position, "left-edge");
+    assert.equal(parseOverlayPrefs({ year: { enabled: true, position: "top-right" } }).items.get("year")?.position, "right-edge", "a version 1 top-right badge moves too");
 });
 
 test("an original language shows its English name, and an unknown or invalid tag its code", () => {

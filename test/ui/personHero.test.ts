@@ -286,18 +286,19 @@ async function firstRowCount(tv: Tv): Promise<number> {
     });
 }
 
-async function columnAgainstChips(tv: Tv): Promise<{ overlaps: boolean; centreInside: boolean }[]> {
+async function columnAgainstChips(tv: Tv): Promise<{ overlaps: boolean }[]> {
     return tv.page.locator(".browse-grid").evaluate(grid => {
         const cards = [...grid.querySelectorAll<HTMLElement>(".browse-card")].slice(0, 3);
         const chips = [...document.querySelectorAll<HTMLElement>(".person-filmography-filters [data-focus]")];
         return cards.map(card => {
             const origin = card.getBoundingClientRect();
-            const centre = origin.left + origin.width / 2;
-            const rects = chips.map(chip => chip.getBoundingClientRect());
-            return {
-                overlaps: rects.some(chip => origin.left < chip.right && chip.left < origin.right),
-                centreInside: rects.some(chip => centre >= chip.left && centre <= chip.right),
-            };
+            // At-rest frames: a just-clicked chip is still scaling up around its centre, which would widen it past column 1.
+            const rects = chips.map(chip => {
+                const frame = chip.getBoundingClientRect();
+                const centre = frame.left + frame.width / 2;
+                return { left: centre - chip.offsetWidth / 2, right: centre + chip.offsetWidth / 2 };
+            });
+            return { overlaps: rects.some(chip => origin.left < chip.right && chip.left < origin.right) };
         });
     });
 }
@@ -306,8 +307,8 @@ async function columnAgainstChips(tv: Tv): Promise<{ overlaps: boolean; centreIn
 async function upFromColumns(tv: Tv, columns: number, selected: string): Promise<void> {
     assert.equal(await tv.page.locator(`[data-focus="${selected}"]`).getAttribute("aria-pressed"), "true");
     const placement = await columnAgainstChips(tv);
-    assert.deepEqual(placement.map(item => item.overlaps), [true, true, false], "columns 0 and 1 meet the chip row; column 2 has no chip above it");
-    assert.equal(placement[1]?.centreInside, false, "column 1's centre used to miss every chip; its wider frame still overlaps the row");
+    // Was [true, true, false] while the 1600px grid overlapped its cards and pulled column 1 under Series (#426).
+    assert.deepEqual(placement.map(item => item.overlaps), [true, false, false], "only column 0 meets the chip row; columns 1 and 2 have no chip above them");
     await tv.page.locator('[data-focus="filter:movie"]').focus();
     assert.equal(await tv.focused(), "filter:movie");
     for (let column = 0; column < columns; column += 1) {
@@ -324,7 +325,7 @@ async function upFromColumns(tv: Tv, columns: number, selected: string): Promise
         // Replaces `assert.equal(landed, column <= 1 ? selected : card, "column ${column} used to return to the focused Movies chip")`.
         // That followed the selected filter, which matches column 0 only while All is selected.
         const landed = await tv.focused();
-        const expected = column === 0 ? "filter:video" : column === 1 ? "filter:series" : card;
+        const expected = column === 0 ? "filter:video" : card;
         assert.equal(landed, expected, `column ${column} lands on the chip spanning the card's left edge; selected ${selected} does not decide`);
         assert.ok(landed, "focus was lost");
         await tv.page.locator('[data-focus="filter:movie"]').focus();

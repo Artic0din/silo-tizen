@@ -34,7 +34,10 @@ function lockSearchColumns(node: HTMLElement, columns: number): void {
     node.style.gridTemplateColumns = `repeat(${columns}, calc(220px * var(--poster-scale, 1)))`;
     node.style.width = "max-content";
     // A full row is wider than its cards' column in SwiftUI only when it cannot shrink; browse.css centres it then.
-    node.dataset.fullRow = String(node.childElementCount >= columns);
+    // A short last row is its own HStack with flexible spacers, so it keeps the column's edge under the centred rows.
+    const count = node.childElementCount, shortFrom = count >= columns && count % columns !== 0 ? count - (count % columns) : count;
+    node.dataset.fullRow = String(count >= columns);
+    for (const [index, card] of [...node.children].entries()) card.classList.toggle("search-last-row", index >= shortFrom);
 }
 
 export function searchRequestCatalogId(title: RequestTitle): string | undefined {

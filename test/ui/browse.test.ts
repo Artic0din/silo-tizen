@@ -1861,6 +1861,22 @@ browseTest("Search captions a series with the years it ran", async (tv, catalog)
     assert.equal(await line("movie:dated"), "2021");
 });
 
+browseTest("Search starts a short last row at x 238 under full rows centred at x 200", async tv => {
+    await tv.page.locator('[data-focus="search"]').click();
+    await tv.page.fill("#browse-search", "Movie"); await tv.remote(IME_DONE);
+    await tv.page.locator('.search-scene > .browse-grid [data-focus="movie:m0057"]').waitFor({ state: "attached" });
+    const lefts = await tv.page.locator(".search-scene > .browse-grid .browse-card").evaluateAll(nodes => nodes.map(node => Math.round(node.getBoundingClientRect().left)));
+    assert.equal(lefts.length, 57, "nine full rows and a row of three");
+    assert.deepEqual(lefts.slice(48, 54), [200, 460, 720, 980, 1240, 1500], "a full row is centred on the column");
+    // Each TVCatalogGrid row is its own HStack: a short row's empty columns are flexible spacers, so it keeps the column's edge (TVCatalogGrid.swift:100-144).
+    assert.deepEqual(lefts.slice(54), [238, 498, 758], "the short last row starts at the column's edge");
+    const reads = tv.fake.requests.length;
+    await tv.page.locator('.search-scene > .browse-grid [data-focus="movie:m0051"]').focus();
+    await press(tv, "ArrowDown");
+    assert.equal(await tv.focused(), "movie:m0057", "Down lands on the card it overlaps in the shifted row (x 758 under x 720)");
+    assert.equal(tv.fake.requests.length, reads);
+}, { catalog: new SearchCatalog(57) });
+
 browseTest("Search counts results from the response total without an estimate marker", async (tv, catalog) => {
     await tv.page.locator('[data-focus="search"]').click();
     const items = Array.from({ length: 3 }, (_, index) => ({ content_id: `movie:estimate-${index}`, type: "movie", title: `Estimate ${index}` }));

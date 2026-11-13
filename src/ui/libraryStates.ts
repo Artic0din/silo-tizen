@@ -19,6 +19,7 @@ export function stateIcon(symbol: StateSymbol, className: string): Element {
     if (symbol === "tv" || symbol === "book.closed") return artworkMark(symbol, className);
     const icon = el("span", className);
     icon.setAttribute("aria-hidden", "true");
+    icon.dataset.symbol = symbol;
     icon.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${STROKED[symbol]}</svg>`;
     return icon;
 }

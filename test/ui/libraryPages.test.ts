@@ -371,6 +371,24 @@ page("no filter matches shows Apple's icon and a Clear filters pill that Left fr
     await tv.eventually(async () => await clear.evaluate(node => getComputedStyle(node).transform) === "matrix(1.04, 0, 0, 1.04, 0, 0)", "the pill grows on focus");
 });
 
+page("the no-matches block keeps EmptyStateView's frames: a 52pt symbol frame, 28pt title and Clear filters 32 below", async (tv, catalog) => {
+    // EmptyStateView.swift:10-17 (5780c84): the 44pt symbol's image is 52 square, 12 above the 28pt semibold title, whose
+    // SF Pro line is 332.2 wide and 34 tall; TVLibraryGridView.swift:268-284 puts Clear filters 32 below, the whole block
+    // centred in the 400-tall area under the controls (Apple TV: 442 to 625).
+    await openBrowse(tv);
+    await tv.page.locator(".catalog-grid .browse-card").first().waitFor();
+    catalog.failNext("/catalog/query", { status: 200, body: emptyPage });
+    await chooseLetter(tv, "Q");
+    await tv.page.locator(".browse-empty-state .library-empty").waitFor();
+    const layout = await tv.page.evaluate(() => {
+        const box = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
+        const icon = box(".browse-empty-state .library-empty-icon"), ink = box(".browse-empty-state .library-empty-icon svg"), title = box(".browse-empty-state .library-empty-title"), clear = box('[data-focus="clear-filters"]');
+        const text = document.createRange(); text.selectNodeContents(document.querySelector(".browse-empty-state .library-empty-title")!);
+        return { icon: [icon.width, icon.height], ink: [ink.width, ink.top - icon.top], gaps: [title.top - icon.bottom, clear.top - title.bottom], title: title.height, text: Math.round(text.getBoundingClientRect().width * 10) / 10, top: Math.round(icon.top), bottom: Math.round(clear.bottom) };
+    });
+    assert.deepEqual({ ...layout, text: Math.abs(layout.text - 332) <= 1 }, { icon: [52, 52], ink: [44, 4], gaps: [12, 32], title: 34, text: true, top: 442, bottom: 625 });
+});
+
 page("a failed library probe keeps the no-matches message", async (tv, catalog) => {
     await openBrowse(tv);
     await tv.page.locator(".catalog-grid .browse-card").first().waitFor();

@@ -993,6 +993,8 @@
 .library-empty-icon { display: block; height: 44px; color: rgba(237,237,237,.3); }
 .library-empty-icon svg { display: block; width: 44px; height: 44px; }
 svg.library-empty-icon { width: auto; }
+/* At 44pt, line.3.horizontal.decrease.circle's image frame is 52 square around its 44 glyph (EmptyStateView.swift:11-12). */
+.library-empty-icon[data-symbol="line.3.horizontal.decrease.circle"] { box-sizing: border-box; width: 52px; height: 52px; padding: 4px; }
 .library-empty-title { margin: 0; font-size: calc(28px * var(--silo-sf-cap-scale)); line-height: 34px; font-weight: 600; color: var(--silo-text); }
 .library-empty-body { margin: 0; padding: 0 60px; font-size: calc(22px * var(--silo-sf-cap-scale)); line-height: 27px; color: var(--silo-secondary); }
 /* TVLibraryBrowseView.swift:84-89: .caption (25pt on tvOS), default padding, on .ultraThinMaterial at the bottom edge. */
@@ -1596,6 +1598,9 @@ svg.library-empty-icon { width: auto; }
 /* TVLibraryGridView.swift:206-213, :268-284: a full-width area at least 400 tall, Clear filters 32 below the state. */
 .browse-empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 32px; min-height: 400px; }
 .library-browse .library-empty-title { font-weight: 600; }
+/* SF Pro's 28pt semibold sets "No titles match your filters" 332.2 wide (EmptyStateView.swift:15-16); Inter at the capped size,
+   0.125px apart, sets the same width where the app's tighter tracking ran 15px short. */
+.browse-empty-state .library-empty-title { letter-spacing: .125px; }
 .browse-empty-actions { display: flex; justify-content: center; }
 .browse .browse-empty-actions .browse-button { display: flex; align-items: center; height: 53px; margin: 0; padding: 0 22px; border: 1px solid rgba(255,255,255,.09); border-radius: 27px; background: rgba(255,255,255,.07); color: #ededed; font-size: 24px; font-weight: 500; transition: transform 120ms ease-out; }
 .browse .browse-empty-actions .browse-button:focus { background: #ededed; color: #000; border-color: transparent; transform: scale(1.04); }

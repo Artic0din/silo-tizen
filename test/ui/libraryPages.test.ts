@@ -521,7 +521,8 @@ page("with no grid, Browse keeps the plain 1870 column: pills at 80, the rail at
     const layout = () => tv.page.evaluate(() => {
         const box = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
         const icon = box(".browse-empty-state .library-empty-icon"), rail = box(".browse-letters");
-        return { controls: box(".browse-controls").left, rail: [rail.left, rail.right], centre: (icon.left + icon.right) / 2 };
+        // The block centres on a fractional title width; Linux lays it out to 1/64 px, so read the centre to the pixel.
+        return { controls: box(".browse-controls").left, rail: [rail.left, rail.right], centre: Math.round((icon.left + icon.right) / 2) };
     });
     await tv.page.locator('[data-focus="clear-filters"]').focus();
     assert.deepEqual(await layout(), { controls: 80, rail: [1870, 1888], centre: 935 });

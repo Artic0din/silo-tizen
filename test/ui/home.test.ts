@@ -1678,6 +1678,8 @@ for (const [server, setup, expected] of [
         const held = tv.fake.hold("/images/capabilities", true);
         await tv.page.evaluate(() => { window.browseHarness.destroy(); window.browseHarness.mount(); });
         await tv.page.locator('[data-view="home"] [data-section]').first().waitFor();
+        // The remounted Home can paint its cached rows before its own read goes out; wait for that read, then check its sizing.
+        await tv.eventually(async () => tv.fake.requests.filter(request => request.path.startsWith("/home/sections")).length > initial.length, "the remounted Home reads its rows");
         assert.deepEqual(tv.fake.requests.filter(request => request.path.startsWith("/home/sections")).map(request => request.path), [...initial, expected], "cached sizing applies even while the refresh probe is pending");
         held.release();
     }, setup);

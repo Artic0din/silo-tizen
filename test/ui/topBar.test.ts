@@ -188,6 +188,36 @@ for (const how of ["Select", "the dwell, then Select"] as const) test(`${how} on
     } finally { await tv.page.context().close(); }
 });
 
+// TVProfileDropdown (silo-apple 5780c84 `tvOS/Navigation/TVTopMenuBar.swift:1185`, `:1232-1252`, `:1264-1285`): 14 pt
+// padding, a 10 pt VStack, rows of 22 pt semibold SF Pro (a 27 pt line) with 14 pt vertical padding, and a header whose
+// name and server line sit 2 pt apart. Measured on Apple TV: a 65 px row pitch, 76 across the divider.
+test("profile menu rows keep Apple's 55 px height, 65 px pitch and 76 px step across the divider", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        await tv.page.emulateMedia({ reducedMotion: "reduce" });
+        await start(tv, null, new ProfileDestinationsCatalog(), true);
+        await tv.page.locator('[data-focus="profiles"]').focus();
+        await tv.jump(250);
+        const layout = await tv.page.locator('.skyline-selector[data-menu-kind="profile"]').evaluate(panel => {
+            for (const animation of document.getAnimations()) animation.finish();
+            const top = panel.getBoundingClientRect().top;
+            const box = (node: Element | null) => { const rect = (node as HTMLElement).getBoundingClientRect(); return [Math.round((rect.top - top) * 10) / 10, Math.round(rect.height * 10) / 10]; };
+            return {
+                header: box(panel.querySelector(".skyline-profile-header")),
+                server: box(panel.querySelector(".skyline-profile-server")),
+                divider: box(panel.querySelector(".skyline-menu-divider")),
+                rows: [...panel.querySelectorAll(".skyline-menu-item")].map(box),
+                height: Math.round(panel.getBoundingClientRect().height * 10) / 10,
+            };
+        });
+        assert.deepEqual(layout.header, [14, 64]);
+        assert.deepEqual(layout.server, [53, 17], "the server line sits 2 px under the name");
+        assert.deepEqual(layout.rows, [[88, 55], [153, 55], [229, 55], [294, 55], [359, 55]], "History, Requests | Settings, Switch Profile, Sign Out");
+        assert.deepEqual(layout.divider, [218, 1]);
+        assert.equal(layout.height, 428);
+    } finally { await tv.page.context().close(); }
+});
+
 // The header's server line is SF Mono 14 with tracking 1.4 (TVTopMenuBar.swift:1240-1245). Roboto Mono advances 0.6em
 // to SF Mono's 0.618em, so the line adds the 0.25 px difference to Apple's tracking.
 test("the profile header's server line is the bundled mono face at Apple's tracking", async () => {

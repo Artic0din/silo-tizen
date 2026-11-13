@@ -1103,9 +1103,20 @@ svg.library-empty-icon { width: auto; }
 .browse-watched::after { content: ""; position: absolute; left: 14px; top: 8px; width: 9px; height: 18px; border: solid #000; border-width: 0 4px 4px 0; transform: rotate(45deg); }
 .skyline-continue .browse-watched { top: 14px; right: 14px; }
 /* Poster badges (Apple CardOverlays); per-preset sizes and colours are set inline from the badge document. */
-.card-overlays { position: absolute; top: 0; right: 0; bottom: 0; left: 0; pointer-events: none; }
+/* Positions are on the artwork, which does not mirror. */
+.card-overlays { position: absolute; top: 0; right: 0; bottom: 0; left: 0; pointer-events: none; direction: ltr; }
 .card-overlay-stack { position: absolute; display: flex; flex-direction: column; }
-.card-overlay { display: inline-flex; align-items: center; line-height: 1.2; text-transform: uppercase; white-space: nowrap; }
+/* A side rail is centred on its edge. */
+.card-overlay-left-edge, .card-overlay-right-edge { top: 50%; transform: translateY(-50%); }
+.card-overlay-row { display: flex; flex-wrap: wrap; align-items: flex-end; }
+.card-overlay-trailing { margin-left: auto; }
+.card-overlay { position: relative; box-sizing: border-box; display: inline-flex; align-items: center; flex: none; min-width: 0; max-width: 100%; text-transform: uppercase; white-space: nowrap; }
+/* strokeBorder inside the badge; a rail tab's stroke runs past the card edge and is clipped there, so it is open on that side. */
+.card-overlay-framed::before { content: ""; position: absolute; top: 0; right: 0; bottom: 0; left: 0; border-radius: inherit; box-shadow: inset 0 0 0 var(--card-overlay-border) var(--card-overlay-border-color); }
+.card-overlay-tab-left::before { left: calc(-1 * var(--card-overlay-border)); clip-path: inset(0 0 0 var(--card-overlay-border)); }
+.card-overlay-tab-right::before { right: calc(-1 * var(--card-overlay-border)); clip-path: inset(0 var(--card-overlay-border) 0 0); }
+/* lineLimit(1) with tail truncation; the clip margin keeps the minimal preset's text shadow. */
+.card-overlay-label { min-width: 0; overflow: clip; overflow-clip-margin: 4px; text-overflow: ellipsis; }
 .card-overlay-mark { font-weight: 800; letter-spacing: .2px; }
 .card-overlay-icon { display: block; flex: none; fill: currentColor; stroke: none; }
 /* Home rows: Apple MediaRow, MediaCard and EpisodeThumbCard (silo-apple 1a7ccee). The content reaches into a

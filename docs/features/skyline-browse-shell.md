@@ -395,6 +395,11 @@ Home cards draw the profile's poster badges (Apple `CardOverlays`): the profile'
 The profile's `ui.card_overlays_enabled` choice overrides the server-wide default in either direction.
 As in Apple `OverlayPrefsStore`, the registry defaults show until the reads answer; a failed read keeps that half's last answer, so a known administrator or profile off stays off.
 Poster badges scale from Apple's 185 px poster reference; still badges keep their size and clear the progress bar.
+Badges follow Apple `CardOverlays` at silo-apple `5780c84`: the top-left corner, a bottom row shared by the two bottom corners, and a rail centred on each side edge.
+The top-right corner is left to the watch-status mark, so a badge stored at `top-right` draws on the right rail, and the top-left row stops short of that corner on posters.
+A corner draws three badges and a rail four; a filled badge on a rail is a tab flush against the card edge.
+Ratings default to the left rail and series status to the right.
+The Plate and Edge band presets, style overrides and uploaded badge images are not drawn yet.
 Brand marks (DV, HDR10, ATMOS, AV1) are text as in Apple; Apple's other badge icons are SF Symbols and are not drawn.
 The settings are read when Home loads and again after Settings closes, never on focus.
 Home shows non-empty rows in the server's profile order, matching the Apple TV client.

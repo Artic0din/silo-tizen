@@ -243,7 +243,7 @@ export class Skyline {
             return item;
         });
         const searchItem = actionButton("search", "", () => this.commit("search"));
-        this.items = [searchItem, ...rootItems, actionButton("profiles", this.profiles.name.slice(0, 1).toUpperCase(), () => this.openProfile())];
+        this.items = [searchItem, ...rootItems, actionButton("profiles", this.profiles.name.slice(0, 1).toUpperCase(), () => this.openProfile(true))];
         const search = this.items.find((item) => item.key === "search");
         search?.element.setAttribute("aria-label", "Search");
         search?.element.classList.add("skyline-search");
@@ -941,18 +941,20 @@ export class Skyline {
     /** A row appearing or going while the menu is open replaces every row, so focus returns to the row it was on. */
     private rebuildProfile(): void {
         const focusedKey = this.panel.find(item => item.element === document.activeElement)?.key;
-        this.openProfile(false);
+        this.openProfile(false, false);
         if (focusedKey !== undefined) this.panel.find(item => item.key === focusedKey)?.element.focus({ preventScroll: true });
     }
 
     /**
-     * Select and the dwell both open the menu with focus left on the avatar and no row highlighted; Down enters it.
-     * Apple's source enters on Select (silo-apple 5780c84 `TVMainTabView.swift:835-841`), but the Apple TV app
-     * measured beside the S95C keeps focus on the avatar.
+     * The dwell opens a passive preview with focus left on the avatar (silo-apple 5780c84 `TVMainTabView.swift:802-831`);
+     * Select opens the menu and enters its first row, also when the dwell already opened it (`:835-853`).
      */
-    private openProfile(fade = true): void {
+    private openProfile(enter = false, fade = true): void {
         if (!this.visible) return;
-        if (fade && this.profileOpen && !this.selector.hidden) return;
+        if (fade && this.profileOpen && !this.selector.hidden) {
+            if (enter) this.panel[0]?.element.focus({ preventScroll: true });
+            return;
+        }
         this.close(fade);
         this.profileOpen = true;
         this.panelAnchor = "profiles";
@@ -998,6 +1000,7 @@ export class Skyline {
         this.scrim.hidden = true;
         this.updateChrome();
         this.refresh();
+        if (enter) this.panel[0]?.element.focus({ preventScroll: true });
     }
 
     private confirmSignOut(): void {

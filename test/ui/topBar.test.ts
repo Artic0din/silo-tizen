@@ -167,24 +167,24 @@ test("the profile menu lists Apple's rows in Apple's order with the divider befo
     } finally { await tv.page.context().close(); }
 });
 
-for (const how of ["Select", "the dwell"] as const) test(`opening the profile menu with ${how} keeps focus on the avatar until Down`, async () => {
+// The dwell previews the menu with focus left on the avatar (TVMainTabView.swift:802-831); Select opens it and
+// enters the first row, also when the dwell already opened it (openProfilePanelImmediately, :835-853).
+for (const how of ["Select", "the dwell, then Select"] as const) test(`${how} on the avatar enters History`, async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {
         await start(tv);
         const avatar = tv.page.locator('[data-focus="profiles"]');
         await avatar.focus();
-        if (how === "Select") await tv.page.keyboard.press("Enter");
-        else await tv.jump(250);
-        assert.equal(await avatar.getAttribute("aria-expanded"), "true", "the menu is open");
-        await tv.jump(500);
-        assert.equal(await tv.focused(), "profiles", "the avatar keeps focus");
-        assert.equal(await tv.page.locator(".skyline-selector .skyline-menu-item:focus").count(), 0, "no row is highlighted");
-        if (how === "Select") {
-            await tv.page.keyboard.press("Enter");
-            assert.equal(await tv.focused(), "profiles", "a second Select leaves focus on the avatar");
+        if (how !== "Select") {
+            await tv.jump(250);
+            assert.equal(await avatar.getAttribute("aria-expanded"), "true", "the dwell opens the menu");
+            await tv.jump(500);
+            assert.equal(await tv.focused(), "profiles", "the dwell leaves focus on the avatar");
+            assert.equal(await tv.page.locator(".skyline-selector .skyline-menu-item:focus").count(), 0, "no row is highlighted");
         }
-        await tv.page.keyboard.press("ArrowDown");
-        assert.equal(await tv.focused(), "history", "Down enters the first row");
+        await tv.page.keyboard.press("Enter");
+        assert.equal(await avatar.getAttribute("aria-expanded"), "true");
+        assert.equal(await tv.focused(), "history", "Select enters the first row");
     } finally { await tv.page.context().close(); }
 });
 

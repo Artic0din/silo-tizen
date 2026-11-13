@@ -296,7 +296,7 @@ The anchored profile menu follows Apple's `TVProfileDropdown` order: History, ca
 The profile row is Add Profile when the open account's cached list holds one profile, and Switch Profile otherwise, as Apple's `ProfileMenuRow` chooses it.
 Tizen does not read the account's profile limit, so Add Profile also shows for an account that may hold only one profile; the server refuses the creation.
 Add Profile reads the profiles again and opens profile creation, which ends on the profiles.
-Select and the dwell both open the menu with focus left on the avatar and no row highlighted, as the Apple TV app does; Down enters History.
+The dwell opens a passive preview with focus left on the avatar; Select, or Down, enters History, as Apple's `openProfilePanelImmediately` does.
 Watchlist and Favorites remain under For You.
 Requests pushes a screen without the top bar.
 Back from Requests, History or Settings keeps the profile menu closed and restores the selected tab.

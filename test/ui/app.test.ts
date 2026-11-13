@@ -778,7 +778,7 @@ appTest("an emoji avatar shows in the top bar, the profile menu and Settings ins
     assert.equal(await avatar.locator(".navigation-avatar-fallback").evaluate(node => getComputedStyle(node).fontSize), "26.1px", "ProfileAvatarView draws text at 45% of the 58 px avatar");
     await tv.page.locator('[data-focus="profiles"]').click();
     assert.equal(await tv.page.locator(".skyline-profile-header .navigation-avatar-fallback").textContent(), "\u{1F98A}");
-    assert.equal(await tv.focused(), "profiles", "opening the menu keeps focus on the avatar");
+    assert.equal(await tv.focused(), "history", "opening the menu moves focus to its first row");
 });
 
 appTest("a 200-character server name keeps every sign-out dialog's buttons on screen and focusable", async tv => {
@@ -842,7 +842,7 @@ appTest("Sign Out confirmation traps focus and cancellation preserves the sessio
     const writes = tv.fake.requests.filter(request => request.method !== "GET").length;
     await tv.page.locator('[data-focus="profiles"]').click();
     assert.equal(await tv.page.locator(".skyline-profile-server").textContent(), "LIVING ROOM LIBRARY");
-    assert.equal(await tv.focused(), "profiles");
+    assert.equal(await tv.focused(), "history");
     await tv.page.locator('[data-focus="signout"]').focus();
     const focusColors = await tv.page.locator('[data-focus="signout"]').evaluate(node => [getComputedStyle(node).backgroundColor, getComputedStyle(node).color]);
     assert.deepEqual(focusColors, ["rgb(255, 255, 255)", "rgb(0, 0, 0)"], "Apple uses the common white focus platter for destructive menu rows");
@@ -2029,8 +2029,8 @@ appTest("the profile menu opens without changing content, stays dismissed after 
     assert.equal(await tv.page.locator(".skyline-selector").first().isVisible(), false);
     assert.equal(await tv.focused(), "profiles");
     await tv.page.keyboard.press("Enter");
-    assert.equal(await tv.focused(), "profiles", "Select opens the menu and keeps focus on the avatar");
-    for (const destination of ["history", "settings", "switch-profile", "switch-server"]) {
+    assert.equal(await tv.focused(), "history", "Select enters the menu immediately");
+    for (const destination of ["settings", "switch-profile", "switch-server"]) {
         await tv.page.keyboard.press("ArrowDown");
         assert.equal(await tv.focused(), destination);
     }

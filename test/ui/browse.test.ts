@@ -4350,7 +4350,7 @@ browseTest("an authority change removes only browse, aborts its reads, and the n
 
     assert.equal(await tv.focused(), "home", "Search Back restores its originating root tab");
     await press(tv, "ArrowRight", "ArrowRight", "ArrowRight", "ArrowRight", "Enter");
-    assert.equal(await tv.focused(), "profiles", "Select opens the menu on the avatar");
+    assert.equal(await tv.focused(), "history", "Select enters the menu on its first row");
     for (let step = 0; step < 6 && await tv.focused() !== "switch-profile"; step++) await press(tv, "ArrowDown");
     assert.equal(await tv.focused(), "switch-profile");
     await press(tv, "Enter");

@@ -250,6 +250,26 @@ page("Browse's first load shows twelve static poster placeholders", async tv => 
     } finally { held.release(); }
 });
 
+page("Browse's placeholders sit in the loaded grid's columns", async tv => {
+    // TVLibraryGridView.swift:188-203: the skeleton grid shares the loaded grid's column count, spacing and padding.
+    const geometry = (selector: string) => tv.page.evaluate(tiles => {
+        const nodes = [...document.querySelectorAll(tiles)].slice(0, 7).map(node => node.getBoundingClientRect());
+        const grid = document.querySelector(tiles)?.closest(".catalog-grid")?.getBoundingClientRect();
+        return { lefts: nodes.map(box => Math.round(box.left * 100) / 100), widths: nodes.map(box => box.width), grid: grid === undefined ? undefined : [grid.left, grid.right] };
+    }, selector);
+    const held = tv.fake.hold("/catalog/query", true);
+    let skeleton;
+    try {
+        await openBrowse(tv);
+        await tv.page.locator(".catalog-skeleton .poster-skeleton").first().waitFor();
+        skeleton = await geometry(".catalog-skeleton .poster-skeleton");
+    } finally { held.release(); }
+    await tv.page.locator(".catalog-grid .browse-card").first().waitFor();
+    const loaded = await geometry(".catalog-grid .browse-card .browse-art");
+    assert.deepEqual(loaded, { lefts: [80, 380, 680, 980, 1280, 1580, 80], widths: [260, 260, 260, 260, 260, 260, 260], grid: [80, 1840] });
+    assert.deepEqual(skeleton, loaded);
+});
+
 page("Browse's loading-more indicator spins under the grid", async tv => {
     await openBrowse(tv);
     await tv.eventually(async () => await tv.page.locator(".catalog-grid .browse-card").count() === 100, "first page");

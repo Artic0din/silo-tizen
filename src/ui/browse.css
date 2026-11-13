@@ -1525,17 +1525,22 @@ svg.library-empty-icon { width: auto; }
 .library-browse .skyline-content { top: 216px; left: 0; width: 1920px; height: 864px; }
 /* TVLibraryGridView: a 216pt clear spacer, then 32pt stack spacing above and below the control row. */
 .browse-controls { display: flex; margin: 32px 0 32px 80px; }
-/* TVBrowseControlPillStyle (TVBrowseFilterUI.swift:582-606): 24pt medium (×cap), fill, text and 1.04 scale animate with easeOut(0.12). */
-.browse .browse-controls .browse-button { display: flex; align-items: center; height: 53px; margin: 0 16px 0 0; padding: 0 22px; border: 1px solid rgba(255,255,255,.09); border-radius: 27px; background: rgba(255,255,255,.07); color: #ededed; font-size: calc(24px * var(--silo-sf-cap-scale)); font-weight: 500; transition: transform 120ms ease-out, background-color 120ms ease-out, color 120ms ease-out; }
+/* TVBrowseControlPillStyle (TVBrowseFilterUI.swift:582-606): 24pt medium (×cap), fill, text and 1.04 scale animate with easeOut(0.12).
+   Apple's 22pt padding sits inside a 1pt strokeBorder (:588, :598-603), so the CSS border takes 1 of the 22. The labels keep Inter's
+   own spacing: at the capped size it sets "Sort · Title A–Z", "Filter" and "Shuffle" within 1px of SF Pro, where the app's tighter tracking runs 2 to 3px short. */
+.browse .browse-controls .browse-button { display: flex; align-items: center; height: 53px; margin: 0 16px 0 0; padding: 0 21px; border: 1px solid rgba(255,255,255,.09); border-radius: 27px; background: rgba(255,255,255,.07); color: #ededed; font-size: calc(24px * var(--silo-sf-cap-scale)); font-weight: 500; transition: transform 120ms ease-out, background-color 120ms ease-out, color 120ms ease-out; }
+.browse .browse-controls .browse-button > * { letter-spacing: 0; }
 .browse .browse-controls .browse-button[aria-pressed="true"] { background: rgba(255,255,255,.14); }
 .browse .browse-controls .browse-button:focus { background: #ededed; color: #000; border-color: transparent; transform: scale(1.04); }
 .browse-icon { display: inline-block; width: 24px; height: 24px; margin-right: 10px; flex-shrink: 0; }
 .browse-icon svg { display: block; width: 100%; height: 100%; }
+/* TVBrowseControlRow's HStack(spacing: 10) between symbol and text (TVBrowseFilterUI.swift:34, :46, :65); the panel rows' 14 is the Sort panel's. */
+.browse-controls .browse-panel-row .browse-icon { margin-right: 10px; }
 /* TVBrowseControlRow keeps sortDirection in siloSecondaryText (#99EDEDED).
    The focused pill fill is siloOnSurface (#EDEDED), so that direction disappears. */
 .browse-control-detail { margin-left: 10px; color: rgba(237,237,237,.6); }
 /* TVBrowseFilterUI.swift:51: 18pt bold monospaced. Monospaced text keeps Apple's points (see .details-track-popover). */
-.library-browse .browse-control-count { margin-left: 10px; padding: 2px 8px; border-radius: 14px; background: rgba(0,0,0,.25); font-family: ui-monospace, monospace; font-size: 18px; font-weight: 700; }
+.library-browse .browse-control-count { margin-left: 10px; padding: 2px 8px; border-radius: 14px; background: rgba(0,0,0,.25); font-family: var(--silo-mono); font-size: 18px; font-weight: 700; }
 .library-browse .catalog-grid { margin: 0 0 0 80px; }
 .library-browse { font-weight: 400; }
 .library-browse * { font-family: var(--silo-font); font-weight: inherit; }
@@ -1562,7 +1567,10 @@ svg.library-empty-icon { width: auto; }
    easeOut(0.12), and the chips grow with the rail's easeOut(0.18) (:71, :148-151). Monospaced text keeps Apple's points. */
 .browse-letters { position: fixed; z-index: 3; top: 0; right: 32px; width: 18px; height: 1020px; display: flex; flex-direction: column; align-items: center; justify-content: center; overflow: hidden auto; scrollbar-width: none; transition: width 180ms ease-out; }
 .browse-letters::-webkit-scrollbar { display: none; }
-.browse-letters .browse-button { flex-shrink: 0; width: 10px; height: 10px; min-height: 0; margin: 2px 0; padding: 0; border: 0; border-radius: 8px; background: transparent; color: rgba(237, 237, 237, 0.6); font-family: ui-monospace, monospace; font-size: 10px; font-weight: 600; line-height: 10px; opacity: 0.35; overflow: hidden; transition: background-color 120ms ease-out, color 120ms ease-out, transform 120ms ease-out, width 180ms ease-out, height 180ms ease-out, font-size 180ms ease-out, line-height 180ms ease-out; }
+/* TVLibraryGridView.swift:98-108: the grid column and the rail share an HStack, so the open rail's 96 + 32 trailing ends the grid at x1792
+   and no card draws under the letters. The grid starts at x80, so 1712 of it stays visible. */
+.library-browse .skyline-content:has(> .browse-letters:focus-within) > .catalog-grid { clip-path: inset(0 max(0px, calc(100% - 1712px)) 0 0); }
+.browse-letters .browse-button { flex-shrink: 0; width: 10px; height: 10px; min-height: 0; margin: 2px 0; padding: 0; border: 0; border-radius: 8px; background: transparent; color: rgba(237, 237, 237, 0.6); font-family: var(--silo-mono); font-size: 10px; font-weight: 600; line-height: 10px; opacity: 0.35; overflow: hidden; transition: background-color 120ms ease-out, color 120ms ease-out, transform 120ms ease-out, width 180ms ease-out, height 180ms ease-out, font-size 180ms ease-out, line-height 180ms ease-out; }
 .browse-letters .browse-button[data-pressed] { transform: scale(.96); }
 @media (prefers-reduced-motion: reduce) { .browse-letters, .browse-letters .browse-button { transition-duration: 0s; } .browse-letters .browse-button[data-pressed] { transform: none; } }
 .browse-letters[data-open], .browse-letters:focus-within { width: 96px; justify-content: flex-start; }
@@ -1593,6 +1601,9 @@ svg.library-empty-icon { width: auto; }
 /* TVBrowseFilterUI.swift:126, :277, :493: the eyebrows and section headers are monospaced, at Apple's points. */
 .library-browse .browse-panel-eyebrow { margin: 0; padding: 0 18px 8px; font-family: ui-monospace, monospace; font-size: 18px; font-weight: 600; letter-spacing: 2px; color: rgba(237,237,237,.6); }
 .library-browse .browse-filter-panel .browse-panel-eyebrow { padding: 0 0 6px; font-size: 16px; }
+/* SORT BY is SF Mono 18 semibold with tracking 2 (TVBrowseFilterUI.swift:126-128). SF Mono advances 0.618em and Roboto Mono 0.6em,
+   so 0.33px more tracking keeps Apple's 92px line; 21px is SF Mono's line height at 18pt. */
+.library-browse .browse-sort-panel .browse-panel-eyebrow { font-family: var(--silo-mono); line-height: 21px; letter-spacing: 2.33px; }
 .library-browse .browse-panel-title { margin: 0; font-size: calc(34px * var(--silo-sf-cap-scale)); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .browse-panel-divider { height: 1px; margin: 12px 0; background: rgba(255,255,255,.12); }
 .browse-panel-list { flex: 1 1 auto; overflow: hidden; padding: 4px 0; }
@@ -1601,7 +1612,8 @@ svg.library-empty-icon { width: auto; }
 /* TVBrowsePanelRowStyle (TVBrowseFilterUI.swift:614-630): the white fill animates with easeOut(0.12). */
 .browse .browse-panel .browse-panel-row { display: flex; align-items: center; width: 100%; margin: 0 0 4px; padding: 13px 16px; border: 0; border-radius: 12px; background: transparent; color: #ededed; font-size: calc(24px * var(--silo-sf-cap-scale)); font-weight: 400; text-align: left; white-space: nowrap; transition: background-color 120ms ease-out, color 120ms ease-out; }
 /* Row type per TVBrowseFilterUI: sort 26, facets 25, Match and Options rows 23, Done 25 semibold, values 24. */
-.browse .browse-sort-panel .browse-panel-row { font-size: calc(26px * var(--silo-sf-cap-scale)); }
+/* TVBrowseSortPanel (TVBrowseFilterUI.swift:125-155): a VStack(spacing: 4) puts 4 above each row and none below the last; rows are 13 + 32 + 13, a 62 pitch on the Apple TV. */
+.browse .browse-sort-panel .browse-panel-row { margin: 4px 0 0; font-size: calc(26px * var(--silo-sf-cap-scale)); line-height: 32px; }
 .browse .browse-panel [data-focus^="facet:"] { font-size: calc(25px * var(--silo-sf-cap-scale)); }
 .browse .browse-panel [data-focus^="match:"], .browse .browse-panel [data-focus="preserve"], .browse .browse-panel [data-focus="reset"], .browse .browse-panel [data-focus^="clear:"] { font-size: calc(23px * var(--silo-sf-cap-scale)); }
 .browse .browse-panel .browse-panel-done { font-size: calc(25px * var(--silo-sf-cap-scale)); font-weight: 600; }

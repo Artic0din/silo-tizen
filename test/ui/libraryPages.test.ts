@@ -528,3 +528,100 @@ page("editing an open Filter panel does not replay its entrance fade", async tv 
     const running = await tv.page.evaluate(() => [".browse .browse-panel-scrim", ".browse .browse-filter-panel"].map(selector => document.querySelector(selector)?.getAnimations().length));
     assert.deepEqual(running, [0, 0]);
 });
+
+// One screen pixel as [r, g, b], decoded in the page as topBar.test.ts does.
+async function pixel(tv: Tv, x: number, y: number): Promise<number[]> {
+    const png = await tv.page.screenshot({ clip: { x, y, width: 1, height: 1 }, animations: "disabled" });
+    return tv.page.evaluate(async source => {
+        const image = new Image(); image.src = source; await image.decode();
+        const canvas = document.createElement("canvas"); canvas.width = 1; canvas.height = 1;
+        const context = canvas.getContext("2d"); if (context === null) throw new Error("No canvas");
+        context.drawImage(image, 0, 0);
+        return [...context.getImageData(0, 0, 1, 1).data.slice(0, 3)];
+    }, `data:image/png;base64,${png.toString("base64")}`);
+}
+const painted = (rgb: number[]) => rgb.some(channel => channel > 24);
+
+page("the open letter rail clips the grid at its left edge, as Apple's rail column does", async tv => {
+    // TVLibraryGridView.swift:98-108: the grid column and the rail share an HStack, so the open rail's 96 + 32 takes 128 from the grid.
+    await tv.page.emulateMedia({ reducedMotion: "reduce" });
+    await browseReady(tv);
+    const sixth = tv.page.locator(".catalog-grid .browse-card .browse-art").nth(5);
+    const art = await sixth.boundingBox();
+    assert.ok(art !== null);
+    assert.equal(art.x + art.width, 1840);
+    const y = Math.round(art.y + 40);
+    await tv.page.locator('[data-focus="letter:A"]').focus();
+    await tv.page.waitForTimeout(300);
+    assert.deepEqual(await tv.page.locator(".browse-letters").evaluate(node => { const box = node.getBoundingClientRect(); return [box.left, box.right]; }), [1792, 1888]);
+    assert.ok(painted(await pixel(tv, 1790, y)), "the sixth card shows up to the rail");
+    assert.deepEqual(await pixel(tv, 1794, y), [0, 0, 0], "no card draws under the open rail");
+    await tv.page.locator(".catalog-grid .browse-card").nth(5).focus();
+    await tv.page.waitForTimeout(300);
+    assert.ok(painted(await pixel(tv, 1830, y)), "the closed rail gives the grid back");
+});
+
+page("open rail letters draw in the packaged monospaced face", async tv => {
+    // TVAlphabetRail.swift:98-106: SF Mono semibold. The TV has no monospaced system face, so a generic monospace draws proportional.
+    await browseReady(tv);
+    await tv.page.locator('[data-focus="letter:I"]').focus();
+    const face = await tv.page.evaluate(async () => {
+        await document.fonts.ready;
+        const letter = document.querySelector('[data-focus="letter:I"]')!;
+        return { family: getComputedStyle(letter).fontFamily.split(",")[0]?.trim(), loaded: [...document.fonts].some(font => font.family.replace(/"/g, "") === "Roboto Mono" && font.status === "loaded") };
+    });
+    assert.deepEqual(face, { family: '"Roboto Mono"', loaded: true });
+});
+
+page("Browse pills keep Apple's padding, symbol frames and spacing", async tv => {
+    // TVBrowseFilterUI.swift:31-77, :588-590: 22 inside a 1pt inner stroke, SF Symbols at 24pt medium, 10 between parts, 16 between pills.
+    await tv.page.route("**/api/v2/shuffles/capabilities", route => route.fulfill({ json: { allowed: true, state: "available", scope_kinds: ["library"] } }));
+    await browseReady(tv);
+    await tv.page.locator('[data-focus="shuffle"]').waitFor();
+    await tv.page.locator(".catalog-grid .browse-card").first().focus();
+    await tv.page.waitForTimeout(300); // Sort's 1.04 focus scale eases out over 120 ms.
+    const pills = await tv.page.evaluate(() => [...document.querySelectorAll(".browse-controls .browse-button")].map(pill => {
+        const box = pill.getBoundingClientRect();
+        const parts = [...pill.children].map(part => part.getBoundingClientRect());
+        const icon = parts[0]!;
+        return {
+            key: pill.getAttribute("data-focus"), left: box.left, right: box.right,
+            lead: icon.left - box.left, trail: box.right - parts[parts.length - 1]!.right, symbol: [icon.width, icon.height],
+            gaps: parts.slice(1).map((part, index) => part.left - parts[index]!.right),
+            strokes: [...pill.querySelectorAll("svg path")].map(path => path.getAttribute("stroke-width")),
+        };
+    }));
+    assert.deepEqual(pills.map(({ key, lead, trail, symbol, gaps, strokes }) => ({ key, lead, trail, symbol, gaps, strokes })), [
+        { key: "sort", lead: 22, trail: 22, symbol: [35, 28], gaps: [10, 10], strokes: ["2.5"] },
+        { key: "filter", lead: 22, trail: 22, symbol: [31, 19], gaps: [10], strokes: ["2.3"] },
+        { key: "shuffle", lead: 22, trail: 22, symbol: [34, 27], gaps: [10], strokes: ["2.41", "2.08"] },
+    ]);
+    assert.deepEqual(pills.slice(1).map((pill, index) => pill.left - pills[index]!.right), [16, 16]);
+    // Apple TV, unfocused: Sort 251, Filter 138 and Shuffle 164 wide. Inter stands in for SF Pro, so allow a pixel.
+    for (const [index, width] of [251, 138, 164].entries()) assert.ok(Math.abs(pills[index]!.right - pills[index]!.left - width) < 1, `${pills[index]?.key}: ${pills[index]!.right - pills[index]!.left}`);
+});
+
+page("the Sort panel keeps Apple's stack: 4 between parts, 58-point rows and SF Mono tracking", async tv => {
+    // TVBrowseFilterUI.swift:125-155: a 4pt VStack inside 14 padding, centred on y510; rows 13 + 32 + 13; the eyebrow 18pt mono, tracking 2.
+    await browseReady(tv);
+    await tv.page.locator('[data-focus="sort"]').focus();
+    await tv.page.keyboard.press("Enter");
+    await tv.page.locator('[data-focus="sort:title"]').waitFor();
+    const layout = await tv.page.evaluate(() => {
+        const panel = document.querySelector(".browse-sort-panel")!.getBoundingClientRect();
+        const eyebrow = document.querySelector(".browse-sort-panel .browse-panel-eyebrow")!;
+        const rows = [...document.querySelectorAll(".browse-sort-panel .browse-panel-row")].map(row => row.getBoundingClientRect());
+        const text = document.createRange(); text.selectNodeContents(eyebrow);
+        return {
+            top: panel.top, height: panel.height, eyebrow: eyebrow.getBoundingClientRect().top - panel.top, first: rows[0]!.top - panel.top,
+            rows: rows.map(row => row.height), pitch: rows.slice(1).map((row, index) => row.top - rows[index]!.top), bottom: panel.bottom - rows[rows.length - 1]!.bottom,
+            family: getComputedStyle(eyebrow).fontFamily.split(",")[0]?.trim(), tracking: getComputedStyle(eyebrow).letterSpacing, width: Math.round(text.getBoundingClientRect().width * 10) / 10,
+        };
+    });
+    assert.deepEqual(layout, {
+        top: 264.5, height: 491, eyebrow: 14, first: 14 + 21 + 8 + 4,
+        rows: [58, 58, 58, 58, 58, 58, 58], pitch: [62, 62, 62, 62, 62, 62], bottom: 14,
+        // SF Mono's advance is 0.618 em and Roboto Mono's 0.6 em; 0.33px more tracking keeps Apple's 91.9 SORT BY.
+        family: '"Roboto Mono"', tracking: "2.33px", width: 91.9,
+    });
+});

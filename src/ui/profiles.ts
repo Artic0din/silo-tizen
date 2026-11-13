@@ -307,7 +307,7 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
             return;
         }
         shownList = list;
-        // AddProfileFromMenuModifier (AddProfileFromMenu.swift:3-7): closing without creating leaves the open profile's screen.
+        // AddProfileFromMenuModifier (AddProfileFromMenu.swift:3-7): closing without creating returns to the open profile.
         const back = resume();
         createProfile(list, back ?? (() => showList("add-profile")));
     }, addProfile);

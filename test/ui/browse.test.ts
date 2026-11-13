@@ -4182,7 +4182,10 @@ browseTest("episode-aware Search keeps movies, series and episode metadata witho
         await tv.eventually(async () => (await cardIds(tv)).join() === ids.join(), "the scoped results");
     }
     assert.equal(await tv.page.locator('[data-focus="episode:s1e12"] .browse-card-title').innerText(), "Harbor Lights");
-    assert.equal(await tv.page.locator('[data-focus="episode:s1e12"] .browse-card-subtitle').innerText(), "S01E02 · Harbor Lights chapter 1.2");
+    // The line is wider than the card, so it shows shortened and centred; its full text stays for assistive tech.
+    const line = tv.page.locator('[data-focus="episode:s1e12"] .browse-card-subtitle');
+    assert.equal(await line.evaluate(node => (node as HTMLElement).dataset.fullText ?? node.textContent), "S01E02 · Harbor Lights chapter 1.2");
+    await tv.eventually(async () => /^S01E02 · Harbor Lights.*…$/.test(await line.locator('[aria-hidden="true"]').textContent().catch(() => "") ?? ""), "the shortened episode line");
     const requests = browseReads(tv, "/catalog");
     assert.equal(requests.length, 2);
     for (const request of requests) {

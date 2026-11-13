@@ -99,8 +99,8 @@ function watchEnd(feed: FeedNode, hasMore: boolean, lead: number): void {
     feed.watched = feed.items.length;
 }
 
-/** TVCatalogGrid.swift:83-91: a spinning ProgressView centred under the grid. */
-function loadingMore(): HTMLElement {
+/** TVCatalogGrid.swift:83-91: a spinning ProgressView centred under the grid, shared by every paged grid. */
+export function loadingMore(): HTMLElement {
     const node = el("div", "section-catalog-loading");
     node.setAttribute("role", "status");
     node.setAttribute("aria-label", "Loading more titles");

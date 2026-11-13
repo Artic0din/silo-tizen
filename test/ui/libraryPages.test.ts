@@ -340,3 +340,17 @@ page("a failed first Browse read shows Apple's error page under the controls", a
     await tv.remote(40);
     assert.equal(await tv.focused(), "retry");
 });
+
+page("an expanded section's loading-more indicator spins too", async tv => {
+    await tv.page.locator('[data-focus="movies"]').click();
+    await tv.page.locator('[data-focus="expand:library-picks"]').click();
+    const cards = tv.page.locator(".section-catalog-grid .browse-card");
+    await cards.first().waitFor();
+    const held = tv.fake.hold("/catalog/query", true);
+    try {
+        await cards.last().focus();
+        const spinner = tv.page.locator(".section-catalog-loading");
+        await spinner.waitFor();
+        assert.ok(await spinner.evaluate(node => node.querySelector("svg") !== null && node.getAnimations({ subtree: true }).length > 0), "the indicator draws and animates");
+    } finally { held.release(); }
+}, catalog => { for (let i = 61; i <= 160; i++) catalog.add({ id: `movie:x${i}`, type: "movie", title: `Extra ${i}`, libraryId: "12" }); });

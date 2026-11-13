@@ -38,6 +38,25 @@ test("with the toggle on and the server allowing it, Watch Party sits after Requ
     } finally { await tv.page.context().close(); }
 });
 
+test("the Watch Party row draws Apple's person.3 at its 20 pt semibold ink, overrunning the 30 by 20 box", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        await start(tv);
+        await tv.eventually(async () => (await menuTitles(tv)).includes("Watch Party"), "Watch Party offered");
+        const icon = await tv.page.locator('.skyline-selector [data-focus="watch-party"] svg').evaluate(svg => {
+            for (const animation of document.getAnimations()) animation.finish();
+            const box = svg.getBoundingClientRect();
+            const ink = (svg as SVGSVGElement).getBBox();
+            const scale = box.height / 24;
+            return { box: [box.width, box.height], ink: [Math.round(ink.width * scale * 10) / 10, Math.round(ink.height * scale * 10) / 10] };
+        });
+        assert.deepEqual(icon.box, [30, 20]);
+        // AppKit ink of person.3 at 20 pt semibold (TVTopMenuBar.swift:1195 at silo-apple 5780c84).
+        const apple = [38.9, 17.8];
+        assert.ok(Math.abs((icon.ink[0] ?? 0) - apple[0]!) <= 1 && Math.abs((icon.ink[1] ?? 0) - apple[1]!) <= 1, `ink ${icon.ink.join("×")} against Apple's ${apple.join("×")}`);
+    } finally { await tv.page.context().close(); }
+});
+
 test("the entry stays hidden unless the server gate, the room socket and both playback features all hold", async () => {
     const cases: [string, (fake: FakeWatchParty) => void][] = [
         ["state disabled", fake => { fake.state = "disabled"; }],

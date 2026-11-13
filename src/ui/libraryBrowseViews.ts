@@ -18,6 +18,39 @@ export const BROWSE_LOAD_ROWS = 8;
 const LETTERS = ["All", "#", ..."ABCDEFGHIJKLMNOPQRSTUVWXYZ"];
 
 type LibraryRoute = Extract<Route, { kind: "library" }>;
+const railLetters = new WeakMap<LibraryRoute, FocusItem[]>();
+/** minimumScaleFactor (TVBrowseFilterUI.swift:284-285, :480-481 and :346-347). */
+const LABEL_MINIMUM_SCALE = 0.85;
+const FACET_SUMMARY_MINIMUM_SCALE = 0.8;
+
+/** minimumScaleFactor: a line wider than its box shrinks to fit, down to `minimum`, then truncates. FocusHost places the view synchronously. */
+function fitText(node: HTMLElement, minimum: number): void {
+    queueMicrotask(() => {
+        if (node.clientWidth === 0 || node.scrollWidth <= node.clientWidth) return;
+        node.style.fontSize = `${parseFloat(getComputedStyle(node).fontSize) * Math.max(minimum, node.clientWidth / node.scrollWidth)}px`;
+    });
+}
+
+/**
+ * TVLibraryGridView.swift:114-121: the scrim and a closing Sort or Filter panel fade out with easeOut(0.18). Copies fade in a
+ * layer beside the page, since each render replaces the page's children; the live panel closes at once, so focus moves now.
+ */
+export function leavePanel(container: HTMLElement): void {
+    if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const live = Array.from(container.querySelectorAll<HTMLElement>(".browse-panel-scrim, .browse-sort-panel, .browse-filter-panel"));
+    if (live.length === 0) return;
+    const layer = el("div", "browse library-browse browse-panel-layer");
+    layer.setAttribute("aria-hidden", "true");
+    layer.inert = true;
+    for (const node of live) {
+        const ghost = node.cloneNode(true) as HTMLElement;
+        for (const part of [ghost, ...Array.from(ghost.querySelectorAll<HTMLElement>("*"))]) { part.removeAttribute("id"); part.removeAttribute("data-focus"); }
+        ghost.classList.add("browse-panel-leaving");
+        layer.appendChild(ghost);
+    }
+    layer.lastElementChild?.addEventListener("animationend", () => layer.remove(), { once: true });
+    container.after(layer);
+}
 
 const ICONS = {
     sort: '<path d="M7 4v15M3 8l4-4 4 4M17 20V5M13 16l4 4 4-4"/>',
@@ -92,13 +125,18 @@ export function browsePage(route: LibraryRoute, state: DiscoveryState, handlers:
         if (handlers.shuffle.starting) shuffle.element.classList.add("browse-control-starting");
         controls.push(shuffle);
     }
-    const letters = LETTERS.map(letter => {
-        const value = letter === "All" ? undefined : letter;
-        const item = actionButton(`letter:${letter}`, letter, () => handlers.browse(route, { filter: { ...filter, prefix: value } }));
-        item.element.setAttribute("aria-label", letter === "All" ? "All titles" : letter === "#" ? "Titles starting with a number or symbol" : `Titles starting with ${letter}`);
-        item.element.setAttribute("aria-pressed", String(filter.prefix === value));
-        return item;
-    });
+    // The rail's letters outlive a render, so a held Select stays drawn pressed while its choice reloads the grid.
+    let letters = railLetters.get(route);
+    if (letters === undefined) {
+        letters = LETTERS.map(letter => {
+            const value = letter === "All" ? undefined : letter;
+            const item = actionButton(`letter:${letter}`, letter, () => handlers.browse(route, { filter: { ...(route.discovery?.filter ?? filter), prefix: value } }));
+            item.element.setAttribute("aria-label", letter === "All" ? "All titles" : letter === "#" ? "Titles starting with a number or symbol" : `Titles starting with ${letter}`);
+            return item;
+        });
+        railLetters.set(route, letters);
+    }
+    for (const item of letters) item.element.setAttribute("aria-pressed", String(filter.prefix === (item.key === "letter:All" ? undefined : item.key.slice("letter:".length))));
     const content: HTMLElement[] = [zoneNode("browse-controls", controls)];
     // TVLibraryGridView's control row onMoveUp is the top bar, not a pill row.
     const controlZone: Zone = { id: "controls", layout: "row", down: "grid", up: "nav", items: controls };
@@ -183,7 +221,9 @@ export function browsePage(route: LibraryRoute, state: DiscoveryState, handlers:
         const available = FACETS.filter(({ facet }) => options(facet, vocabulary).length > 0);
         if (available.length === 0) body.push(el("p", "browse-panel-note", "No filters available"));
         for (const { facet, title } of available) {
-            const item = row(`facet:${facet}`, [title, el("span", "browse-panel-detail", facetSummary(draft, facet, vocabulary)), icon("chevronRight")], () => edit(draft, facet), `${title}, ${facetSummary(draft, facet, vocabulary)}`);
+            const summary = el("span", "browse-panel-detail", facetSummary(draft, facet, vocabulary));
+            fitText(summary, FACET_SUMMARY_MINIMUM_SCALE);
+            const item = row(`facet:${facet}`, [title, summary, icon("chevronRight")], () => edit(draft, facet), `${title}, ${facetSummary(draft, facet, vocabulary)}`);
             items.push(item);
             body.push(item.element);
         }
@@ -226,6 +266,8 @@ export function browsePage(route: LibraryRoute, state: DiscoveryState, handlers:
         for (const option of options(facet, vocabulary)) {
             const on = selected(draft, facet).includes(option.value);
             const item = row(`value:${option.value}`, [icon(on ? "selectedCircle" : "circle"), option.label], () => edit(toggled(draft, facet, option.value)));
+            const label = item.element.querySelector<HTMLElement>(".browse-panel-text");
+            if (label !== null) fitText(label, LABEL_MINIMUM_SCALE);
             item.element.setAttribute("role", "menuitemcheckbox");
             item.element.setAttribute("aria-checked", String(on));
             items.push(item);
@@ -238,7 +280,9 @@ export function browsePage(route: LibraryRoute, state: DiscoveryState, handlers:
     const list = el("div", "browse-panel-list");
     list.setAttribute("data-scroll-key", panel.facet ?? "filters");
     list.append(...body);
-    box.append(el("p", "browse-panel-eyebrow", facetTitle === undefined ? "FILTER BY" : "FILTER"), el("h2", "browse-panel-title", facetTitle ?? "Filters"), el("div", "browse-panel-divider"), list);
+    const panelTitle = el("h2", "browse-panel-title", facetTitle ?? "Filters");
+    fitText(panelTitle, LABEL_MINIMUM_SCALE);
+    box.append(el("p", "browse-panel-eyebrow", facetTitle === undefined ? "FILTER BY" : "FILTER"), panelTitle, el("div", "browse-panel-divider"), list);
     // Back on a facet's values returns to the list; on the list it applies and closes, as Apple's onExitCommand.
     const back = panel.facet === undefined ? done : () => handlers.browse(route, { panel: { ...panel, facet: undefined, lastFacet: panel.facet } });
     // Left on a facet's values returns to the list (TVBrowseFilterPanel.onMoveCommand).

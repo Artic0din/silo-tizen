@@ -355,3 +355,111 @@ page("an expanded section's loading-more indicator spins too", async tv => {
         assert.ok(await spinner.evaluate(node => node.querySelector("svg") !== null && node.getAnimations({ subtree: true }).length > 0), "the indicator draws and animates");
     } finally { held.release(); }
 }, catalog => { for (let i = 61; i <= 160; i++) catalog.add({ id: `movie:x${i}`, type: "movie", title: `Extra ${i}`, libraryId: "12" }); });
+// Sort, Filter and the letter rail, against TVBrowseFilterUI, TVAlphabetRail and TVSkylinePanelChrome.
+const LONG_GENRE = "Psychological Science Fiction Mystery Thriller Anthology Miniseries Special";
+const style = (tv: Tv, selector: string, ...properties: string[]) => tv.page.locator(selector).first().evaluate((node, names) => Object.fromEntries(names.map(name => [name, getComputedStyle(node).getPropertyValue(name)])), properties);
+async function browseReady(tv: Tv): Promise<void> {
+    await openBrowse(tv);
+    await tv.page.locator(".catalog-grid .browse-card").first().waitFor();
+}
+
+page("Sort and Filter panels use the top-bar panel chrome and fade in and out", async tv => {
+    await browseReady(tv);
+    await tv.page.locator('[data-focus="sort"]').focus();
+    await tv.page.keyboard.press("Enter");
+    const panel = tv.page.locator(".browse .browse-sort-panel");
+    await panel.waitFor();
+    const chrome = await style(tv, ".browse .browse-sort-panel", "background-image", "box-shadow", "border-top-width", "border-radius");
+    assert.deepEqual(chrome, {
+        "background-image": "linear-gradient(rgba(35, 37, 44, 0.92), rgba(20, 21, 25, 0.95))",
+        "box-shadow": "rgba(0, 0, 0, 0.35) 0px 4px 16px 0px, rgba(0, 0, 0, 0.55) 0px 24px 80px 0px",
+        "border-top-width": "0px",
+        "border-radius": "22px",
+    });
+    const fades = await tv.page.evaluate(() => [".browse .browse-panel-scrim", ".browse .browse-sort-panel"].map(selector => {
+        const node = document.querySelector(selector);
+        return [node?.getAnimations()[0]?.effect?.getTiming().duration, node === null ? undefined : getComputedStyle(node).animationTimingFunction];
+    }));
+    assert.deepEqual(fades, [[180, "ease-out"], [180, "ease-out"]]);
+    await tv.remote(10009);
+    const leaving = await tv.page.evaluate(() => [...document.querySelectorAll(".browse-panel-leaving")].map(node => [node.classList.contains("browse-panel-scrim") || node.classList.contains("browse-sort-panel"), node.getAnimations()[0]?.effect?.getTiming().duration, node.querySelector("[data-focus]") === null]));
+    assert.deepEqual(leaving, [[true, 180, true], [true, 180, true]]);
+    assert.equal(await tv.focused(), "sort");
+});
+
+page("Sort keeps Apple's text: monospaced eyebrow, capped rows and a quiet direction on the focused row", async tv => {
+    await browseReady(tv);
+    assert.deepEqual(await style(tv, '[data-focus="sort"]', "font-size", "transition-property", "transition-duration"), { "font-size": capped(24), "transition-property": "transform, background-color, color", "transition-duration": "0.12s, 0.12s, 0.12s" });
+    await tv.page.locator('[data-focus="sort"]').focus();
+    await tv.page.keyboard.press("Enter");
+    await tv.page.locator('[data-focus="sort:title"]').waitFor();
+    assert.equal(await tv.focused(), "sort:title");
+    const eyebrow = await style(tv, ".browse-sort-panel .browse-panel-eyebrow", "font-family", "font-size");
+    assert.match(eyebrow["font-family"] ?? "", /monospace/);
+    assert.equal(eyebrow["font-size"], "18px");
+    assert.deepEqual(await style(tv, '[data-focus="sort:title"]', "font-size", "transition-property"), { "font-size": capped(26), "transition-property": "background-color, color" });
+    assert.equal((await style(tv, '[data-focus="sort:title"] .browse-panel-detail', "color"))["color"], "rgba(237, 237, 237, 0.6)");
+    assert.deepEqual(await style(tv, '[data-focus="sort:title"] .browse-panel-detail + .browse-icon', "width", "opacity"), { width: "26px", opacity: "1" });
+});
+
+page("Filter text is Apple's: capped rows, monospaced headers and count, and long labels shrink before truncating", async tv => {
+    await browseReady(tv);
+    await tv.page.locator('[data-focus="filter"]').focus();
+    await tv.page.keyboard.press("Enter");
+    await tv.page.locator('[data-focus="facet:genre"]').waitFor();
+    assert.equal((await style(tv, ".browse-filter-panel .browse-panel-title", "font-size"))["font-size"], capped(34));
+    const section = await style(tv, ".browse-filter-panel .browse-panel-section", "font-family", "font-size");
+    assert.match(section["font-family"] ?? "", /monospace/);
+    assert.equal(section["font-size"], "15px");
+    for (const [key, points] of [["facet:genre", 25], ["match:all", 23], ["preserve", 23], ["done", 25]] as const) assert.equal((await style(tv, `[data-focus="${key}"]`, "font-size"))["font-size"], capped(points), key);
+    await tv.page.keyboard.press("Enter");
+    const value = tv.page.locator(`[data-focus="value:${LONG_GENRE}"] .browse-panel-text`);
+    await value.waitFor();
+    const size = parseFloat(await value.evaluate(node => getComputedStyle(node).fontSize));
+    assert.ok(size < 24 * CAP && size >= 24 * CAP * 0.85 - 0.01, `value label shrinks to at most 85%: ${size}`);
+    await tv.page.locator(`[data-focus="value:${LONG_GENRE}"]`).focus();
+    await tv.page.keyboard.press("Enter");
+    await tv.remote(37);
+    const summary = tv.page.locator('[data-focus="facet:genre"] .browse-panel-detail');
+    await tv.eventually(async () => (await summary.innerText()) === LONG_GENRE, "the facet summary names the value");
+    const summarySize = parseFloat(await summary.evaluate(node => getComputedStyle(node).fontSize));
+    assert.ok(summarySize < 25 * CAP && summarySize >= 25 * CAP * 0.8 - 0.01, `facet summary shrinks to at most 80%: ${summarySize}`);
+    await tv.page.locator('[data-focus="done"]').focus();
+    await tv.page.keyboard.press("Enter");
+    // Done re-renders the controls; read the badge once it has settled (a detached node has no computed style).
+    let badge: Record<string, string> = {};
+    await tv.eventually(async () => { badge = await style(tv, ".browse-control-count", "font-family", "font-size"); return /monospace/.test(badge["font-family"] ?? ""); }, "the monospaced filter count");
+    assert.equal(badge["font-size"], "18px");
+}, catalog => {
+    const original = catalog.route.bind(catalog);
+    catalog.route = (method, path, profile, body) => path.startsWith("/catalog/filters") ? { status: 200, body: { ...(original(method, path, profile, body)?.body as Record<string, unknown>), genres: [LONG_GENRE, "Drama"] } } : original(method, path, profile, body);
+});
+
+page("the open letter rail keeps unfocused letters dim, spaces its chips and scrolls to the focused letter", async tv => {
+    await tv.page.emulateMedia({ reducedMotion: "reduce" });
+    await browseReady(tv);
+    await tv.page.locator('[data-focus="letter:A"]').focus();
+    assert.equal((await style(tv, '[data-focus="letter:B"]', "color"))["color"], "rgba(237, 237, 237, 0.6)");
+    const gap = await tv.page.evaluate(() => {
+        const a = document.querySelector('[data-focus="letter:A"]')!.getBoundingClientRect(), b = document.querySelector('[data-focus="letter:B"]')!.getBoundingClientRect();
+        return [a.height, b.top - a.bottom];
+    });
+    assert.deepEqual(gap, [38, 4]);
+    await tv.page.locator('[data-focus="letter:Z"]').focus();
+    await tv.eventually(async () => {
+        const box = await tv.page.locator('[data-focus="letter:Z"]').boundingBox();
+        return box !== null && box.y >= 0 && box.y + box.height <= 1020;
+    }, "the rail scrolls to the focused letter");
+});
+
+page("rail letters animate focus, growth and a held Select's 0.96 press", async tv => {
+    await browseReady(tv);
+    assert.deepEqual(await style(tv, '[data-focus="letter:Z"]', "transition-property"), { "transition-property": "background-color, color, transform, width, height, font-size, line-height" });
+    await tv.page.locator('[data-focus="letter:M"]').focus();
+    await tv.page.keyboard.down("Enter");
+    const letter = tv.page.locator('[data-focus="letter:M"]');
+    await tv.eventually(async () => await letter.getAttribute("data-pressed") === "", "the letter is drawn pressed");
+    await tv.page.keyboard.up("Enter");
+    await tv.eventually(async () => await letter.getAttribute("data-pressed") === null, "release clears the press");
+});
+

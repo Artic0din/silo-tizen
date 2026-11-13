@@ -66,6 +66,7 @@ import { isSectionRoute, SectionCatalog, type SectionRoute } from "./sectionCata
 import { readSectionCatalog, type SectionSnapshot } from "./sectionCatalogState.ts";
 import { BrowsePrefs, browseQuery } from "./libraryBrowse.ts";
 import { stopFeed, waitForFeedEnd } from "./catalogFeed.ts";
+import { leavePanel } from "./libraryBrowseViews.ts";
 import type { BrowseChange, DiscoveryState } from "./libraryDiscovery.ts";
 import { shufflePick } from "../player/nextShuffle.ts";
 import type { ShuffleCapability } from "../contracts/v2/shuffle.ts";
@@ -1228,6 +1229,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         const state = current.discovery;
         if (torn || playing || top() !== current || state?.mode !== "Browse") return;
         if (change.preserve !== undefined) { browsePrefs.setPreserve(current.library, change.preserve); if (change.preserve) browsePrefs.save(current.library, state.filter); }
+        if ("panel" in change && change.panel === undefined && state.panel !== undefined) leavePanel(container);
         if ("panel" in change) state.panel = change.panel;
         if (change.filter !== undefined) {
             const changed = JSON.stringify(browseQuery(change.filter, current.library, 100)) !== JSON.stringify(browseQuery(state.filter, current.library, 100));

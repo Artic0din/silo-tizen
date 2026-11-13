@@ -210,7 +210,7 @@ export class SkylineScroll {
     reveal(element: HTMLElement, container: HTMLElement, previous?: Element | null, movingUp?: boolean): void {
         if (element.closest(".settings-categories") !== null) return;
         if (element.closest(".browse-nav, .skyline-selector:not(.details-audio-picker)") !== null) return;
-        const viewport = element.closest<HTMLElement>(".browse-panel-list, .details-popover-scroll, .details-audio-picker, .settings-modal-options, .settings-pane, .skyline-content, .accounts-rail, .accounts-pane, .accounts-settings") ?? container;
+        const viewport = element.closest<HTMLElement>(".browse-panel-list, .browse-letters, .details-popover-scroll, .details-audio-picker, .settings-modal-options, .settings-pane, .skyline-content, .accounts-rail, .accounts-pane, .accounts-settings") ?? container;
         // TVActionPopoverMenu.onAppear: a long list opens with its initial row in the centre; later moves reveal normally.
         if (viewport.matches(".details-popover-scroll") && (previous === undefined || previous === null || !viewport.contains(previous))) {
             viewport.scrollTop = Math.max(0, element.offsetTop - (viewport.clientHeight - element.offsetHeight) / 2);

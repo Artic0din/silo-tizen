@@ -572,6 +572,10 @@ browseTest("Search keyboard starts each Search on letters, types AltGr character
     assert.equal(await query(), "ł𠮷");
     await press(tv, "Backspace");
     assert.equal(await query(), "ł");
+    // An Indic conjunct (Unicode 15.1 rule, missing from Chromium 108's Intl.Segmenter) is one character too.
+    await tv.search("łक्ष");
+    await press(tv, "Backspace");
+    assert.equal(await query(), "ł");
     // The 123 page ends with tvOS's keyboard switch before delete.
     await press(tv, "ArrowLeft", "ArrowLeft", "Enter");
     for (let step = 0; step < 27; step++) await press(tv, "ArrowRight");

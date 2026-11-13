@@ -4,6 +4,7 @@
 import type { FocusItem, FocusTarget } from "./browseFocus.ts";
 import { claimNumberKeys } from "./keys.ts";
 import { el } from "./screen.ts";
+import { graphemeSegments } from "unicode-segmenter/grapheme";
 
 const LETTERS = [..."abcdefghijklmnopqrstuvwxyz"];
 /** The standard Apple 123 page: digits, then the symbols beneath them. */
@@ -19,12 +20,12 @@ const REMOTE_ENTER = 13;
 const REMOTE_BACK = 10009;
 /** What Chromium reports for a key press an input method is processing. */
 const IME_PROCESSING = 229;
-const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 
-/** The query without its last character as a reader sees it, never half of a surrogate pair or accent sequence. */
-function withoutLast(query: string): string {
+/** The query without its last character as a reader sees it, never half of a surrogate pair, accent or conjunct. */
+export function withoutLastCharacter(query: string): string {
+    // Chromium 108's Intl.Segmenter (ICU 72) lacks the Unicode 15.1 Indic conjunct rule, as in personHero.ts.
     let last = 0;
-    for (const { index } of graphemes.segment(query)) last = index;
+    for (const { index } of graphemeSegments(query)) last = index;
     return query.slice(0, last);
 }
 
@@ -116,7 +117,7 @@ export function searchKeyboard(input: HTMLInputElement, repaint: (focus?: FocusT
     language.element.addEventListener("keydown", event => {
         if ((event.keyCode === REMOTE_ENTER || event.key === "Enter") && !event.repeat) startEditing(language.key);
     });
-    const remove = key("key:delete", "search-key-delete", "", "Delete", () => edit(withoutLast));
+    const remove = key("key:delete", "search-key-delete", "", "Delete", () => edit(withoutLastCharacter));
     remove.element.innerHTML = DELETE_ICON;
     const letters = LETTERS.map(letter => key(`key:${letter}`, "", letter, undefined, () => type(letter)));
     const marks = [...SYMBOLS.map(mark => key(`key:${mark}`, "", mark, undefined, () => type(mark))), language];
@@ -148,7 +149,7 @@ export function searchKeyboard(input: HTMLInputElement, repaint: (focus?: FocusT
         // The remote's number keys arrive with only a key code.
         const text = event.key.length === 1 ? event.key : event.keyCode >= 48 && event.keyCode <= 57 ? String(event.keyCode - 48) : undefined;
         if (text !== undefined) { event.preventDefault(); type(text); }
-        else if (event.key === "Backspace") { event.preventDefault(); edit(withoutLast); }
+        else if (event.key === "Backspace") { event.preventDefault(); edit(withoutLastCharacter); }
     });
     let claimed = false;
     const claim = (on: boolean): void => {

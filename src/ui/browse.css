@@ -1570,6 +1570,8 @@ svg.library-empty-icon { width: auto; }
    own spacing: at the capped size it sets "Sort · Title A–Z", "Filter" and "Shuffle" within 1px of SF Pro, where the app's tighter tracking runs 2 to 3px short. */
 .browse .browse-controls .browse-button { display: flex; align-items: center; height: 53px; margin: 0 16px 0 0; padding: 0 21px; border: 1px solid rgba(255,255,255,.09); border-radius: 27px; background: rgba(255,255,255,.07); color: #ededed; font-size: calc(24px * var(--silo-sf-cap-scale)); font-weight: 500; transition: transform 120ms ease-out, background-color 120ms ease-out, color 120ms ease-out; }
 .browse .browse-controls .browse-button > * { letter-spacing: 0; }
+/* Inter sets "Shuffle" 0.67px narrower than SF Pro, which rounds it down a whole point; 0.1px keeps Apple's 77 (165 pill). */
+.browse .browse-controls [data-focus="shuffle"] .browse-panel-text { letter-spacing: .1px; }
 .browse .browse-controls .browse-button[aria-pressed="true"] { background: rgba(255,255,255,.14); }
 .browse .browse-controls .browse-button:focus { background: #ededed; color: #000; border-color: transparent; transform: scale(1.04); }
 .browse-icon { display: inline-block; width: 24px; height: 24px; margin-right: 10px; flex-shrink: 0; }

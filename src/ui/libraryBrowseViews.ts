@@ -89,20 +89,48 @@ export function icon(name: keyof typeof ICONS): HTMLElement {
     return node;
 }
 
-/** TVBrowseControlRow's SF Symbols at 24pt medium (TVBrowseFilterUI.swift:33-66, :77), traced in Apple's image frames so each pill keeps Apple's width. */
-const PILL_SYMBOLS = {
+/**
+ * SF Symbols traced in Apple's image frames, so each pill and Sort row keeps Apple's widths: TVBrowseControlRow's at 24pt
+ * medium (TVBrowseFilterUI.swift:33-66, :77) and the Sort panel's checkmark at 26pt regular (:134-147).
+ */
+const SYMBOLS = {
     "arrow.up.arrow.down": [35, 28, '<path stroke-width="2.5" d="M10.5 24.6V3.6M4.25 9.85L10.5 3.6L16.75 9.85M24.5 3.6V24.4M18.25 18.15L24.5 24.4L30.75 18.15"/>'],
     "line.3.horizontal.decrease": [31, 19, '<path stroke-width="2.3" d="M4.15 3.4H26.6M6.65 9.55H24.1M9.15 15.7H21.6"/>'],
     shuffle: [34, 27, '<path stroke-width="2.41" d="M4.08 6.99H6.88C9.07 6.99 10.55 8.88 12.11 10.8L16.39 16.2C17.95 18.12 19.43 20.01 21.62 20.01H24.5M4.08 20.01H6.88C9.07 20.01 10.55 18.12 12.11 16.2L16.39 10.8C17.95 8.88 19.43 6.99 21.62 6.99H24.5"/><path fill="currentColor" stroke-width="2.08" d="M25.27 3.14L29.76 6.99L25.27 10.84ZM25.27 16.16L29.76 20.01L25.27 23.86Z"/>'],
+    checkmark: [28, 27, '<path stroke-width="2.42" d="M4.19 14.36L11.28 24.09L23.53 3.62"/>'],
 } as const;
 
-function pillSymbol(name: keyof typeof PILL_SYMBOLS): HTMLElement {
-    const [width, height, paths] = PILL_SYMBOLS[name];
+/** A symbol's frame, drawn or (like Apple's opacity 0 checkmark on other Sort rows) left empty. */
+function symbol(name: keyof typeof SYMBOLS, drawn = true): HTMLElement {
+    const [width, height, paths] = SYMBOLS[name];
     const node = el("span", "browse-icon");
     node.style.width = `${width}px`;
     node.style.height = `${height}px`;
-    node.innerHTML = `<svg viewBox="0 0 ${width} ${height}" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`;
+    if (drawn) node.innerHTML = `<svg viewBox="0 0 ${width} ${height}" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`;
     return node;
+}
+
+/**
+ * SwiftUI sizes each Text to whole points, so a pill is its labels' rounded-up widths plus padding (TVBrowseFilterUI.swift:31-77).
+ * The labels are measured once laid out, and again when the font loads.
+ */
+function roundLabels(pills: readonly HTMLElement[]): void {
+    const round = (): void => {
+        const labels = pills.filter(pill => pill.isConnected).flatMap(pill => [...pill.querySelectorAll<HTMLElement>(".browse-panel-text, .browse-control-detail")]);
+        for (const label of labels) label.style.width = "";
+        const widths = labels.map(label => Math.ceil(label.getBoundingClientRect().width / scaleOf(label)));
+        labels.forEach((label, index) => { label.style.width = `${widths[index]}px`; });
+    };
+    requestAnimationFrame(() => {
+        round();
+        if (document.fonts.status !== "loaded") void document.fonts.ready.then(round);
+    });
+}
+
+/** A focused pill is drawn at up to 1.04; its labels are measured at their laid-out size. */
+function scaleOf(label: HTMLElement): number {
+    const pill = label.closest<HTMLElement>(".browse-button");
+    return pill === null ? 1 : new DOMMatrixReadOnly(getComputedStyle(pill).transform === "none" ? undefined : getComputedStyle(pill).transform).a;
 }
 
 function row(key: string, parts: readonly (HTMLElement | string)[], onPress: () => void, label?: string): FocusItem {
@@ -144,17 +172,18 @@ export function browsePage(route: LibraryRoute, state: DiscoveryState, handlers:
     const filter = state.filter;
     const apply = (next: BrowseFilter): void => handlers.browse(route, { filter: next, panel: undefined });
     const order = effectiveOrder(filter);
-    const sortButton = row("sort", [pillSymbol("arrow.up.arrow.down"), `Sort · ${sortKey(filter.sort).label}`, el("span", "browse-control-detail", directionLabel(filter.sort, order))], () => handlers.browse(route, { panel: { kind: "sort" } }));
+    const sortButton = row("sort", [symbol("arrow.up.arrow.down"), `Sort · ${sortKey(filter.sort).label}`, el("span", "browse-control-detail", directionLabel(filter.sort, order))], () => handlers.browse(route, { panel: { kind: "sort" } }));
     const count = activeFacetCount(filter);
-    const filterButton = row("filter", [pillSymbol("line.3.horizontal.decrease"), "Filter", ...(count > 0 ? [el("span", "browse-control-count", String(count))] : [])], () => handlers.browse(route, { panel: { kind: "filter", draft: filter, facet: undefined, lastFacet: undefined } }), count > 0 ? `Filter, ${count} active` : "Filter");
+    const filterButton = row("filter", [symbol("line.3.horizontal.decrease"), "Filter", ...(count > 0 ? [el("span", "browse-control-count", String(count))] : [])], () => handlers.browse(route, { panel: { kind: "filter", draft: filter, facet: undefined, lastFacet: undefined } }), count > 0 ? `Filter, ${count} active` : "Filter");
     filterButton.element.setAttribute("aria-pressed", String(count > 0));
     const controls = [sortButton, filterButton];
     // TVBrowseControlRow's Shuffle: whole movie, series or mixed libraries only, never a narrowed tab view.
     if (handlers.shuffle !== undefined) {
-        const shuffle = row("shuffle", [pillSymbol("shuffle"), "Shuffle"], () => handlers.shuffle?.start(route));
+        const shuffle = row("shuffle", [symbol("shuffle"), "Shuffle"], () => handlers.shuffle?.start(route));
         if (handlers.shuffle.starting) shuffle.element.classList.add("browse-control-starting");
         controls.push(shuffle);
     }
+    roundLabels(controls.map(control => control.element));
     // The rail and its letters outlive a render, so a held Select stays drawn pressed and the open rail keeps its width
     // and scroll while its choice reloads the grid.
     let rail = railLetters.get(route);
@@ -245,7 +274,7 @@ export function browsePage(route: LibraryRoute, state: DiscoveryState, handlers:
     if (panel.kind === "sort") {
         const items = sortKeysFor(route.library.type).map(entry => {
             const current = entry.key === filter.sort;
-            const parts: (HTMLElement | string)[] = [current ? icon("check") : el("span", "browse-icon"), entry.label];
+            const parts: (HTMLElement | string)[] = [symbol("checkmark", current), entry.label];
             if (current) parts.push(el("span", "browse-panel-detail", directionLabel(entry.key, order)), icon(order === "asc" ? "up" : "down"));
             const item = row(`sort:${entry.key}`, parts, () => apply(withSort(filter, entry.key)), current ? `${entry.label}, ${directionLabel(entry.key, order)}` : entry.label);
             item.element.setAttribute("aria-checked", String(current));

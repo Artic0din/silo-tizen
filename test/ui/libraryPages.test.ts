@@ -462,6 +462,21 @@ page("Sort keeps Apple's text: monospaced eyebrow, capped rows and a quiet direc
     assert.deepEqual(await style(tv, '[data-focus="sort:title"] .browse-panel-detail + .browse-icon', "width", "opacity"), { width: "26px", opacity: "1" });
 });
 
+page("Sort rows keep Apple's 26pt checkmark frame, so labels start 58 into the row", async tv => {
+    // TVBrowseFilterUI.swift:132-147 (5780c84): HStack(spacing: 14) { checkmark, label } inside 16 padding. The 26pt regular
+    // checkmark's image is 28×27, and rows without it keep the same frame at opacity 0.
+    await browseReady(tv);
+    await tv.page.locator('[data-focus="sort"]').focus();
+    await tv.page.keyboard.press("Enter");
+    await tv.page.locator('[data-focus="sort:title"]').waitFor();
+    const rows = await tv.page.evaluate(() => [...document.querySelectorAll(".browse-sort-panel .browse-panel-row")].map(row => {
+        const box = row.getBoundingClientRect(), icon = row.querySelector(".browse-icon")!.getBoundingClientRect(), label = row.querySelector(".browse-panel-text")!.getBoundingClientRect();
+        return { label: label.left - box.left, icon: [icon.width, icon.height], strokes: [...row.querySelectorAll(".browse-icon:first-child path")].map(path => path.getAttribute("stroke-width")) };
+    }));
+    assert.deepEqual(rows[0], { label: 58, icon: [28, 27], strokes: ["2.42"] });
+    for (const row of rows.slice(1)) assert.deepEqual(row, { label: 58, icon: [28, 27], strokes: [] });
+});
+
 page("Filter text is Apple's: capped rows, monospaced headers and count, and long labels shrink before truncating", async tv => {
     await browseReady(tv);
     await tv.page.locator('[data-focus="filter"]').focus();
@@ -654,9 +669,9 @@ page("Browse pills keep Apple's padding, symbol frames and spacing", async tv =>
         { key: "shuffle", lead: 22, trail: 22, symbol: [34, 27], gaps: [10], strokes: ["2.41", "2.08"] },
     ]);
     assert.deepEqual(pills.slice(1).map((pill, index) => pill.left - pills[index]!.right), [16, 16]);
-    // Apple TV at 5780c84, unfocused: Sort 252, Filter 139 and Shuffle 165 by its edge pixels; the S95C draws 251, 138 and 164.
-    // Inter stands in for SF Pro, so allow a pixel.
-    for (const [index, width] of [251, 138, 164].entries()) assert.ok(Math.abs(pills[index]!.right - pills[index]!.left - width) < 1, `${pills[index]?.key}: ${pills[index]!.right - pills[index]!.left}`);
+    // SwiftUI lays each Text out on whole points, so SF Pro's 107.35, 44.56, 53.17 and 76.53 become 108, 45, 54 and 77, and
+    // with the symbols, 10s and 22s the pills are 252, 139 and 165 wide, as the Apple TV draws them at 5780c84.
+    assert.deepEqual(pills.map(pill => pill.right - pill.left), [252, 139, 165]);
 });
 
 page("the Sort panel keeps Apple's stack: 4 between parts, 58-point rows and SF Mono tracking", async tv => {

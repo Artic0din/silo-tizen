@@ -408,22 +408,52 @@ appTest("Switch Profile still shows one PIN-less profile", async tv => {
 
 // ProfileMenuRow.row (silo-apple 5780c84 `Components/ProfileMenuRow.swift:22-28`): an account whose cached list holds one
 // profile has nothing to switch to, so the menu offers Add Profile, which opens profile creation.
-appTest("an account with one profile offers Add Profile in Switch Profile's place, and it opens profile creation", async tv => {
-    const owner = profileItems(tv).find(item => item.id === "p-owner");
+/** Signs in to an account whose only profile is the PIN-less owner, which skips the picker. */
+async function signInWithOneProfile(tv: Tv): Promise<Record<string, unknown>[]> {
+    const household = profileItems(tv);
+    const owner = household.find(item => item.id === "p-owner");
     assert.ok(owner);
     tv.fake.profiles = { ...tv.fake.profiles, items: [owner] };
     await tv.page.fill("#signin-address", "silo.example.test");
     await tv.page.getByRole("button", { name: "Connect", exact: true }).click();
     await tv.page.locator('[data-screen="code"]').waitFor();
-    // A single PIN-less profile skips the picker.
     await approveSignIn(tv, [...tv.fake.devices.keys()].pop()!, '[data-view="home"], [data-screen="remember-profile"]');
     if (await tv.screen() === "remember-profile") await tv.page.locator('[data-focus="ask-every-launch"]').click();
     await tv.page.locator('[data-view="home"] [data-focus="movie:m0001"]').first().waitFor();
+    return household;
+}
+
+appTest("an account with one profile offers Add Profile in Switch Profile's place, and it opens profile creation", async tv => {
+    await signInWithOneProfile(tv);
     await tv.page.locator('[data-focus="profiles"]').click();
     assert.deepEqual(await tv.page.locator('.skyline-selector [role="menuitem"]').allTextContents(), ["History", "Settings", "Add Profile", "Change Account", "Sign Out"]);
     await tv.page.locator('[data-focus="add-profile"]').click();
     await tv.page.locator('[data-screen="profile-create"]').waitFor();
     assert.equal(await tv.page.locator(".browse").count(), 0, "Browse has left the screen");
+});
+
+// AddProfileRequest.start (silo-apple 5780c84 `Navigation/AppRouter+Accounts.swift:87-91`): the fresh list decides. A
+// profile added elsewhere since the count was cached opens the picker, as Switch Profile does.
+appTest("Add Profile opens the picker when the fresh list holds more than one profile", async tv => {
+    const household = await signInWithOneProfile(tv);
+    tv.fake.profiles = { ...tv.fake.profiles, items: household };
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.locator('[data-focus="add-profile"]').click();
+    await tv.page.locator('[data-screen="profiles"]').waitFor();
+    assert.equal(await tv.page.locator('[data-screen="profiles"] .profile-avatar').count(), household.length);
+    assert.equal(await tv.page.locator('[data-screen="profile-create"]').count(), 0);
+});
+
+// `.unavailable` (:78-81, :241-242): the form never opens for a profile that is not the open one.
+appTest("Add Profile refuses when the fresh list's only profile is not the open one", async tv => {
+    const household = await signInWithOneProfile(tv);
+    const kid = household.find(item => item.id === "p-kid");
+    assert.ok(kid);
+    tv.fake.profiles = { ...tv.fake.profiles, items: [{ ...kid, is_primary: true }] };
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.locator('[data-focus="add-profile"]').click();
+    await tv.page.getByText("Couldn't find the primary profile needed to create another profile.", { exact: true }).waitFor();
+    assert.equal(await tv.page.locator('[data-screen="profile-create"], [data-screen="pin"]').count(), 0, "neither the form nor the kid's PIN opens");
 });
 
 appTest("an expired session opens Change Account while another account is signed in", async tv => {

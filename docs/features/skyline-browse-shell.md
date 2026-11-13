@@ -295,7 +295,7 @@ The menu header's 44 px avatar sits on white 16%.
 The anchored profile menu follows Apple's `TVProfileDropdown` order: History, capability-gated Requests and Watch Party, a divider, then Settings, the profile row, Change Account and a red, unfocused Sign Out row.
 The profile row is Add Profile when the open account's cached list holds one profile, and Switch Profile otherwise, as Apple's `ProfileMenuRow` chooses it.
 Tizen does not read the account's profile limit, so Add Profile also shows for an account that may hold only one profile; the server refuses the creation.
-Add Profile reads the profiles again and opens profile creation, which ends on the profiles.
+Add Profile reads the profiles again and routes by that fresh list, as Apple's `AddProfileRequest.start` does: profile creation, which ends on the profiles, when the only profile is the open one; the picker when the household has grown; and a refusal when the only profile is not the open one.
 The dwell opens a passive preview with focus left on the avatar; Select, or Down, enters History, as Apple's `openProfilePanelImmediately` does.
 Watchlist and Favorites remain under For You.
 Requests pushes a screen without the top bar.

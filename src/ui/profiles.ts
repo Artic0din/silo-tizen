@@ -295,8 +295,18 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
     };
 
     // AppRouter.beginAddProfile (silo-apple 5780c84 `Navigation/AppRouter+Accounts.swift:220-245`): a fresh list, so a PIN
-    // set on another device is asked for.
-    const addProfile = (): void => load(list => { shownList = list; createProfile(list); }, addProfile);
+    // set on another device is asked for. AddProfileRequest.start (:87-91) routes by it: a household that has grown
+    // since the menu's count opens the picker, and the form never opens for a profile that is not the open one.
+    const addProfile = (): void => load(list => {
+        if (list.length > 1) { picker(list, current?.id); return; }
+        if (list[0] === undefined || list[0].id !== session.activeProfile?.id) {
+            const back = resume() ?? (() => showList());
+            message("profile-create-unavailable", "Add Profile", ["Couldn't find the primary profile needed to create another profile."], [button("ok", "OK", back)], back, "error");
+            return;
+        }
+        shownList = list;
+        createProfile(list);
+    }, addProfile);
 
     const picker = (list: readonly ProfileSummary[], focus?: string): void => {
         begin();

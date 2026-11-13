@@ -630,7 +630,10 @@ test("For You loading is a clear page labelled Loading recommendations, and empt
         assert.equal(await empty.locator(".search-state-title").innerText(), "No recommendations yet");
         assert.equal(await empty.locator(".search-state-description").innerText(), "Watch or rate a few titles to build your personalised recommendations.");
         assert.equal(await empty.getAttribute("aria-label"), "No recommendations yet");
-        const shape = await empty.evaluate(node => {
+        // One browser call: the focused tab's dwell can repaint the page between a locator's resolve and its evaluate.
+        const shape = await tv.page.evaluate(() => {
+            const node = document.querySelector('[data-view="for_you"] .for-you-empty');
+            if (node === null) throw new Error("Missing empty state");
             const icon = node.querySelector(".search-state-icon");
             const title = node.querySelector(".search-state-title");
             const body = node.querySelector(".search-state-description");

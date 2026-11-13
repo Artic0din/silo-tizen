@@ -463,3 +463,36 @@ page("rail letters animate focus, growth and a held Select's 0.96 press", async 
     await tv.eventually(async () => await letter.getAttribute("data-pressed") === null, "release clears the press");
 });
 
+
+page("re-entering the rail at a late letter scrolls it into view once the chips have grown", async tv => {
+    await browseReady(tv);
+    await tv.page.locator('[data-focus="letter:Z"]').focus();
+    await tv.page.waitForTimeout(400);
+    await tv.remote(37);
+    assert.notEqual(await tv.focused(), "letter:Z");
+    // Leave the rail so it collapses, then come back from the grid's last column.
+    await tv.page.locator(".catalog-grid .browse-card").nth(5).focus();
+    await tv.page.waitForTimeout(400);
+    await tv.remote(39);
+    assert.equal(await tv.focused(), "letter:Z");
+    await tv.page.waitForTimeout(400);
+    const box = await tv.page.locator('[data-focus="letter:Z"]').boundingBox();
+    assert.ok(box !== null && box.y >= 0 && box.y + box.height <= 1020, JSON.stringify(box));
+});
+
+page("a closing Filter panel fades from what was on screen", async tv => {
+    await browseReady(tv);
+    await tv.page.locator('[data-focus="filter"]').focus();
+    await tv.page.keyboard.press("Enter");
+    await tv.page.locator('[data-focus="facet:genre"]').waitFor();
+    await tv.page.locator('[data-focus="done"]').focus();
+    await tv.eventually(async () => await tv.page.locator(".browse .browse-panel-list").evaluate(node => node.scrollTop > 0), "the list scrolls to Done");
+    const live = await tv.page.evaluate(() => ({ top: document.querySelector(".browse .browse-panel-list")!.scrollTop, facet: getComputedStyle(document.querySelector('.browse [data-focus="facet:genre"]')!).fontSize }));
+    await tv.page.keyboard.press("Enter");
+    const ghost = await tv.page.evaluate(() => {
+        const list = document.querySelector(".browse-panel-layer .browse-panel-list");
+        const facet = list?.querySelector(".browse-panel-row");
+        return { top: list?.scrollTop, facet: facet === null || facet === undefined ? undefined : getComputedStyle(facet).fontSize };
+    });
+    assert.deepEqual(ghost, live);
+});

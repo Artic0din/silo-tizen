@@ -42,14 +42,28 @@ export function leavePanel(container: HTMLElement): void {
     const layer = el("div", "browse library-browse browse-panel-layer");
     layer.setAttribute("aria-hidden", "true");
     layer.inert = true;
+    const scrolled: [HTMLElement, number][] = [];
     for (const node of live) {
         const ghost = node.cloneNode(true) as HTMLElement;
-        for (const part of [ghost, ...Array.from(ghost.querySelectorAll<HTMLElement>("*"))]) { part.removeAttribute("id"); part.removeAttribute("data-focus"); }
+        const originals = [node, ...Array.from(node.querySelectorAll<HTMLElement>("*"))];
+        [ghost, ...Array.from(ghost.querySelectorAll<HTMLElement>("*"))].forEach((part, index) => {
+            const original = originals[index];
+            // Rows are styled by their focus keys; the copy keeps their look without being found as a focus target.
+            if (original !== undefined && original.closest("[data-focus]") !== null) {
+                const look = getComputedStyle(original);
+                for (const name of ["font-size", "font-weight", "width", "height", "margin", "opacity", "flex", "min-width"]) part.style.setProperty(name, look.getPropertyValue(name));
+            }
+            if (original !== undefined && original.scrollTop > 0) scrolled.push([part, original.scrollTop]);
+            part.removeAttribute("id");
+            part.removeAttribute("data-focus");
+        });
         ghost.classList.add("browse-panel-leaving");
         layer.appendChild(ghost);
     }
     layer.lastElementChild?.addEventListener("animationend", () => layer.remove(), { once: true });
     container.after(layer);
+    // cloneNode drops scroll offsets: a scrolled filter list fades from the rows on screen.
+    for (const [part, top] of scrolled) part.scrollTop = top;
 }
 
 const ICONS = {

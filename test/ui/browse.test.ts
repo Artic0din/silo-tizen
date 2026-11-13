@@ -4532,7 +4532,8 @@ browseTest("Series pill Down lands on the card under the pill", async tv => {
     await press(tv, "ArrowDown");
     assert.equal(await tv.focused(), "series:p4", "Series Down lands on the fourth card");
     const left = await tv.page.locator('[data-focus="series:p4"]').evaluate(node => node.getBoundingClientRect().left);
-    assert.ok(Math.abs(left - 989) < 1, `the fourth series card stays near x 989, got ${left}`);
+    // Compact 189.2px posters 40 apart from x 238 (TVCatalogGrid.columnSpacing): 238 + 3 × 229.2.
+    assert.ok(Math.abs(left - 925.6) < 1, `the fourth series card sits near x 925.6, got ${left}`);
     await tv.page.locator('[data-focus="series:p2"]').focus();
     await press(tv, "ArrowDown");
     assert.equal(await tv.focused(), "movie:2", "the second series card meets Prim");

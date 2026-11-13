@@ -1794,6 +1794,15 @@ browseTest("Search centres result captions under each poster and keeps request c
 
 browseTest("Search centres a truncated caption under its poster and keeps the full title for assistive tech", async (tv, catalog) => {
     catalog.add({ id: "movie:long-title", type: "movie", title: "Law & Order: Special Victims Unit", libraryId: "12", year: 1999 });
+    await tv.page.evaluate(() => {
+        const target = window as unknown as { scrollWidthReads: number };
+        target.scrollWidthReads = 0;
+        const native = Object.getOwnPropertyDescriptor(Element.prototype, "scrollWidth");
+        Object.defineProperty(Element.prototype, "scrollWidth", { configurable: true, get(this: Element) {
+            if (this.closest(".search-scene > .browse-grid") !== null) target.scrollWidthReads++;
+            return native?.get?.call(this) as number;
+        } });
+    });
     await tv.page.locator('[data-focus="search"]').click();
     await tv.page.fill("#browse-search", "Law & Order"); await tv.remote(IME_DONE);
     const card = tv.page.locator('.search-scene > .browse-grid [data-focus="movie:long-title"]');
@@ -1811,11 +1820,12 @@ browseTest("Search centres a truncated caption under its poster and keeps the fu
         const text = visible.map(child => child.textContent).join("");
         return { text, width: box.width, art: art.width, offset: box.left + box.width / 2 - (art.left + art.width / 2), lines: Math.round(box.height / parseFloat(getComputedStyle(title).lineHeight)) };
     }, null, value => value.text.endsWith("…"), "the truncated caption");
-    assert.match(shown.text, /^Law & Order: Spe.*…$/, shown.text);
+    assert.equal(shown.text, "Law & Order: Speci…", "the same shortening the DOM-measured fit and Apple TV show");
     assert.ok(shown.width <= shown.art, `the shortened line fits the card: ${shown.width} > ${shown.art}`);
     assert.ok(Math.abs(shown.offset) < 1, `the shortened line is centred, off by ${shown.offset}`);
     assert.equal(shown.lines, 1);
     await tv.page.getByRole("button", { name: /Law & Order: Special Victims Unit/ }).waitFor();
+    assert.equal(await tv.page.evaluate(() => (window as unknown as { scrollWidthReads: number }).scrollWidthReads), 0, "fitting measures off the DOM instead of reflowing the grid per step");
 });
 
 browseTest("Search counts results from the response total without an estimate marker", async (tv, catalog) => {

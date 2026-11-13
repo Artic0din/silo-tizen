@@ -223,3 +223,50 @@ page("collection group headers and cards match Apple's grid", async tv => {
     const glyph = await card.locator(".collection-stack").evaluate(node => ({ symbol: node.getAttribute("data-symbol"), color: getComputedStyle(node).color, fill: node.querySelector("svg")?.getAttribute("fill") }));
     assert.deepEqual(glyph, { symbol: "square.stack.fill", color: "rgba(255, 255, 255, 0.85)", fill: "currentColor" });
 });
+
+// TVCollectionPosterCard.swift:108-123 and TVMediaCard.swift:258-276 (5780c84): one tail-truncated line, centred under the card.
+const LONG_TITLE = "Trending Movies This Week Around the World";
+async function centredCaption(tv: Tv, card: string): Promise<{ text: string; offset: number; full: string | null }> {
+    const title = tv.page.locator(`${card} .browse-card-title`);
+    await tv.eventually(async () => await title.locator("[aria-hidden]").count() === 1, "the caption is fitted");
+    return title.evaluate(node => {
+        const shown = node.querySelector("[aria-hidden]")!, range = document.createRange();
+        range.selectNodeContents(shown);
+        const text = range.getBoundingClientRect(), art = node.parentElement!.querySelector(".browse-art")!.getBoundingClientRect();
+        return { text: shown.textContent ?? "", offset: Math.round(Math.abs((text.left + text.right) / 2 - (art.left + art.right) / 2)), full: node.querySelector(".silo-sr-only")?.textContent ?? null };
+    });
+}
+
+page("a long collection name is shortened, then centred under its card", async tv => {
+    await tv.page.locator('[data-focus="movies"]').click();
+    await tv.page.locator('[data-view="library:12"] .home-section').first().waitFor();
+    await selectLibraryMode(tv, "Collections");
+    const caption = await centredCaption(tv, '[data-focus="collection:highlights"]');
+    assert.match(caption.text, /^Trending Movies .*…$/);
+    assert.ok(caption.offset <= 1, `centred: ${caption.offset}px off`);
+    assert.equal(caption.full, LONG_TITLE);
+}, catalog => {
+    const original = catalog.route.bind(catalog);
+    catalog.route = (method, path, profile, body) => {
+        const answer = original(method, path, profile, body);
+        return path.startsWith("/library/12/collections") && answer !== undefined ? { ...answer, body: JSON.parse(JSON.stringify(answer.body).replaceAll("Library Highlights", LONG_TITLE)) as unknown } : answer;
+    };
+});
+
+page("a long Browse title is shortened, then centred under its card", async tv => {
+    await tv.page.locator('[data-focus="movies"]').click();
+    await tv.page.locator('[data-view="library:12"] .home-section').first().waitFor();
+    await selectLibraryMode(tv, "Browse");
+    const caption = await centredCaption(tv, '[data-focus="movie:long"]');
+    assert.match(caption.text, /^AAA Trending .*…$/);
+    assert.ok(caption.offset <= 1, `centred: ${caption.offset}px off`);
+    assert.equal(caption.full, `AAA ${LONG_TITLE}`);
+}, catalog => { catalog.add({ id: "movie:long", type: "movie", title: `AAA ${LONG_TITLE}`, libraryId: "12" }); });
+
+page("Recommended captions stay leading-aligned, as Apple's MediaCard draws them", async tv => {
+    // MediaCard.swift:632-650 (5780c84): the tvOS caption is .leading, so Chromium's ellipsis already matches it.
+    await tv.page.locator('[data-focus="movies"]').click();
+    await tv.page.locator('[data-view="library:12"] .home-section .browse-card').first().waitFor();
+    await tv.page.waitForTimeout(100);
+    assert.equal(await tv.page.locator('[data-view="library:12"] .home-section .browse-card-title [aria-hidden]').count(), 0);
+});

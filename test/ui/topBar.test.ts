@@ -923,10 +923,10 @@ test("the top bar's sign-out confirmation fades in and out over Apple's easeOut(
     } finally { await tv.page.context().close(); }
 });
 
-/** Ink of each filled SF Symbol at Apple's 20 pt semibold, measured with AppKit (TVTopMenuBar.swift:1034-1037, :1183-1200). */
+/** Ink of each SF Symbol at Apple's 20 pt semibold, measured with AppKit (TVTopMenuBar.swift:1034-1037, :1183-1200; Sign Out :1214 at 5780c84). */
 const APPLE_MENU_INK: Readonly<Record<string, readonly [number, number]>> = {
     "switch-profile": [26.8, 17.8], history: [20.4, 20.4], requests: [20.9, 20.9], settings: [21, 21],
-    watchlist: [14, 21.8], favorites: [20, 18.5], recommendations: [18.5, 22.6],
+    watchlist: [14, 21.8], favorites: [20, 18.5], recommendations: [18.5, 22.6], signout: [24.3, 21.1],
 };
 
 test("profile and For You menus draw Apple's filled glyphs at Apple's ink size in the same icon box", async () => {
@@ -953,9 +953,9 @@ test("profile and For You menus draw Apple's filled glyphs at Apple's ink size i
         for (const icon of [...profile, ...forYou]) {
             assert.deepEqual(icon.box, [30, 20], `${icon.key}: the icon keeps its 30 by 20 box`);
             const apple = APPLE_MENU_INK[icon.key ?? ""];
-            // person.3 and rectangle.portrait.and.arrow.forward are outline symbols on Apple too; Change Account mixes both.
+            // Change Account mixes a filled badge with an outlined ring.
             if (apple === undefined) { assert.equal(icon.filled, icon.key === "switch-server", `${icon.key}: Apple draws it outlined`); continue; }
-            assert.equal(icon.filled, true, `${icon.key}: Apple draws a filled symbol`);
+            assert.equal(icon.filled, true, `${icon.key}: drawn as Apple's measured glyph`);
             assert.ok(Math.abs((icon.ink[0] ?? 0) - apple[0]) <= 1.5 && Math.abs((icon.ink[1] ?? 0) - apple[1]) <= 1.5, `${icon.key}: ink ${icon.ink.join("×")} against Apple's ${apple.join("×")}`);
         }
     } finally { await tv.page.context().close(); }

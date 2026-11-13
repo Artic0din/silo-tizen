@@ -115,7 +115,7 @@ File pointers are repository-relative.
 
 | Feature | Tizen | Apple TV | Android TV | Notes |
 |---|:---:|:---:|:---:|---|
-| For You hub (discover rows, Explore all) | ✅ | ✅ | ✅ | Reuses Home renderers. Apple: `RecommendationsView`. Android: `TvRecommendationsScreen` |
+| For You hub (discover rows) | ✅ | ✅ | ✅ | Reuses Home renderers. Apple: `RecommendationsView`. Android: `TvRecommendationsScreen` |
 | Watchlist and Favorites shortcuts from the For You menu | ➖ | ✅ | ✅ | Tizen reaches them from the profile menu (#105). Android: dropdown under the For You tab in `TvTopMenuBar` |
 
 ## Calendar

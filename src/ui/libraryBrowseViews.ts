@@ -50,10 +50,10 @@ export function leavePanel(container: HTMLElement): void {
         const originals = [node, ...Array.from(node.querySelectorAll<HTMLElement>("*"))];
         [ghost, ...Array.from(ghost.querySelectorAll<HTMLElement>("*"))].forEach((part, index) => {
             const original = originals[index];
-            // Rows are styled by their focus keys; the copy keeps their look without being found as a focus target.
+            // Rows are styled by their focus keys and :focus; the copy keeps their look, focus fill included, without being found as a focus target.
             if (original !== undefined && original.closest("[data-focus]") !== null) {
                 const look = getComputedStyle(original);
-                for (const name of ["font-size", "font-weight", "width", "height", "margin", "opacity", "flex", "min-width"]) part.style.setProperty(name, look.getPropertyValue(name));
+                for (const name of ["font-size", "font-weight", "width", "height", "margin", "opacity", "flex", "min-width", "background-color", "color", "--icon-ink"]) part.style.setProperty(name, look.getPropertyValue(name));
             }
             if (original !== undefined && original.scrollTop > 0) scrolled.push([part, original.scrollTop]);
             part.removeAttribute("id");

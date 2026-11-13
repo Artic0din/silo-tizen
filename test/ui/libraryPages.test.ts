@@ -396,14 +396,21 @@ page("Sort and Filter panels use the top-bar panel chrome and fade in and out", 
         "border-top-width": "0px",
         "border-radius": "22px",
     });
+    // Declared timing, not running animations: a slow run can finish a 180 ms fade before it is read.
     const fades = await tv.page.evaluate(() => [".browse .browse-panel-scrim", ".browse .browse-sort-panel"].map(selector => {
         const node = document.querySelector(selector);
-        return [node?.getAnimations()[0]?.effect?.getTiming().duration, node === null ? undefined : getComputedStyle(node).animationTimingFunction];
+        return node === null ? undefined : [getComputedStyle(node).animationDuration, getComputedStyle(node).animationTimingFunction];
     }));
-    assert.deepEqual(fades, [[180, "ease-out"], [180, "ease-out"]]);
+    assert.deepEqual(fades, [["0.18s", "ease-out"], ["0.18s", "ease-out"]]);
+    const focused = { "background-color": "rgb(237, 237, 237)", color: "rgb(0, 0, 0)" };
+    // The row's fill eases in over 120 ms.
+    await tv.eventually(async () => JSON.stringify(await style(tv, '[data-focus="sort:title"]', "background-color", "color")) === JSON.stringify(focused), "the focused Sort row is white");
     await tv.remote(10009);
-    const leaving = await tv.page.evaluate(() => [...document.querySelectorAll(".browse-panel-leaving")].map(node => [node.classList.contains("browse-panel-scrim") || node.classList.contains("browse-sort-panel"), node.getAnimations()[0]?.effect?.getTiming().duration, node.querySelector("[data-focus]") === null]));
-    assert.deepEqual(leaving, [[true, 180, true], [true, 180, true]]);
+    const leaving = await tv.page.evaluate(() => [...document.querySelectorAll(".browse-panel-leaving")].map(node => [node.classList.contains("browse-panel-scrim") || node.classList.contains("browse-sort-panel"), getComputedStyle(node).animationDuration, node.querySelector("[data-focus]") === null]));
+    assert.deepEqual(leaving, [[true, "0.18s", true], [true, "0.18s", true]]);
+    // The fading copy keeps the focused row's white fill and dark text rather than dropping them at once.
+    const ghostRow = await style(tv, ".browse-panel-leaving .browse-panel-row", "background-color", "color");
+    assert.deepEqual(ghostRow, focused);
     assert.equal(await tv.focused(), "sort");
 });
 

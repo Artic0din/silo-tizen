@@ -251,9 +251,6 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     input.spellcheck = false;
     input.autocomplete = "off";
     input.placeholder = "Search movies and series...";
-    // Search types on its own keyboard row. The field only shows the query, so the TV keyboard never covers the results.
-    input.readOnly = true;
-    input.tabIndex = -1;
     const searchLabel = el("label", "browse-label", "Search titles");
     searchLabel.htmlFor = input.id;
     // Kept across renders so the field and its keyboard are never detached and a focused key keeps focus.
@@ -262,10 +259,9 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     searchIcon.setAttribute("aria-hidden", "true");
     searchIcon.innerHTML = '<svg viewBox="0 0 48 48" fill="none"><circle cx="20" cy="20" r="15" stroke="currentColor" stroke-width="5"/><path d="m31 31 12 12" stroke="currentColor" stroke-width="6" stroke-linecap="round"/></svg>';
     searchField.append(searchIcon, input);
-    const keyboard = searchKeyboard(change => {
-        input.value = change(input.value);
-        input.dispatchEvent(new Event("input"));
-    }, () => { if (top()?.kind === "search") render(host.focused()); });
+    // Search types on its own keyboard row. The field only shows the query, so the TV keyboard covers the results only
+    // when the row's globe key asks for it.
+    const keyboard = searchKeyboard(input, focus => { if (top()?.kind === "search") render(focus ?? host.focused()); });
     // Apple hides Search's navigation bar (SearchView.swift:65-69); the title stays only as the page's hidden heading.
     const searchHead = [el("h1", "browse-title", "Search"), searchLabel, searchField, keyboard.element];
 
@@ -1886,7 +1882,10 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         render(host.focused());
     };
 
-    input.addEventListener("input", () => {
+    // An input method's text is searched once it is committed, not while it is being composed.
+    input.addEventListener("compositionend", () => input.dispatchEvent(new Event("input")));
+    input.addEventListener("input", (event) => {
+        if (event instanceof InputEvent && event.isComposing) return;
         searchReturnFocus = undefined;
         const current = top();
         if (current?.kind !== "search") {
@@ -1950,6 +1949,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     };
 
     const push = (next: Route, focus?: FocusTarget): void => {
+        if (next.kind === "search") keyboard.reset();
         stopSearchSupplement();
         shuffleGeneration++;
         const current = top();
@@ -2160,7 +2160,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             loading?.abort(); loading = undefined; cancelSlow();
             route.filter = filter; search(route);
         };
-        const handlers = { context, focusDefault: () => host.focusDefault(), busy: loading !== undefined, searchHead, searchKeys: keyboard.items(), searchFilter, audiobooksEnabled: audiobooksInSearch(), push, pop, play, chooseProfile, retry, turn, audiobookPicker, mode, personalFilter, morePersonal, morePerson, moreSearch, signIn: options.onSignOut, personFilter, calendar: calendarHandlers, requests: requestsHandlers, browse: changeBrowse, more: moreBrowse, preserve: (route: Extract<Route, { kind: "library" }>) => browsePrefs.preserve(route.library), gridColumns: presentation.posterScale > 1 ? 5 : 6, shuffle: (current.kind === "library" || current.kind === "libraryResults" && current.source.kind === "collection") && canShuffle(current) ? { starting: shuffleStarting, failure: shuffleFailure?.route === current ? shuffleFailure.text : undefined, start: startShuffle, dismiss: () => { shuffleFailure = undefined; render({ zone: "controls", key: "shuffle" }); } } : undefined };
+        const handlers = { context, focusDefault: () => host.focusDefault(), busy: loading !== undefined, searchHead, searchKeys: keyboard.items(), searchField: keyboard.field(), searchFilter, audiobooksEnabled: audiobooksInSearch(), push, pop, play, chooseProfile, retry, turn, audiobookPicker, mode, personalFilter, morePersonal, morePerson, moreSearch, signIn: options.onSignOut, personFilter, calendar: calendarHandlers, requests: requestsHandlers, browse: changeBrowse, more: moreBrowse, preserve: (route: Extract<Route, { kind: "library" }>) => browsePrefs.preserve(route.library), gridColumns: presentation.posterScale > 1 ? 5 : 6, shuffle: (current.kind === "library" || current.kind === "libraryResults" && current.source.kind === "collection") && canShuffle(current) ? { starting: shuffleStarting, failure: shuffleFailure?.route === current ? shuffleFailure.text : undefined, start: startShuffle, dismiss: () => { shuffleFailure = undefined; render({ zone: "controls", key: "shuffle" }); } } : undefined };
         container.classList.toggle("section-catalog", isSectionRoute(current));
         const browsing = current.kind === "library" && current.discovery?.mode === "Browse";
         container.classList.toggle("library-browse", browsing);

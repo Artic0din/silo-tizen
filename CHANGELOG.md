@@ -6,7 +6,7 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
-- Search now has Apple TV's one-row keyboard under the query: 123, SPACE, a to z and delete. The TV's own keyboard no longer covers the results, a hardware keyboard and the remote's number keys still type, and Down moves to the filters and results.
+- Search now has Apple TV's one-row keyboard under the query: 123, SPACE, a to z and delete. The TV's own keyboard no longer covers the results, a hardware keyboard and the remote's number keys still type, and Down moves to the filters and results. For other languages, the globe key on the 123 page opens the TV keyboard.
 - Added theme music, as on Apple TV: Settings › General has Play Theme Music and Loop Theme Music, and a movie, series, season or episode page plays the title's theme quietly while it is open, stopping before playback starts.
 - The Watch Party lobby now votes and readies up as on Apple TV: in a room where everyone votes, each suggestion shows its live vote count with the leader outlined and a tick on yours, Select votes or takes the vote back, Suggest a title adds one from the picker, and the host starts the winner. Guests can mark I'm ready, and everyone sees it on their seat.
 - The Watch Party lobby now updates live over the room socket: people joining or stepping away, readiness, the host's pick and controls, and the party ending reach every TV in the room as they happen, with Apple's Connecting and Reconnecting states. Leave party and Back as the host now leave this TV only, as on Apple TV; End party is what ends it for everyone.

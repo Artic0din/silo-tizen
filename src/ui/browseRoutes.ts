@@ -135,6 +135,8 @@ export interface RouteHandlers {
     readonly searchHead: readonly HTMLElement[];
     /** Search's keyboard keys on screen, left to right. */
     readonly searchKeys: readonly FocusItem[];
+    /** The query field while the TV keyboard types into it. */
+    readonly searchField: FocusItem | undefined;
     readonly searchFilter: (route: Extract<Route, { kind: "search" }>, filter: SearchFilter | undefined) => void;
     /** Audiobooks take part in Search: the opt-in is on and an audiobook library is visible. */
     readonly audiobooksEnabled: boolean;
@@ -165,7 +167,7 @@ export function routeView(current: Route, handlers: RouteHandlers): View {
         return discoveryView(current, current.discovery, handlers);
     }
     if (current.kind === "search") {
-        return globalSearchView(searchView(handlers.searchHead, handlers.searchKeys, searchResults(current, handlers), pop), current, handlers);
+        return globalSearchView(searchView(handlers.searchHead, handlers.searchKeys, handlers.searchField, searchResults(current, handlers), pop), current, handlers);
     }
     if (current.failure !== undefined && !hasData(current)) {
         return errorView(`${current.kind}:failed`, failureError(current.failure, current.error), () => handlers.retry(current), back, handlers.signIn, current.kind === "home" ? handlers.manageServers : undefined);

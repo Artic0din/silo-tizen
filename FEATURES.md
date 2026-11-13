@@ -84,7 +84,7 @@ File pointers are repository-relative.
 
 | Feature | Tizen | Apple TV | Android TV | Notes |
 |---|:---:|:---:|:---:|---|
-| Text search (debounced, continuous grid, episodes when the server supports it) | ✅ | ✅ | ✅ | Types on Apple TV's one-row Search keyboard (`src/ui/searchKeyboard.ts`), not the TV keyboard. Layout parity open (#99). Android: `TvSearchScreen` |
+| Text search (debounced, continuous grid, episodes when the server supports it) | ✅ | ✅ | ✅ | Types on Apple TV's one-row Search keyboard (`src/ui/searchKeyboard.ts`); its globe key opens the TV keyboard for other languages. Layout parity open (#99). Android: `TvSearchScreen` |
 | Voice search | ➖ | ✅ | ➖ | Apple: Siri search request into `SearchView`. Android: voice is the system keyboard's mic only |
 
 ## Details & people

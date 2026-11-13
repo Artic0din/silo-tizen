@@ -286,6 +286,7 @@
 .search-scene .search-key-space { flex-basis: 89px; margin-right: 28px; }
 .search-scene .search-key-delete { margin-left: auto; color: #8e8e8e; }
 .search-scene .search-key-delete svg { display: block; width: 42px; height: 32px; }
+.search-scene .search-key-language svg { display: block; width: 32px; height: 32px; }
 .search-scene .search-key:focus { outline: none; background: #ededed; color: #000; transform: scale(1.2); box-shadow: 0 12px 24px rgba(0,0,0,.5); }
 @media (prefers-reduced-motion: reduce) { .search-scene .search-key { transition: none; } }
 .search-scene .search-filters { display: flex; align-items: center; gap: 10px; width: 760px; height: 84px; margin: 80px auto 47px; padding: 8px 4px; border: 1px solid rgba(255,255,255,.1); border-radius: 42px; background: #161616; }

@@ -482,10 +482,10 @@ export type SearchResults =
     | { readonly status: "ready"; readonly query: string; readonly grid: { content: HTMLElement[]; zones: Zone[] } };
 
 /** `head` ends with the field and its keyboard and is the same nodes on every render. */
-export function searchView(head: readonly HTMLElement[], keys: readonly FocusItem[], results: SearchResults, back: () => void): View {
+export function searchView(head: readonly HTMLElement[], keys: readonly FocusItem[], field: FocusItem | undefined, results: SearchResults, back: () => void): View {
     const content: HTMLElement[] = [...head];
     // The focus engine returns to the key last focused, as tvOS does from the filters or results.
-    const zones: Zone[] = [{ id: "keyboard", layout: "row", restoreEntry: "key:a", items: keys }];
+    const zones: Zone[] = [...(field === undefined ? [] : [{ id: "field", layout: "row", items: [field] } as const]), { id: "keyboard", layout: "row", restoreEntry: "key:a", items: keys }];
     switch (results.status) {
         case "idle":
             content.push(searchState("Search Silo", "Find movies, series, and people", "search-prompt"));

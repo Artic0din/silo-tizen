@@ -526,7 +526,7 @@ browseTest("Search types on Apple's inline single-row keyboard, never the TV key
     assert.equal(await tv.focused(), "key:mode");
     await press(tv, "Enter");
     assert.equal(await tv.focused(), "key:mode", "the 123 key keeps focus while the page changes");
-    assert.deepEqual(await tv.page.locator(".search-keyboard .search-key").allTextContents(), ["abc", "SPACE", ..."1234567890-/:;()$&@\".,?!'", ""]);
+    assert.deepEqual(await tv.page.locator(".search-keyboard .search-key").allTextContents(), ["abc", "SPACE", ..."1234567890-/:;()$&@\".,?!'", "", ""]);
     await press(tv, "ArrowRight", "ArrowRight", "Enter");
     assert.equal(await query(), "movie 0001");
     // The Samsung remote's number keys arrive with only a key code.
@@ -544,6 +544,68 @@ browseTest("Search types on Apple's inline single-row keyboard, never the TV key
     assert.equal(await query(), "movie 0001 ");
     assert.equal(await tv.page.locator(".search-keyboard .search-key").first().textContent(), "123");
     assert.notEqual(await tv.page.evaluate(() => document.activeElement?.id), "browse-search");
+});
+
+browseTest("Search keyboard starts each Search on letters, types AltGr characters and hands other languages to the TV keyboard", async tv => {
+    await tv.page.locator('[data-focus="search"]').click();
+    await showing(tv, "search");
+    const field = tv.page.locator("#browse-search");
+    const query = (): Promise<string> => field.inputValue();
+    const readOnly = (): Promise<boolean> => field.evaluate(input => (input as HTMLInputElement).readOnly);
+    type Press = { key: string; code?: string; keyCode?: number; ctrlKey?: boolean; altKey?: boolean; modifierAltGraph?: boolean };
+    const keydown = (init: Press): Promise<boolean | undefined> => tv.page.evaluate(options => document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...options })), init);
+    // tvOS builds a new keyboard for a new Search, so one left on 123 does not carry over.
+    await press(tv, "ArrowLeft", "ArrowLeft", "Enter");
+    assert.equal(await tv.page.locator('[data-focus="key:mode"]').textContent(), "abc");
+    await tv.remote(BACK); await showing(tv, "home");
+    await tv.page.locator('[data-focus="search"]').click(); await showing(tv, "search");
+    assert.equal(await tv.focused(), "key:a", "a new Search focuses a, not the 123 key");
+    assert.equal(await tv.page.locator('[data-focus="key:mode"]').textContent(), "123");
+    // AltGr+L on a Polish layout reports Ctrl and Alt too.
+    await keydown({ key: "ł", code: "KeyL", ctrlKey: true, altKey: true, modifierAltGraph: true });
+    assert.equal(await query(), "ł");
+    await keydown({ key: "l", code: "KeyL", ctrlKey: true });
+    assert.equal(await query(), "ł", "a Ctrl shortcut types nothing");
+    // The 123 page ends with tvOS's keyboard switch before delete.
+    await press(tv, "ArrowLeft", "ArrowLeft", "Enter");
+    for (let step = 0; step < 27; step++) await press(tv, "ArrowRight");
+    assert.equal(await tv.focused(), "key:language");
+    assert.deepEqual(await tv.page.locator(".search-keyboard .search-key").evaluateAll(keys => keys.slice(-2).map(key => key.getAttribute("aria-label"))), ["Other languages", "Delete"]);
+    await press(tv, "Enter");
+    assert.equal(await tv.focused(), "query", "the globe key hands the field to the TV keyboard");
+    assert.equal(await readOnly(), false);
+    await tv.page.keyboard.insertText("東京");
+    assert.equal(await query(), "ł東京");
+    await tv.jump(300);
+    const searched = (text: string): boolean => browseReads(tv, "/catalog").some(request => new URL(request.path, "https://fake.invalid").searchParams.get("q") === text);
+    await tv.eventually(async () => searched("ł東京"), "the TV keyboard's text is searched");
+    // A hardware keyboard composes into the same field; the query waits for the committed text.
+    await field.evaluate(input => {
+        const text = input as HTMLInputElement;
+        text.dispatchEvent(new CompositionEvent("compositionstart", { data: "" }));
+        text.value += "と";
+        text.dispatchEvent(new InputEvent("input", { isComposing: true, data: "と" }));
+    });
+    await tv.jump(300);
+    assert.equal(searched("ł東京と"), false, "composing text is not searched");
+    await field.evaluate(input => input.dispatchEvent(new CompositionEvent("compositionend", { data: "と" })));
+    await tv.jump(300);
+    await tv.eventually(async () => searched("ł東京と"), "the committed text is searched");
+    // Done, or Back, which the TV keyboard reports as Cancel, returns to the globe key and closes the TV keyboard.
+    await tv.remote(65376);
+    assert.equal(await tv.focused(), "key:language");
+    assert.equal(await readOnly(), true);
+    await press(tv, "Enter");
+    assert.equal(await tv.focused(), "query");
+    await tv.remote(BACK);
+    await showing(tv, "search");
+    assert.equal(await tv.focused(), "key:language", "Back closes the TV keyboard, not Search");
+    // An input method's key press on the row hands over too.
+    await keydown({ key: "Process", keyCode: 229 });
+    assert.equal(await tv.focused(), "query");
+    await tv.remote(65385);
+    assert.equal(await tv.focused(), "key:language");
+    assert.equal(await readOnly(), true);
 });
 
 browseTest("Search filter focus applies immediately and cancels superseded reads", async tv => {

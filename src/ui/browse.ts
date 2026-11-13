@@ -37,6 +37,7 @@ import { decodeImageCapabilities, type ImageCapabilities, homeArtworkQuery } fro
 import { FocusHost, type FocusTarget } from "./browseFocus.ts";
 import { type Destination, type PlayRequest, type SearchFilter, applySeriesLine, artworkUrl, destinationOf, searchScope, seriesLineFor, playChoices, visibleLibraries, withStartAudioLanguage } from "./browseModel.ts";
 import { errorState, unconfirmedWriteMessage, writeFailureMessage, writeMayHaveApplied, failureText, hasData, newPages, newRoute, PAGE_SIZE, SEARCH_PAGE_SIZE, type Pages, type Route, routeView } from "./browseRoutes.ts";
+import { browsableRows, shownRows } from "./recommendationsView.ts";
 import { homeRows, removingDismissed, type ViewContext } from "./browseViews.ts";
 import { HomeEnrichment } from "./homeEnrichment.ts";
 import { el } from "./screen.ts";
@@ -195,7 +196,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         const resized = shownScale !== presentation.posterScale;
         if (resized) { shownScale = presentation.posterScale; applyCardSize(); }
         const current = top();
-        if (!playing && current !== undefined && (current.kind === "home" || current.kind === "for_you" || current.kind === "personal" || current.kind === "search" || current.kind === "person" || current.kind === "recommendationSection" || isSectionRoute(current) || current.kind === "libraryResults" || (current.kind === "library" && (current.discovery?.mode === "Browse" || current.discovery?.mode === "Recommended" || current.discovery?.mode === "Collections"))) && (resized || shownOverlays !== presentation.cardOverlays)) {
+        if (!playing && current !== undefined && (current.kind === "home" || current.kind === "for_you" || current.kind === "personal" || current.kind === "search" || current.kind === "person" || isSectionRoute(current) || current.kind === "libraryResults" || (current.kind === "library" && (current.discovery?.mode === "Browse" || current.discovery?.mode === "Recommended" || current.discovery?.mode === "Collections"))) && (resized || shownOverlays !== presentation.cardOverlays)) {
             shownOverlays = presentation.cardOverlays;
             render(host.focused());
             if (resized) host.revealFocused();
@@ -855,7 +856,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     }
                 }
                 const text = error instanceof CalendarTimezoneError ? error.message : failureText(error, current);
-                if ((current.kind === "item" || current.kind === "home" || current.kind === "for_you") && error instanceof ApiError && (error.status === 403 || error.status === 404)) {
+                if ((current.kind === "item" || current.kind === "home") && error instanceof ApiError && (error.status === 403 || error.status === 404)) {
                     if (current.kind === "item") discardVisitedDetails(current.id);
                     current.data = undefined;
                     if (current.kind === "home") shell.update([]);
@@ -1079,7 +1080,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         const seriesId = detail.type === "series" ? detail.id : detail.seriesId;
         for (const entry of new Set([...roots.values(), ...stack])) {
             if (entry === current) continue;
-            if (entry.kind === "home" || entry.kind === "for_you" || entry.kind === "recommendationSection" || isSectionRoute(entry) || entry.kind === "calendar" || (entry.kind === "library" && entry.discovery?.mode === "Browse")) entry.stale = true;
+            if (entry.kind === "home" || entry.kind === "for_you" || isSectionRoute(entry) || entry.kind === "calendar" || (entry.kind === "library" && entry.discovery?.mode === "Browse")) entry.stale = true;
             if (entry.kind === "season" && entry.seriesId === seriesId && (detail.type !== "season" || entry.seasonNumber === detail.seasonNumber)) entry.stale = true;
             if (entry.kind === "item") {
                 const covered = entry.data?.detail;
@@ -1416,11 +1417,6 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 load(current, signal => read(operations.recommendations(homeArtworkQuery(imageCapability, window.devicePixelRatio)), signal), sections => {
                     current.data = sections;
                     presentEnrichment(sections, true);
-                }, quiet);
-                return;
-            case "recommendationSection":
-                load(current, signal => read(operations.recommendationSection(current.locator), signal), row => {
-                    current.pages.page = { items: row.items.filter(card => destinationOf(card) !== undefined), total: row.items.length, totalExact: false, nextCursor: undefined };
                 }, quiet);
                 return;
             case "home": {
@@ -1954,8 +1950,12 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 current.stale = true;
             }
         } else if (current.kind === "for_you" && current.data === undefined) {
-            current.data = cache.peek(operations.recommendations());
-            if (current.data !== undefined) current.stale = true;
+            // RecommendationsViewModel.init shows cached rows at once; with none, the page loads.
+            const cached = cache.peek(operations.recommendations());
+            if ((browsableRows(cached)?.length ?? 0) > 0) {
+                current.data = cached;
+                current.stale = true;
+            }
         } else if (current.kind === "item" && current.data === undefined) {
             const cached = cache.peek(operations.getCatalogItem(current.id));
             const previous = visitedDetails.get(current.id);
@@ -2117,7 +2117,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             route.filter = filter; route.pages = undefined; search(route);
         };
         const handlers = { context, focusDefault: () => host.focusDefault(), busy: loading !== undefined, searchHead, input, searchFilter, audiobooksEnabled: audiobooksInSearch(), push, pop, play, chooseProfile, retry, turn, audiobookPicker, mode, jump, sort, genre, personalFilter, morePersonal, morePerson, signIn: options.onSignOut, personFilter, calendar: calendarHandlers, requests: requestsHandlers, browse: changeBrowse, more: moreBrowse, preserve: (route: Extract<Route, { kind: "library" }>) => browsePrefs.preserve(route.library), gridColumns: presentation.posterScale > 1 ? 5 : 6, shuffle: (current.kind === "library" || current.kind === "libraryResults" && current.source.kind === "collection") && canShuffle(current) ? { starting: shuffleStarting, failure: shuffleFailure?.route === current ? shuffleFailure.text : undefined, start: startShuffle, dismiss: () => { shuffleFailure = undefined; render({ zone: "controls", key: "shuffle" }); } } : undefined };
-        container.classList.toggle("section-catalog", isSectionRoute(current) || current.kind === "recommendationSection");
+        container.classList.toggle("section-catalog", isSectionRoute(current));
         const browsing = current.kind === "library" && current.discovery?.mode === "Browse";
         container.classList.toggle("library-browse", browsing);
         container.classList.toggle("personal-lists", current.kind === "personal" && current.source !== "history");
@@ -2158,7 +2158,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         if (rootRoute) {
             const selected = tabFocus(current).key;
             // Apple's HomeView with no sections shows only EmptyStateView: no marquee, and no remembered card replayed into it.
-            const preview = (current.kind === "home" && current.data !== undefined && !view.zones.some(zone => zone.id === "empty")) || (current.kind === "for_you" && (current.data?.some(row => row.items.some(card => destinationOf(card) !== undefined)) ?? false)) || (current.kind === "library" && current.library.type !== "music" && (current.discovery?.mode ?? "Recommended") === "Recommended");
+            const preview = (current.kind === "home" && current.data !== undefined && !view.zones.some(zone => zone.id === "empty")) || (current.kind === "for_you" && (shownRows(current)?.length ?? 0) > 0) || (current.kind === "library" && current.library.type !== "music" && (current.discovery?.mode ?? "Recommended") === "Recommended");
             // A marquee rest armed on remembered rows must not read their card once Home is empty.
             if (current.kind === "home" && !preview) homeDetails.suspend();
             const modal = browsing && (current.discovery?.panel !== undefined || shuffleFailure?.route === current);
@@ -2676,6 +2676,16 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 ? target === "for_you" ? newRoute({ kind: "for_you", data: undefined }) : target === "calendar" ? newRoute({ kind: "calendar", calendar: calendarState(readCalendarFilter()) }) : newRoute({ kind: "search", query: "", pages: undefined, resultsFor: "" })
                 : newRoute({ kind: "library", library: target, pages: newPages() });
             roots.set(key, route);
+        }
+        // Apple rebuilds For You on each selection (`.id(selectedRoot)`): a new RecommendationsViewModel keeps only
+        // rows to show over its new read (RecommendationsViewModel.swift:17-19, :31-36).
+        if (route.kind === "for_you" && route !== current) {
+            route.stale = true;
+            route.focus = undefined;
+            route.failure = undefined;
+            route.error = undefined;
+            if ((browsableRows(route.data)?.length ?? 0) === 0) route.data = undefined;
+            host.forgetVisit("for_you");
         }
         if (route.kind === "library" && destinationMode !== undefined) {
             if (route === current && route.discovery?.mode === destinationMode && hasData(route)) { render(); host.focusDefault(); return; }

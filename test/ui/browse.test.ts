@@ -577,8 +577,17 @@ browseTest("Search keyboard starts each Search on letters, types AltGr character
     for (let step = 0; step < 27; step++) await press(tv, "ArrowRight");
     assert.equal(await tv.focused(), "key:language");
     assert.deepEqual(await tv.page.locator(".search-keyboard .search-key").evaluateAll(keys => keys.slice(-2).map(key => key.getAttribute("aria-label"))), ["Other languages", "Delete"]);
+    // Samsung raises the TV keyboard for the remote's Enter on an editable field, not for script focus: the globe key
+    // focuses the field during its own Enter keydown, so that same press reaches the field.
+    await field.evaluate(input => { input.addEventListener("keypress", event => { if (event instanceof KeyboardEvent && event.key === "Enter") input.dataset.enters = String(Number(input.dataset.enters ?? 0) + 1); }); });
+    const enters = (): Promise<string | null> => field.getAttribute("data-enters");
     await press(tv, "Enter");
     assert.equal(await tv.focused(), "query", "the globe key hands the field to the TV keyboard");
+    assert.equal(await readOnly(), false);
+    assert.equal(await enters(), "1", "the globe key's own Enter press lands on the editable field");
+    await press(tv, "Enter");
+    assert.equal(await tv.focused(), "query", "a later Enter stays with the field, where it raises the TV keyboard");
+    assert.equal(await enters(), "2");
     assert.equal(await readOnly(), false);
     await tv.page.keyboard.insertText("東京");
     assert.equal(await query(), "ł東京");
@@ -606,6 +615,12 @@ browseTest("Search keyboard starts each Search on letters, types AltGr character
     await tv.remote(BACK);
     await showing(tv, "search");
     assert.equal(await tv.focused(), "key:language", "Back closes the TV keyboard, not Search");
+    // Losing focus to the page, as when the field is blurred, returns to the row.
+    await press(tv, "Enter");
+    assert.equal(await tv.focused(), "query");
+    await field.evaluate(input => input.blur());
+    assert.equal(await tv.focused(), "key:language", "a blurred field returns focus to the globe key");
+    assert.equal(await readOnly(), true);
     // An input method's key press on the row hands over too.
     await keydown({ key: "Process", keyCode: 229 });
     assert.equal(await tv.focused(), "query");

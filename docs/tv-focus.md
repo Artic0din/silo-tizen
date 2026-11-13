@@ -189,8 +189,8 @@ Other layers:
 - Search never opens the TV keyboard.
   It draws Apple TV's one-row keyboard (`src/ui/searchKeyboard.ts`) as the `keyboard` zone: Left and Right move along it, Select types, Down leaves for the filters and results, and Up returns to the key last focused.
   The field only shows the query, and a new Search starts on the letter page with focus on `a`.
-  For other languages, the globe key at the end of the 123 page, like tvOS's keyboard switch, makes the field editable and focuses it as the `field` zone, which opens the TV keyboard; an input method's key press on the row does the same, so a hardware keyboard can compose there.
-  Done, Back or Cancel (the TV keyboard sends Back and Up-at-top as Cancel, 65385) make it read-only again, which closes the TV keyboard, and return focus to the key that opened it. Composed text is searched once committed.
+  For other languages, the globe key at the end of the 123 page, like tvOS's keyboard switch, makes the field editable and focuses it as the `field` zone during its own Enter keydown, so that Enter press lands on the editable field, which is what raises the TV keyboard (script focus alone does not on the S95C); Enter on the field is left to the TV; an input method's key press on the row does the same, so a hardware keyboard can compose there.
+  Done, Back or Cancel (the TV keyboard sends Back and Up-at-top as Cancel, 65385) make it read-only again, which closes the TV keyboard, and return focus to the key that opened it, as does focus dropping from the field to the page. Composed text is searched once committed.
   While a key has focus, a hardware keyboard types into the query, and the remote's number keys are registered (`claimNumberKeys` in `keys.ts`) and type digits; focus anywhere else releases them so a text field's TV keyboard still receives them.
 - `config.xml` sets `hwkey-event="enable"` and the `tv.inputdevice` privilege.
 - Hold-to-act: `FocusHost` turns a 650 ms Enter hold on a card into its quick action (`SELECT_HOLD_MS`).

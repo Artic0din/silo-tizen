@@ -15,6 +15,7 @@ const GLOBE_ICON = '<svg viewBox="0 0 32 32" fill="none" stroke="currentColor" s
 /** The TV keyboard's Done and Cancel keys (Samsung Keyboard/IME guide); Back on its panel arrives as Cancel. */
 const IME_DONE = 65376;
 const IME_CANCEL = 65385;
+const REMOTE_ENTER = 13;
 const REMOTE_BACK = 10009;
 /** What Chromium reports for a key press an input method is processing. */
 const IME_PROCESSING = 229;
@@ -86,15 +87,20 @@ export function searchKeyboard(input: HTMLInputElement, repaint: (focus?: FocusT
     };
     input.addEventListener("keydown", event => {
         if (editing === undefined) return;
-        const done = event.keyCode === IME_DONE || (event.key === "Enter" && !event.isComposing);
-        const cancel = event.keyCode === IME_CANCEL || event.keyCode === REMOTE_BACK || event.key === "Escape";
-        if (!done && !cancel) return;
+        // The remote's Enter on the field is what raises the TV keyboard, so it stays; a physical keyboard's Enter
+        // arrives as Done there (Samsung Keyboard/IME guide, "Detecting Keyboard and IME Input").
+        if (event.keyCode !== IME_DONE && event.keyCode !== IME_CANCEL && event.keyCode !== REMOTE_BACK && event.key !== "Escape") return;
         // Only these leave; preventing any other key would stop the field inserting text.
         event.preventDefault();
         event.stopPropagation();
         stopEditing(true);
     });
-    input.addEventListener("blur", () => stopEditing(false));
+    input.addEventListener("blur", event => {
+        // Focus moved to another control: that control owns focus now. Focus dropped to the page: return to the row.
+        // The window losing focus leaves the session alone.
+        if (event.relatedTarget !== null) stopEditing(false);
+        else if (document.hasFocus()) stopEditing(true);
+    });
 
     let symbols = false;
     const mode = key("key:mode", "search-key-label search-key-mode", "123", "Numbers and symbols", () => {
@@ -105,6 +111,11 @@ export function searchKeyboard(input: HTMLInputElement, repaint: (focus?: FocusT
     const space = key("key:space", "search-key-label search-key-space", "SPACE", "Space", () => type(" "));
     const language = key("key:language", "search-key-language", "", "Other languages", () => startEditing("key:language"));
     language.element.innerHTML = GLOBE_ICON;
+    // Samsung raises the TV keyboard when the remote's Enter is pressed on an editable field, not when script focuses
+    // one (S95C). Focusing the field during this Enter's keydown sends the same press on to the field.
+    language.element.addEventListener("keydown", event => {
+        if ((event.keyCode === REMOTE_ENTER || event.key === "Enter") && !event.repeat) startEditing(language.key);
+    });
     const remove = key("key:delete", "search-key-delete", "", "Delete", () => edit(withoutLast));
     remove.element.innerHTML = DELETE_ICON;
     const letters = LETTERS.map(letter => key(`key:${letter}`, "", letter, undefined, () => type(letter)));

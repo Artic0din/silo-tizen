@@ -112,8 +112,8 @@ export interface Browse {
     resolutionCap(): Pick<ResolutionCap, "quality" | "ready">;
 }
 
-const SEARCH_DELAY_MS = 600;
-const SEARCH_TITLE_COLLAPSE_OFFSET = 85;
+/** SearchViewModel.onQueryChanged and RequestSearchSectionViewModel.onQueryChanged both wait 300 ms. */
+const SEARCH_DELAY_MS = 300;
 const SLOW_MS = 5000;
 /** SectionRowLimit.cards (silo-apple SectionRowLimit.swift:6). */
 const HOME_SECTION_CARDS = 20;
@@ -259,8 +259,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     searchIcon.setAttribute("aria-hidden", "true");
     searchIcon.innerHTML = '<svg viewBox="0 0 48 48" fill="none"><circle cx="20" cy="20" r="15" stroke="currentColor" stroke-width="5"/><path d="m31 31 12 12" stroke="currentColor" stroke-width="6" stroke-linecap="round"/></svg>';
     searchField.append(searchIcon, input);
-    const searchHead = [el("h1", "browse-title search-navigation-title", "Search"), searchLabel, searchField];
-    container.addEventListener("scroll", () => { container.classList.toggle("search-scrolled", container.scrollTop >= SEARCH_TITLE_COLLAPSE_OFFSET); });
+    // Apple hides Search's navigation bar (SearchView.swift:65-69); the title stays only as the page's hidden heading.
+    const searchHead = [el("h1", "browse-title", "Search"), searchLabel, searchField];
 
     let stack: Route[] = [];
     const seriesSeasons = new Map<string, number>();
@@ -385,7 +385,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         return pending;
     };
     let inputRevision = 0;
-    const recordInput = (): void => { inputRevision++; container.classList.remove("search-restored"); };
+    const recordInput = (): void => { inputRevision++; };
     document.addEventListener("keydown", recordInput, true);
     document.addEventListener("pointerdown", recordInput, true);
 
@@ -438,7 +438,9 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     const searchRequests = (current: Extract<Route, { kind: "search" }>): void => {
         const query = current.query.trim();
         const supplement = current.supplement ??= {};
-        if (!requestsCapability.enabled || query.length <= 1 || supplement.requestsFor === query) return;
+        // RequestSearchSectionViewModel.onQueryChanged: a query of one character clears the matches; longer ones keep them until answered.
+        if (!requestsCapability.enabled || query.length <= 1) { supplement.requests = query.length === 0 ? undefined : []; supplement.requestsFor = undefined; return; }
+        if (supplement.requestsFor === query) return;
         searchRequestsController?.abort();
         const controller = new AbortController(); searchRequestsController = controller;
         supplement.requestsFor = query;
@@ -464,8 +466,9 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     const searchPeople = (current: Extract<Route, { kind: "search" }>, type: TextSearchScope | SearchFilter | undefined): void => {
         searchPeopleController?.abort();
         const supplement = current.supplement ??= {};
-        supplement.people = []; supplement.peopleFailure = false;
-        if (!current.peopleSupported) { supplement.peoplePending = false; return; }
+        supplement.peopleFailure = false;
+        // SearchViewModel.startPeopleSearch: the shown people stay until this lookup answers.
+        if (!current.peopleSupported) { supplement.people = []; supplement.peoplePending = false; return; }
         const query = current.query;
         const controller = new AbortController(); searchPeopleController = controller;
         supplement.peoplePending = true;
@@ -475,7 +478,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             supplement.people = people; supplement.peoplePending = false; render(host.focused());
         }, () => {
             if (!owns()) return;
-            supplement.peoplePending = false; supplement.peopleFailure = true; render(host.focused());
+            // SearchViewModel.matchingPeople answers none on failure, replacing the shown people.
+            supplement.people = []; supplement.peoplePending = false; supplement.peopleFailure = true; render(host.focused());
         });
     };
     /** Box sets are movies, so only All and Movies ask. A failed read shows none and leaves titles alone. */
@@ -582,7 +586,6 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         while (stack.length > 1 && top()?.kind === "requests") closedHub = isHubRoot(stack.pop()) || closedHub;
         const origin = top();
         if (origin === undefined) return;
-        container.classList.toggle("search-restored", origin.kind === "search");
         showRoute(origin, closedHub ? undefined : origin.focus);
         if (closedHub && hasData(origin)) host.focusDefault();
     };
@@ -884,14 +887,14 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 current.error = errorState(error);
                 // Apple BoxSetDetailViewModel.errorState: a 404 keeps Not found but says why a box set can be missing.
                 if (current.kind === "boxSet" && current.error.headline === "Not found" && text !== undefined) current.error = { ...current.error, message: text };
-                if (current.kind === "search" && current.pages?.page === undefined) {
-                    searchBoxSetController?.abort();
-                    searchBoxSetController = undefined;
-                    if (current.supplement !== undefined) {
-                        current.supplement.boxSets = [];
-                        current.supplement.boxSetsPending = false;
-                    }
+                // SearchViewModel.performSearch: a failed new search clears its titles, people and box sets; a failed next page keeps them behind the error.
+                if (current.kind === "search" && current.appending !== true) {
+                    current.pages = newPages();
+                    searchPeopleController?.abort(); searchPeopleController = undefined;
+                    searchBoxSetController?.abort(); searchBoxSetController = undefined;
+                    if (current.supplement !== undefined) Object.assign(current.supplement, { people: [], peoplePending: false, boxSets: [], boxSetsPending: false });
                 }
+                if (current.kind === "search") current.appending = false;
                 if (current.kind === "calendar") current.calendar.error = error instanceof CalendarTimezoneError ? { headline: "Something went wrong", message: error.message, signIn: false } : errorState(error);
                 if (current.kind === "requests") { current.requests.error = errorState(error); if (!current.requests.unconfirmed && !current.requests.writing) current.requests.action = undefined; }
                 if (current.kind === "requests" && error instanceof ApiError && ["capability_disabled", "capability_not_configured", "capability_unsupported", "permission_denied"].includes(error.problemId ?? "")) void probeRequests();
@@ -1763,11 +1766,49 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             }, quiet || pages.page !== undefined);
             return;
         }
-        if (current.kind !== "search") {
-            return;
-        }
+        if (current.kind === "search") loadSearch(current, false, quiet);
+    };
+
+    /**
+     * SearchViewModel.performSearch: a new search keeps the shown results until its first page answers, then replaces
+     * them; `append` adds the next page to the same list (loadMore), or starts the list over when the server rejects
+     * the cursor (SiloAPI.nextCatalogPage).
+     */
+    const loadSearch = (current: Extract<Route, { kind: "search" }>, append: boolean, quiet = false): void => {
         const query = current.query;
+        const filter = current.filter;
+        const shown = current.pages;
+        // A quiet reread of the answered query and filter (a card change marks every route stale) keeps every loaded page.
+        const depth = quiet && !append && shown?.page !== undefined && current.resultsFor === query && current.resultsFilter === filter ? shown.index + 1 : 1;
+        current.appending = append;
         load(current, async signal => {
+            if (append && shown?.page !== undefined) {
+                const cursor = shown.cursors[shown.index + 1];
+                const scope = searchTypeFor(current, current.searchType ?? "video");
+                const first = (): Promise<CatalogPage> => read(operations.listCatalogItems({ q: query.trim(), type: scope, limit: SEARCH_PAGE_SIZE, cursor: undefined }), signal);
+                let rejected: unknown;
+                try {
+                    const seen = new Set(shown.page.items.map(item => item.id));
+                    const skipped: (string | undefined)[] = [];
+                    for (let next = cursor; ;) {
+                        const page = await read(operations.listCatalogItems({ q: query.trim(), type: scope, limit: SEARCH_PAGE_SIZE, cursor: next }), signal);
+                        if (page.nextCursor !== undefined && (shown.cursors.includes(page.nextCursor) || skipped.includes(page.nextCursor))) {
+                            rejected = new ApiError({ kind: "invalid_response", path: "search.page.next_cursor" });
+                            break;
+                        }
+                        // The end observer asks again only when cards are added, so a page of cards already shown reads on.
+                        if (page.nextCursor === undefined || page.items.some(item => !seen.has(item.id))) return { page, startsOver: false, skipped };
+                        skipped.push(page.nextCursor);
+                        next = page.nextCursor;
+                    }
+                } catch (error) {
+                    if (signal.aborted || !(error instanceof ApiError) || error.problemId !== "invalid_cursor") throw error;
+                    rejected = error;
+                }
+                // Restart once; a restarted list whose cursor is rejected again shows the error until Try Again, not an endless reread.
+                if (current.restarted === true) throw rejected;
+                return { page: await first(), startsOver: true };
+            }
             let type = current.searchType;
             if (type === undefined) {
                 const capability = await read(operations.getCatalogSearchCapabilities(), signal);
@@ -1781,44 +1822,73 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 }
             }
             if (signal.aborted || top() !== current || current.query !== query) throw new DOMException("Aborted", "AbortError");
-            if (current.supplement?.people === undefined) searchPeople(current, searchTypeFor(current, type));
-            if (current.supplement?.boxSetsPending !== false) searchBoxSets(current);
-            return read(operations.listCatalogItems({ q: query.trim(), type: searchTypeFor(current, type), limit: SEARCH_PAGE_SIZE, cursor: pages.cursors[index] }), signal);
-        }, (page) => {
-            pages.page = page;
-            pages.index = index;
-            pages.cursors = pages.cursors.slice(0, index + 1);
-            pages.cursors.push(page.nextCursor);
+            searchPeople(current, searchTypeFor(current, type));
+            searchBoxSets(current);
+            let page = await read(operations.listCatalogItems({ q: query.trim(), type: searchTypeFor(current, type), limit: SEARCH_PAGE_SIZE, cursor: undefined }), signal);
+            const cursors: (string | undefined)[] = [undefined, page.nextCursor];
+            const items = [...page.items], seen = new Set(items.map(item => item.id));
+            while (cursors.length - 1 < depth && page.nextCursor !== undefined) {
+                try {
+                    page = await read(operations.listCatalogItems({ q: query.trim(), type: searchTypeFor(current, type), limit: SEARCH_PAGE_SIZE, cursor: page.nextCursor }), signal);
+                } catch (error) {
+                    // The list changed under the refresh: keep the fresh pages read so far, as a restarted list does.
+                    if (signal.aborted || !(error instanceof ApiError) || error.problemId !== "invalid_cursor") throw error;
+                    break;
+                }
+                if (page.nextCursor !== undefined && cursors.includes(page.nextCursor)) throw new ApiError({ kind: "invalid_response", path: "search.page.next_cursor" });
+                for (const item of page.items) if (!seen.has(item.id)) { seen.add(item.id); items.push(item); }
+                cursors.push(page.nextCursor);
+            }
+            return { page: { ...page, items }, startsOver: true, cursors };
+        }, ({ page, startsOver, cursors, skipped }) => {
+            current.appending = false;
+            // A restarted list keeps its guard until a new search or Try Again, so a good page between rejections cannot loop.
+            current.restarted = append && (startsOver || current.restarted === true);
             current.resultsFor = query;
-        }, quiet || pages.page !== undefined);
+            current.resultsFilter = filter;
+            if (startsOver || shown?.page === undefined) {
+                current.pages = { page, index: (cursors?.length ?? 2) - 2, cursors: cursors ?? [undefined, page.nextCursor] };
+                return;
+            }
+            const seen = new Set(shown.page.items.map(item => item.id));
+            shown.page = { ...page, items: [...shown.page.items, ...page.items.filter(item => !seen.has(item.id))] };
+            shown.index += 1 + (skipped?.length ?? 0);
+            shown.cursors.push(...(skipped ?? []), page.nextCursor);
+        }, quiet || shown?.page !== undefined);
     };
 
     let searchReturnFocus: { readonly route: Extract<Route, { kind: "search" }>; readonly target: FocusTarget } | undefined;
-    /** All and Movies keep the cards already on screen until the replacement lookup answers. */
-    const resetSearchSupplement = (current: Extract<Route, { kind: "search" }>): void => {
-        const wants = current.boxSetsSupported === true && (current.filter === undefined || current.filter === "movie") && current.query.trim() !== "";
-        const shown = current.supplement?.boxSets;
-        const kept = wants && shown !== undefined && shown.length > 0 ? shown : undefined;
+    /** SearchViewModel.resetState: an empty field clears every section at once. */
+    const clearSearch = (current: Extract<Route, { kind: "search" }>): void => {
+        loading?.abort();
+        loading = undefined;
         stopSearchSupplement();
-        current.supplement = kept === undefined ? {} : { boxSets: kept, boxSetsPending: true };
+        current.pages = undefined;
+        current.resultsFor = "";
+        current.supplement = {};
+        current.failure = undefined;
+        current.error = undefined;
     };
+    /** Titles, People, box sets and Requests each stay on screen until their own replacement answers. */
     const search = (current: Extract<Route, { kind: "search" }>, quiet = false): void => {
         searchReturnFocus = undefined;
         cancelSearch();
-        resetSearchSupplement(current);
-        searchRequests(current);
+        stopSearchSupplement();
         current.failure = undefined;
         if (current.query.trim() === "") {
-            loading?.abort();
-            loading = undefined;
-            current.pages = undefined;
+            clearSearch(current);
             render();
             return;
         }
-        const pages = quiet && current.pages !== undefined ? current.pages : newPages();
-        current.pages = pages;
-        loadPage(current, pages, pages.index, quiet);
+        searchRequests(current);
+        current.pages ??= newPages();
+        loadSearch(current, false, quiet);
         render();
+    };
+    const moreSearch = (current: Extract<Route, { kind: "search" }>): void => {
+        if (torn || playing || top() !== current || loading !== undefined || cardActions.active || settingsScreen !== undefined || current.failure !== undefined || current.query !== current.resultsFor || current.filter !== current.resultsFilter || current.pages?.page?.nextCursor === undefined) return;
+        loadSearch(current, true, true);
+        render(host.focused());
     };
 
     input.addEventListener("input", () => {
@@ -1832,11 +1902,13 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         cancelSlow();
         current.slow = false;
         current.query = input.value;
-        resetSearchSupplement(current);
-        render(host.focused());
         cancelSearch();
-        // Only the replacement request is debounced; an obsolete read stops immediately.
-        cancelSearch = clock.schedule(() => search(current), SEARCH_DELAY_MS);
+        // Only the replacement request is debounced; an obsolete read stops immediately, and what it replaces stays shown.
+        stopSearchSupplement();
+        if (current.query.trim() === "") clearSearch(current);
+        else if (current.query.trim().length <= 1) searchRequests(current);
+        render(host.focused());
+        if (current.query.trim() !== "") cancelSearch = clock.schedule(() => search(current), SEARCH_DELAY_MS);
     });
     input.addEventListener("blur", () => { searchReturnFocus = undefined; });
     input.addEventListener("keydown", (event) => {
@@ -1866,7 +1938,6 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         const current = top();
         if (current?.kind === "requests" && !requestsCapability.enabled) { closeRequests(); return; }
         if (current !== undefined) {
-            container.classList.toggle("search-restored", current.kind === "search");
             if (current.kind === "personal" || current.kind === "calendar" || current.kind === "requests") {
                 if (current.kind === "personal") current.pendingIndex = undefined;
                 current.stale = true;
@@ -1980,7 +2051,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             detailWork = current.data.details;
             detailWork.start();
         }
-        const queryChanged = current.kind === "search" && current.query !== current.resultsFor;
+        // A query or filter whose answer an earlier push interrupted is searched again on return.
+        const queryChanged = current.kind === "search" && (current.query !== current.resultsFor || current.filter !== current.resultsFilter);
         if (!hasData(current) || current.stale || current.failure !== undefined || queryChanged) {
             loadRoute(current, hasData(current) && !queryChanged);
             if (current.kind === "calendar") render(focus);
@@ -2103,9 +2175,9 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         const searchFilter = (route: Extract<Route, { kind: "search" }>, filter: SearchFilter | undefined): void => {
             if (top() !== route || route.filter === filter) return;
             loading?.abort(); loading = undefined; cancelSlow();
-            route.filter = filter; route.pages = undefined; search(route);
+            route.filter = filter; search(route);
         };
-        const handlers = { context, focusDefault: () => host.focusDefault(), busy: loading !== undefined, searchHead, input, searchFilter, audiobooksEnabled: audiobooksInSearch(), push, pop, play, chooseProfile, retry, turn, audiobookPicker, mode, jump, sort, genre, personalFilter, morePersonal, morePerson, signIn: options.onSignOut, personFilter, calendar: calendarHandlers, requests: requestsHandlers, browse: changeBrowse, more: moreBrowse, preserve: (route: Extract<Route, { kind: "library" }>) => browsePrefs.preserve(route.library), gridColumns: presentation.posterScale > 1 ? 5 : 6, shuffle: (current.kind === "library" || current.kind === "libraryResults" && current.source.kind === "collection") && canShuffle(current) ? { starting: shuffleStarting, failure: shuffleFailure?.route === current ? shuffleFailure.text : undefined, start: startShuffle, dismiss: () => { shuffleFailure = undefined; render({ zone: "controls", key: "shuffle" }); } } : undefined };
+        const handlers = { context, focusDefault: () => host.focusDefault(), busy: loading !== undefined, searchHead, input, searchFilter, audiobooksEnabled: audiobooksInSearch(), push, pop, play, chooseProfile, retry, turn, audiobookPicker, mode, jump, sort, genre, personalFilter, morePersonal, morePerson, moreSearch, signIn: options.onSignOut, personFilter, calendar: calendarHandlers, requests: requestsHandlers, browse: changeBrowse, more: moreBrowse, preserve: (route: Extract<Route, { kind: "library" }>) => browsePrefs.preserve(route.library), gridColumns: presentation.posterScale > 1 ? 5 : 6, shuffle: (current.kind === "library" || current.kind === "libraryResults" && current.source.kind === "collection") && canShuffle(current) ? { starting: shuffleStarting, failure: shuffleFailure?.route === current ? shuffleFailure.text : undefined, start: startShuffle, dismiss: () => { shuffleFailure = undefined; render({ zone: "controls", key: "shuffle" }); } } : undefined };
         container.classList.toggle("section-catalog", isSectionRoute(current));
         const browsing = current.kind === "library" && current.discovery?.mode === "Browse";
         container.classList.toggle("library-browse", browsing);
@@ -2114,12 +2186,15 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         container.classList.toggle("requests-scene", current.kind === "requests");
         container.classList.toggle("watch-party-scene", current.kind === "watchParty");
         container.classList.toggle("search-scene", current.kind === "search");
+        // SearchView.searchPrompt: the field names audiobooks only while they take part in Search.
+        if (current.kind === "search") input.placeholder = audiobooksInSearch() ? "Search movies, series, audiobooks..." : "Search movies and series...";
         container.classList.toggle("details-series-scene", current.kind === "item" && current.data?.detail.type === "series");
         container.classList.toggle("requests-hub", current.kind === "requests" && current.requests.source.kind === "hub");
         if (browsing) activeBrowse = current.pages;
-        if (current.kind === "personal" || current.kind === "person") {
-            if (activePersonal !== undefined && activePersonal !== current.pages) stopFeed(activePersonal);
-            activePersonal = current.pages;
+        const feedOwner = current.kind === "personal" || current.kind === "person" || current.kind === "search" ? current.pages : undefined;
+        if (feedOwner !== undefined) {
+            if (activePersonal !== undefined && activePersonal !== feedOwner) stopFeed(activePersonal);
+            activePersonal = feedOwner;
         } else if (activePersonal !== undefined) {
             stopFeed(activePersonal);
             activePersonal = undefined;

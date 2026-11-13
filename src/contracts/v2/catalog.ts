@@ -157,6 +157,8 @@ export interface Card {
     readonly studios?: readonly string[] | undefined;
     readonly networks?: readonly string[] | undefined;
     readonly showStatus?: string | undefined;
+    /** A calendar date, "2023-05-28": when an ended series last aired. */
+    readonly lastAirDate?: string | undefined;
     readonly id: string;
     readonly type: CardType;
     readonly title: string;
@@ -231,6 +233,7 @@ export function decodeCard(value: unknown, path: string): Card {
         studios: obj.studios === undefined ? undefined : stringArray(obj, "studios", path),
         networks: obj.networks === undefined ? undefined : stringArray(obj, "networks", path),
         showStatus: optionalString(obj, "show_status", path),
+        lastAirDate: optionalString(obj, "last_air_date", path),
         backdropUrl: optionalString(obj, "backdrop_url", path),
         backdropThumbhash: optionalString(obj, "backdrop_thumbhash", path),
         overview: optionalString(obj, "overview", path),

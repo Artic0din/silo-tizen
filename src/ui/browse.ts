@@ -812,6 +812,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     };
     const stopAuthority = session.onAuthorityChange(teardown);
 
+    /** Browse routes whose read in flight is a next page, not a full re-read. */
+    const browseAppends = new WeakSet<Route>();
     /** Runs one read for the top route; an answer for a route or query no longer shown is dropped. */
     const load = <T>(current: Route, read: (signal: AbortSignal) => Promise<T>, apply: (value: T) => FocusTarget | void, quiet = false): void => {
         loading?.abort();
@@ -885,11 +887,17 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 }
                 // TVLibraryGridViewModel.swift:337-339: a failed later Browse page keeps the grid and shows nothing; the next approach to the end reads again.
                 if (current.kind === "library" && current.discovery?.mode === "Browse" && (current.pages.page?.items.length ?? 0) > 0 && text !== undefined) {
-                    waitForFeedEnd(current.pages);
-                    current.failure = undefined;
-                    current.error = undefined;
-                    if (top() === current) render(host.focused());
-                    return;
+                    if (browseAppends.has(current)) {
+                        waitForFeedEnd(current.pages);
+                        current.failure = undefined;
+                        current.error = undefined;
+                        if (top() === current) render(host.focused());
+                        return;
+                    }
+                    // A full re-read (after a card change, say) starts from an empty grid, as Apple's reload does (:249-261), so its
+                    // failure is the error page with Try Again rather than cards that are known to be stale.
+                    current.pages.page = undefined;
+                    current.discovery.snapshot = undefined;
                 }
                 // Apple PersonDetailView: a failed later page keeps the cards; a stale failure would make Back read every loaded page again.
                 if (current.kind === "person" && (current.pages.page?.items.length ?? 0) > 0 && text !== undefined) {
@@ -1162,6 +1170,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             }, () => undefined);
         }
         const query = browseQuery(state.filter, current.library, 100);
+        if (append) browseAppends.add(current); else browseAppends.delete(current);
         load(current, async signal => {
             const snapshot = await readSectionCatalog(state.snapshot, append, async cursor => read(operations.queryCatalogItems({ ...query, ...(cursor === undefined ? {} : { cursor }) }), signal), signal);
             if (snapshot.unavailable) throw new ApiError({ kind: "http", status: 404, retryAfterSeconds: undefined });

@@ -587,6 +587,13 @@ browseTest("Search cards show the Returning badge Home and library already draw"
     const card = tv.page.locator('.browse-grid [data-focus="series:s1"]');
     await card.waitFor();
     await tv.eventually(async () => await card.locator(".card-overlay").evaluate(node => node.textContent) === "Returning", "Search Returning badge");
+    // silo-apple 5780c84 CardOverlays.swift:101-106: a stored top-right badge is a tab on the right rail, centred on the edge.
+    const place = await card.locator(".browse-art").evaluate(art => {
+        const badge = art.querySelector(".card-overlay")?.getBoundingClientRect();
+        const frame = art.getBoundingClientRect();
+        return badge === undefined ? undefined : { rightGap: frame.right - badge.right, centre: (badge.top + badge.bottom) / 2 - frame.top, height: frame.height };
+    });
+    assert.ok(place !== undefined && Math.abs(place.rightGap) < 0.5 && Math.abs(place.centre - place.height / 2) < 0.5, JSON.stringify(place));
 }, { beforeConnect: tv => {
     const settings = new FakeSettings(tv.fake);
     settings.overlayConfig = { enabled: true };

@@ -1034,8 +1034,18 @@ const badgeFields = {
     "episode:s1e12": { ...heroFields["episode:s1e12"], rating_imdb: 9.1 },
 };
 const POSTER = '[data-section="future/opaque"] [data-focus="movie:m0006"]';
-const corners = (tv: Tv, card: string) => tv.page.locator(card).evaluate(node => Object.fromEntries([...node.querySelectorAll(".card-overlay-stack")].map(stack => [
-    [...stack.classList].find(name => name.startsWith("card-overlay-") && name !== "card-overlay-stack")?.slice("card-overlay-".length), [...stack.children].map(badge => badge.textContent)])));
+/** Badge texts by position; the bottom corners share rows, where a bottom-right badge is the trailing one. */
+const corners = (tv: Tv, card: string) => tv.page.locator(card).evaluate(node => {
+    const result: Record<string, (string | null)[]> = {};
+    for (const stack of node.querySelectorAll(".card-overlay-stack")) {
+        const name = [...stack.classList].find(cls => cls.startsWith("card-overlay-") && cls !== "card-overlay-stack")?.slice("card-overlay-".length) ?? "";
+        for (const badge of stack.querySelectorAll(".card-overlay")) {
+            const position = name === "bottom" ? (badge.classList.contains("card-overlay-trailing") ? "bottom-right" : "bottom-left") : name;
+            (result[position] ??= []).push(badge.textContent);
+        }
+    }
+    return result;
+});
 const baseline = JSON.stringify({ version: 2, preset: "classic", order: [], items: { resolution: { enabled: false, position: "top-left" }, hdr: { enabled: false, position: "top-left" }, audio: { enabled: false, position: "top-left" }, release_type: { enabled: false, position: "bottom-left" }, rating_imdb: { enabled: true, position: "top-right" } } });
 const REGISTRY_DEFAULTS = { "top-left": ["4K", "HDR10", "TrueHD Atmos"], "bottom-left": ["WEB-DL"] };
 
@@ -1106,7 +1116,7 @@ journey("a late section badge answer repaints retained cards without changing fo
 
 for (const [name, configure, expected] of [
     ["the registry defaults when neither the profile nor the administrator chose", () => undefined, REGISTRY_DEFAULTS],
-    ["the administrator's baseline when the profile has no document", (settings: FakeSettings) => { settings.overlayConfig = { enabled: true, defaults: baseline }; }, { "top-right": ["IMDb 8.5"] }],
+    ["the administrator's baseline when the profile has no document", (settings: FakeSettings) => { settings.overlayConfig = { enabled: true, defaults: baseline }; }, { "right-edge": ["IMDb 8.5"] }],
     ["the profile's document over the administrator's baseline", (settings: FakeSettings) => {
         settings.overlayConfig = { enabled: true, defaults: baseline };
         settings.profile().set(CARD_OVERLAYS_KEY, { version: 2, preset: "square", order: ["show_status", "rating_tmdb"], items: { resolution: { enabled: false, position: "top-left" }, hdr: { enabled: false, position: "top-left" }, audio: { enabled: false, position: "top-left" }, release_type: { enabled: false, position: "bottom-left" }, rating_tmdb: { enabled: true, position: "bottom-right" }, show_status: { enabled: true, position: "bottom-right", accentColor: "#00ff00" } } });
@@ -1142,8 +1152,8 @@ journey("Home poster badges scale from Apple's 185pt poster and Continue Watchin
     await tv.eventually(async () => await tv.page.locator(`${POSTER} .card-overlay`).count() > 0, "badges");
     const sizes = await tv.page.locator(`${POSTER} .card-overlay`).first().evaluate(node => { const style = getComputedStyle(node); return [style.fontSize, style.paddingTop, style.paddingLeft]; });
     assertCapText(sizes[0], 9.51, "classic preset text at 176 / 185");
-    assert.match(await tv.page.locator(`${POSTER} .card-overlay`).first().evaluate(node => (node as HTMLElement).style.boxShadow), /inset 0px 0px 0px 0\.48px|0px 0px 0px 0\.48px inset/, "half of Apple's clipped 1-scale stroke");
-    assert.deepEqual(sizes.slice(1), ["2.85px", "7.61px"], "classic preset padding at 176 / 185");
+    assert.equal(await tv.page.locator(`${POSTER} .card-overlay`).first().evaluate(node => (node as HTMLElement).style.getPropertyValue("--card-overlay-border")), "0.95px", "Apple's 1pt strokeBorder at 176 / 185");
+    assert.deepEqual(sizes.slice(1), ["2.85px", "8.56px"], "classic preset padding plus the border outside it at 176 / 185");
     const wide = tv.page.locator('[data-section="resume/opaque"] [data-focus="episode:s1e12"]');
     await tv.eventually(async () => JSON.stringify(await corners(tv, '[data-section="resume/opaque"] [data-focus="episode:s1e12"]')) === JSON.stringify({ "top-left": ["4K", "DV", "EAC3"] }), "saved-file badges");
     assert.deepEqual(await corners(tv, '[data-section="resume/opaque"] [data-focus="movie:m0001"]'), { "top-left": ["4K", "Dolby Vision", "TrueHD Atmos"] }, "an unknown last file keeps the summary");
@@ -1172,11 +1182,13 @@ journey("Home poster badges scale from Apple's 185pt poster and Continue Watchin
 const badgePx = (value: number, artWidth: number): number => Math.round(value * artWidth / 185 * 100) / 100;
 /** Badge text is Apple's scaled point size times --silo-sf-cap-scale. */
 const assertCapText = (actual: string | undefined, points: number, message: string): void => assert.ok(Math.abs(parseFloat(actual ?? "") - points * 0.9685) < 0.01, `${message}: ${actual} for ${points}px`);
-/** SF Symbol "tv" layout box at iconSize 12 times the poster scale. The old value was a square of that point size. */
+/** SF Symbol "tv" layout box at 85% of iconSize 12 (OverlayIcon.swift:29-36 at silo-apple 5780c84) times the poster scale. */
 const tvLayout = (artWidth: number): { width: string; height: string } => ({
-    width: `${Math.round(12 * 73 / 48 * artWidth / 185 * 100) / 100}px`,
-    height: `${Math.round(12 * 58 / 48 * artWidth / 185 * 100) / 100}px`,
+    width: `${Math.round(12 * 0.85 * 73 / 48 * artWidth / 185 * 100) / 100}px`,
+    height: `${Math.round(12 * 0.85 * 58 / 48 * artWidth / 185 * 100) / 100}px`,
 });
+/** A pill tab on the right rail: the 1pt border sits outside the 4 × 10 padding except on the flush side. */
+const pillTab = (artWidth: number): string => `${badgePx(5, artWidth)}px ${badgePx(10, artWidth)}px ${badgePx(5, artWidth)}px ${badgePx(11, artWidth)}px`;
 
 journey("Home headings below a row use Skyline's 14px card padding plus the 10px row gap", async tv => {
     const measured = await tv.page.evaluate(() => {
@@ -1210,9 +1222,9 @@ journey("series status badges draw the tv icon at Apple's scaled pill size", asy
     });
     assert.equal(home.text, "Returning");
     assertCapText(home.font, badgePx(10, homeArt), "pill text is fontSize 10 times the poster width over 185");
-    assert.equal(home.pad, `${badgePx(4, homeArt)}px ${badgePx(10, homeArt)}px`);
-    assert.equal(home.radius, "999px", "the pill preset is a capsule");
-    // The old square icon was iconSize 12 times the scale (a point-size box). SF Symbol "tv" lays out at 73/48 by 58/48 of that point size.
+    assert.equal(home.pad, pillTab(homeArt));
+    assert.equal(home.radius, "999px 0px 0px 999px", "the pill preset is a capsule, square against the card edge");
+    // SF Symbol "tv" lays out at 73/48 by 58/48 of its point size, 85% of iconSize 12 times the scale.
     const homeIcon = tvLayout(homeArt);
     assert.equal(home.icon?.width, homeIcon.width);
     assert.equal(home.icon?.height, homeIcon.height);
@@ -1237,9 +1249,9 @@ journey("series status badges draw the tv icon at Apple's scaled pill size", asy
     assert.equal(grid.badge?.text, "Returning");
     // 10 * 223.6 / 185 is 12.09. The captured 15.8px is not this font size.
     assertCapText(grid.badge?.font, badgePx(10, gridArt), "12.09px text on the 224-wide card, from fontSize 10 times 260*0.86/185");
-    assert.equal(grid.badge?.pad, `${badgePx(4, gridArt)}px ${badgePx(10, gridArt)}px`);
-    assert.equal(grid.badge?.radius, "999px");
-    // The old square icon was 14.5px (iconSize 12 times 260*0.86/185). The symbol box is wider than that point size.
+    assert.equal(grid.badge?.pad, pillTab(gridArt));
+    assert.equal(grid.badge?.radius, "999px 0px 0px 999px");
+    // The symbol box is wider than iconSize 12 times 260*0.86/185, so it keeps its own width.
     const gridIcon = tvLayout(gridArt);
     assert.equal(grid.badge?.icon?.width, gridIcon.width);
     assert.equal(grid.badge?.icon?.height, gridIcon.height);

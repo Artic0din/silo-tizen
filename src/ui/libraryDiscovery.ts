@@ -44,20 +44,22 @@ export function librarySectionQuery(libraryId: string, sectionId: string): Catal
     return { source: "section", scope: "library", section_id: sectionId, library_id: libraryId };
 }
 export async function readDiscovery(library: UserLibrary, mode: LibraryMode, read: <T>(spec: RequestSpec<T>) => Promise<T>, artwork: Readonly<Record<string, string>> = {}, scope?: VideoScope): Promise<DiscoveryData> {
-    let sections = mode === "Recommended" ? await read(operations.listLibrarySections(library.id, artwork)) : [];
-    let incomplete = false;
-    if (scope !== undefined && sections.length > 0) {
-        // TVLibraryBrowseView.loadContent (TVLibraryBrowseView.swift:144-167): a mixed library on a video tab shows only that tab's type.
-        const scoped = await refillSections(sections.filter(section => section.featured !== true), scope, (section, cursor) => sectionPage(library.id, section.id, cursor, read, artwork));
-        sections = scoped.map(entry => entry.section);
-        incomplete = scoped.some(entry => entry.incomplete);
-    }
+    const { sections, incomplete } = mode === "Recommended" ? await readSections(library, read, artwork, scope) : { sections: [], incomplete: false };
     // TVLibraryCollectionsView.loadCollections (:183-191): a failed read is shown as no collections.
     const collections = mode === "Collections" ? await read(operations.getLibraryCollections(library.id)).catch((error: unknown) => {
         if (error instanceof ApiError && error.aborted) throw error;
         return undefined;
     }) : undefined;
     return { sections, incomplete, scoped: scope !== undefined, collections, filters: undefined };
+}
+
+/** A library's Recommended shelves at these artwork sizes, narrowed and refilled to a video tab's type when scoped. */
+export async function readSections(library: UserLibrary, read: <T>(spec: RequestSpec<T>) => Promise<T>, artwork: Readonly<Record<string, string>>, scope: VideoScope | undefined): Promise<{ sections: HomeSection[]; incomplete: boolean }> {
+    const sections = await read(operations.listLibrarySections(library.id, artwork));
+    if (scope === undefined || sections.length === 0) return { sections, incomplete: false };
+    // TVLibraryBrowseView.loadContent (TVLibraryBrowseView.swift:144-167): a mixed library on a video tab shows only that tab's type.
+    const scoped = await refillSections(sections.filter(section => section.featured !== true), scope, (section, cursor) => sectionPage(library.id, section.id, cursor, read, artwork));
+    return { sections: scoped.map(entry => entry.section), incomplete: scoped.some(entry => entry.incomplete) };
 }
 
 /** LibraryVideoScope: the media type a mixed library is narrowed to by the Movies or Series tab it was opened from. */
@@ -131,7 +133,7 @@ export async function refillSections(originals: readonly HomeSection[], scope: V
 async function sectionPage(libraryId: string, sectionId: string, cursor: string | undefined, read: <T>(spec: RequestSpec<T>) => Promise<T>, artwork: Readonly<Record<string, string>>): Promise<ScopedPage> {
     const query = { ...librarySectionQuery(libraryId, sectionId), limit: 100 };
     try {
-        // The refilled cards share the row's artwork sizes, which upgradeLibraryArtwork cannot repair for titles the inline row lacked.
+        // The refilled cards share the row's artwork sizes; upgradeLibraryArtwork reads them again through readSections.
         const page = await read(operations.queryCatalogItems(cursor === undefined ? query : { ...query, cursor }, artwork));
         return { items: page.items, next: page.nextCursor };
     } catch (error) {

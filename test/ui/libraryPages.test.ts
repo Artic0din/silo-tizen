@@ -286,19 +286,26 @@ page("Browse's loading-more indicator spins under the grid", async tv => {
 page("a failed Browse append keeps the grid quietly and tries again when the end comes back", async tv => {
     await openBrowse(tv);
     await tv.eventually(async () => await tv.page.locator(".catalog-grid .browse-card").count() === 100, "first page");
-    let appends = 0;
+    let appends = 0, failing = true;
     await tv.page.route("**/api/v2/catalog/query?*", async route => {
         const body = route.request().postDataJSON() as Record<string, unknown>;
-        if (body.cursor !== undefined && appends++ === 0) await route.fulfill({ status: 422, contentType: "application/problem+json", json: problem(422, "validation_failed", "Could not read next page").body });
+        if (body.cursor !== undefined) appends++;
+        if (body.cursor !== undefined && failing) await route.fulfill({ status: 422, contentType: "application/problem+json", json: problem(422, "validation_failed", "Could not read next page").body });
         else await route.fallback();
     });
     await tv.page.locator(".catalog-grid .browse-card").last().focus();
-    await tv.eventually(async () => appends === 1 && await tv.page.locator(".section-catalog-loading").count() === 0, "the failed append");
+    // Cards still arriving as the grid scrolls to the end may retry (TVCatalogGrid.swift:131-133); once it rests, nothing reads.
+    await tv.eventually(async () => appends > 0 && await tv.page.locator(".section-catalog-loading").count() === 0, "the failed append");
     await tv.jump(500);
-    assert.equal(appends, 1, "a re-armed grid does not read again while the end stays on screen");
+    await tv.page.waitForTimeout(200);
+    const settled = appends;
+    await tv.jump(500);
+    await tv.page.waitForTimeout(200);
+    assert.equal(appends, settled, "a re-armed grid does not read again while the end stays on screen");
     assert.equal(await tv.page.getByRole("alert").count(), 0);
     assert.equal(await tv.page.locator('[data-focus="retry"]').count(), 0);
     assert.equal(await tv.page.locator(".catalog-grid .browse-card").count(), 100);
+    failing = false;
     await tv.page.locator(".catalog-grid .browse-card").first().focus();
     // The observer must see the end leave the screen on a real frame before it can see it return.
     await tv.eventually(async () => { await tv.jump(100); const box = await tv.page.locator(".catalog-grid .browse-card").last().boundingBox(); return box === null || box.y > 1080; }, "the end leaves the screen");
@@ -307,6 +314,31 @@ page("a failed Browse append keeps the grid quietly and tries again when the end
     await tv.jump(300);
     await tv.eventually(async () => await tv.page.locator(".catalog-grid .browse-card").count() > 100, "the next approach to the end reads again");
 }, catalog => { for (let i = 61; i <= 160; i++) catalog.add({ id: `movie:x${i}`, type: "movie", title: `Extra ${i}`, libraryId: "12" }); });
+
+page("after a failed append, a card newly scrolled on screen reads again, as a cell's onAppear does", async tv => {
+    // TVCatalogGrid.swift:131-133: each near-end cell's .onAppear asks for more, so moving on down after a failure retries.
+    await openBrowse(tv);
+    await tv.eventually(async () => await tv.page.locator(".catalog-grid .browse-card").count() === 100, "first page");
+    let appends = 0, failing = true;
+    await tv.page.route("**/api/v2/catalog/query?*", async route => {
+        const body = route.request().postDataJSON() as Record<string, unknown>;
+        if (body.cursor !== undefined) appends++;
+        if (body.cursor !== undefined && failing) await route.fulfill({ status: 422, contentType: "application/problem+json", json: problem(422, "validation_failed", "Could not read next page").body });
+        else await route.fallback();
+    });
+    // Row 10 enters the eight-row prefetch band, so cards arriving as the grid scrolls there start reads that fail.
+    await tv.page.locator(".catalog-grid .browse-card").nth(54).focus();
+    await tv.eventually(async () => appends > 0 && await tv.page.locator(".section-catalog-loading").count() === 0, "the failed append");
+    await tv.jump(500);
+    await tv.page.waitForTimeout(200);
+    const settled = appends;
+    await tv.jump(500);
+    await tv.page.waitForTimeout(200);
+    assert.equal(appends, settled, "cards already on screen do not read again");
+    failing = false;
+    await tv.page.locator(".catalog-grid .browse-card").nth(99).focus();
+    await tv.eventually(async () => await tv.page.locator(".catalog-grid .browse-card").count() > 100, "a card newly on screen reads again");
+}, catalog => { for (let i = 61; i <= 260; i++) catalog.add({ id: `movie:x${i}`, type: "movie", title: `Extra ${i}`, libraryId: "12" }); });
 
 page("an empty library's Browse grid uses Apple's empty state and leaves focus on the controls", async (tv, catalog) => {
     catalog.failNext("/catalog/query", { status: 200, body: emptyPage });
@@ -721,4 +753,29 @@ page("Recommended captions stay leading-aligned, as Apple's MediaCard draws them
     await tv.page.locator('[data-view="library:12"] .home-section .browse-card').first().waitFor();
     await tv.page.waitForTimeout(100);
     assert.equal(await tv.page.locator('[data-view="library:12"] .home-section .browse-card-title [aria-hidden]').count(), 0);
+});
+
+test("a late image probe upgrades a mixed tab's refilled cards as well as the inline ones", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    const held = tv.fake.hold("/images/capabilities", true);
+    try {
+        const catalog = new FakeCatalog();
+        mixed(catalog);
+        const route = catalog.route.bind(catalog);
+        catalog.route = (method, path, profile, body) => path !== "/images/capabilities" ? route(method, path, profile, body) : { status: 200, body: {
+            revision: "r1", state: "available", allowed: true, param: "image_size", sizes: ["small", "medium", "large", "original"], widths: {}, original_max_width_px: 3840,
+            episode_still_provenance: true, episode_parent_artwork: true, extended_item_artwork: true, season_list_artwork_param: "include_artwork", storage_backend: "local", delivery: "server",
+            slot_width_params: { poster: "poster_width", backdrop: "backdrop_width", logo: "logo_width", still: "still_width", photo: "photo_width" },
+        } };
+        await start(tv, catalog);
+        await tv.page.locator('[data-focus="movies"]').click();
+        await tv.page.locator('[data-section="mixed-row"] [data-focus="movie:m0001"]').waitFor();
+        const sized = () => tv.fake.requests.filter(request => request.path.startsWith("/catalog/query") && request.body?.source === "section" && new URL(request.path, "https://x").searchParams.has("backdrop_width")).length;
+        assert.equal(sized(), 0, "the refill was read before the probe answered");
+        held.release();
+        // The refill-only card (m0001 is not in the inline row) reads its sized artwork too, and keeps its place and the shelf.
+        await tv.eventually(async () => sized() > 0, "the refill reads the sized artwork");
+        assert.deepEqual((await cardIds(tv, "mixed-row")).slice(0, 2), ["movie:m0001", "movie:m0002"]);
+        assert.deepEqual(tv.console, [], "the page logs nothing");
+    } finally { held.release(); await tv.page.context().close(); }
 });

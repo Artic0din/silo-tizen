@@ -1,4 +1,4 @@
-// Recommended and Collections on a library tab, against silo-apple 48a197d (tvOS) TVLibraryBrowseView and
+// Recommended and Collections on a library tab, against silo-apple 5780c84 (tvOS) TVLibraryBrowseView and
 // TVLibraryCollectionsView. Desktop Chromium proves behaviour and layout, not TV rendering.
 
 import assert from "node:assert/strict";

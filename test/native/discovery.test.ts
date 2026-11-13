@@ -209,7 +209,7 @@ test("discovery POST reads carry session profile headers, retry identically and 
     await canceled;
 });
 
-// Ported from silo-apple 48a197d iosApp/Tests/LibraryVideoScopeTests.swift.
+// Ported from silo-apple 5780c84 iosApp/Tests/LibraryVideoScopeTests.swift.
 type ScopedPage = { items: Card[]; next: string | undefined; startsOver?: boolean };
 const scopedCard = (id: string, type: string, progress = 0): Card => {
     const card = decodeHomeSections({ sections: [{ id: "x", section_type: "x", title: "x", items: [{ content_id: id, type, title: id, position_seconds: progress }] }] })[0]?.items[0];

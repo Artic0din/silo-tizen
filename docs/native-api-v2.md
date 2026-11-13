@@ -99,6 +99,7 @@ Tokens live only in protected storage (`src/session/secretStore.ts`).
 On a TV that is Tizen KeyManager (`tizen.keymanager`), through `keyManagerStore`.
 Without KeyManager the app uses `memoryStore`, which keeps credentials for the current run only.
 The code states it never falls back to `localStorage`.
+The same protected storage keeps the signed artwork URLs of the Home and For You snapshots ([cached browse content](offline-browse.md)).
 `NativeSession.persistence` reports `persistent` or `session_only`, and the sign-in result passes that to the screens.
 
 `CredentialVault` (`src/session/credentialVault.ts`) stores one record per server, keyed by a hash of `baseUrl`, in two alternating slots.

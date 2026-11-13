@@ -376,9 +376,12 @@ test("Watch Party ends More only while the off-by-default switch is on, and open
             assert.equal(keys.at(-1), "watch-party");
             assert.equal(await panel.locator('[data-focus="watch-party"]').textContent(), "Watch Party");
             assert.equal(await panel.locator('[data-focus="watch-party"] svg').getAttribute("data-symbol"), "person.3");
+            // The lobby replaces the entry once the room is created, so hold that answer while the entry is read.
+            const create = tv.fake.hold("/watch-together/rooms");
             await panel.locator('[data-focus="watch-party"]').click();
             // The automatic create locks the entry at once, so Start a party cannot race it.
             assert.equal(await tv.page.locator('[data-focus="create"]').getAttribute("aria-disabled"), "true");
+            create.release();
             await tv.page.locator('.browse[data-view="watchParty:lobby"]').waitFor();
             assert.equal(fake.createdRooms[0]?.selection_mode, "host_pick");
             await tv.eventually(async () => fake.selectedContentId === "movie:m0001", "the title is the room's selection");

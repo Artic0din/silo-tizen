@@ -1702,7 +1702,8 @@
 .browse[data-view^="person:"] .person-filmography-filters .browse-button[aria-pressed="true"] { background: #0e0f12; color: var(--silo-text); border-color: rgba(255, 255, 255, 0.16); }
 .browse[data-view^="person:"] .person-filmography-filters .browse-button:focus { outline: none; background: rgba(14, 15, 18, 0.8); color: var(--silo-text); border-color: rgba(237, 237, 237, 0.85); box-shadow: inset 0 0 0 1px rgba(237, 237, 237, 0.85); transform: scale(1.06); }
 .browse[data-view^="person:"] .person-filmography-filters .browse-button[aria-pressed="true"]:focus { background: #0e0f12; }
-.browse[data-view^="person:"] .browse-grid { width: auto; margin: 0; padding: 0; grid-template-columns: repeat(var(--grid-columns, 6), minmax(0, 1fr)); column-gap: 40px; row-gap: 60px; justify-items: center; }
+/* Six 260px cards 40px apart run 160px past the content box to the screen edge, as on Apple TV; the negative right margin keeps that inside the scroll width. */
+.browse[data-view^="person:"] .browse-grid { width: auto; margin: 0 -160px 0 0; padding: 0; grid-template-columns: repeat(var(--grid-columns, 6), minmax(0, 1fr)); column-gap: 40px; row-gap: 60px; justify-items: center; }
 /* PersonDetailView.swift:440 pads the scroll content 72pt at the bottom. The focus
    viewport also excludes tvOS's 60px vertical safe area, so the shared scroll owner
    keeps the focused card 132px above the screen. The generic 32px margin (92px with
@@ -1711,6 +1712,14 @@
 /* TVCatalogGrid's TVMediaCard caption: siloPosterTitle 24 and siloPosterMetadata 20 (TVMediaCard.swift:259,267), tracked as on Details. */
 .browse[data-view^="person:"] .catalog-grid .browse-card-title { font-size: calc(24px * var(--silo-sf-cap-scale)); letter-spacing: -.05px; }
 .browse[data-view^="person:"] .catalog-grid .browse-card-subtitle { font-size: calc(20px * var(--silo-sf-cap-scale)); letter-spacing: .2px; }
+/* Apple EmptyStateView in the Filmography area (EmptyStateView.swift:10-25): 44pt icon at 30%, siloSubheadline, siloCaption, 12pt apart. */
+.person-filmography-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; margin: 0; }
+.person-filmography-empty .search-state-icon { width: 48px; height: 44px; margin: 0 0 12px; color: rgba(237, 237, 237, 0.3); }
+.person-filmography-empty .search-state-icon svg { width: 100%; height: 100%; }
+.person-filmography-empty .search-state-title { margin: 0 0 12px; color: var(--silo-text); font-size: calc(28px * var(--silo-sf-cap-scale)); line-height: 33px; font-weight: 600; }
+.person-filmography-empty .search-state-description { padding: 0 60px; color: rgba(237, 237, 237, 0.6); font-size: calc(22px * var(--silo-sf-cap-scale)); line-height: 26px; }
+/* Apple ErrorView inline under the filters, not over the page: the Details failure layout in normal flow. */
+.browse .details-failure.person-filmography-failure { position: static; margin: 0; }
 
 .settings-modal-scrim { position: fixed; inset: 0; z-index: 20; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.88); }
 .settings-modal { box-sizing: border-box; width: 760px; max-height: 760px; padding: 30px; border-radius: 30px; background: #202020; border: 1px solid rgba(255,255,255,.2); box-shadow: 0 22px 48px rgba(0,0,0,.58); display: flex; flex-direction: column; }

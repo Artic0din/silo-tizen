@@ -4,7 +4,7 @@ import { after, before, test } from "node:test";
 import type { Browser } from "playwright";
 import { FakeDetails } from "../native/support/fakeDetails.ts";
 import { problem } from "../native/support/fakeSilo.ts";
-import { homeDetailsRead, launchBrowser, openTv, type Tv } from "./support/tv.ts";
+import { homeDetailsRead, launchBrowser, openTv, pauseTvClock, type Tv } from "./support/tv.ts";
 
 let browser: Browser;
 before(async () => { browser = await launchBrowser(); });
@@ -552,6 +552,9 @@ test("an empty Home after a remembered feed shows only the empty state, with no 
         const household = catalog.households.get("p-owner");
         assert.ok(household);
         household.sections = [];
+        // The remount shows the remembered rows and arms their marquee rest. On the running clock a slow runner lets that
+        // rest read the card before the empty refresh lands; paused, it can fire only in the jump below, once Home is empty.
+        await pauseTvClock(tv);
         const before = tv.fake.requests.length;
         await tv.page.evaluate(() => { window.browseHarness.destroy(); window.browseHarness.mount(); });
         await tv.page.locator(".home-empty").waitFor();

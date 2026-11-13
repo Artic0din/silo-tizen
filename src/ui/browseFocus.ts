@@ -199,6 +199,10 @@ export class FocusHost {
             this.outgoing = outgoing;
             this.transitionTimer = window.setTimeout(() => this.clearTransition(), 200);
         }
+        // A Details focus scroll already on its way when this repaint starts. The repaint's own reveal cannot
+        // stand in for it: the old focused node is gone by then, so it cannot tell an Up move from a Down one.
+        const revealViewport = this.viewport();
+        const revealing = sameVisit && view.name.startsWith("item:") ? this.scroll.motion(revealViewport) : undefined;
         const previous = sameVisit ? this.locate(document.activeElement) : undefined;
         const kept = previous === undefined ? undefined : { zone: previous.zone.id, key: previous.item.key };
         const unchanged = sameVisit ? kept ?? focus ?? this.memoryTarget() : undefined;
@@ -238,9 +242,18 @@ export class FocusHost {
         const focused = this.focused();
         const sameIdentity = unchanged !== undefined && focused?.zone === unchanged.zone && focused.key === unchanged.key;
         if ((sameIdentity || returnSnap) && visit !== undefined && !retainedPerson) {
-            // Repainting the same identity (including a dismissed modal) must keep its viewport.
+            // Repainting the same identity (including a dismissed modal) must keep its viewport, and a
+            // Details focus scroll already on its way carries on along its own curve.
             this.scroll.stop();
             this.applyVisit(visit);
+            if (revealing !== undefined) {
+                // Rows the repaint added or removed above the focused one move its anchor: aim there, shifting the whole
+                // curve so the move keeps its remaining time. The reveal's own focus direction wins over the scroll's:
+                // an Up move that interrupted a move down can still scroll down.
+                const element = this.locate(document.activeElement)?.item.element;
+                const aim = element === undefined ? undefined : this.scroll.revealTarget(element, this.container, revealViewport, revealing.up ?? revealing.top < revealing.fromTop);
+                this.scroll.resume(revealViewport, aim === undefined ? revealing : { ...revealing, fromLeft: revealing.fromLeft + aim.left - revealing.left, fromTop: revealing.fromTop + aim.top - revealing.top, left: aim.left, top: aim.top });
+            }
             const element = this.locate(document.activeElement)?.item.element;
             if ((this.container.dataset.view === "search" || this.container.dataset.view?.startsWith("person:") || this.container.classList.contains("section-catalog") || this.container.classList.contains("library-browse") || this.container.classList.contains("requests-hub") || this.container.classList.contains("details-series-scene") || this.container.classList.contains("accounts-screen") || element?.closest(".settings-modal-options") != null) && element !== undefined) {
                 const viewport = element.closest<HTMLElement>(".browse-panel-list, .settings-modal-options, .settings-pane, .skyline-content, .accounts-rail, .accounts-pane, .accounts-settings") ?? this.container;

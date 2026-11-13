@@ -1741,6 +1741,25 @@ browseTest("A card change refresh keeps the fresh first page when a later cursor
     assert.equal(await tv.focused(), "movie:m0001");
 }, { catalog: new SearchCatalog(120) });
 
+browseTest("Search stops restarting when a later page's cursor keeps being rejected after a good page", async tv => {
+    // Page 2 answers; the cursor for page 3 is always rejected.
+    await tv.page.route(url => url.pathname === "/api/v2/catalog" && (url.searchParams.get("cursor") ?? "").endsWith(":120"), route => route.fulfill({
+        status: 400, contentType: "application/problem+json",
+        body: JSON.stringify({ type: "https://siloserver.org/docs/api/v2/problems/invalid_cursor", title: "Invalid cursor", status: 400 }),
+    }));
+    let rejected = 0;
+    tv.page.on("response", response => { if (response.status() === 400 && (new URL(response.url()).searchParams.get("cursor") ?? "").endsWith(":120")) rejected++; });
+    await tv.page.locator('[data-focus="search"]').click();
+    await tv.page.fill("#browse-search", "Movie"); await tv.remote(IME_DONE);
+    await tv.page.locator('.browse-grid [data-focus="movie:m0060"]').waitFor({ state: "attached" });
+    for (let step = 0; step < 12 && await tv.page.locator(".search-failure").count() === 0; step++) {
+        await tv.page.locator(".browse").evaluate(node => { node.scrollTop = node.scrollHeight; });
+        await tv.jump(300);
+    }
+    await tv.page.getByRole("button", { name: "Try Again", exact: true }).waitFor();
+    assert.equal(rejected, 2, "one restart, then the error with Try Again");
+}, { catalog: new SearchCatalog(240) });
+
 browseTest("Search counts results from the response total without an estimate marker", async (tv, catalog) => {
     await tv.page.locator('[data-focus="search"]').click();
     const items = Array.from({ length: 3 }, (_, index) => ({ content_id: `movie:estimate-${index}`, type: "movie", title: `Estimate ${index}` }));

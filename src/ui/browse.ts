@@ -1838,7 +1838,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             return { page: { ...page, items }, startsOver: true, cursors };
         }, ({ page, startsOver, cursors, skipped }) => {
             current.appending = false;
-            current.restarted = append && startsOver;
+            // A restarted list keeps its guard until a new search or Try Again, so a good page between rejections cannot loop.
+            current.restarted = append && (startsOver || current.restarted === true);
             current.resultsFor = query;
             current.resultsFilter = filter;
             if (startsOver || shown?.page === undefined) {

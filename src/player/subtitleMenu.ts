@@ -1,12 +1,14 @@
 import { el } from "../ui/screen.ts";
 import type { SubtitleAppearance } from "../contracts/v2/subtitles.ts";
 import type { TrackView } from "./controller.ts";
+import { chevronForwardIcon, magnifyingGlassIcon } from "./playerIcons.ts";
 import { appearanceSummary, BACKGROUND_COLORS, delayLabel, delayOptions, FONT_COLORS, FONT_FAMILIES, FONT_SIZES, opacityOptions, POSITIONS, providerLabel, resultDetail, STYLES } from "./subtitleAppearance.ts";
 
+/** The Subtitles pane's state. A picker floats over the pane it opened from, including Video's PLAYBACK and SYNC rows. */
 export type SubtitlePane =
     | { readonly kind: "tracks" }
     | { readonly kind: "appearance" }
-    | { readonly kind: "picker"; readonly title: string; readonly field: string; readonly selected: string; readonly options: readonly { readonly id: string; readonly label: string }[]; readonly origin: { readonly pane: "tracks" | "appearance"; readonly focusId: string } };
+    | { readonly kind: "picker"; readonly title: string; readonly field: string; readonly selected: string; readonly options: readonly { readonly id: string; readonly label: string }[]; readonly origin: { readonly pane: "tracks" | "appearance" | "video"; readonly focusId: string } };
 
 function choice(id: string, label: string, current: boolean, detail?: string): HTMLButtonElement {
     const button = el("button", "player-choice");
@@ -19,6 +21,58 @@ function choice(id: string, label: string, current: boolean, detail?: string): H
     button.append(copy);
     if (current) button.className = "player-choice player-choice-current";
     return button;
+}
+
+/**
+ * `HUDSettingRow` (TVPlayerInfoHUD.swift:494, label at 548): label left, value right-aligned, then a chevron when the row opens a picker.
+ * `glyph` (text) or `icon` (inline SVG) stands in for its `systemImage` at 20pt semibold; Appearance's `textformat` reads "Aa".
+ */
+export function settingRow(id: string, label: string, value: string, options: { readonly chevron?: boolean; readonly glyph?: string; readonly icon?: string; readonly pressed?: boolean } = {}): HTMLButtonElement {
+    const button = el("button", "player-choice player-setting");
+    button.type = "button";
+    button.setAttribute("data-focus", id);
+    if (options.pressed !== undefined) button.setAttribute("aria-pressed", String(options.pressed));
+    if (options.glyph !== undefined || options.icon !== undefined) {
+        const glyph = el("span", "player-setting-glyph", options.glyph);
+        if (options.icon !== undefined) glyph.innerHTML = options.icon;
+        glyph.setAttribute("aria-hidden", "true");
+        button.append(glyph);
+    }
+    button.append(el("span", "player-setting-label", label));
+    if (value !== "") button.append(el("span", "player-setting-value", value));
+    if (options.chevron !== false) {
+        const chevron = el("span", "player-setting-chevron");
+        chevron.innerHTML = chevronForwardIcon();
+        button.append(chevron);
+    }
+    return button;
+}
+
+/** `PaneColumn` (TVPlayerInfoHUD.swift:314): an uppercase header over rows that scroll on their own. */
+export function paneColumn(heading: string, className: string): { readonly column: HTMLElement; readonly rows: HTMLElement } {
+    const column = el("div", `player-menu-column ${className}`);
+    const rows = el("div", "player-menu-column-rows");
+    column.append(el("h2", "player-menu-heading", heading), rows);
+    return { column, rows };
+}
+
+/**
+ * `HUDPickerDialog` (TVPlayerInfoHUD.swift:1042-1104) floats over the pane it opened from, which dims to 28% and
+ * leaves the focus graph (`.disabled`, :1665-1666). Its title keeps its case; Back closes it (`onExitCommand`, :1092),
+ * so it has no Back row.
+ */
+export function overlayPicker(list: HTMLElement, pane: Extract<SubtitlePane, { kind: "picker" }>): void {
+    const behind = el("div", "player-menu-behind");
+    behind.append(...Array.from(list.childNodes));
+    behind.inert = true;
+    for (const node of behind.querySelectorAll("[data-focus]")) node.removeAttribute("data-focus");
+    const picker = el("div", "player-menu-picker");
+    picker.setAttribute("role", "dialog");
+    picker.setAttribute("aria-label", pane.title);
+    const options = el("div", "player-menu-picker-options");
+    for (const option of pane.options) options.append(choice(`subtitle-picker:${option.id}`, option.label, option.id === pane.selected));
+    picker.append(el("h2", "player-menu-picker-title", pane.title), options);
+    list.append(behind, picker);
 }
 
 function named(table: readonly (readonly [string, string])[], id: string): string {
@@ -59,20 +113,10 @@ export function appearanceDetail(appearance: SubtitleAppearance, field: string):
     }
 }
 
-/** Search and the delay, size, position and appearance rows. Appended after the track list. */
+/** Search and the delay, size, position and appearance rows: the OPTIONS column, or a pane that replaces both columns. */
 export function fillSubtitleTools(list: HTMLElement, tracks: TrackView, pane: SubtitlePane, replace: boolean): void {
     const tools = tracks.subtitleTools;
     if (tools === undefined) return;
-    if (pane.kind === "picker") {
-        // Apple pins the picker title above the list; only the options scroll.
-        const picker = el("div", "player-menu-picker");
-        const options = el("div", "player-menu-picker-options");
-        options.append(choice("subtitle-picker-back", "Back", false));
-        for (const option of pane.options) options.append(choice(`subtitle-picker:${option.id}`, option.label, option.id === pane.selected));
-        picker.append(el("h2", "player-menu-heading", pane.title.toUpperCase()), options);
-        list.append(picker);
-        return;
-    }
     if (pane.kind === "appearance") {
         const display = tools.display;
         if (display === undefined) return;
@@ -106,13 +150,14 @@ export function fillSubtitleTools(list: HTMLElement, tracks: TrackView, pane: Su
         }
         return;
     }
-    if (!replace && search.offered) list.append(choice("subtitle-search", "Search Subtitles…", false));
+    // SubtitlesPane.optionRowsContent (TVPlayerInfoHUD.swift:1964): Search, Delay, the device toggle, Size, Position, Appearance.
+    if (!replace && search.offered) list.append(settingRow("subtitle-search", "Search Subtitles…", "", { icon: magnifyingGlassIcon() }));
     const display = tools.display;
     if (display === undefined || !tools.overlay) return;
-    if (display.delay) list.append(choice("subtitle-delay", "Delay", false, delayLabel(display.delayMs)));
-    if (display.deviceScope) list.append(choice("subtitle-device", "Only on this TV", display.deviceOverride, display.deviceOverride ? "On" : "Off"));
+    if (display.delay) list.append(settingRow("subtitle-delay", "Delay", delayLabel(display.delayMs)));
+    if (display.deviceScope) list.append(settingRow("subtitle-device", "Only on this TV", display.deviceOverride ? "On" : "Off", { chevron: false, pressed: display.deviceOverride }));
     if (!display.styling) return;
-    list.append(choice("subtitle-size", "Size", false, named(FONT_SIZES, display.appearance.fontSize)));
-    list.append(choice("subtitle-position", "Position", false, named(POSITIONS, display.appearance.position)));
-    list.append(choice("subtitle-appearance", "Appearance", false, appearanceSummary(display.appearance)));
+    list.append(settingRow("subtitle-size", "Size", named(FONT_SIZES, display.appearance.fontSize)));
+    list.append(settingRow("subtitle-position", "Position", named(POSITIONS, display.appearance.position)));
+    list.append(settingRow("subtitle-appearance", "Appearance", appearanceSummary(display.appearance), { glyph: "Aa" }));
 }

@@ -51,6 +51,8 @@ export interface ViewContext {
     /** Home's own rows, whose Continue Watching and Next Up cards can be removed. */
     readonly homeDismissals?: boolean;
     readonly cardDestination?: (card: Card) => Destination | undefined;
+    /** Captions a series with the years it ran (Apple CardYears), as Search's grid does. */
+    readonly seriesYears?: boolean;
     /** Profile spoiler switches. Absent reads as both off. */
     readonly spoilers?: () => EpisodeSpoilerSettings;
     /** WatchPartyEntry: offered while the experimental switch is on and the server can host a party; open starts a room with the title. */
@@ -246,7 +248,7 @@ export function cardItem(card: Card, context: ViewContext): FocusItem | undefine
         tick.appendChild(el("span", "silo-sr-only", "Watched"));
         element.firstElementChild?.appendChild(tick);
     }
-    const caption = homeCaption(card, context.homeCaptions === true && thumbnail);
+    const caption = homeCaption(card, context.homeCaptions === true && thumbnail, context.seriesYears === true);
     element.appendChild(el("span", "browse-card-title", caption.title));
     if (caption.line !== undefined) {
         element.appendChild(el("span", "browse-card-subtitle", caption.line));

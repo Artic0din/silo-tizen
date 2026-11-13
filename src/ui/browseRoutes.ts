@@ -279,7 +279,7 @@ function grid(current: Route, pages: Pages, page: CatalogPage, handlers: RouteHa
  * Select opens the card's detail route. It does not use the shared episode play shortcut.
  */
 function searchCards(context: ViewContext): ViewContext {
-    return { ...context, cardDestination: browseCardDestination };
+    return { ...context, cardDestination: browseCardDestination, seriesYears: true };
 }
 
 function searchResults(current: Extract<Route, { kind: "search" }>, handlers: RouteHandlers): SearchResults {

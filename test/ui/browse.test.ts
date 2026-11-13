@@ -1844,6 +1844,23 @@ browseTest("Search starts a grid with fewer cards than a row at x 238 and a grid
     assert.deepEqual(await lefts(), [200, 460, 720], "full rows are centred");
 }, { catalog: new SearchCatalog(60) });
 
+browseTest("Search captions a series with the years it ran", async (tv, catalog) => {
+    await tv.page.locator('[data-focus="search"]').click();
+    const items = [
+        { content_id: "series:prophecy", type: "series", title: "Prophecy", year: 2024, show_status: "returning" },
+        { content_id: "series:finished", type: "series", title: "Finished", year: 2019, show_status: "ended", last_air_date: "2023-05-28" },
+        { content_id: "movie:dated", type: "movie", title: "Dated", year: 2021, show_status: "returning" },
+    ];
+    catalog.failNext("/catalog", { status: 200, body: { items, total: 3, total_exact: true, page: { has_more: false } } });
+    await tv.page.fill("#browse-search", "Prophecy"); await tv.remote(IME_DONE);
+    await tv.page.locator('.search-scene > .browse-grid [data-focus="series:prophecy"]').waitFor();
+    const line = (id: string) => tv.page.locator(`.search-scene > .browse-grid [data-focus="${id}"] .browse-card-subtitle`).evaluate(node => (node as HTMLElement).dataset.fullText ?? node.textContent);
+    // CardYears.caption (Components/CardYears.swift:19-35), the line TVCatalogGrid gives a title without an episode line.
+    assert.equal(await line("series:prophecy"), "2024 – Present");
+    assert.equal(await line("series:finished"), "2019 – 2023");
+    assert.equal(await line("movie:dated"), "2021");
+});
+
 browseTest("Search counts results from the response total without an estimate marker", async (tv, catalog) => {
     await tv.page.locator('[data-focus="search"]').click();
     const items = Array.from({ length: 3 }, (_, index) => ({ content_id: `movie:estimate-${index}`, type: "movie", title: `Estimate ${index}` }));

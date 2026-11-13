@@ -16,10 +16,10 @@ interface FeedNode {
     readonly cards: Card[];
     readonly items: FocusItem[];
     observer: IntersectionObserver | undefined;
-    /** Item count the live observer was armed for. A failed read keeps it, so the end must leave and return. */
+    /** Item count the live observer was armed for. A failed read keeps it, so only a newly shown card reads again. */
     watched: number;
-    /** A read failed while the end was on screen: wait for it to leave before reading again (TVLibraryGridViewModel.swift:337-339). */
-    waitsForExit: boolean;
+    /** Where the grid sat when a read failed (TVLibraryGridViewModel.swift:337-339); until it moves, no card can newly come on screen. */
+    failedTop: number | undefined;
     more: () => void;
     readonly scale: number;
     readonly hidesImages: boolean;
@@ -50,7 +50,7 @@ export function feedGrid(owner: object, page: CatalogPage, context: ViewContext,
     const extends_ = feed !== undefined && feed.cards.length <= page.items.length && feed.cards.every((card, index) => page.items[index] === card);
     if (feed === undefined || !extends_ || feed.scale !== scale || feed.overlays !== overlays || feed.hidesImages !== hidesImages) {
         feed?.observer?.disconnect();
-        feed = { node: el("div", "browse-grid catalog-grid"), cards: [], items: [], observer: undefined, watched: 0, waitsForExit: false, more, scale, overlays, hidesImages };
+        feed = { node: el("div", "browse-grid catalog-grid"), cards: [], items: [], observer: undefined, watched: 0, failedTop: undefined, more, scale, overlays, hidesImages };
         feeds.set(owner, feed);
     }
     feed.node.style.setProperty("--grid-columns", String(columns));
@@ -70,10 +70,10 @@ export function feedGrid(owner: object, page: CatalogPage, context: ViewContext,
     return { content: [feed.node, ...spinner], zones: [{ id: "grid", layout: "grid", columns, items: feed.items }] };
 }
 
-/** After a failed read, the next request waits until the end has scrolled away and back; a re-armed observer alone does not read. */
+/** After a failed read, only a card newly on screen reads again; a re-armed observer or cards already shown do not. */
 export function waitForFeedEnd(owner: object): void {
     const feed = feeds.get(owner);
-    if (feed !== undefined) feed.waitsForExit = true;
+    if (feed !== undefined) feed.failedTop = feed.node.getBoundingClientRect().top;
 }
 
 export function stopFeed(owner: object): void {
@@ -82,7 +82,7 @@ export function stopFeed(owner: object): void {
     if (feed !== undefined) feed.observer = undefined;
 }
 
-/** Re-arms only when the list grows, so a failed read waits for the end to scroll back into view. */
+/** Re-arms only when the list grows, so a failed read waits for a near-end card to come on screen. */
 function watchEnd(feed: FeedNode, hasMore: boolean, lead: number): void {
     if (!hasMore) {
         feed.observer?.disconnect();
@@ -94,10 +94,20 @@ function watchEnd(feed: FeedNode, hasMore: boolean, lead: number): void {
     feed.observer?.disconnect();
     const targets = feed.items.slice(Math.max(0, feed.items.length - lead)).map(item => item.element);
     const shown = new Set<Element>();
+    // TVCatalogGrid.swift:131-133: each near-end cell's .onAppear reads more. After a failure the cards still showing stay quiet,
+    // and the next card brought on screen by a scroll retries. A repaint re-inserts the grid, which reports every shown card
+    // again, so an arrival counts only once the grid has moved.
     const observer = new IntersectionObserver(entries => {
-        for (const entry of entries) if (entry.isIntersecting && entry.target.isConnected) shown.add(entry.target); else shown.delete(entry.target);
-        if (feed.waitsForExit) { feed.waitsForExit = shown.size > 0; return; }
-        if (entries.some(entry => entry.isIntersecting && entry.target.isConnected)) feed.more();
+        let appeared = false;
+        for (const entry of entries) {
+            if (entry.isIntersecting && entry.target.isConnected) {
+                if (!shown.has(entry.target)) appeared = true;
+                shown.add(entry.target);
+            } else shown.delete(entry.target);
+        }
+        // Any scroll since the failure, cards leaving included, ends the wait; a card coming back then reads.
+        if (feed.failedTop !== undefined && Math.abs(feed.node.getBoundingClientRect().top - feed.failedTop) >= 1) feed.failedTop = undefined;
+        if (appeared && feed.failedTop === undefined) feed.more();
     });
     for (const target of targets) observer.observe(target);
     feed.observer = observer;

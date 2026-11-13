@@ -18,7 +18,7 @@ Committed sort and filters are remembered per server, profile and library while 
 The selected destination is not part of that memory. A new visit opens Recommended, so a saved Browse sort cannot replace the server shelves.
 Browse retains loaded cards, item focus and scroll through ordinary Details/Back, and refreshes explicit personal/playback invalidation from page one through the retained depth.
 Favorites and Watchlist changes in Details invalidate filtered Browse even when a write's answer is lost.
-Duplicate cards and repeated cursors cannot accumulate; an invalid cursor restarts once. A later failed page keeps the loaded cards and shows nothing, and the grid reads again when its end leaves and returns to the screen (`TVLibraryGridViewModel.swift:337-339`).
+Duplicate cards and repeated cursors cannot accumulate; an invalid cursor restarts once. A later failed page keeps the loaded cards and shows nothing, and the grid reads again when a scroll brings a card near its end onto the screen, as each cell's `.onAppear` does (`TVLibraryGridViewModel.swift:138-143`, `:337-339`; `TVCatalogGrid.swift:131-133` at silo-apple `5780c84`).
 Optional facet and Shuffle capability answers do not delay the catalog.
 Poster size and badge answers repaint existing cards without changing their identity or querying the catalog again.
 Supported whole-library Shuffle creates one non-retryable server session, resolves its current pick through the existing watch/version path, and advances through the player completion owner.

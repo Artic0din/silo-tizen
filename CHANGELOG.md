@@ -55,6 +55,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- The Person page's Filmography posters are now spaced as on Apple TV: 40px apart, with the first poster lined up under the filter chips instead of 13px apart and slightly to their left.
 - On a movie's page, moving down to Cast & Crew now always scrolls the page there. An answer that redrew the page during that scroll could stop it, leaving the row low on the screen.
 - Home now keeps its posters, backdrop and title art when it opens from the saved snapshot and the first live read fails, as on Apple TV. The signed artwork links are kept in the TV's protected key store, never in ordinary app storage.
 - The Person page's empty and error states now match Apple TV: an empty Filmography shows the film icon, "No titles found" and its explanation; a Filmography that failed to load shows Apple's error panel with Try Again under the filters; and a person who could not be loaded gets Apple's full-page error, with Go Back first when the person no longer exists.

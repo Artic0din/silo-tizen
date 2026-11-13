@@ -251,6 +251,7 @@ Supplementary posters scale from 220×330 with the existing preference; focus us
 Search catalog captions use a 16 px gap and Requests use 22 px, matching the tvOS branches of `TVMediaCard` and `RequestMediaCard`.
 Result and box set captions are centred under each poster, as `TVMediaCard.caption` frames each line to the card width; request captions stay leading, as `RequestMediaCard.caption` is a leading stack.
 A caption too long for its card is shortened with "…" and the shortened line is centred, as SwiftUI's one-line tail truncation does; CSS `text-overflow` would start it at the card's left edge. The full title stays available to assistive tech.
+A series result is captioned with the years it ran, as Apple's `CardYears` does: "2024 – Present" while it is returning, "2019 – 2023" once it has ended or been cancelled (from `last_air_date`), and its year otherwise.
 The native Samsung text field remains attached across renders; the tvOS alphabet keyboard is an operating-system surface, not a custom keyboard to port.
 Samsung simulator keyboard rendering and final same-state visual acceptance remain unverified.
 These source changes do not diagnose historical keyboard or first-query latency reports.

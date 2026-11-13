@@ -37,7 +37,7 @@ import { decodeImageCapabilities, type ImageCapabilities, homeArtworkQuery } fro
 import { FocusHost, type FocusTarget } from "./browseFocus.ts";
 import { type Destination, type PlayRequest, type SearchFilter, applySeriesLine, artworkUrl, destinationOf, searchScope, seriesLineFor, playChoices, visibleLibraries, withStartAudioLanguage } from "./browseModel.ts";
 import { errorState, unconfirmedWriteMessage, writeFailureMessage, writeMayHaveApplied, failureText, hasData, newPages, newRoute, PAGE_SIZE, SEARCH_PAGE_SIZE, type Pages, type Route, routeView } from "./browseRoutes.ts";
-import { browsableRows } from "./recommendationsView.ts";
+import { browsableRows, shownRows } from "./recommendationsView.ts";
 import { homeRows, removingDismissed, type ViewContext } from "./browseViews.ts";
 import { HomeEnrichment } from "./homeEnrichment.ts";
 import { el } from "./screen.ts";
@@ -2142,7 +2142,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         if (rootRoute) {
             const selected = tabFocus(current).key;
             // Apple's HomeView with no sections shows only EmptyStateView: no marquee, and no remembered card replayed into it.
-            const preview = (current.kind === "home" && current.data !== undefined && !view.zones.some(zone => zone.id === "empty")) || (current.kind === "for_you" && (browsableRows(current.data)?.length ?? 0) > 0) || (current.kind === "library" && current.library.type !== "music" && (current.discovery?.mode ?? "Recommended") === "Recommended");
+            const preview = (current.kind === "home" && current.data !== undefined && !view.zones.some(zone => zone.id === "empty")) || (current.kind === "for_you" && (shownRows(current)?.length ?? 0) > 0) || (current.kind === "library" && current.library.type !== "music" && (current.discovery?.mode ?? "Recommended") === "Recommended");
             // A marquee rest armed on remembered rows must not read their card once Home is empty.
             if (current.kind === "home" && !preview) homeDetails.suspend();
             const modal = browsing && (current.discovery?.panel !== undefined || shuffleFailure?.route === current);

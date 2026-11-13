@@ -321,6 +321,29 @@ test("a 403 or 404 on a later For You read keeps the rows on screen", async () =
     }
 });
 
+test("a 401 on a later For You read replaces the rows with Sign In Again", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const catalog = new RecommendationsCatalog();
+        await start(tv, null, catalog, true);
+        await tv.page.locator('[data-focus="for_you"]').click();
+        await tv.page.locator('[data-view="for_you"] .browse-card').first().waitFor();
+        await tv.page.locator('[data-focus="home"]').click();
+        await tv.page.locator('[data-view="home"] .browse-card').first().waitFor();
+        catalog.recommendationReply = problem(401, "Unauthorized");
+        await tv.page.locator('[data-focus="for_you"]').click();
+        const page = tv.page.locator('[data-view="for_you"] .details-failure');
+        await page.waitFor();
+        assert.equal(await page.locator(".search-state-title").innerText(), "Session expired");
+        assert.deepEqual(await page.locator(".browse-button").allInnerTexts(), ["Sign In Again", "Try Again"]);
+        assert.equal(await tv.page.locator('[data-view="for_you"] .browse-card').count(), 0, "the expired session replaces the retained rows");
+        assert.equal(await tv.page.locator(".browse > .skyline-marquee").count(), 0, "no retained marquee behind the error");
+        assert.equal(await tv.focused(), "sign-in");
+        await tv.page.keyboard.press("Enter");
+        await tv.eventually(async () => await tv.page.evaluate(() => window.browseHarness.signOutCalls) === 1, "Sign In Again signs out");
+    } finally { await tv.page.context().close(); }
+});
+
 test("the For You menu is 460 wide, centred under its tab, with filled icons, scaled text, Apple's spoken name and a tab hint", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {

@@ -13,11 +13,19 @@ export function browsableRows(rows: readonly RecommendationRow[] | undefined): R
 }
 
 /**
+ * Rows to show: none once a read answered 401. Apple's failed token refresh posts siloSessionExpired, which leaves the
+ * page for sign-in whatever rows it holds (HTTPClient.swift:2354-2357, ContentView.swift:220-232).
+ */
+export function shownRows(current: Extract<Route, { kind: "for_you" }>): RecommendationRow[] | undefined {
+    return current.failure !== undefined && current.error?.signIn === true ? undefined : browsableRows(current.data);
+}
+
+/**
  * Apple RecommendationsView on tvOS (RecommendationsView.swift:111-157): the Skyline feed while it has rows, without
  * Explore all; otherwise ErrorView, then a clear page focus owner while loading, then EmptyStateView.
  */
 export function recommendationsView(current: Extract<Route, { kind: "for_you" }>, handlers: RouteHandlers): View {
-    const rows = browsableRows(current.data);
+    const rows = shownRows(current);
     if (rows !== undefined && rows.length > 0) {
         const view = homeView([], rows, handlers.context, {
             canExpand: () => false,

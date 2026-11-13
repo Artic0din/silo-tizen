@@ -56,3 +56,11 @@ test("an original language shows its English name, and an unknown or invalid tag
     assert.equal(languageName("  "), undefined);
     assert.equal(languageName(undefined), undefined);
 });
+
+test("the combined Resolution + HDR + Audio badge is a known id, off by default, so a stored document keeps it", () => {
+    assert.deepEqual(parseOverlayPrefs(undefined).items.get("resolution_hdr_audio"), { enabled: false, position: "top-left", accentColor: undefined, showIcon: undefined });
+    const prefs = parseOverlayPrefs({ version: 2, preset: "classic", order: ["resolution_hdr_audio"], items: { resolution_hdr_audio: { enabled: true, position: "bottom-left" } } });
+    assert.deepEqual(prefs.order, ["resolution_hdr_audio"]);
+    assert.equal(prefs.items.get("resolution_hdr_audio")?.enabled, true);
+    assert.equal(prefs.items.get("resolution_hdr_audio")?.position, "bottom-left");
+});

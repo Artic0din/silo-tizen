@@ -24,7 +24,7 @@ before(async () => {
 });
 after(async () => { await browser.close(); });
 
-interface Badge { readonly text: string; readonly left: number; readonly right: number; readonly top: number; readonly bottom: number; readonly style: Record<string, string>; readonly ring: Record<string, string>; readonly labelShadow: string; readonly labelSpacing: string; readonly labelWidth: number; readonly icon?: { readonly width: number; readonly height: number } }
+interface Badge { readonly text: string; readonly left: number; readonly right: number; readonly top: number; readonly bottom: number; readonly style: Record<string, string>; readonly ring: Record<string, string>; readonly labelShadow: string; readonly labelSpacing: string; readonly labelWidth: number; readonly icon?: { readonly width: number; readonly height: number; readonly path: string; readonly fillRule: string }; readonly mark?: { readonly text: string; readonly width: number; readonly height: number; readonly fontSize: string; readonly fontWeight: string; readonly letterSpacing: string; readonly color: string } }
 interface Render { readonly badges: Badge[]; readonly stacks: Record<string, { left: number; right: number; top: number; bottom: number }> }
 
 /** Renders one card's badge layer on a `width` × `height` artwork at the page origin. */
@@ -50,10 +50,14 @@ async function render(doc: unknown, card: Record<string, unknown>, width: number
             const badges = [...layer.querySelectorAll<HTMLElement>(".card-overlay")].map(node => {
                 const rect = node.getBoundingClientRect();
                 const style = getComputedStyle(node);
-                const icon = node.querySelector("svg")?.getBoundingClientRect();
+                const svg = node.querySelector("svg");
+                const icon = svg?.getBoundingClientRect();
+                const markNode = node.querySelector<HTMLElement>(".card-overlay-mark");
+                const markRect = markNode?.getBoundingClientRect();
+                const markStyle = markNode === null ? undefined : getComputedStyle(markNode);
                 const ring = getComputedStyle(node, "::before");
                 const label = node.querySelector(".card-overlay-label");
-                return { text: node.textContent ?? "", left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, style: Object.fromEntries(props.map(prop => [prop, style[prop]])), ring: { content: ring.content, boxShadow: ring.boxShadow, left: ring.left, right: ring.right, clipPath: ring.clipPath }, labelShadow: label === null ? "" : getComputedStyle(label).textShadow, labelSpacing: label === null ? "" : getComputedStyle(label).letterSpacing, labelWidth: label?.getBoundingClientRect().width ?? 0, ...(icon === undefined ? {} : { icon: { width: icon.width, height: icon.height } }) };
+                return { text: node.textContent ?? "", left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, style: Object.fromEntries(props.map(prop => [prop, style[prop]])), ring: { content: ring.content, boxShadow: ring.boxShadow, left: ring.left, right: ring.right, clipPath: ring.clipPath }, labelShadow: label === null ? "" : getComputedStyle(label).textShadow, labelSpacing: label === null ? "" : getComputedStyle(label).letterSpacing, labelWidth: label?.getBoundingClientRect().width ?? 0, ...(icon === undefined ? {} : { icon: { width: icon.width, height: icon.height, path: [...(svg?.querySelectorAll("path") ?? [])].map(path => path.getAttribute("d")).join(" "), fillRule: svg?.querySelector("path") === null || svg?.querySelector("path") === undefined ? "" : getComputedStyle(svg.querySelector("path") as Element).fillRule } }), ...(markNode === null || markRect === undefined || markStyle === undefined ? {} : { mark: { text: markNode.textContent ?? "", width: markRect.width, height: markRect.height, fontSize: markStyle.fontSize, fontWeight: markStyle.fontWeight, letterSpacing: markStyle.letterSpacing, color: markStyle.color } }) };
             });
             const stacks = Object.fromEntries([...layer.querySelectorAll<HTMLElement>(".card-overlay-stack")].map(stack => {
                 const name = [...stack.classList].find(cls => cls !== "card-overlay-stack" && cls.startsWith("card-overlay-"))?.slice("card-overlay-".length) ?? "";
@@ -194,4 +198,53 @@ test("square draws its accent bar on the left side except on a left-rail tab", a
     assert.equal(left.badges[0]?.style.backgroundImage, "none", "a left tab drops the bar (CardOverlays.swift:374)");
     assert.equal(left.badges[0]?.ring.content, "none", "square has no border");
     near(px(left.badges[0]?.style.paddingLeft), 6 * scale, "no bar padding", 0.02);
+});
+
+// OverlayRegistry.swift:15-30, :63-101, :136-173 at silo-apple 5780c84.
+test("the combined Resolution + HDR + Audio badge shows the parts the file has and hides the badges it covers", async () => {
+    const doc = { version: 2, preset: "classic", order: [], items: { resolution_hdr_audio: { enabled: true, position: "top-left" }, resolution_hdr: { enabled: true, position: "top-left" } } };
+    const both = await render(doc, { overlay: { resolution: "2160p", hdr: "DV HDR10", audio: "TrueHD Atmos" } }, 185, 277.5);
+    assert.deepEqual(both.badges.map(badge => badge.text), ["4K DV TrueHD Atmos"], "covers resolution, hdr, audio and resolution_hdr (:19-22)");
+    const audioOnly = await render(doc, { overlay: { audio: "EAC3" } }, 185, 277.5);
+    assert.deepEqual(audioOnly.badges.map(badge => badge.text), ["EAC3"], "a file without a resolution still shows its audio (:159-166)");
+    const pair = await render({ version: 2, preset: "classic", order: [], items: { resolution_hdr: { enabled: true, position: "top-left" } } }, { overlay: { resolution: "2160p", hdr: "HDR10+", audio: "AAC" } }, 185, 277.5);
+    assert.deepEqual(pair.badges.map(badge => badge.text), ["4K HDR10+", "AAC"], "compactHdrSuffix keeps HDR10+ (:63-69)");
+});
+
+// OverlayIcon.swift:14-28, :60-83 and CardOverlays.swift:196-202 at silo-apple 5780c84.
+test("wordmarks are black-weight text at 10/12 of the icon size, ATMOS at 9/12 with half a unit of tracking", async () => {
+    const scale = 220 / 185;
+    const icons = (items: Record<string, unknown>) => ({ ...only(items), preset: "pill" });
+    const hdr = await render(icons({ hdr: { enabled: true, position: "top-left" } }), { overlay: { hdr: "HDR10" } }, 220, 330);
+    const mark = hdr.badges[0]?.mark;
+    assert.equal(hdr.badges[0]?.text, "HDR10", "the label repeating the wordmark is dropped");
+    assert.equal(mark?.text, "HDR10");
+    assert.equal(mark?.fontWeight, "900");
+    near(px(mark?.fontSize), 12 * 10 / 12 * scale * CAP_SCALE, "pill iconSize 12, 10 units of 12", 0.02);
+    near(mark?.height, 12 * scale, "an iconSize-high frame", 0.05);
+    // CoreText SF Pro black 10pt "HDR10" is 36.85 wide and 11.89pt about 43.16; Inter 900 at the cap-scaled size runs short.
+    near(mark?.width, 43.16, "Apple's mark width", 0.4);
+    const reference = await render(icons({ hdr: { enabled: true, position: "top-left" } }), { overlay: { hdr: "HDR10" } }, 185, 277.5);
+    near(reference.badges[0]?.mark?.width, 36.85, "Apple's mark width at the reference poster", 0.4);
+    assert.equal(mark?.color, "rgb(255, 255, 255)", "the badge's text colour");
+    const atmos = await render(icons({ audio: { enabled: true, position: "top-left" } }), { overlay: { audio: "Atmos" } }, 220, 330);
+    near(px(atmos.badges[0]?.mark?.fontSize), 12 * 9 / 12 * scale * CAP_SCALE, "ATMOS at 9 units", 0.02);
+    // SF Pro black 9pt "ATMOS" is 35.60 wide before Apple's 0.5-unit tracking on each of its five letters.
+    const atmosReference = await render(icons({ audio: { enabled: true, position: "top-left" } }), { overlay: { audio: "Atmos" } }, 185, 277.5);
+    near(atmosReference.badges[0]?.mark?.width, 35.60 + 5 * 0.5, "ATMOS width with its tracking", 0.4);
+    const truehd = await render(icons({ audio: { enabled: true, position: "top-left" } }), { overlay: { audio: "TrueHD Atmos" } }, 220, 330);
+    assert.equal(truehd.badges[0]?.mark, undefined, "ATMOS only for a value it fully expresses (OverlayRegistry.swift:90-96)");
+    assert.equal(truehd.badges[0]?.text, "TrueHD Atmos");
+});
+
+test("Dolby Vision is a drawn ring with its right half filled, beside the whole label", async () => {
+    const scale = 220 / 185;
+    const dv = await render({ ...only({ hdr: { enabled: true, position: "top-left" } }), preset: "pill" }, { overlay: { hdr: "DV HDR10" } }, 220, 330);
+    const badge = dv.badges[0];
+    assert.equal(badge?.text, "DV HDR10", "DV has no wordmark, so the label always shows (OverlayTypes.swift:254-266)");
+    assert.equal(badge?.mark, undefined);
+    near(badge?.icon?.width, 12 * scale, "an iconSize square", 0.05);
+    near(badge?.icon?.height, 12 * scale, "an iconSize square", 0.05);
+    assert.equal(badge?.icon?.path, "M14 8A6 6 0 1 1 2 8A6 6 0 1 1 14 8ZM8 3.5A4.5 4.5 0 0 0 8 12.5Z", "a 6-unit disc less the left half of a 4.5-unit one, in 16 units");
+    assert.equal(badge?.icon?.fillRule, "evenodd");
 });

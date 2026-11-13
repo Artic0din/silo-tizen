@@ -401,7 +401,10 @@ The top-right corner is left to the watch-status mark, so a badge stored at `top
 A corner draws three badges and a rail four; a filled badge on a rail is a tab flush against the card edge.
 Ratings default to the left rail and series status to the right.
 The Plate and Edge band presets, style overrides and uploaded badge images are not drawn yet.
-Brand marks (DV, HDR10, ATMOS, AV1) are text as in Apple; Apple's other badge icons are SF Symbols and are not drawn.
+Wordmarks (HDR, HDR10, ATMOS, AV1) are black-weight text at 10/12 of the icon size, ATMOS at 9/12 with half a unit of tracking, and replace a label that says the same thing; Dolby Vision is Apple's drawn ring beside the whole label.
+The ATMOS mark shows only for an audio value of exactly Atmos, so TrueHD Atmos keeps its label.
+The combined Resolution + HDR + Audio badge shows the parts the file has and hides the resolution, HDR, audio and Resolution + HDR badges while it is on.
+Apple's other badge icons are SF Symbols and are not drawn.
 The settings are read when Home loads and again after Settings closes, never on focus.
 Home shows non-empty rows in the server's profile order, matching the Apple TV client.
 Sections whose server `featured` flag is true render as ordinary rows.

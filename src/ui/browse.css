@@ -1576,11 +1576,11 @@ svg.library-empty-icon { width: auto; }
 .browse-panel { position: fixed; z-index: 7; top: 510px; left: 50%; transform: translate(-50%, -50%); border-radius: 22px; }
 /* TVBrowseFilterUI.swift:153, :259 use TVSkylinePanelChrome (shared with .skyline-panel above). TVLibraryGridView.swift:114-121:
    the scrim and panel fade with easeOut(0.18); libraryBrowseViews.ts leavePanel fades copies of a closing panel. */
-.browse-panel-scrim, .browse-sort-panel, .browse-filter-panel { animation: skyline-appear 180ms ease-out; }
+.browse-panel-enter { animation: skyline-appear 180ms ease-out; }
 .browse.browse-panel-layer { position: fixed; z-index: 6; top: 0; left: 0; width: 0; height: 0; padding: 0; overflow: visible; background: none; pointer-events: none; }
 .browse-panel-leaving { pointer-events: none; animation: browse-panel-leave 180ms ease-out forwards; }
 @keyframes browse-panel-leave { from { opacity: 1; } to { opacity: 0; } }
-@media (prefers-reduced-motion: reduce) { .browse-panel-scrim, .browse-sort-panel, .browse-filter-panel, .browse-panel-leaving { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .browse-panel-enter, .browse-panel-leaving { animation: none; } }
 .browse-sort-panel { width: 460px; padding: 14px; }
 /* The shuffle failure alert over the same dimmed page as the panels. */
 .browse-alert { width: 720px; padding: 40px 48px 32px; text-align: center; border: 1px solid rgba(255,255,255,.16); background: linear-gradient(rgba(17,17,23,.97), rgba(10,10,14,.98)); box-shadow: 0 20px 60px #000; }

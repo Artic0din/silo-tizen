@@ -496,3 +496,15 @@ page("a closing Filter panel fades from what was on screen", async tv => {
     });
     assert.deepEqual(ghost, live);
 });
+
+page("editing an open Filter panel does not replay its entrance fade", async tv => {
+    await browseReady(tv);
+    await tv.page.locator('[data-focus="filter"]').focus();
+    await tv.page.keyboard.press("Enter");
+    await tv.page.locator('[data-focus="match:any"]').waitFor();
+    await tv.page.locator('[data-focus="match:any"]').focus();
+    await tv.page.keyboard.press("Enter");
+    await tv.page.locator('[data-focus="match:any"][aria-checked="true"]').waitFor();
+    const running = await tv.page.evaluate(() => [".browse .browse-panel-scrim", ".browse .browse-filter-panel"].map(selector => document.querySelector(selector)?.getAnimations().length));
+    assert.deepEqual(running, [0, 0]);
+});

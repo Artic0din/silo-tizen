@@ -19,6 +19,8 @@ const LETTERS = ["All", "#", ..."ABCDEFGHIJKLMNOPQRSTUVWXYZ"];
 
 type LibraryRoute = Extract<Route, { kind: "library" }>;
 const railLetters = new WeakMap<LibraryRoute, FocusItem[]>();
+/** The panel each Browse route last drew, so only opening or switching a panel fades it in. */
+const shownPanels = new WeakMap<LibraryRoute, "sort" | "filter" | undefined>();
 /** minimumScaleFactor (TVBrowseFilterUI.swift:284-285, :480-481 and :346-347). */
 const LABEL_MINIMUM_SCALE = 0.85;
 const FACET_SUMMARY_MINIMUM_SCALE = 0.8;
@@ -207,8 +209,12 @@ export function browsePage(route: LibraryRoute, state: DiscoveryState, handlers:
     const alert = shuffleAlert(content, zones, handlers);
     if (alert !== undefined) return alert;
     const panel = state.panel;
+    const shownPanel = shownPanels.get(route);
+    shownPanels.set(route, panel?.kind);
     if (panel === undefined) return { content, zones, back: undefined };
-    const scrim = el("div", "browse-panel-scrim");
+    // TVLibraryGridView.swift:121 animates on `openPanel` changing; a draft edit re-renders the same panel without a fade.
+    const entering = shownPanel !== panel.kind ? " browse-panel-enter" : "";
+    const scrim = el("div", `browse-panel-scrim${entering}`);
     if (panel.kind === "sort") {
         const items = sortKeysFor(route.library.type).map(entry => {
             const current = entry.key === filter.sort;
@@ -219,7 +225,7 @@ export function browsePage(route: LibraryRoute, state: DiscoveryState, handlers:
             item.element.setAttribute("role", "menuitemradio");
             return item;
         });
-        const box = el("div", "browse-panel browse-sort-panel");
+        const box = el("div", `browse-panel browse-sort-panel${entering}`);
         box.setAttribute("role", "menu");
         box.append(el("p", "browse-panel-eyebrow", "SORT BY"), ...items.map(item => item.element));
         return { content: [...content, scrim, box], zones: [...zones.map(zone => ({ ...zone, items: [] })), { id: "panel", layout: "column", up: "panel", down: "panel", items }], back: () => handlers.browse(route, { panel: undefined, focus: { zone: "controls", key: "sort" } }) };
@@ -289,7 +295,7 @@ export function browsePage(route: LibraryRoute, state: DiscoveryState, handlers:
         }
     }
     const facetTitle = panel.facet === undefined ? undefined : FACETS.find(entry => entry.facet === panel.facet)?.title;
-    const box = el("div", "browse-panel browse-filter-panel");
+    const box = el("div", `browse-panel browse-filter-panel${entering}`);
     box.setAttribute("role", "menu");
     const list = el("div", "browse-panel-list");
     list.setAttribute("data-scroll-key", panel.facet ?? "filters");

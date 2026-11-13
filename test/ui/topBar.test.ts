@@ -129,7 +129,7 @@ test("Down from the avatar enters the open profile menu and leaves it for Contin
         await tv.jump(250);
         assert.equal(await tv.page.locator('[data-focus="profiles"]').getAttribute("aria-expanded"), "true", "focus opens the profile menu");
         await tv.page.keyboard.press("ArrowDown");
-        assert.equal(await tv.focused(), "switch-profile", "Down enters Switch Profile while the menu is open");
+        assert.equal(await tv.focused(), "history", "Down enters History, the first row, while the menu is open");
         await tv.remote(10009);
         assert.equal(await tv.focused(), "profiles");
         assert.equal(await tv.page.locator('[data-focus="profiles"]').getAttribute("aria-expanded"), "false");
@@ -141,15 +141,93 @@ test("Down from the avatar enters the open profile menu and leaves it for Contin
     } finally { await tv.page.context().close(); }
 });
 
-test("Down from the avatar before the dwell opens Switch Profile", async () => {
+test("Down from the avatar before the dwell opens the menu on History", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {
         await start(tv);
         await tv.page.locator('[data-focus="profiles"]').focus();
         assert.equal(await tv.page.locator('[data-focus="profiles"]').getAttribute("aria-expanded"), "false", "the dwell has not opened the menu");
         await tv.page.keyboard.press("ArrowDown");
-        assert.equal(await tv.focused(), "switch-profile", "Down before the dwell still enters Switch Profile");
+        assert.equal(await tv.focused(), "history", "Down before the dwell still enters History");
         assert.equal(await tv.page.locator('[data-focus="profiles"]').getAttribute("aria-expanded"), "true");
+    } finally { await tv.page.context().close(); }
+});
+
+// TVProfileDropdown.panel (silo-apple 5780c84 `tvOS/Navigation/TVTopMenuBar.swift:1185-1215`): History, Requests and
+// Watch Party, a divider, then Settings, the profile row, Change Account and Sign Out.
+test("the profile menu lists Apple's rows in Apple's order with the divider before Settings", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        await start(tv, null, new ProfileDestinationsCatalog(), true);
+        await tv.page.locator('[data-focus="profiles"]').focus();
+        await tv.jump(250);
+        const rows = await tv.page.locator(".skyline-selector[data-menu-kind=\"profile\"] > *").evaluateAll(nodes => nodes.map(node =>
+            node.classList.contains("skyline-menu-divider") ? "divider" : node.classList.contains("skyline-profile-header") ? "header" : node.textContent ?? ""));
+        assert.deepEqual(rows, ["header", "History", "Requests", "divider", "Settings", "Switch Profile", "Sign Out"]);
+    } finally { await tv.page.context().close(); }
+});
+
+// The dwell previews the menu with focus left on the avatar (TVMainTabView.swift:802-831); Select opens it and
+// enters the first row, also when the dwell already opened it (openProfilePanelImmediately, :835-853).
+for (const how of ["Select", "the dwell, then Select"] as const) test(`${how} on the avatar enters History`, async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        await start(tv);
+        const avatar = tv.page.locator('[data-focus="profiles"]');
+        await avatar.focus();
+        if (how !== "Select") {
+            await tv.jump(250);
+            assert.equal(await avatar.getAttribute("aria-expanded"), "true", "the dwell opens the menu");
+            await tv.jump(500);
+            assert.equal(await tv.focused(), "profiles", "the dwell leaves focus on the avatar");
+            assert.equal(await tv.page.locator(".skyline-selector .skyline-menu-item:focus").count(), 0, "no row is highlighted");
+        }
+        await tv.page.keyboard.press("Enter");
+        assert.equal(await avatar.getAttribute("aria-expanded"), "true");
+        assert.equal(await tv.focused(), "history", "Select enters the first row");
+    } finally { await tv.page.context().close(); }
+});
+
+// TVProfileDropdown (silo-apple 5780c84 `tvOS/Navigation/TVTopMenuBar.swift:1185`, `:1232-1252`, `:1264-1285`): 14 pt
+// padding, a 10 pt VStack, rows of 22 pt semibold SF Pro (a 27 pt line) with 14 pt vertical padding, and a header whose
+// name and server line sit 2 pt apart. Measured on Apple TV: a 65 px row pitch, 76 across the divider.
+test("profile menu rows keep Apple's 55 px height, 65 px pitch and 76 px step across the divider", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        await tv.page.emulateMedia({ reducedMotion: "reduce" });
+        await start(tv, null, new ProfileDestinationsCatalog(), true);
+        await tv.page.locator('[data-focus="profiles"]').focus();
+        await tv.jump(250);
+        const layout = await tv.page.locator('.skyline-selector[data-menu-kind="profile"]').evaluate(panel => {
+            for (const animation of document.getAnimations()) animation.finish();
+            const top = panel.getBoundingClientRect().top;
+            const box = (node: Element | null) => { const rect = (node as HTMLElement).getBoundingClientRect(); return [Math.round((rect.top - top) * 10) / 10, Math.round(rect.height * 10) / 10]; };
+            return {
+                header: box(panel.querySelector(".skyline-profile-header")),
+                server: box(panel.querySelector(".skyline-profile-server")),
+                divider: box(panel.querySelector(".skyline-menu-divider")),
+                rows: [...panel.querySelectorAll(".skyline-menu-item")].map(box),
+                height: Math.round(panel.getBoundingClientRect().height * 10) / 10,
+            };
+        });
+        assert.deepEqual(layout.header, [14, 64]);
+        assert.deepEqual(layout.server, [53, 17], "the server line sits 2 px under the name");
+        assert.deepEqual(layout.rows, [[88, 55], [153, 55], [229, 55], [294, 55], [359, 55]], "History, Requests | Settings, Switch Profile, Sign Out");
+        assert.deepEqual(layout.divider, [218, 1]);
+        assert.equal(layout.height, 428);
+    } finally { await tv.page.context().close(); }
+});
+
+// The header's server line is SF Mono 14 with tracking 1.4 (TVTopMenuBar.swift:1240-1245). Roboto Mono advances 0.6em
+// to SF Mono's 0.618em, so the line adds the 0.25 px difference to Apple's tracking.
+test("the profile header's server line is the bundled mono face at Apple's tracking", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        await start(tv);
+        await tv.page.locator('[data-focus="profiles"]').focus();
+        await tv.jump(250);
+        const style = await tv.page.locator(".skyline-profile-server").evaluate(node => { const css = getComputedStyle(node); return [css.fontFamily.split(",")[0]?.replace(/"/g, ""), css.fontSize, css.letterSpacing]; });
+        assert.deepEqual(style, ["Roboto Mono", "14px", "1.65px"]);
     } finally { await tv.page.context().close(); }
 });
 

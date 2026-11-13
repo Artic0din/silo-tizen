@@ -37,6 +37,9 @@ interface ProfileMenu {
     readonly personal?: (source: PersonalSource, anchor?: "for_you" | "profiles") => void;
     readonly name: string;
     readonly switchProfile: () => void;
+    readonly addProfile?: () => void;
+    /** Profiles in the open account's cached list; 0 before one was read. */
+    readonly profileCount?: () => number;
     readonly signOut?: () => void;
     readonly switchServer?: () => void;
     readonly serverName?: () => string | undefined;
@@ -942,9 +945,12 @@ export class Skyline {
         if (focusedKey !== undefined) this.panel.find(item => item.key === focusedKey)?.element.focus({ preventScroll: true });
     }
 
+    /**
+     * The dwell opens a passive preview with focus left on the avatar (silo-apple 5780c84 `TVMainTabView.swift:802-831`);
+     * Select opens the menu and enters its first row, also when the dwell already opened it (`:835-853`).
+     */
     private openProfile(enter = false, fade = true): void {
         if (!this.visible) return;
-        // openProfilePanelImmediately (TVMainTabView.swift:835-841): pressing the avatar enters a menu the dwell opened.
         if (fade && this.profileOpen && !this.selector.hidden) {
             if (enter) this.panel[0]?.element.focus({ preventScroll: true });
             return;
@@ -954,33 +960,39 @@ export class Skyline {
         this.panelAnchor = "profiles";
         this.selector.setAttribute("data-menu-kind", "profile");
         this.selector.setAttribute("aria-label", "Profile menu");
-        this.panel = [this.menuItem("switch-profile", "Switch Profile", this.profiles.switchProfile)];
+        // TVProfileDropdown.panel (TVTopMenuBar.swift:1185-1215): History, Requests and Watch Party above the divider;
+        // Settings, the profile row, Change Account and Sign Out below it.
+        const above: FocusItem[] = [];
         const personal = this.profiles.personal;
-        if (personal !== undefined) for (const source of ["history"] as const) {
-            this.panel.push(this.menuItem(source, PERSONAL_TITLES[source], () => { this.close(); personal(source); }));
-        }
+        if (personal !== undefined) above.push(this.menuItem("history", PERSONAL_TITLES.history, () => { this.close(); personal("history"); }));
         const requests = this.profiles.requests;
-        if (this.requestsEnabled && requests !== undefined) this.panel.push(this.menuItem("requests", "Requests", () => { this.close(); requests(); }));
+        if (this.requestsEnabled && requests !== undefined) above.push(this.menuItem("requests", "Requests", () => { this.close(); requests(); }));
         const watchParty = this.profiles.watchParty;
-        if (this.watchPartyEnabled && watchParty !== undefined) this.panel.push(this.menuItem("watch-party", "Watch Party", () => { this.close(); watchParty(); }));
+        if (this.watchPartyEnabled && watchParty !== undefined) above.push(this.menuItem("watch-party", "Watch Party", () => { this.close(); watchParty(); }));
+        const below: FocusItem[] = [];
         const settings = this.profiles.settings;
-        if (settings !== undefined) this.panel.push(this.menuItem("settings", "Settings", () => { this.close(); settings(); }));
+        if (settings !== undefined) below.push(this.menuItem("settings", "Settings", () => { this.close(); settings(); }));
+        // ProfileMenuRow.row (Components/ProfileMenuRow.swift:22-28): one cached profile leaves nothing to switch to.
+        // Tizen does not read the account's profile limit yet, so Add Profile shows as Apple's does when the limit is unknown.
+        const addProfile = this.profiles.addProfile;
+        // shortcut: Add Profile borrows Switch Profile's glyph, until the icon set draws person.fill.badge.plus.
+        below.push(addProfile !== undefined && this.profiles.profileCount?.() === 1
+            ? this.menuItem("add-profile", "Add Profile", addProfile, "switch-profile")
+            : this.menuItem("switch-profile", "Switch Profile", this.profiles.switchProfile));
         const switchServer = this.profiles.switchServer;
-        if (switchServer !== undefined) this.panel.push(this.menuItem("switch-server", "Change Account", switchServer));
+        if (switchServer !== undefined) below.push(this.menuItem("switch-server", "Change Account", switchServer));
         if (this.profiles.signOut !== undefined) {
             const item = this.menuItem("signout", "Sign Out", () => this.confirmSignOut());
             item.element.classList.add("skyline-destructive");
-            this.panel.push(item);
+            below.push(item);
         }
+        this.panel = [...above, ...below];
         for (const item of this.panel) item.element.setAttribute("role", "menuitem");
         const header = el("div", "skyline-profile-header");
         const labels = el("div", "skyline-profile-labels");
         labels.append(el("div", "skyline-profile-title", this.profiles.name), el("div", "skyline-profile-server", (this.profiles.serverName?.() ?? new URL(this.baseUrl).host).toUpperCase()));
         header.append(profileMenuAvatar(this.profiles.name, this.avatarReference, this.avatarText, this.baseUrl, 44), labels);
-        const divider = el("div", "skyline-menu-divider");
-        const rows: HTMLElement[] = [];
-        for (const item of this.panel) { if (item.key === "settings") rows.push(divider); rows.push(item.element); }
-        replaceNodes(this.selector, [header, ...rows]);
+        replaceNodes(this.selector, [header, ...above.map(item => item.element), el("div", "skyline-menu-divider"), ...below.map(item => item.element)]);
         this.selector.style.left = "auto";
         this.selector.style.right = "88px";
         this.selector.hidden = false;

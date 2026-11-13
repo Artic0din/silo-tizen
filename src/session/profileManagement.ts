@@ -16,6 +16,8 @@ export class ProfileManagement {
     private context: ManagementContext | undefined;
     private primary: ProfileSummary | undefined;
     private pendingGeneration = 0;
+    /** The PIN asked for renews the open primary's proof instead of borrowing it. */
+    private renewing = false;
     private closed = false;
 
     constructor(server: Pick<ConnectedServer, "session" | "profiles">) {
@@ -35,6 +37,14 @@ export class ProfileManagement {
         this.primary = primary;
         const borrowed = session.activeProfile?.id !== primary.id;
         const generation = session.authorityGeneration;
+        // AddProfileFromMenu (silo-apple 5780c84 `Screens/Profiles/AddProfileFromMenu.swift:46, 70-83`): the fresh list
+        // decides. An open primary that now has a PIN may have been opened before it was set, so the PIN is asked for
+        // again and the open profile stays open while its proof is renewed.
+        if (!borrowed && primary.hasPin) {
+            this.pendingGeneration = generation;
+            this.renewing = true;
+            return "pin_required";
+        }
         const hadProfile = session.activeProfile !== undefined;
         const selected = !borrowed || owner.select(primary).status === "selected";
         if (session.account?.id !== this.accountId) return "ended";
@@ -58,7 +68,7 @@ export class ProfileManagement {
         const result = await profiles.verifyPin(primary.id, pin, signal);
         if (result.status !== "verified") return result;
         if (session.account?.id !== this.accountId || session.activeProfile?.id !== primary.id || session.authorityGeneration !== this.pendingGeneration + 1) return { status: "aborted" };
-        this.context = { profileId: primary.id, generation: session.authorityGeneration, borrowed: true };
+        this.context = { profileId: primary.id, generation: session.authorityGeneration, borrowed: !this.renewing };
         if (this.closed || signal.aborted) { this.release(); return { status: "aborted" }; }
         return result;
     }

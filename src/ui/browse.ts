@@ -85,6 +85,8 @@ export interface BrowseOptions {
     readonly onPlay: (request: PlayRequest) => void;
     /** The person asked for the profile screens; browse has already removed itself. */
     readonly onChooseProfile: () => void;
+    /** Opens profile creation for the open account. */
+    readonly onAddProfile?: () => void;
     readonly onSignOut?: () => void;
     readonly onSwitchServer?: (back: () => void) => void;
     readonly onAccounts?: (back: () => void) => void;
@@ -2794,6 +2796,11 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             if (origin !== undefined) origin.focus = { zone: "nav", key: selected };
         },
         switchProfile: chooseProfile,
+        ...(options.onAddProfile === undefined ? {} : { addProfile: () => { teardown(); options.onAddProfile?.(); } }),
+        profileCount: () => {
+            try { return server.accounts.directory.list().find(row => row.id === server.accounts.localAccountId)?.profileCount ?? 0; }
+            catch { return 0; } // An unreadable account list is a list not read yet: Switch Profile.
+        },
         ...(options.onSwitchServer === undefined ? {} : { switchServer: () => {
             host.holdVisit();
             shell.hide();

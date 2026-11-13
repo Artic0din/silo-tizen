@@ -3728,7 +3728,7 @@ browseTest("Search removes root chrome and new visits clear its query while root
     await tv.page.locator('[data-focus="profiles"]').focus();
     await tv.jump(250);
     await press(tv, "ArrowDown");
-    assert.equal(await tv.focused(), "switch-profile");
+    assert.equal(await tv.focused(), "history");
     const reads = tv.fake.requests.length;
     await tv.remote(BACK);
     assert.equal(await view(tv), "home");
@@ -4350,6 +4350,8 @@ browseTest("an authority change removes only browse, aborts its reads, and the n
 
     assert.equal(await tv.focused(), "home", "Search Back restores its originating root tab");
     await press(tv, "ArrowRight", "ArrowRight", "ArrowRight", "ArrowRight", "Enter");
+    assert.equal(await tv.focused(), "history", "Select enters the menu on its first row");
+    for (let step = 0; step < 6 && await tv.focused() !== "switch-profile"; step++) await press(tv, "ArrowDown");
     assert.equal(await tv.focused(), "switch-profile");
     await press(tv, "Enter");
     assert.deepEqual(await tv.page.evaluate(() => window.browseHarness.chooseProfileCalls), [false], "browse was gone before onChooseProfile ran");

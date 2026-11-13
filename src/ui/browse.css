@@ -898,7 +898,8 @@
 .skyline-profile-header .navigation-avatar { background: rgba(255,255,255,.16); color: #fff; }
 .skyline-profile-labels { min-width: 0; }
 .skyline-profile-title { font-size: 24px; font-weight: 600; line-height: 29px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.skyline-profile-server { font-family: monospace; font-size: 14px; line-height: 18px; letter-spacing: 1.4px; color: rgba(255,255,255,.38); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* SF Mono 14 tracked 1.4, 2 pt under the name (TVTopMenuBar.swift:1235-1245 at silo-apple 5780c84). Roboto Mono advances 0.6em to SF Mono's 0.618em, so the line adds the 0.25 px difference. */
+.skyline-profile-server { margin-top: 2px; font-family: var(--silo-mono); font-size: 14px; line-height: 17px; letter-spacing: 1.65px; color: rgba(255,255,255,.38); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .skyline-menu-divider { height: 1px; background: rgba(255,255,255,.12); margin: 10px 12px; }
 :is(.skyline-selector, .skyline-selector-leaving) .skyline-destructive { color: #ff453a; }
 :is(.skyline-selector, .skyline-selector-leaving) .skyline-destructive:focus { background: #fff; color: #000; }
@@ -933,6 +934,8 @@
 :is(.skyline-selector, .skyline-selector-leaving)[data-menu-kind="for_you"] .skyline-menu-header { padding-bottom: 2px; font-size: calc(14px * var(--silo-sf-cap-scale)); letter-spacing: calc(14px * var(--silo-sf-cap-scale) * .26); }
 :is(.skyline-selector, .skyline-selector-leaving)[data-menu-kind="for_you"] .skyline-menu-item, :is(.skyline-selector, .skyline-selector-leaving)[data-menu-kind="profile"] .skyline-menu-item { min-height: 54px; }
 :is(.skyline-selector, .skyline-selector-leaving)[data-menu-kind="profile"] .skyline-profile-header { margin-bottom: 0; }
+/* TVProfileDropdown.actionButton (TVTopMenuBar.swift:1264-1285 at silo-apple 5780c84): 22 pt semibold SF Pro draws a 27 pt line, so with 14 pt padding a row is 55 tall and the 10 pt stack spacing makes a 65 px pitch. */
+:is(.skyline-selector, .skyline-selector-leaving)[data-menu-kind="profile"] .skyline-menu-item { min-height: 55px; line-height: 27px; }
 :is(.skyline-selector, .skyline-selector-leaving)[data-menu-kind="profile"] .skyline-menu-divider { flex-shrink: 0; margin: 0 12px; }
 :is(.skyline-selector, .skyline-selector-leaving)[data-menu-kind="library"] .browse-button[role="menuitem"], :is(.skyline-selector, .skyline-selector-leaving):is(.skyline-flyout, .skyline-flyout-leaving) .browse-button.skyline-menu-item { font-size: 20px; line-height: 24px; min-height: 50px; padding: 13px 16px; border-radius: 12px; gap: 12px; color: rgba(255,255,255,.86); }
 :is(.skyline-selector, .skyline-selector-leaving)[data-menu-kind="library"] [role="menuitem"] .skyline-menu-icon, :is(.skyline-flyout, .skyline-flyout-leaving) .skyline-menu-icon { width: 26px; height: 18px; }

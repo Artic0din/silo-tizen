@@ -125,7 +125,6 @@ export class Skyline {
     private panelOrigin = 0;
     private flyoutItem: FocusItem | undefined;
     private flyoutItems: FocusItem[] = [];
-    private libraryModes: readonly LibraryMode[] = ["Recommended", "Collections", "Browse"];
     private libraryRow: FocusItem | undefined;
     private cancelFlyout = (): void => undefined;
     private readonly scroll = new SkylineScroll();
@@ -278,20 +277,6 @@ export class Skyline {
         return this.forType(type).find((library) => library.id === id) ?? this.forType(type)[0];
     }
 
-    setLibraryModes(modes: readonly LibraryMode[]): void {
-        if (this.libraryModes.length === modes.length && this.libraryModes.every((mode, index) => mode === modes[index])) return;
-        this.libraryModes = modes;
-        const type = this.panelTab;
-        if (type === undefined || this.selector.hidden || this.profileOpen) return;
-        const libraries = this.forType(type);
-        const library = this.panelLibrary ?? (libraries.length === 1 ? libraries[0] : undefined);
-        if (library === undefined) return;
-        const previous = this.panel;
-        const focused = previous.find(item => item.element === document.activeElement);
-        this.panel = this.modeItems(library, type).map(item => previous.find(candidate => candidate.key === item.key) ?? item);
-        this.renderPanel();
-        if (focused !== undefined) (this.panel.find(item => item.key === focused.key) ?? this.panel[0])?.element.focus({ preventScroll: true });
-    }
 
     private commit(target: RootTarget, mode?: LibraryMode): void {
         if (!this.visible) return;
@@ -1020,7 +1005,7 @@ export class Skyline {
 
     private modeItems(library: UserLibrary, type: VideoTab): FocusItem[] {
         // tvOS's cascade offers three destinations; legacy filters stay within Browse.
-        return (["Recommended", "Collections", "Browse"] as const).filter(mode => this.libraryModes.includes(mode)).map(mode => {
+        return (["Recommended", "Collections", "Browse"] as const).map(mode => {
             const item = this.menuItem(`section:${mode === "Browse" ? "browse" : mode}`, mode, () => this.commit(this.panelAnchor === `library:${library.id}` ? library : { ...library, type }, mode), mode);
             item.element.setAttribute("role", "menuitem");
             return item;

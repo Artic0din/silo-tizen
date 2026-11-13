@@ -49,6 +49,7 @@ All notable changes to this project are documented in this file.
 
 ### Removed
 
+- Removed the hidden Genres, A–Z and Recently Added library modes, which the remote could not reach. As on Apple TV, the Movies and Series tabs offer Recommended, Collections and Browse, and Browse's filters, letter rail and Date Added sort cover the same ground.
 - Removed the custom kbps field and Save action from the Maximum Bitrate picker. A stored cap outside the preset list still appears in that list.
 - Removed the Settings Hidden Libraries editor and duplicate Manage Servers navigation; existing hidden libraries can still be restored.
 - Removed Details Read synopsis, its expanded view, #66's personal star rating control, and Season details to match the controls reachable on Apple TV.

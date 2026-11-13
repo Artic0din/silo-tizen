@@ -40,8 +40,7 @@ import { errorState, unconfirmedWriteMessage, writeFailureMessage, writeMayHaveA
 import { homeRows, removingDismissed, type ViewContext } from "./browseViews.ts";
 import { HomeEnrichment } from "./homeEnrichment.ts";
 import { el } from "./screen.ts";
-import { discoveryState, genreGroups, libraryScope, librarySectionQuery, readDiscovery, type LibraryMode, type VideoScope } from "./libraryDiscovery.ts";
-import { availableModes } from "./libraryDiscoveryViews.ts";
+import { discoveryState, libraryScope, librarySectionQuery, readDiscovery, type LibraryMode, type VideoScope } from "./libraryDiscovery.ts";
 import { personalEndCanReenter, personalListCapability, readPersonalPage, type PersonalFilter } from "./personalLists.ts";
 import type { MediaScope } from "../contracts/v2/discovery.ts";
 import type { CatalogQueryRequest } from "../contracts/v2/discovery.ts";
@@ -849,11 +848,6 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     current.focus = undefined;
                     if (current.kind === "personal" || current.kind === "homeSection" || current.kind === "person") current.pendingIndex = undefined;
                     if (current.kind === "personal") personalSnapshots.delete(current);
-                    if (current.kind === "library" && current.discovery !== undefined) {
-                        current.discovery.windowCursor = undefined;
-                        current.discovery.seek = undefined;
-                        current.discovery.letter = undefined;
-                    }
                 }
                 const text = error instanceof CalendarTimezoneError ? error.message : failureText(error, current);
                 if ((current.kind === "item" || current.kind === "home" || current.kind === "for_you") && error instanceof ApiError && (error.status === 403 || error.status === 404)) {
@@ -1139,12 +1133,6 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         if (!state.facetsRequested) {
             state.filter = browsePrefs.saved(current.library) ?? state.filter;
             state.facetsRequested = true;
-            if (state.capabilities === undefined) void session.call({ ...operations.getCatalogSearchCapabilities(), profileScoped: true, signal: requestsController.signal }).then(capabilities => {
-                if (torn || current.discovery !== state) return;
-                state.capabilities = capabilities;
-                if (state.data !== undefined) state.data = { ...state.data, capabilities };
-                if (!playing && top() === current) render(host.focused());
-            }, () => undefined);
             void session.call({ ...operations.getCatalogFilters({ library_id: current.library.id }), profileScoped: true, signal: requestsController.signal }).then(filters => {
                 if (torn || current.discovery !== state) return;
                 state.facets = filters;
@@ -1167,7 +1155,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             return { snapshot, emptyReason };
         }, result => {
             state.snapshot = result.snapshot; state.emptyReason = result.emptyReason;
-            state.data = { capabilities: state.capabilities, sections: [], collections: undefined, filters: state.facets, letters: undefined };
+            state.data = { sections: [], collections: undefined, filters: state.facets };
             current.pages.page = result.snapshot.page;
             return host.focused() ?? current.focus;
         }, quiet);
@@ -1457,10 +1445,6 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 if (current.library.type === "music") return;
                 current.discovery ??= discoveryState();
                 if (current.discovery.mode === "Recommended") presentation.ensure();
-                if (current.discovery.data !== undefined && (current.discovery.mode === "Recently Added" || current.discovery.mode === "A–Z" || current.discovery.genre !== undefined)) {
-                    loadPage(current, current.pages, current.pages.index, quiet);
-                    return;
-                }
                 load(current, async signal => {
                     const state = current.discovery ?? discoveryState();
                     const artworkQuery = homeArtworkQuery(imageCapability, window.devicePixelRatio);
@@ -1468,23 +1452,16 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     // TVLibraryTypeTabView.mediaScope (:77-87): only a mixed library opened from the Movies or Series tab is narrowed.
                     const scope: VideoScope | undefined = original?.type !== "mixed" ? undefined : current.library.type === "movies" ? "movie" : current.library.type === "series" ? "series" : undefined;
                     const data = await readDiscovery(current.library, state.mode, spec => read(spec, signal), artworkQuery, scope);
-                    const page = (state.mode === "Recently Added" || state.mode === "A–Z") && data.capabilities?.allowed === true
-                        ? await read(operations.queryCatalogItems({ ...libraryScope(current.library), limit: PAGE_SIZE, sort: state.mode === "Recently Added" ? "added_at" : "title", order: state.mode === "Recently Added" ? "desc" : "asc" }), signal) : undefined;
-                    return { data, page, artworkQuery };
-                }, ({ data, page, artworkQuery }) => {
+                    return { data, artworkQuery };
+                }, ({ data, artworkQuery }) => {
                     if (current.discovery !== undefined) {
                         current.discovery.data = data;
-                        current.discovery.capabilities = data.capabilities;
-                        shell.setLibraryModes(availableModes(data.capabilities));
                         if (current.discovery.mode === "Recommended") {
                             libraryArtworkAttempts.set(current, artworkQuery);
                             presentEnrichment(data.sections.filter(section => section.featured !== true), false);
                             queueMicrotask(upgradeLibraryArtwork);
                         }
                     }
-                    current.pages.page = page;
-                    current.pages.cursors = [undefined, page?.nextCursor];
-                    if (current.discovery !== undefined) current.discovery.windowCursor = page?.windowCursor;
                 }, quiet);
                 return;
             case "libraryResults":
@@ -1741,42 +1718,27 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             }, quiet || pages.page !== undefined);
             return;
         }
-        if (current.kind === "library" || current.kind === "libraryResults") {
+        if (current.kind === "libraryResults") {
             load(current, async signal => {
-                if (current.kind === "libraryResults" && current.source.kind === "collection") void probeShuffles();
                 const cursor = pages.cursors[index];
-                if (current.kind === "libraryResults" && current.source.kind === "section") {
-                    return read(operations.queryCatalogItems({ ...librarySectionQuery(current.library.id, current.source.id), limit: PAGE_SIZE, ...(cursor === undefined ? {} : { cursor }) }), signal);
+                const source = current.source;
+                if (source.kind === "section") {
+                    return read(operations.queryCatalogItems({ ...librarySectionQuery(current.library.id, source.id), limit: PAGE_SIZE, ...(cursor === undefined ? {} : { cursor }) }), signal);
                 }
-                const state = current.kind === "library" ? current.discovery : undefined;
-                const recent = state?.mode === "Recently Added";
-                const source = current.kind === "libraryResults" ? current.source : undefined;
-                if (source?.kind === "collection") {
-                    const original = serverLibrary(current.library.id);
-                    const narrowed = original?.type === "mixed" && current.library.type !== "mixed";
-                    return read(operations.queryCatalogItems({
-                        source: source.groupKind === "user_collections" ? "user_collection" : "library_collection",
-                        collection_id: source.id, limit: 60, match: "all",
-                        ...(narrowed ? libraryScope(current.library) : {}),
-                        ...(cursor === undefined ? {} : { cursor }),
-                    }), signal);
-                }
-                const query = operations.queryCatalogItems({
-                    ...libraryScope(current.library), limit: PAGE_SIZE,
-                    sort: recent ? "added_at" : "title",
-                    order: recent || state?.descending === true || (current.kind === "libraryResults" && current.descending) ? "desc" : "asc",
+                void probeShuffles();
+                const original = serverLibrary(current.library.id);
+                const narrowed = original?.type === "mixed" && current.library.type !== "mixed";
+                return read(operations.queryCatalogItems({
+                    source: source.groupKind === "user_collections" ? "user_collection" : "library_collection",
+                    collection_id: source.id, limit: 60, match: "all",
+                    ...(narrowed ? libraryScope(current.library) : {}),
                     ...(cursor === undefined ? {} : { cursor }),
-                    ...(state?.seek === undefined || index !== 0 ? {} : { seek: state.seek, ...(state.windowCursor === undefined ? {} : { cursor: state.windowCursor }) }),
-                    ...(source?.kind === "genre" ? { groups: genreGroups(source.name) } : {}),
-                    ...(state?.genre === undefined ? {} : { groups: genreGroups(state.genre) }),
-                });
-                return read(query, signal);
+                }), signal);
             }, page => {
                 pages.page = page;
                 pages.index = index;
                 pages.cursors = pages.cursors.slice(0, index + 1);
                 pages.cursors.push(page.nextCursor);
-                if (current.kind === "library" && current.discovery !== undefined && "windowCursor" in page && typeof page.windowCursor === "string") current.discovery.windowCursor = page.windowCursor;
             }, quiet || pages.page !== undefined);
             return;
         }
@@ -1868,10 +1830,6 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     const pop = (): void => {
         stopSearchSupplement();
         const active = top();
-        if (active?.kind === "library" && active.discovery?.genre !== undefined) {
-            genre(active, undefined);
-            return;
-        }
         if (stack.length <= 1) {
             return;
         }
@@ -2112,13 +2070,12 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             cancelCalendarDay = clock.schedule(() => render(host.focused()), midnight.getTime() - clock.now());
         }
         shell.setAvatar(profileName, profileAvatarUrl, context.baseUrl, profileAvatarText);
-        if (current.kind === "library") shell.setLibraryModes(availableModes(current.discovery?.data?.capabilities ?? current.discovery?.capabilities));
         const searchFilter = (route: Extract<Route, { kind: "search" }>, filter: SearchFilter | undefined): void => {
             if (top() !== route || route.filter === filter) return;
             loading?.abort(); loading = undefined; cancelSlow();
             route.filter = filter; route.pages = undefined; search(route);
         };
-        const handlers = { context, focusDefault: () => host.focusDefault(), busy: loading !== undefined, searchHead, input, searchFilter, audiobooksEnabled: audiobooksInSearch(), push, pop, play, chooseProfile, retry, turn, audiobookPicker, mode, jump, sort, genre, personalFilter, morePersonal, morePerson, signIn: options.onSignOut, personFilter, calendar: calendarHandlers, requests: requestsHandlers, browse: changeBrowse, more: moreBrowse, preserve: (route: Extract<Route, { kind: "library" }>) => browsePrefs.preserve(route.library), gridColumns: presentation.posterScale > 1 ? 5 : 6, shuffle: (current.kind === "library" || current.kind === "libraryResults" && current.source.kind === "collection") && canShuffle(current) ? { starting: shuffleStarting, failure: shuffleFailure?.route === current ? shuffleFailure.text : undefined, start: startShuffle, dismiss: () => { shuffleFailure = undefined; render({ zone: "controls", key: "shuffle" }); } } : undefined };
+        const handlers = { context, focusDefault: () => host.focusDefault(), busy: loading !== undefined, searchHead, input, searchFilter, audiobooksEnabled: audiobooksInSearch(), push, pop, play, chooseProfile, retry, turn, audiobookPicker, mode, personalFilter, morePersonal, morePerson, signIn: options.onSignOut, personFilter, calendar: calendarHandlers, requests: requestsHandlers, browse: changeBrowse, more: moreBrowse, preserve: (route: Extract<Route, { kind: "library" }>) => browsePrefs.preserve(route.library), gridColumns: presentation.posterScale > 1 ? 5 : 6, shuffle: (current.kind === "library" || current.kind === "libraryResults" && current.source.kind === "collection") && canShuffle(current) ? { starting: shuffleStarting, failure: shuffleFailure?.route === current ? shuffleFailure.text : undefined, start: startShuffle, dismiss: () => { shuffleFailure = undefined; render({ zone: "controls", key: "shuffle" }); } } : undefined };
         container.classList.toggle("section-catalog", isSectionRoute(current) || current.kind === "recommendationSection");
         const browsing = current.kind === "library" && current.discovery?.mode === "Browse";
         container.classList.toggle("library-browse", browsing);
@@ -2167,12 +2124,12 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             const decorated = shell.decorate(view, selected, preview, modal ? () => { view.back?.(); } : current.kind === "personal" || isHubRoot(current) || current.kind === "watchParty" ? () => {
                 if (host.focused()?.zone === "nav") pop();
                 else render(tabFocus(current));
-            } : (current.kind === "library" && current.discovery?.genre !== undefined) ? pop : undefined, current.kind === "library" ? `library:${current.library.id}:${current.library.type}:${current.discovery?.mode ?? "Recommended"}` : undefined);
+            } : undefined, current.kind === "library" ? `library:${current.library.id}:${current.library.type}:${current.discovery?.mode ?? "Recommended"}` : undefined);
             // A bar-focused return does not focus a card to restore this page's hero.
             if (preview && host.name !== view.name) previews.get(current)?.();
             const nav = container.querySelector<HTMLElement>(".browse-nav");
             if (nav !== null) { nav.inert = modal || nav.inert; if (nav.inert) nav.setAttribute("aria-hidden", "true"); else nav.removeAttribute("aria-hidden"); }
-            host.show({ ...decorated, ...(current.kind === "library" ? { ready: hasData(current), ...(current.discovery?.genre !== undefined ? { back: pop } : {}) } : {}), ...(modal ? { zones: view.zones, back: view.back } : {}) }, focus);
+            host.show({ ...decorated, ...(current.kind === "library" ? { ready: hasData(current) } : {}), ...(modal ? { zones: view.zones, back: view.back } : {}) }, focus);
         } else {
             const removedEpisodeRetry = host.focused()?.key === "retry-episodes" && !view.zones.some(zone => zone.items.some(item => item.key === "retry-episodes"));
             host.holdVisit();
@@ -2607,45 +2564,12 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             host.focusDefault();
             return;
         }
-        current.discovery = { ...discoveryState(), mode: value, capabilities: current.discovery?.capabilities };
+        current.discovery = { ...discoveryState(), mode: value };
         current.pages = newPages();
         current.failure = undefined;
         loadRoute(current);
         render({ zone: "nav", key: current.library.type === "series" ? "series" : "movies" });
     };
-    const jump = (current: Extract<Route, { kind: "library" }>, letter: string, position: number): void => {
-        const state = current.discovery;
-        if (state === undefined) return;
-        state.seek = position;
-        state.letter = letter;
-        current.pages = newPages();
-        current.failure = undefined;
-        loadPage(current, current.pages, 0);
-        render({ zone: "letters", key: `letter:${letter}` });
-    };
-    const genre = (current: Extract<Route, { kind: "library" }>, name: string | undefined): void => {
-        const state = current.discovery;
-        if (state === undefined) return;
-        const previous = state.genre;
-        state.genre = name;
-        state.descending = false;
-        current.pages = newPages();
-        current.failure = undefined;
-        if (name !== undefined) loadPage(current, current.pages, 0);
-        else { loading?.abort(); loading = undefined; cancelSlow(); }
-        render(name === undefined && previous !== undefined ? { zone: "genres", key: `genre:${previous}` } : undefined);
-    };
-    const sort = (current: Extract<Route, { kind: "libraryResults" | "library" }>): void => {
-        if (current.kind === "library") {
-            if (current.discovery === undefined) return;
-            current.discovery.descending = !current.discovery.descending;
-        } else current.descending = !current.descending;
-        current.pages = newPages();
-        current.failure = undefined;
-        loadRoute(current);
-        render({ zone: "actions", key: "sort" });
-    };
-
     const turn = (current: Route, pages: Pages, step: -1 | 1): void => {
         const index = pages.index + step;
         // One page request at a time; a press while one is out is ignored.
@@ -2681,7 +2605,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         }
         if (route.kind === "library" && destinationMode !== undefined) {
             if (route === current && route.discovery?.mode === destinationMode && hasData(route)) { render(); host.focusDefault(); return; }
-            route.discovery = { ...discoveryState(), mode: destinationMode, capabilities: route.discovery?.capabilities };
+            route.discovery = { ...discoveryState(), mode: destinationMode };
             route.pages = newPages();
         }
         if (route.kind === "search") {

@@ -933,11 +933,6 @@
 .skyline-pills.person-filmography-filters { position: static; width: auto; margin-bottom: 24px; }
 .skyline-pills .browse-button { font-size: 19px; padding: 9px 22px; border-radius: 30px; background: rgba(255,255,255,.07); color: #ededed; border-color: rgba(255,255,255,.09); }
 .skyline-pills .browse-button[aria-pressed="true"] { background: #fff; color: #000; }
-.discovery-facets, .discovery-letters { display: flex; flex-wrap: wrap; }
-.discovery-facets .browse-button { width: 250px; min-height: 68px; white-space: normal; overflow-wrap: break-word; }
-.discovery-letters { position: fixed; right: 88px; top: 240px; width: 40px; height: 780px; flex-direction: column; flex-wrap: nowrap; }
-.discovery-letters .browse-button { width: 40px; min-height: 26px; padding: 2px; margin: 0; font-family: monospace; font-size: 15px; }
-.discovery-letters [aria-pressed="true"] { background: #fff; color: #000; }
 .discovery-collection-grid { display: grid; grid-template-columns: repeat(var(--collection-columns, 6), minmax(0, 1fr)); column-gap: 40px; row-gap: 60px; justify-items: center; padding: 16px 0 0; }
 .skyline-grid .skyline-content:has(.discovery-collection-grid) { top: 244px; left: 0; width: 1920px; height: 836px; padding: 0 80px 60px; }
 .browse-section:has(.discovery-collection-grid) { margin-bottom: 44px; }
@@ -979,9 +974,6 @@ svg.library-empty-icon { width: auto; }
 .discovery-collection-count { margin-top: 12px; font-size: 17px; }
 .browse .discovery-collection:focus { border-color: #fff; background: linear-gradient(#2e3036,#121316); color: #ededed; }
 .discovery-collection-art { background: #252830; }
-.discovery-skeleton { width: 208px; height: 312px; border-radius: 12px; background: linear-gradient(110deg,#15171b,#252830,#15171b); background-size: 200% 100%; animation: discovery-loading 1.5s linear infinite; }
-@keyframes discovery-loading { to { background-position: -200% 0; } }
-@media (prefers-reduced-motion: reduce) { .discovery-skeleton { animation: none; } }
 .skyline-scope { float: right; font-size: 18px; color: rgba(237,237,237,.6); }
 .browse-row .browse-card.skyline-continue { width: 376px; }
 .browse-row .skyline-continue .browse-art { width: 372px; height: 209px; }

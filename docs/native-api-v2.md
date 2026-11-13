@@ -279,7 +279,6 @@ Defined in `src/api/operations.ts` unless noted.
 | getCatalogBoxSet | `GET /catalog/box-sets/{id}?library_id&image_size=medium` (`src/api/boxSetOperations.ts`) | safe |
 | getCatalogItemBoxSet | `GET /catalog/items/{id}/box-set?image_size=medium` (`src/api/boxSetOperations.ts`), movie pages only, gated by `box_sets: true`. `box_set` absent means no row. Library browse does not group box sets | safe |
 | queryCatalogItems | `POST /catalog/query?image_size=small[&slot widths]` (`src/api/discoveryOperations.ts`) | safe |
-| queryCatalogLetters | `POST /catalog/letters` (`src/api/discoveryOperations.ts`) | safe |
 
 Notes:
 
@@ -293,7 +292,7 @@ Notes:
 - Person works use that same POST through `personQuery`: `source: "person"`, `person_id`, `type` (`video`, `movie` or `series`), `sort: "year"`, `order: "desc"`, `limit: 24` and an optional opaque `cursor`. `detailOperations.filmography` (`GET /catalog?source=person...`) is not called.
 - The detail view reads the same `GET /catalog/items/{id}` for Home marquee fields (`marqueeDetail`).
 - Item detail carries `themes`: `owner_id` and ordered `items` (`id`, `title`, `duration_seconds`). A season or episode answers with the set it inherits. A malformed set reads as none, because the server treats the theme lookup as optional.
-- Library search capabilities are probed with `GET /catalog/search/capabilities` (`src/ui/libraryDiscovery.ts`). Text Search sends the episode-inclusive request only after an allowed, available `video_with_episodes_scope: true` answer (`src/contracts/v2/README.md`, Text Search).
+- Text Search probes `GET /catalog/search/capabilities` and sends the episode-inclusive request only after an allowed, available `video_with_episodes_scope: true` answer (`src/contracts/v2/README.md`, Text Search).
 
 ### Personal state and lists
 

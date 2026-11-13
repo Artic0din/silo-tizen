@@ -1,7 +1,7 @@
 import { decodeCollectionItemsPage, decodeHomeSections, decodePersonalListPage } from "../contracts/v2/catalog.ts";
 import {
-    type CatalogFiltersRequest, type CatalogLettersRequest, type CatalogQueryRequest,
-    decodeCatalogFilters, decodeCatalogLetters, decodeCatalogQueryPage,
+    type CatalogFiltersRequest, type CatalogQueryRequest,
+    decodeCatalogFilters, decodeCatalogQueryPage,
     decodeCatalogSearchCapabilities, decodeLibraryCollections, decodeLibrarySection,
 } from "../contracts/v2/discovery.ts";
 import type { RequestSpec } from "./http.ts";
@@ -44,8 +44,5 @@ export const discoveryOperations = {
         bounded(body.seek, 0, 10000000);
         return { method: "POST", path: `/catalog/query${params({ image_size: "small", ...artwork })}`, retry: "safe", body: { ...body }, decode: decodeCatalogQueryPage };
     },
-    queryCatalogLetters: (body: CatalogLettersRequest): RequestSpec<ReturnType<typeof decodeCatalogLetters>> => ({
-        method: "POST", path: "/catalog/letters", retry: "safe", body: { ...body }, decode: decodeCatalogLetters,
-    }),
     getCatalogSearchCapabilities: () => read("/catalog/search/capabilities", decodeCatalogSearchCapabilities),
 };

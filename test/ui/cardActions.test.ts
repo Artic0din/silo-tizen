@@ -634,7 +634,7 @@ for (const surface of ["library-shelf", "library-grid", "collection", "search", 
             await tv.page.locator('[data-focus="movies"]').click();
             await tv.page.locator('.browse[data-view="library:12"] .browse-card:not(.discovery-collection)').first().waitFor();
             if (surface === "library-grid") {
-                await selectLibraryMode(tv, "Recently Added");
+                await selectLibraryMode(tv, "Browse");
                 await tv.page.locator('.browse .browse-grid .browse-card').first().waitFor();
             }
             if (surface === "collection") {
@@ -692,7 +692,7 @@ test("a fresh Select while a card's item is still reading cannot activate the ca
         await start(tv, false);
         await tv.page.locator('[data-focus="movies"]').click();
         await tv.page.locator('.browse[data-view="library:12"] .browse-card:not(.discovery-collection)').first().waitFor();
-        await selectLibraryMode(tv, "Recently Added");
+        await selectLibraryMode(tv, "Browse");
         const card = tv.page.locator('.browse .browse-grid .browse-card').first();
         await card.waitFor();
         const id = await card.getAttribute("data-focus") ?? "";
@@ -718,7 +718,7 @@ test("a card whose item cannot be read shows the alert instead of an empty menu"
         await start(tv, false);
         await tv.page.locator('[data-focus="movies"]').click();
         await tv.page.locator('.browse[data-view="library:12"] .browse-card:not(.discovery-collection)').first().waitFor();
-        await selectLibraryMode(tv, "Recently Added");
+        await selectLibraryMode(tv, "Browse");
         const card = tv.page.locator('.browse .browse-grid .browse-card').first();
         await card.waitFor();
         const id = await card.getAttribute("data-focus") ?? "";
@@ -898,7 +898,7 @@ test("after a favorite change, a remembered season still ends once 20 other titl
         await tv.eventually(async () => catalog.mutations.length === 1 && await menu(tv).count() === 0, "favorite change lands");
         await tv.page.locator('[data-focus="movies"]').click();
         await tv.page.locator('.browse[data-view="library:12"] .browse-card:not(.discovery-collection)').first().waitFor();
-        await selectLibraryMode(tv, "Recently Added");
+        await selectLibraryMode(tv, "Browse");
         const grid = tv.page.locator('.browse .browse-grid .browse-card');
         await grid.first().waitFor();
         for (let index = 0; index < 20; index++) {

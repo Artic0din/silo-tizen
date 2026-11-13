@@ -5,7 +5,6 @@ Home, Movies, Series and Profiles share mounted root navigation.
 Only visible video library types appear, and mixed libraries can be scoped to either video type.
 Search, Detail, season and playback routes remove the root chrome.
 The library dropdown offers Recommended, Collections and Browse, in that order, matching the tvOS cascade.
-Browse retains the capability-gated Genres, A–Z and Recently Added mode controls.
 
 ## Details layout and selection
 

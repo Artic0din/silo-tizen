@@ -208,14 +208,22 @@ Changing text resets the cursor; late query/profile answers cannot paint or star
 Focus, render and page changes do not reread a resolved Search capability.
 
 Episode cards retain their content ID, series title and season/episode metadata and start prepared playback on Select; Card actions offers explicit Episode information.
-Back from Details restores result focus and retains the query and page; opening Search through navigation starts empty with focus on the field.
-The 600 ms debounce, TV Done key and cancellation remain unchanged.
+Back from Details restores result focus and retains the query and every loaded title; opening Search through navigation starts empty with focus on the field.
+Search waits 300 ms after the last edit, as `SearchViewModel.onQueryChanged` and `RequestSearchSectionViewModel.onQueryChanged` do; the TV Done key searches at once.
+An edit stops obsolete reads at once, but titles, People, box sets, the count and Requests stay on screen until each replacement answers.
+A spinner replaces the page only while a search runs with nothing to show; otherwise it sits under the title grid.
+An emptied field clears every section at once, and a one-letter query clears Requests.
+Titles load as one continuous grid: when a card within eight rows of the end scrolls into view, the next 60 are appended in place (`TVCatalogGrid.onNearEnd`), with no page buttons.
+A rejected next-page cursor reads a fresh first page in place (`SiloAPI.nextCatalogPage`).
+A failed search shows Apple's `ErrorView`: its headline follows the error, a 401 offers Sign In Again then Try Again, a 403 or 404 offers Go Back then Try Again, and Try Again searches again from the first page.
+Search has no visible navigation title, including after Back (`SearchView.swift:65-69`).
 Search is pushed above its originating page without invisible root-navigation targets.
 Back returns to that page; profile menus on root pages retain their own Back priority.
 
-All/Movies/Series filters apply to the whole server query and reset its cursor.
+All/Movies/Series filters apply to the whole server query and start a new search; the shown results stay until it answers.
 All retains the negotiated episode scope; Movies and Series send their literal native types.
-Search shows the server title count (with `+` for an estimate) only when titles exist, and an idle Search Silo prompt.
+Search shows the server title count as "N results", with no estimate marker, only when titles exist, and an idle Search Silo prompt.
+The field prompt names audiobooks only while they take part in Search.
 People appears before titles, using 200 px circular portraits and centered two-line names.
 People-only results omit the title count and empty-catalog message.
 Filters appear only for a nonblank query.
@@ -223,6 +231,8 @@ People uses profile-scoped `GET /catalog/people?q&media_scope&limit=20` only aft
 Its independent read cannot hide usable titles on failure and shows no separate error or retry control; a new query tries People again.
 Pending People prevents premature No results but never hides a catalog error or Try Again.
 The title grid and remote row navigation use five columns for large posters and six for standard or compact posters.
+Cards sit 40 px apart, 260 px from one card's leading edge to the next at the standard size, as `TVCatalogGrid` places them inside Search's 1444 px column (x 238 to 1682).
+A grid with fewer cards than a row starts at x 238; a grid of full rows wider than the column (standard 1520 px, large 1480 px) is centred on it, starting at x 200 or 220, as SwiftUI centres a row that cannot shrink. A short last row under them starts at x 238, because each row lays out on its own and a short row's empty columns are flexible spacers.
 People cards use real person IDs, with no reads on focus.
 People and supplementary Requests retain the logical scroll frame while painting whole cards that intersect its edges, matching the native lazy rails.
 Remote navigation reaches all loaded cards; visibility observers are released when the query or route replaces a rail.
@@ -239,6 +249,9 @@ Recognized request states take precedence over availability; only In library plu
 The Search card presentation boundary delegates to the shared Requests card and progress owners.
 Supplementary posters scale from 220×330 with the existing preference; focus uses the shared 1.05 lift and 4 px outline at 70% white without moving or whitening request captions.
 Search catalog captions use a 16 px gap and Requests use 22 px, matching the tvOS branches of `TVMediaCard` and `RequestMediaCard`.
+Result and box set captions are centred under each poster, as `TVMediaCard.caption` frames each line to the card width; request captions stay leading, as `RequestMediaCard.caption` is a leading stack.
+A caption too long for its card is shortened with "…" and the shortened line is centred, as SwiftUI's one-line tail truncation does; CSS `text-overflow` would start it at the card's left edge. The full title stays available to assistive tech.
+A series result is captioned with the years it ran, as Apple's `CardYears` does: "2024 – Present" while it is returning, "2019 – 2023" once it has ended or been cancelled (from `last_air_date`), and its year otherwise.
 The native Samsung text field remains attached across renders; the tvOS alphabet keyboard is an operating-system surface, not a custom keyboard to port.
 Samsung simulator keyboard rendering and final same-state visual acceptance remain unverified.
 These source changes do not diagnose historical keyboard or first-query latency reports.

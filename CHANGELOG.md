@@ -55,6 +55,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Search now matches Apple TV: results update in place while you type or change the filter, searches start 300 ms after typing stops, titles load as one continuous grid instead of 60-title pages, a failed search shows the right headline with Sign In Again or Go Back, no Search title appears after Back, and spacing, corners and text sizes follow Apple's.
 - For You now matches Apple TV: its rows end at their last card with no Explore all page, each visit reads it again while the last rows stay on screen, a refused read keeps the rows, loading is a blank page, the empty state is Apple's centred one with no Home button, and an expired session offers Sign In Again. The For You menu is 460 wide under its tab, with filled icons, Apple's text sizes, a pressed state and Apple's spoken name and hint.
 - The Person page's Filmography posters are now spaced as on Apple TV: 40px apart, with the first poster lined up under the filter chips instead of 13px apart and slightly to their left.
 - On a movie's page, moving down to Cast & Crew now always scrolls the page there. An answer that redrew the page during that scroll could stop it, leaving the row low on the screen.

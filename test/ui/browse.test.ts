@@ -1761,6 +1761,37 @@ browseTest("Search stops restarting when a later page's cursor keeps being rejec
     assert.equal(rejected, 2, "one restart, then the error with Try Again");
 }, { catalog: new SearchCatalog(240) });
 
+browseTest("Search centres result captions under each poster and keeps request captions leading", async tv => {
+    await tv.page.locator('[data-focus="search"]').click();
+    await tv.page.fill("#browse-search", "Movie"); await tv.remote(IME_DONE);
+    await tv.page.locator('.browse-grid [data-focus="movie:m0002"]').waitFor();
+    await tv.page.locator('.search-request-rail [data-focus="movie:949"]').waitFor();
+    const caption = (selector: string) => tv.page.evaluate(card => {
+        const node = document.querySelector(card)!;
+        const art = node.querySelector(".browse-art")!.getBoundingClientRect();
+        const line = (name: string) => {
+            const text = node.querySelector(name)!;
+            const range = document.createRange();
+            range.selectNodeContents(text);
+            const box = range.getBoundingClientRect();
+            return { align: getComputedStyle(text).textAlign, offset: box.left + box.width / 2 - (art.left + art.width / 2), left: box.left - art.left };
+        };
+        return { title: line(".browse-card-title"), subtitle: line(".browse-card-subtitle") };
+    }, selector);
+    // TVMediaCard.caption: each line framed to the card width, centred (TVMediaCard.swift:257-276).
+    for (const id of ["movie:m0001", "movie:m0002"]) {
+        const lines = await caption(`.search-scene > .browse-grid [data-focus="${id}"]`);
+        for (const [name, line] of Object.entries(lines)) {
+            assert.equal(line.align, "center", `${id} ${name} alignment`);
+            assert.ok(Math.abs(line.offset) < 1, `${id} ${name} centred under the poster, off by ${line.offset}`);
+        }
+    }
+    // RequestMediaCard.caption is a leading VStack (RequestMediaCard.swift:152).
+    const request = await caption('.search-request-rail [data-focus="movie:949"]');
+    assert.ok(Math.abs(request.title.left) < 1, `the request title starts at the poster's leading edge, off by ${request.title.left}`);
+    for (const [name, line] of Object.entries(request)) assert.notEqual(line.align, "center", `request ${name} is not centred`);
+}, { catalog: new SearchCatalog(60) });
+
 browseTest("Search counts results from the response total without an estimate marker", async (tv, catalog) => {
     await tv.page.locator('[data-focus="search"]').click();
     const items = Array.from({ length: 3 }, (_, index) => ({ content_id: `movie:estimate-${index}`, type: "movie", title: `Estimate ${index}` }));

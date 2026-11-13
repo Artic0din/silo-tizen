@@ -283,8 +283,9 @@
 .search-scene > .browse-grid { width: max-content; margin: 0 153px; padding: 24px 9px 20px; grid-template-columns: repeat(var(--search-columns, 6), calc(220px * var(--poster-scale, 1))); column-gap: 40px; row-gap: 60px; justify-content: start; }
 .search-scene .browse-grid .browse-card { width: calc(220px * var(--poster-scale, 1)); margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
 .search-scene .browse-grid .browse-art { width: calc(220px * var(--poster-scale, 1)); height: calc(330px * var(--poster-scale, 1)); border-radius: 12px; }
-.search-scene .browse-grid .browse-card-title { margin: 16px 0 0; padding: 0; font-size: calc(24px * var(--silo-sf-cap-scale)); line-height: 29px; font-weight: 600; }
-.search-scene .browse-grid .browse-card-subtitle { margin: 4px 0 0; padding: 0; font-size: calc(20px * var(--silo-sf-cap-scale)); line-height: 24px; font-weight: 400; }
+/* TVMediaCard.caption centres both lines across the card width (TVMediaCard.swift:257-276); request cards keep a leading caption. */
+.search-scene .browse-grid .browse-card-title { margin: 16px 0 0; padding: 0; font-size: calc(24px * var(--silo-sf-cap-scale)); line-height: 29px; font-weight: 600; text-align: center; }
+.search-scene .browse-grid .browse-card-subtitle { margin: 4px 0 0; padding: 0; font-size: calc(20px * var(--silo-sf-cap-scale)); line-height: 24px; font-weight: 400; text-align: center; }
 .search-scene > .browse-page-status, .search-scene > .browse-actions:not(.search-filters), .search-scene > .browse-text { margin-left: 162px; }
 .search-scene .search-box-sets-heading, .search-scene .search-people-heading { margin: 0 162px; font-size: calc(36px * var(--silo-sf-cap-scale)); line-height: 43px; font-weight: 600; }
 /* TVDetailLayout.sectionHeaderSpacing (14) under the heading, then SiloTheme.padding (48) to the next section. */

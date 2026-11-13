@@ -66,7 +66,7 @@ import type { CalendarHandlers } from "./calendarView.ts";
 import { isSectionRoute, SectionCatalog, type SectionRoute } from "./sectionCatalog.ts";
 import { readSectionCatalog, type SectionSnapshot } from "./sectionCatalogState.ts";
 import { BrowsePrefs, browseQuery } from "./libraryBrowse.ts";
-import { stopFeed } from "./catalogFeed.ts";
+import { stopFeed, waitForFeedEnd } from "./catalogFeed.ts";
 import type { BrowseChange, DiscoveryState } from "./libraryDiscovery.ts";
 import { shufflePick } from "../player/nextShuffle.ts";
 import type { ShuffleCapability } from "../contracts/v2/shuffle.ts";
@@ -812,6 +812,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     };
     const stopAuthority = session.onAuthorityChange(teardown);
 
+    /** Browse routes whose read in flight is a next page, not a full re-read. */
+    const browseAppends = new WeakSet<Route>();
     /** Runs one read for the top route; an answer for a route or query no longer shown is dropped. */
     const load = <T>(current: Route, read: (signal: AbortSignal) => Promise<T>, apply: (value: T) => FocusTarget | void, quiet = false): void => {
         loading?.abort();
@@ -882,6 +884,20 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     current.error = undefined;
                     if (top() === current) render(host.focused());
                     return;
+                }
+                // TVLibraryGridViewModel.swift:337-339: a failed later Browse page keeps the grid and shows nothing; the next approach to the end reads again.
+                if (current.kind === "library" && current.discovery?.mode === "Browse" && (current.pages.page?.items.length ?? 0) > 0 && text !== undefined) {
+                    if (browseAppends.has(current)) {
+                        waitForFeedEnd(current.pages);
+                        current.failure = undefined;
+                        current.error = undefined;
+                        if (top() === current) render(host.focused());
+                        return;
+                    }
+                    // A full re-read (after a card change, say) starts from an empty grid, as Apple's reload does (:249-261), so its
+                    // failure is the error page with Try Again rather than cards that are known to be stale.
+                    current.pages.page = undefined;
+                    current.discovery.snapshot = undefined;
                 }
                 // Apple PersonDetailView: a failed later page keeps the cards; a stale failure would make Back read every loaded page again.
                 if (current.kind === "person" && (current.pages.page?.items.length ?? 0) > 0 && text !== undefined) {
@@ -1154,13 +1170,17 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             }, () => undefined);
         }
         const query = browseQuery(state.filter, current.library, 100);
+        if (append) browseAppends.add(current); else browseAppends.delete(current);
         load(current, async signal => {
             const snapshot = await readSectionCatalog(state.snapshot, append, async cursor => read(operations.queryCatalogItems({ ...query, ...(cursor === undefined ? {} : { cursor }) }), signal), signal);
             if (snapshot.unavailable) throw new ApiError({ kind: "http", status: 404, retryAfterSeconds: undefined });
             let emptyReason: DiscoveryState["emptyReason"] = "libraryEmpty";
             if (snapshot.page.items.length === 0 && (query.groups !== undefined || query.name_prefix !== undefined)) {
-                const probe = await read(operations.queryCatalogItems({ ...libraryScope(current.library), limit: 1 }), signal);
-                if (probe.items.length > 0) emptyReason = "noFilterMatches";
+                // BrowseEmptyReason.classify (BrowseEmptyReason.swift:20-24): a failed check keeps the filter message.
+                emptyReason = await read(operations.queryCatalogItems({ ...libraryScope(current.library), limit: 1 }), signal).then(probe => probe.items.length > 0 ? "noFilterMatches" : "libraryEmpty", (error: unknown) => {
+                    if (error instanceof ApiError && error.aborted) throw error;
+                    return "noFilterMatches";
+                });
             }
             return { snapshot, emptyReason };
         }, result => {

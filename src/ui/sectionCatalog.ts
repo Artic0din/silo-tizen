@@ -2,6 +2,7 @@ import type { Card } from "../contracts/v2/catalog.ts";
 import type { Route } from "./browseRoutes.ts";
 import type { FocusItem, View } from "./browseFocus.ts";
 import { actionButton, cardItem, errorView, failureError, type ViewContext } from "./browseViews.ts";
+import { loadingMore } from "./catalogFeed.ts";
 import { el } from "./screen.ts";
 import { sectionCountLabel, type SectionSnapshot } from "./sectionCatalogState.ts";
 
@@ -90,12 +91,7 @@ export class SectionCatalog {
         }
         this.cards = page.items;
         content.push(this.grid);
-        if (busy) {
-            const spinner = el("div", "section-catalog-loading");
-            spinner.setAttribute("role", "status");
-            spinner.setAttribute("aria-label", "Loading more titles");
-            content.push(spinner);
-        }
+        if (busy) content.push(loadingMore());
         const actions = route.failure === undefined ? [] : [actionButton("retry", "Try again", retry)];
         if (route.failure !== undefined) {
             const error = el("p", "browse-text", route.failure);

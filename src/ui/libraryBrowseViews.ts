@@ -4,10 +4,11 @@
 
 import type { FocusItem, Zone } from "./browseFocus.ts";
 import type { Route, RouteHandlers } from "./browseRoutes.ts";
-import { actionButton, lines, zoneNode } from "./browseViews.ts";
-import { feedGrid } from "./catalogFeed.ts";
+import { actionButton, errorView, failureError, zoneNode } from "./browseViews.ts";
+import { feedGrid, feedGridWidth } from "./catalogFeed.ts";
 import { activeFacetCount, canReset, cleared, directionLabel, effectiveOrder, FACETS, facetSummary, options, reset, selected, sortKey, sortKeysFor, toggled, withSort, type BrowseFilter } from "./libraryBrowse.ts";
 import type { DiscoveryState } from "./libraryDiscovery.ts";
+import { emptyState, type StateSymbol } from "./libraryStates.ts";
 import { el } from "./screen.ts";
 
 /** TVLibraryGridViewModel.pageSize and TVCatalogGrid's prefetch lead. */
@@ -100,40 +101,53 @@ export function browsePage(route: LibraryRoute, state: DiscoveryState, handlers:
     });
     const content: HTMLElement[] = [zoneNode("browse-controls", controls)];
     // TVLibraryGridView's control row onMoveUp is the top bar, not a pill row.
-    const zones: Zone[] = [{ id: "controls", layout: "row", down: "grid", up: "nav", items: controls }];
+    const controlZone: Zone = { id: "controls", layout: "row", down: "grid", up: "nav", items: controls };
+    const zones: Zone[] = [controlZone];
     const page = route.pages.page;
+    let railLeft = "controls";
     if (page !== undefined && page.items.length > 0) {
         const { preview, ...context } = handlers.context;
         void preview;
         const grid = feedGrid(route.pages, page, context, BROWSE_LOAD_ROWS * handlers.gridColumns, handlers.busy, () => handlers.more(route), handlers.gridColumns);
         content.push(...grid.content);
-        zones.push(...grid.zones.map(zone => ({ ...zone, up: "controls", down: route.failure === undefined ? "grid" : "recovery", right: "letters" })));
-        if (route.failure !== undefined) {
-            const retry = actionButton("retry", "Try again", () => handlers.retry(route));
-            content.push(...lines([route.failure], "error"), zoneNode("browse-actions", [retry]));
-            zones.push({ id: "recovery", layout: "row", items: [retry] });
-        }
+        // TVLibraryGridViewModel.swift:337-339: a failed later page keeps the grid and shows nothing.
+        zones.push(...grid.zones.map(zone => ({ ...zone, up: "controls", down: "grid", right: "letters" })));
+        railLeft = "grid";
     } else if (route.failure !== undefined) {
-        const retry = actionButton("retry", "Try again", () => handlers.retry(route));
-        content.push(...lines([route.failure], "error"), zoneNode("browse-actions", [retry]));
-        zones.push({ id: "status", layout: "row", items: [retry] });
+        // TVLibraryGridView.swift:204-205: Apple's ErrorView under the control row. Browse is a tab root, so no Go Back.
+        const failure = errorView(`library:${route.library.id}`, failureError(route.failure, route.error), () => handlers.retry(route), undefined, handlers.signIn);
+        content.push(...failure.content);
+        zones.push(...failure.zones.map(zone => ({ ...zone, up: "controls", right: "letters" })));
+        zones[0] = { ...controlZone, down: "status" };
+        railLeft = "status";
     } else if (page === undefined) {
+        // TVLibraryGridView.swift:188-203, PosterSkeletons.swift:3-12: twelve static placeholders, no shimmer, in the loaded grid's columns.
         const skeleton = el("div", "catalog-grid catalog-skeleton");
+        skeleton.style.setProperty("--grid-columns", String(handlers.gridColumns));
+        skeleton.style.width = `${feedGridWidth(handlers.gridColumns, handlers.context.posterScale?.() ?? 1)}px`;
         skeleton.setAttribute("role", "status");
         skeleton.setAttribute("aria-label", "Loading");
-        for (let index = 0; index < 12; index++) skeleton.appendChild(el("div", "discovery-skeleton"));
+        for (let index = 0; index < 12; index++) skeleton.appendChild(el("div", "poster-skeleton"));
         content.push(skeleton);
     } else if (state.emptyReason === "noFilterMatches") {
-        // TVLibraryGridView.emptyState .noFilterMatches: Clear filters keeps the sort.
+        // TVLibraryGridView.emptyState .noFilterMatches (:268-284): Clear filters keeps the sort.
         const clear = row("clear-filters", [icon("clear"), "Clear filters"], () => handlers.browse(route, { filter: { ...reset(filter), prefix: undefined }, focus: { zone: "controls", key: "sort" } }));
-        content.push(el("h2", "browse-empty-title", "No titles match your filters"), zoneNode("browse-empty-actions", [clear]));
+        const empty = el("div", "browse-empty-state");
+        empty.append(emptyState("line.3.horizontal.decrease.circle", "No titles match your filters"), zoneNode("browse-empty-actions", [clear]));
+        content.push(empty);
         zones.push({ id: "empty", layout: "row", up: "controls", right: "letters", items: [clear] });
+        zones[0] = { ...controlZone, down: "empty" };
+        railLeft = "empty";
     } else {
-        content.push(el("h2", "browse-empty-title", "This library is empty"), ...lines(["There is nothing in this library yet."]));
+        // TVLibraryGridView.emptyState .libraryEmpty (:262-267, :296-300): inert; the controls and rail keep focus.
+        const symbol: StateSymbol = route.library.type === "series" ? "tv" : route.library.type === "audiobooks" ? "book.closed" : "film.stack";
+        const empty = el("div", "browse-empty-state");
+        empty.append(emptyState(symbol, "This library is empty", "There is nothing in this library yet."));
+        content.push(empty);
     }
     const rail = zoneNode("browse-letters", letters);
     content.push(rail);
-    zones.push({ id: "letters", layout: "column", left: page !== undefined && page.items.length > 0 ? "grid" : "controls", up: "letters", down: "letters", items: letters });
+    zones.push({ id: "letters", layout: "column", left: railLeft, up: "letters", down: "letters", items: letters });
     const failure = handlers.shuffle?.failure;
     for (const node of content) {
         const modal = state.panel !== undefined || failure !== undefined;

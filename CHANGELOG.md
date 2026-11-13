@@ -55,6 +55,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Browse on the Movies and Series tabs now uses Apple TV's loading, empty, no-matches and error pages: twelve still poster placeholders in the loaded grid's columns while loading, Apple's empty states with their icons, a Clear filters pill like Sort and Filter that Left from the letter rail reaches, and Apple's error page. A failed next page keeps the grid without an error and loads again as you scroll on to more titles, and the loading-more indicator now spins.
 - A long collection or Browse title is now shortened and centred under its card, as on Apple TV, instead of starting at the card's left edge.
 - A mixed library's Movies and Series tabs now show only movies or only series on Recommended, as on Apple TV, and say so when a shelf could not be fully loaded. Recommended and Collections now use Apple TV's loading, empty and error pages, a failed Collections read shows no collections, and collection cards and group headers match Apple TV's.
 - Poster badges now sit where Apple TV puts them: a series status badge such as Returning, and any badge set to the top-right corner, is a tab halfway down the poster's right edge, ratings sit on the left edge, the two bottom corners share one row, and the badges use Apple TV's sizes, letter spacing and colours on Home, library, Search and every other poster grid.

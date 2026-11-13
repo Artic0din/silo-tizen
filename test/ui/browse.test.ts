@@ -3372,36 +3372,33 @@ for (const [size, scale, columns] of [["compact", .86, 6], ["standard", 1, 6], [
     }, { beforeConnect: tv => { new FakeSettings(tv.fake).profile().set(CARD_PRESENTATION_KEY, { poster_size: size, caption: "title_metadata" }); } });
 }
 
-browseTest("a failed Browse append retains cards until a completed explicit retry", async tv => {
+// TVLibraryGridViewModel.swift:337-339: a failed later page keeps the grid and shows nothing; the next approach to the end reads on from the same cursor.
+browseTest("a failed Browse append retains cards quietly and continues from its cursor", async tv => {
     await tv.page.locator('[data-focus="movies"]').click();
     await showing(tv, "library:12");
     await selectLibraryMode(tv, "Browse");
     await tv.eventually(async () => await tv.page.locator('.catalog-grid .browse-card').count() === 100, "initial Browse batch");
     const retained = await cardIds(tv, '.catalog-grid .browse-card');
-    let failed = false;
+    const cursors: unknown[] = [];
     await tv.page.route("**/api/v2/catalog/query?*", async route => {
         const body = route.request().postDataJSON() as Record<string, unknown>;
-        if (body.cursor !== undefined && !failed) { failed = true; await route.fulfill({ status: 422, contentType: "application/problem+json", json: problem(422, "validation_failed", "Could not read next page").body }); }
+        if (body.cursor !== undefined) cursors.push(body.cursor);
+        if (body.cursor !== undefined && cursors.length === 1) await route.fulfill({ status: 422, contentType: "application/problem+json", json: problem(422, "validation_failed", "Could not read next page").body });
         else await route.fallback();
     });
     await tv.page.locator('.catalog-grid .browse-card').last().focus();
-    await tv.page.keyboard.press("ArrowUp");
-    await tv.page.getByRole("alert").waitFor();
+    await tv.eventually(async () => cursors.length === 1 && await tv.page.locator('.section-catalog-loading').count() === 0, "the failed append");
+    assert.equal(await tv.page.getByRole("alert").count(), 0);
     assert.deepEqual(await cardIds(tv, '.catalog-grid .browse-card'), retained);
-    const recovered = tv.page.waitForResponse(response => new URL(response.url()).pathname === "/api/v2/catalog/query" && response.ok());
-    await tv.page.getByRole("button", { name: "Try again", exact: true }).click();
-    assert.equal(await (await recovered).finished(), null);
-    assert.equal((await recovered).request().postDataJSON().cursor, undefined);
-    try {
-        await tv.eventually(async () => await tv.page.getByRole("alert").count() === 0 && await tv.page.locator('.section-catalog-loading').count() === 0, "retry finished");
-        assert.deepEqual((await cardIds(tv, '.catalog-grid .browse-card')).slice(0, retained.length), retained);
-    } catch (cause) {
-        const cards = await tv.page.locator('.catalog-grid .browse-card').count();
-        const alerts = await tv.page.getByRole("alert").count();
-        const loading = await tv.page.locator('.section-catalog-loading').count();
-        if (cause instanceof Error) cause.message += `; Browse retry retained ${cards} cards with ${alerts} alerts and ${loading} loading indicators`;
-        throw cause;
-    }
+    await tv.page.locator('.catalog-grid .browse-card').first().focus();
+    // The observer must see the end leave the screen on a real frame before it can see it return.
+    await tv.eventually(async () => { await tv.jump(100); const box = await tv.page.locator('.catalog-grid .browse-card').last().boundingBox(); return box === null || box.y > 1080; }, "the end leaves the screen");
+    await tv.page.waitForTimeout(100);
+    await tv.page.locator('.catalog-grid .browse-card').last().focus();
+    await tv.jump(300);
+    await tv.eventually(async () => await tv.page.locator('.catalog-grid .browse-card').count() > retained.length, "the next approach to the end reads again");
+    assert.deepEqual(cursors.slice(0, 2), ["cursor-100", "cursor-100"]);
+    assert.deepEqual((await cardIds(tv, '.catalog-grid .browse-card')).slice(0, retained.length), retained);
 }, { catalog: new FakeCatalog(260) });
 
 browseTest("Browse keeps Down in the final grid row while the next page is pending", async tv => {

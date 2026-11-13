@@ -5,7 +5,9 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import type { Browser } from "playwright";
 import { FakeCatalog } from "../native/support/fakeCatalog.ts";
+import { FakeDetails } from "../native/support/fakeDetails.ts";
 import { FakeSettings } from "../native/support/fakeSettings.ts";
+import { problem } from "../native/support/fakeSilo.ts";
 import { HIDDEN_KEY } from "../../src/contracts/v2/settings.ts";
 import { homeDetailsRead, launchBrowser, openTv, type Tv } from "./support/tv.ts";
 import { selectLibraryMode } from "./support/library.ts";
@@ -224,6 +226,234 @@ page("collection group headers and cards match Apple's grid", async tv => {
     assert.deepEqual(glyph, { symbol: "square.stack.fill", color: "rgba(255, 255, 255, 0.85)", fill: "currentColor" });
 });
 
+// Browse, against TVLibraryGridView and TVLibraryGridViewModel.
+async function openBrowse(tv: Tv): Promise<void> {
+    await tv.page.locator('[data-focus="movies"]').click();
+    await tv.page.locator('[data-view="library:12"] .home-section').first().waitFor();
+    await selectLibraryMode(tv, "Browse");
+}
+async function chooseLetter(tv: Tv, letter: string): Promise<void> {
+    await tv.page.locator(`[data-focus="letter:${letter}"]`).focus();
+    await tv.page.keyboard.press("Enter");
+}
+const emptyPage = { window_cursor: "w", items: [], total: 0, total_exact: true, page: { has_more: false } };
+
+page("Browse's first load shows twelve static poster placeholders", async tv => {
+    const held = tv.fake.hold("/catalog/query", true);
+    try {
+        await openBrowse(tv);
+        const cards = tv.page.locator(".browse .catalog-skeleton .poster-skeleton");
+        await cards.first().waitFor();
+        assert.equal(await cards.count(), 12);
+        assert.equal(await tv.page.locator(".discovery-skeleton").count(), 0);
+        const style = await cards.first().evaluate(node => ({ background: getComputedStyle(node).backgroundColor, radius: getComputedStyle(node).borderRadius, animations: node.getAnimations().length, ratio: node.getBoundingClientRect().height / node.getBoundingClientRect().width }));
+        assert.deepEqual({ ...style, ratio: Math.round(style.ratio * 100) / 100 }, { background: "rgba(255, 255, 255, 0.09)", radius: "12px", animations: 0, ratio: 1.5 });
+    } finally { held.release(); }
+});
+
+page("Browse's placeholders sit in the loaded grid's columns", async tv => {
+    // TVLibraryGridView.swift:188-203: the skeleton grid shares the loaded grid's column count, spacing and padding.
+    const geometry = (selector: string) => tv.page.evaluate(tiles => {
+        const nodes = [...document.querySelectorAll(tiles)].slice(0, 7).map(node => node.getBoundingClientRect());
+        const grid = document.querySelector(tiles)?.closest(".catalog-grid")?.getBoundingClientRect();
+        return { lefts: nodes.map(box => Math.round(box.left * 100) / 100), widths: nodes.map(box => box.width), grid: grid === undefined ? undefined : [grid.left, grid.right] };
+    }, selector);
+    const held = tv.fake.hold("/catalog/query", true);
+    let skeleton;
+    try {
+        await openBrowse(tv);
+        await tv.page.locator(".catalog-skeleton .poster-skeleton").first().waitFor();
+        skeleton = await geometry(".catalog-skeleton .poster-skeleton");
+    } finally { held.release(); }
+    await tv.page.locator(".catalog-grid .browse-card").first().waitFor();
+    const loaded = await geometry(".catalog-grid .browse-card .browse-art");
+    assert.deepEqual(loaded, { lefts: [80, 380, 680, 980, 1280, 1580, 80], widths: [260, 260, 260, 260, 260, 260, 260], grid: [80, 1840] });
+    assert.deepEqual(skeleton, loaded);
+});
+
+page("Browse's loading-more indicator spins under the grid", async tv => {
+    await openBrowse(tv);
+    await tv.eventually(async () => await tv.page.locator(".catalog-grid .browse-card").count() === 100, "first page");
+    const held = tv.fake.hold("/catalog/query", true);
+    try {
+        await tv.page.locator(".catalog-grid .browse-card").last().focus();
+        const spinner = tv.page.locator(".section-catalog-loading");
+        await spinner.waitFor();
+        assert.ok(await spinner.evaluate(node => node.getAnimations({ subtree: true }).length > 0), "the indicator animates");
+    } finally { held.release(); }
+}, catalog => { for (let i = 61; i <= 160; i++) catalog.add({ id: `movie:x${i}`, type: "movie", title: `Extra ${i}`, libraryId: "12" }); });
+
+page("a failed Browse append keeps the grid quietly and tries again when the end comes back", async tv => {
+    await openBrowse(tv);
+    await tv.eventually(async () => await tv.page.locator(".catalog-grid .browse-card").count() === 100, "first page");
+    let appends = 0, failing = true;
+    await tv.page.route("**/api/v2/catalog/query?*", async route => {
+        const body = route.request().postDataJSON() as Record<string, unknown>;
+        if (body.cursor !== undefined) appends++;
+        if (body.cursor !== undefined && failing) await route.fulfill({ status: 422, contentType: "application/problem+json", json: problem(422, "validation_failed", "Could not read next page").body });
+        else await route.fallback();
+    });
+    await tv.page.locator(".catalog-grid .browse-card").last().focus();
+    // Cards still arriving as the grid scrolls to the end may retry (TVCatalogGrid.swift:131-133); once it rests, nothing reads.
+    await tv.eventually(async () => appends > 0 && await tv.page.locator(".section-catalog-loading").count() === 0, "the failed append");
+    await tv.jump(500);
+    await tv.page.waitForTimeout(200);
+    const settled = appends;
+    await tv.jump(500);
+    await tv.page.waitForTimeout(200);
+    assert.equal(appends, settled, "a re-armed grid does not read again while the end stays on screen");
+    assert.equal(await tv.page.getByRole("alert").count(), 0);
+    assert.equal(await tv.page.locator('[data-focus="retry"]').count(), 0);
+    assert.equal(await tv.page.locator(".catalog-grid .browse-card").count(), 100);
+    failing = false;
+    await tv.page.locator(".catalog-grid .browse-card").first().focus();
+    // The observer must see the end leave the screen on a real frame before it can see it return.
+    await tv.eventually(async () => { await tv.jump(100); const box = await tv.page.locator(".catalog-grid .browse-card").last().boundingBox(); return box === null || box.y > 1080; }, "the end leaves the screen");
+    await tv.page.waitForTimeout(100);
+    await tv.page.locator(".catalog-grid .browse-card").last().focus();
+    await tv.jump(300);
+    await tv.eventually(async () => await tv.page.locator(".catalog-grid .browse-card").count() > 100, "the next approach to the end reads again");
+}, catalog => { for (let i = 61; i <= 160; i++) catalog.add({ id: `movie:x${i}`, type: "movie", title: `Extra ${i}`, libraryId: "12" }); });
+
+page("after a failed append, a card newly scrolled on screen reads again, as a cell's onAppear does", async tv => {
+    // TVCatalogGrid.swift:131-133: each near-end cell's .onAppear asks for more, so moving on down after a failure retries.
+    await openBrowse(tv);
+    await tv.eventually(async () => await tv.page.locator(".catalog-grid .browse-card").count() === 100, "first page");
+    let appends = 0, failing = true;
+    await tv.page.route("**/api/v2/catalog/query?*", async route => {
+        const body = route.request().postDataJSON() as Record<string, unknown>;
+        if (body.cursor !== undefined) appends++;
+        if (body.cursor !== undefined && failing) await route.fulfill({ status: 422, contentType: "application/problem+json", json: problem(422, "validation_failed", "Could not read next page").body });
+        else await route.fallback();
+    });
+    // Row 10 enters the eight-row prefetch band, so cards arriving as the grid scrolls there start reads that fail.
+    await tv.page.locator(".catalog-grid .browse-card").nth(54).focus();
+    await tv.eventually(async () => appends > 0 && await tv.page.locator(".section-catalog-loading").count() === 0, "the failed append");
+    await tv.jump(500);
+    await tv.page.waitForTimeout(200);
+    const settled = appends;
+    await tv.jump(500);
+    await tv.page.waitForTimeout(200);
+    assert.equal(appends, settled, "cards already on screen do not read again");
+    failing = false;
+    await tv.page.locator(".catalog-grid .browse-card").nth(99).focus();
+    await tv.eventually(async () => await tv.page.locator(".catalog-grid .browse-card").count() > 100, "a card newly on screen reads again");
+}, catalog => { for (let i = 61; i <= 260; i++) catalog.add({ id: `movie:x${i}`, type: "movie", title: `Extra ${i}`, libraryId: "12" }); });
+
+test("a failed Browse refresh after a card change shows Apple's error page, not the stale grid", async () => {
+    // TVLibraryGridViewModel.swift:249-261, :325-340 (5780c84): a full re-read starts from an empty grid, so its failure is the
+    // ErrorView with Try Again. Only a failed next page keeps the cards quietly.
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const catalog = new FakeDetails();
+        await start(tv, catalog);
+        await openBrowse(tv);
+        await tv.page.locator(".catalog-grid .browse-card").first().waitFor();
+        let refreshes = 0;
+        await tv.page.route("**/api/v2/catalog/query?*", async route => {
+            const body = route.request().postDataJSON() as Record<string, unknown>;
+            if (body.cursor === undefined && body.limit === 100) { refreshes++; await route.fulfill({ status: 500, contentType: "application/problem+json", json: problem(500, "internal", "Server error").body }); }
+            else await route.fallback();
+        });
+        await tv.page.locator(".catalog-grid .browse-card").first().focus();
+        await tv.down(13); await tv.jump(650); await tv.up(13);
+        await tv.page.locator('[data-focus="watched"]').click();
+        await tv.eventually(async () => refreshes > 0, "the refresh after the change");
+        await tv.page.locator('[data-focus="retry"]').waitFor();
+        assert.equal(await tv.page.locator(".catalog-grid .browse-card").count(), 0, "the stale cards are gone");
+        await tv.page.unroute("**/api/v2/catalog/query?*");
+        await tv.page.locator('[data-focus="retry"]').focus();
+        await tv.page.keyboard.press("Enter");
+        await tv.page.locator(".catalog-grid .browse-card").first().waitFor();
+    } finally { await tv.page.context().close(); }
+});
+
+page("an empty library's Browse grid uses Apple's empty state and leaves focus on the controls", async (tv, catalog) => {
+    catalog.failNext("/catalog/query", { status: 200, body: emptyPage });
+    await openBrowse(tv);
+    const empty = tv.page.locator(".browse-empty-state .library-empty");
+    await empty.waitFor();
+    assert.equal(await empty.locator(".library-empty-title").innerText(), "This library is empty");
+    assert.equal(await empty.locator(".library-empty-body").innerText(), "There is nothing in this library yet.");
+    assert.equal(await empty.locator(".library-empty-icon").count(), 1);
+    assert.deepEqual(await empty.locator(".library-empty-title").evaluate(node => [getComputedStyle(node).fontSize, getComputedStyle(node).fontWeight]), [capped(28), "600"]);
+    assert.ok(((await tv.page.locator(".browse-empty-state").boundingBox())?.height ?? 0) >= 400);
+    assert.equal(await tv.focused(), "sort");
+});
+
+page("no filter matches shows Apple's icon and a Clear filters pill that Left from the rail reaches", async (tv, catalog) => {
+    await openBrowse(tv);
+    await tv.page.locator(".catalog-grid .browse-card").first().waitFor();
+    catalog.failNext("/catalog/query", { status: 200, body: emptyPage });
+    await chooseLetter(tv, "Q");
+    const empty = tv.page.locator(".browse-empty-state .library-empty");
+    await empty.waitFor();
+    assert.equal(await empty.locator(".library-empty-title").innerText(), "No titles match your filters");
+    assert.equal(await empty.locator(".library-empty-icon").count(), 1);
+    const clear = tv.page.locator('[data-focus="clear-filters"]');
+    const pill = await clear.evaluate(node => ({ background: getComputedStyle(node).backgroundColor, border: `${getComputedStyle(node).borderTopWidth} ${getComputedStyle(node).borderTopColor}`, gap: Math.round(node.getBoundingClientRect().top - document.querySelector(".browse-empty-state .library-empty-title")!.getBoundingClientRect().bottom) }));
+    assert.deepEqual(pill, { background: "rgba(255, 255, 255, 0.07)", border: "1px rgba(255, 255, 255, 0.09)", gap: 32 });
+    await tv.page.locator('[data-focus="letter:Q"]').focus();
+    await tv.remote(37);
+    assert.equal(await tv.focused(), "clear-filters");
+    await clear.focus();
+    await tv.eventually(async () => await clear.evaluate(node => getComputedStyle(node).transform) === "matrix(1.04, 0, 0, 1.04, 0, 0)", "the pill grows on focus");
+});
+
+page("the no-matches block keeps EmptyStateView's frames: a 52pt symbol frame, 28pt title and Clear filters 32 below", async (tv, catalog) => {
+    // EmptyStateView.swift:10-17 (5780c84): the 44pt symbol's image is 52 square, 12 above the 28pt semibold title, whose
+    // SF Pro line is 332.2 wide and 34 tall; TVLibraryGridView.swift:268-284 puts Clear filters 32 below, the whole block
+    // centred in the 400-tall area under the controls (Apple TV: 442 to 625).
+    await openBrowse(tv);
+    await tv.page.locator(".catalog-grid .browse-card").first().waitFor();
+    catalog.failNext("/catalog/query", { status: 200, body: emptyPage });
+    await chooseLetter(tv, "Q");
+    await tv.page.locator(".browse-empty-state .library-empty").waitFor();
+    const layout = await tv.page.evaluate(() => {
+        const box = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
+        const icon = box(".browse-empty-state .library-empty-icon"), ink = box(".browse-empty-state .library-empty-icon svg"), title = box(".browse-empty-state .library-empty-title"), clear = box('[data-focus="clear-filters"]');
+        const text = document.createRange(); text.selectNodeContents(document.querySelector(".browse-empty-state .library-empty-title")!);
+        return { icon: [icon.width, icon.height], ink: [ink.width, ink.top - icon.top], gaps: [title.top - icon.bottom, clear.top - title.bottom], title: title.height, text: Math.round(text.getBoundingClientRect().width * 10) / 10, top: Math.round(icon.top), bottom: Math.round(clear.bottom) };
+    });
+    assert.deepEqual({ ...layout, text: Math.abs(layout.text - 332) <= 1 }, { icon: [52, 52], ink: [44, 4], gaps: [12, 32], title: 34, text: true, top: 442, bottom: 625 });
+});
+
+page("a failed library probe keeps the no-matches message", async (tv, catalog) => {
+    await openBrowse(tv);
+    await tv.page.locator(".catalog-grid .browse-card").first().waitFor();
+    catalog.failNext("/catalog/query", { status: 200, body: emptyPage }, problem(422, "validation_failed", "Browse unavailable"));
+    await chooseLetter(tv, "Q");
+    await tv.page.locator(".browse-empty-state .library-empty-title").waitFor();
+    assert.equal(await tv.page.locator(".browse-empty-state .library-empty-title").innerText(), "No titles match your filters");
+    assert.equal(await tv.page.getByRole("alert").count(), 0);
+});
+
+page("a failed first Browse read shows Apple's error page under the controls", async (tv, catalog) => {
+    catalog.failNext("/catalog/query", problem(422, "validation_failed", "Browse unavailable"));
+    await openBrowse(tv);
+    const failure = tv.page.locator(".details-failure");
+    await failure.waitFor();
+    assert.equal(await failure.locator(".search-state-title").innerText(), "Something went wrong");
+    assert.deepEqual(await failure.locator(".browse-button").allInnerTexts(), ["Try Again"]);
+    assert.equal(await tv.page.locator('.browse-controls [data-focus="sort"]').count(), 1);
+    await tv.page.locator('[data-focus="sort"]').focus();
+    await tv.remote(40);
+    assert.equal(await tv.focused(), "retry");
+});
+
+page("an expanded section's loading-more indicator spins too", async tv => {
+    await tv.page.locator('[data-focus="movies"]').click();
+    await tv.page.locator('[data-focus="expand:library-picks"]').click();
+    const cards = tv.page.locator(".section-catalog-grid .browse-card");
+    await cards.first().waitFor();
+    const held = tv.fake.hold("/catalog/query", true);
+    try {
+        await cards.last().focus();
+        const spinner = tv.page.locator(".section-catalog-loading");
+        await spinner.waitFor();
+        assert.ok(await spinner.evaluate(node => node.querySelector("svg") !== null && node.getAnimations({ subtree: true }).length > 0), "the indicator draws and animates");
+    } finally { held.release(); }
+}, catalog => { for (let i = 61; i <= 160; i++) catalog.add({ id: `movie:x${i}`, type: "movie", title: `Extra ${i}`, libraryId: "12" }); });
 // TVCollectionPosterCard.swift:108-123 and TVMediaCard.swift:258-276 (5780c84): one tail-truncated line, centred under the card.
 const LONG_TITLE = "Trending Movies This Week Around the World";
 async function centredCaption(tv: Tv, card: string): Promise<{ text: string; offset: number; full: string | null }> {

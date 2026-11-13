@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import type { Browser } from "playwright";
-import { FakeWatchParty, ROOM_FILE_ID } from "../native/support/fakeWatchParty.ts";
+import { FakeWatchParty, ROOM_FILE_ID, ROOM_ID } from "../native/support/fakeWatchParty.ts";
 import { problem } from "../native/support/fakeSilo.ts";
-import { jumpUntil, launchBrowser, openTv, type Tv } from "./support/tv.ts";
+import { jumpUntil, launchBrowser, openTv, pauseTvClock, type Tv } from "./support/tv.ts";
 import { button, menuTitles, openHub, start } from "./support/watchParty.ts";
 
 let browser: Browser;
@@ -689,10 +689,18 @@ test("the ballot shows each tally and the leader; Select votes and takes it back
         assert.equal(await button(tv, "suggestion:heat").getAttribute("aria-label"), "Remove vote for Heat, 1 vote");
         assert.equal(await tv.focused(), "suggestion:heat", "focus stays on the card it voted for");
         assert.equal(await button(tv, "start").textContent(), "Start Dune", "a tie goes to the earlier suggestion");
+        // As on Apple, Start does nothing while a ballot change runs, and the server's broadcast can show the new tally before
+        // the change has read the ballot back. Hold the take-back's answer until that tally shows: the read-back then
+        // repaints the lobby once, in the same turn as the change ends, and Start waits for that repaint.
+        await pauseTvClock(tv);
+        const takeBack = tv.fake.hold(`/watch-together/rooms/${ROOM_ID}/suggestions/heat/vote`);
         await tv.page.keyboard.press("Enter");
         await tv.eventually(async () => JSON.stringify(await tallies(tv)) === JSON.stringify(["1", "0"]), "my vote taken back");
         assert.equal(fake.ballotChanges.at(-1)?.call, "DELETE /suggestions/heat/vote");
         assert.equal(await tv.focused(), "suggestion:heat");
+        const shown = await button(tv, "start").elementHandle();
+        takeBack.release();
+        await tv.eventually(async () => await shown?.evaluate(node => !node.isConnected) ?? false, "the take-back read the ballot back");
         await button(tv, "start").click();
         await tv.eventually(async () => (await tv.page.evaluate(() => window.browseHarness.plays.length)) === 1, "player opened");
         assert.equal(fake.ballotChanges.at(-1)?.call, "POST /suggestions/promote");

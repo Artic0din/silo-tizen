@@ -4091,7 +4091,8 @@ browseTest("episode-aware Search opens the series and preserves explicit informa
     await press(tv, "Enter");
     await showing(tv, "item:series:s1");
     await shows(tv, "Harbor Lights");
-    assert.equal(await tv.focused(), "next-episode");
+    // Watchlist stands in while Play reads its episode; the next episode takes focus once that read lands.
+    await tv.eventually(async () => await tv.focused() === "next-episode", "the next episode takes focus");
     assert.equal(await tv.page.locator('[data-view="item:episode:s1e12"]').count(), 0);
     assert.equal(await tv.page.evaluate(() => window.browseHarness.plays.length), 0);
     assert.equal(tv.fake.requests.some(request => request.method === "POST" && request.path === "/playback/start"), false);

@@ -10,6 +10,7 @@ import { fixture } from "./support/fakeSilo.ts";
 import { settle } from "./support/clock.ts";
 import type { NativeSession } from "../../src/session/session.ts";
 import { writeMayHaveApplied } from "../../src/ui/browseRoutes.ts";
+import { FakeKeyManager } from "./support/keyManager.ts";
 
 const spec: RequestSpec<unknown> = { method: "GET", path: "/home/sections", retry: "safe", decode: value => value };
 const offline = async (): Promise<never> => { throw new ApiError({ kind: "network" }); };
@@ -166,6 +167,92 @@ test("recovery drops a removed version selection", async () => {
     state.acceptDetail(detail);
     assert.equal(state.selectedFileId, undefined);
 });
+const signedHome = {
+    sections: [{ id: "recent", title: "Recently Added", access_token: "token-secret", items: [
+        { id: "a", title: "A", poster_url: "/api/v2/artwork/items/a/poster/w500.r1.webp?exp=99&sig=sig-secret", backdrop_url: "https://s3.private.test/items/a/backdrop/w1280.r1.webp?X-Amz-Signature=amz-secret", logo_url: "/api/v2/artwork/items/a/logo/original.r1.png?exp=99&sig=sig-secret", stream_url: "/stream?token=stream-secret" },
+        { id: "b", title: "B" },
+    ] }],
+};
+const secrets = /secret|sig=|https:|\/api\/v2|artwork/;
+const settled = (): Promise<void> => new Promise(resolve => setImmediate(resolve));
+
+test("a cold start restores snapshot artwork from protected storage, never public storage", async () => {
+    const store = storage(); const keyManager = new FakeKeyManager();
+    const cache = new BrowseCache(store, scope, new AbortController().signal, keyManager);
+    await cache.read(spec, async request => request.decode(signedHome));
+    await settled();
+    assert.doesNotMatch([...store.values.values()].join(), secrets);
+    assert.doesNotMatch([...keyManager.items.values()].join(), /token-secret|stream-secret|Recently Added|"title"/);
+    const failing = async (): Promise<never> => { throw new ApiError({ kind: "http", status: 500, retryAfterSeconds: undefined }); };
+    const cold = new BrowseCache(store, scope, new AbortController().signal, keyManager);
+    const item = signedHome.sections[0]!.items[0]!;
+    assert.deepEqual(cold.peek(spec), { sections: [{ id: "recent", title: "Recently Added", items: [
+        { id: "a", title: "A", poster_url: item.poster_url, backdrop_url: item.backdrop_url, logo_url: item.logo_url },
+        { id: "b", title: "B" },
+    ] }] });
+    await assert.rejects(cold.read(spec, failing));
+});
+
+test("snapshot artwork only returns to its own scope and unchanged snapshot", async () => {
+    const store = storage(); const keyManager = new FakeKeyManager();
+    await new BrowseCache(store, scope, new AbortController().signal, keyManager).read(spec, async request => request.decode(signedHome));
+    await settled();
+    const saved = JSON.parse(store.values.get("silo.browseSnapshots.v1")!);
+    saved.entries[0][1] = saved.entries[0][1].replace('"A"', '"Changed"');
+    store.setItem("silo.browseSnapshots.v1", JSON.stringify(saved));
+    assert.doesNotMatch(JSON.stringify(new BrowseCache(store, scope, new AbortController().signal, keyManager).peek(spec)), secrets);
+    new BrowseCache(store, ["server", "account", "other"], new AbortController().signal, keyManager);
+    assert.equal(keyManager.items.size, 0);
+});
+
+test("authority end and account removal remove protected snapshot artwork", async () => {
+    for (const end of ["authority", "account"] as const) {
+        const store = storage(); const keyManager = new FakeKeyManager(); const authority = new AbortController();
+        await new BrowseCache(store, scope, authority.signal, keyManager).read(spec, async request => request.decode(signedHome));
+        await settled();
+        assert.equal(keyManager.items.size, 1);
+        if (end === "authority") authority.abort(); else clearBrowseCache(store, ["server", "account"], keyManager);
+        assert.equal(keyManager.items.size, 0);
+    }
+});
+
+test("a retired owner's late failed save leaves the next owner's artwork", async () => {
+    const store = storage(); const keyManager = new FakeKeyManager(); const first = new AbortController();
+    const retired = keyManager.holdSaves();
+    await new BrowseCache(store, scope, first.signal, keyManager).read(spec, async request => request.decode(signedHome));
+    first.abort();
+    const current = keyManager.holdSaves();
+    const next = ["server", "account", "next"] as const;
+    await new BrowseCache(store, next, new AbortController().signal, keyManager).read(spec, async request => request.decode(signedHome));
+    current.release(); retired.release(); await settled();
+    assert.match(keyManager.items.get("silo.browseArtwork.v1") ?? "", /next/);
+    assert.match(JSON.stringify(new BrowseCache(store, next, new AbortController().signal, keyManager).peek(spec)), /sig-secret/);
+});
+
+test("artwork is saved again after a public storage failure removed it", async () => {
+    const store = storage(); const keyManager = new FakeKeyManager(); let fail = false;
+    const flaky = { ...store, setItem: (key: string, value: string) => { if (fail) throw new Error("QuotaExceededError"); store.setItem(key, value); } };
+    const cache = new BrowseCache(flaky, scope, new AbortController().signal, keyManager);
+    const home = async (request: RequestSpec<unknown>): Promise<unknown> => request.decode(signedHome);
+    await cache.read(spec, home); await settled();
+    fail = true; await cache.read(spec, home);
+    assert.equal(keyManager.items.size, 0);
+    fail = false; await cache.read(spec, home); await settled();
+    assert.match(JSON.stringify(new BrowseCache(store, scope, new AbortController().signal, keyManager).peek(spec)), /sig-secret/);
+});
+
+test("a save still pending when public storage fails cannot leave artwork without its snapshot", async () => {
+    const store = storage(); const keyManager = new FakeKeyManager(); let fail = false;
+    const flaky = { ...store, setItem: (key: string, value: string) => { if (fail) throw new Error("QuotaExceededError"); store.setItem(key, value); } };
+    const cache = new BrowseCache(flaky, scope, new AbortController().signal, keyManager);
+    const held = keyManager.holdSaves();
+    await cache.read(spec, async request => request.decode(signedHome));
+    fail = true; await cache.read(spec, async request => request.decode(signedHome));
+    held.release(); await settled();
+    assert.equal(store.values.size, 0);
+    assert.equal(keyManager.items.size, 0);
+});
+
 test("cached responses survive a new owner, remain available offline and recover", async () => {
     const store = storage();
     const cache = new BrowseCache(store, scope, new AbortController().signal);

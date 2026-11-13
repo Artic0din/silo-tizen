@@ -31,6 +31,7 @@ import { SeriesEpisodes } from "./seriesEpisodes.ts";
 import { CardActions } from "./cardActions.ts";
 import type { ConnectedServer } from "../session/core.ts";
 import type { PublicStorage } from "../session/deviceIdentity.ts";
+import type { TizenKeyManager } from "../session/secretStore.ts";
 import { Skyline } from "./skyline.ts";
 import { decodeImageCapabilities, type ImageCapabilities, homeArtworkQuery } from "../contracts/v2/images.ts";
 import { FocusHost, type FocusTarget } from "./browseFocus.ts";
@@ -91,6 +92,8 @@ export interface BrowseOptions {
     readonly profileAvatarText?: string;
     readonly clock?: Clock;
     readonly publicStorage?: PublicStorage;
+    /** Protected storage for the Home and For You snapshot artwork, which is signed. */
+    readonly keyManager?: TizenKeyManager;
     /** Replaces the `<audio>` element behind theme music. For tests. */
     readonly themeOutput?: (grant: ThemePlayback) => ThemeAudioOutput;
 }
@@ -141,7 +144,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     let profileAvatarUrl = options.profileAvatarUrl;
     let profileAvatarText = options.profileAvatarText;
     const clock = options.clock ?? systemClock;
-    const cache = browseCache(options.publicStorage, [server.server.serverId, session.account?.id ?? "", session.activeProfile.id], session.authoritySignal);
+    const cache = browseCache(options.publicStorage, [server.server.serverId, session.account?.id ?? "", session.activeProfile.id], session.authoritySignal, options.keyManager);
     // Route reads already discard through cache.read. Card menus, episode owners and
     // other session.call readers do not, so a 403 or 404 from any of them drops the
     // title here too. A transport failure is not a refusal and leaves the cache.

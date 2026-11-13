@@ -55,6 +55,7 @@ All notable changes to this project are documented in this file.
 ### Fixed
 
 - On a movie's page, moving down to Cast & Crew now always scrolls the page there. An answer that redrew the page during that scroll could stop it, leaving the row low on the screen.
+- Home now keeps its posters, backdrop and title art when it opens from the saved snapshot and the first live read fails, as on Apple TV. The signed artwork links are kept in the TV's protected key store, never in ordinary app storage.
 - The Person page's empty and error states now match Apple TV: an empty Filmography shows the film icon, "No titles found" and its explanation; a Filmography that failed to load shows Apple's error panel with Try Again under the filters; and a person who could not be loaded gets Apple's full-page error, with Go Back first when the person no longer exists.
 - The top bar and its menus now match Apple TV: tab labels are white and Apple's size, long tab names get Apple's full width, tabs and the avatar animate into focus, the avatar keeps its disc when focused and grows slightly, nameless profiles show a person glyph, the menus have Apple's lit surface and filled icons and grow from and fade back toward their tab, and Back on Home returns to the Home tab before offering to exit.
 - Title pages no longer show "Loading personal actions." under the actions or in More while your watched, favorite and watchlist state loads; as on Apple TV, the actions simply appear, and More lists Add to Favorites right away.

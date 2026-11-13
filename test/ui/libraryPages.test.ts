@@ -127,7 +127,8 @@ page("Recommended loads behind Apple's page outline, which holds focus until the
         assert.equal(await tv.page.locator(".discovery-skeleton").count(), 0, "no shimmering tile");
         assert.equal(await tv.page.locator(".library-loading-label").innerText(), "Loading Movies");
         const geometry = await loading.evaluate(node => {
-            const size = (element: Element | null) => { const box = element?.getBoundingClientRect(); return box === undefined ? undefined : [box.width, box.height]; };
+            // The page fades in, so read its sizes to the pixel.
+            const size = (element: Element | null) => { const box = element?.getBoundingClientRect(); return box === undefined ? undefined : [Math.round(box.width), Math.round(box.height)]; };
             return {
                 title: size(node.querySelector(".requests-loading-marquee > .requests-loading-bar")),
                 cards: [...node.querySelectorAll(".library-loading-card > .requests-loading-bar:first-child")].map(size),

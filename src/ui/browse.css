@@ -938,8 +938,9 @@
 .skyline-grid .skyline-content:has(.discovery-collection-grid) { top: 244px; left: 0; width: 1920px; height: 836px; padding: 0 80px 60px; }
 .browse-section:has(.discovery-collection-grid) { margin-bottom: 44px; }
 .browse-section:has(.discovery-collection-grid):last-child { margin-bottom: 0; }
-/* TVLibraryCollectionsView.swift:79-92: one regular-weight line, 20 above its cards (the grid adds no padding). */
-.collection-group-title { margin: 0 0 20px; overflow: hidden; font-family: ui-monospace, monospace; font-size: calc(22px * var(--silo-sf-cap-scale)); font-weight: 400; letter-spacing: 5.72px; color: rgba(237,237,237,.38); text-transform: uppercase; white-space: nowrap; text-overflow: ellipsis; }
+/* TVLibraryCollectionsView.swift:79-92: one regular-weight line, 20 above its cards (the grid adds no padding).
+   Monospaced text keeps Apple's 22pt, as .details-track-popover's header does. */
+.collection-group-title { margin: 0 0 20px; overflow: hidden; font-family: ui-monospace, monospace; font-size: 22px; font-weight: 400; letter-spacing: 5.72px; color: rgba(237,237,237,.38); text-transform: uppercase; white-space: nowrap; text-overflow: ellipsis; }
 .collection-group-title + .discovery-collection-grid { padding-top: 0; }
 .browse .catalog-grid .collection-poster { width: calc(260px * var(--poster-scale, 1)); height: auto; padding: 0; border: 0; border-radius: 0; background: none; }
 .browse .catalog-grid .collection-poster:focus { transform: none; background: none; box-shadow: none; }

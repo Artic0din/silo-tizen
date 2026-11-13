@@ -214,7 +214,8 @@ page("collection group headers and cards match Apple's grid", async tv => {
         const art = node.parentElement?.querySelector(".browse-art")?.getBoundingClientRect();
         return { weight: style.fontWeight, wrap: style.whiteSpace, overflow: style.textOverflow, size: style.fontSize, gap: art === undefined ? undefined : Math.round(art.top - node.getBoundingClientRect().bottom) };
     });
-    assert.deepEqual(header, { weight: "400", wrap: "nowrap", overflow: "ellipsis", size: capped(22), gap: 20 });
+    // Monospaced text keeps Apple's points, as the details popover header does.
+    assert.deepEqual(header, { weight: "400", wrap: "nowrap", overflow: "ellipsis", size: "22px", gap: 20 });
     await card.focus();
     const ring = await card.locator(".browse-art").evaluate(node => ({ offset: getComputedStyle(node).outlineOffset, width: getComputedStyle(node).outlineWidth, shadow: getComputedStyle(node).boxShadow }));
     assert.deepEqual(ring, { offset: "-2px", width: "4px", shadow: "rgba(0, 0, 0, 0.45) 0px 8px 36px 0px" });

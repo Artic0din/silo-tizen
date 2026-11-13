@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import type { Browser } from "playwright";
 import { FakeCatalog } from "../native/support/fakeCatalog.ts";
+import { FakeDetails } from "../native/support/fakeDetails.ts";
 import { FakeSettings } from "../native/support/fakeSettings.ts";
 import { problem } from "../native/support/fakeSilo.ts";
 import { HIDDEN_KEY } from "../../src/contracts/v2/settings.ts";
@@ -340,6 +341,34 @@ page("after a failed append, a card newly scrolled on screen reads again, as a c
     await tv.eventually(async () => await tv.page.locator(".catalog-grid .browse-card").count() > 100, "a card newly on screen reads again");
 }, catalog => { for (let i = 61; i <= 260; i++) catalog.add({ id: `movie:x${i}`, type: "movie", title: `Extra ${i}`, libraryId: "12" }); });
 
+test("a failed Browse refresh after a card change shows Apple's error page, not the stale grid", async () => {
+    // TVLibraryGridViewModel.swift:249-261, :325-340 (5780c84): a full re-read starts from an empty grid, so its failure is the
+    // ErrorView with Try Again. Only a failed next page keeps the cards quietly.
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const catalog = new FakeDetails();
+        await start(tv, catalog);
+        await openBrowse(tv);
+        await tv.page.locator(".catalog-grid .browse-card").first().waitFor();
+        let refreshes = 0;
+        await tv.page.route("**/api/v2/catalog/query?*", async route => {
+            const body = route.request().postDataJSON() as Record<string, unknown>;
+            if (body.cursor === undefined && body.limit === 100) { refreshes++; await route.fulfill({ status: 500, contentType: "application/problem+json", json: problem(500, "internal", "Server error").body }); }
+            else await route.fallback();
+        });
+        await tv.page.locator(".catalog-grid .browse-card").first().focus();
+        await tv.down(13); await tv.jump(650); await tv.up(13);
+        await tv.page.locator('[data-focus="watched"]').click();
+        await tv.eventually(async () => refreshes > 0, "the refresh after the change");
+        await tv.page.locator('[data-focus="retry"]').waitFor();
+        assert.equal(await tv.page.locator(".catalog-grid .browse-card").count(), 0, "the stale cards are gone");
+        await tv.page.unroute("**/api/v2/catalog/query?*");
+        await tv.page.locator('[data-focus="retry"]').focus();
+        await tv.page.keyboard.press("Enter");
+        await tv.page.locator(".catalog-grid .browse-card").first().waitFor();
+    } finally { await tv.page.context().close(); }
+});
+
 page("an empty library's Browse grid uses Apple's empty state and leaves focus on the controls", async (tv, catalog) => {
     catalog.failNext("/catalog/query", { status: 200, body: emptyPage });
     await openBrowse(tv);
@@ -370,6 +399,24 @@ page("no filter matches shows Apple's icon and a Clear filters pill that Left fr
     assert.equal(await tv.focused(), "clear-filters");
     await clear.focus();
     await tv.eventually(async () => await clear.evaluate(node => getComputedStyle(node).transform) === "matrix(1.04, 0, 0, 1.04, 0, 0)", "the pill grows on focus");
+});
+
+page("the no-matches block keeps EmptyStateView's frames: a 52pt symbol frame, 28pt title and Clear filters 32 below", async (tv, catalog) => {
+    // EmptyStateView.swift:10-17 (5780c84): the 44pt symbol's image is 52 square, 12 above the 28pt semibold title, whose
+    // SF Pro line is 332.2 wide and 34 tall; TVLibraryGridView.swift:268-284 puts Clear filters 32 below, the whole block
+    // centred in the 400-tall area under the controls (Apple TV: 442 to 625).
+    await openBrowse(tv);
+    await tv.page.locator(".catalog-grid .browse-card").first().waitFor();
+    catalog.failNext("/catalog/query", { status: 200, body: emptyPage });
+    await chooseLetter(tv, "Q");
+    await tv.page.locator(".browse-empty-state .library-empty").waitFor();
+    const layout = await tv.page.evaluate(() => {
+        const box = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
+        const icon = box(".browse-empty-state .library-empty-icon"), ink = box(".browse-empty-state .library-empty-icon svg"), title = box(".browse-empty-state .library-empty-title"), clear = box('[data-focus="clear-filters"]');
+        const text = document.createRange(); text.selectNodeContents(document.querySelector(".browse-empty-state .library-empty-title")!);
+        return { icon: [icon.width, icon.height], ink: [ink.width, ink.top - icon.top], gaps: [title.top - icon.bottom, clear.top - title.bottom], title: title.height, text: Math.round(text.getBoundingClientRect().width * 10) / 10, top: Math.round(icon.top), bottom: Math.round(clear.bottom) };
+    });
+    assert.deepEqual({ ...layout, text: Math.abs(layout.text - 332) <= 1 }, { icon: [52, 52], ink: [44, 4], gaps: [12, 32], title: 34, text: true, top: 442, bottom: 625 });
 });
 
 page("a failed library probe keeps the no-matches message", async (tv, catalog) => {

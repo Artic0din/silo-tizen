@@ -4,6 +4,7 @@ import type { Browser } from "playwright";
 import { FakeCatalog } from "../native/support/fakeCatalog.ts";
 import { FakePlayback } from "../native/support/fakePlayback.ts";
 import { FakeSettings } from "../native/support/fakeSettings.ts";
+import { problem } from "../native/support/fakeSilo.ts";
 import { SEEK_BACK_KEY, SEEK_FORWARD_KEY } from "../../src/contracts/v2/settings.ts";
 import { pressPin } from "./support/pin.ts";
 import { homeDetailsRead, launchBrowser, openTv, pauseTvClock, readLive, type Tv } from "./support/tv.ts";
@@ -207,6 +208,26 @@ for (const cached of [true, false]) appTest(`cold offline saved session opens Ho
     tv.offline = false;
     await tv.jump(50000);
     await tv.page.locator('[data-view="home"] .browse-card').first().waitFor();
+});
+
+appTest("cold start whose first Home read fails keeps snapshot artwork out of public storage", async tv => {
+    await signIn(tv, true);
+    const posters = '[data-view="home"] .browse-card img[src*="/art/"]';
+    await tv.page.locator(posters).first().waitFor();
+    await tv.eventually(async () => (await tv.page.evaluate(() => window.appHarness.keyManager.items.has("silo.browseArtwork.v1"))), "artwork saved");
+    const [snapshot, artwork] = await tv.page.evaluate(() => [window.appHarness.storage.getItem("silo.browseSnapshots.v1") ?? "", window.appHarness.keyManager.items.get("silo.browseArtwork.v1") ?? ""] as const);
+    assert.match(snapshot, /Recently Added/);
+    assert.doesNotMatch(snapshot, /_url|\/art\/|https?:|token/);
+    assert.match(artwork, /\/art\//);
+    assert.doesNotMatch(artwork, /Recently Added|token|"title"/);
+    const homeReads = (): string[] => tv.fake.requests.filter(r => r.path.startsWith("/home/sections")).map(r => r.path);
+    const failing = new Set(homeReads());
+    for (const path of failing) tv.fake.script(path, ...Array.from({ length: 5 }, () => problem(500, "internal", "Internal error")));
+    const before = homeReads().length;
+    await tv.page.evaluate(() => window.appHarness.mount());
+    await tv.eventually(async () => homeReads().length > before, "first Home read");
+    await tv.page.locator(posters).first().waitFor();
+    assert.ok(homeReads().slice(before).every(path => failing.has(path)), "every Home read after the cold start answered 500");
 });
 
 /** `landing` is where the sign-in ends; a test that expects it not to be the picker widens it. */
@@ -865,14 +886,14 @@ appTest("saved-server Select enters its pane and Back returns to its rail", asyn
 
 appTest("Add server Back returns to saved servers without changing credentials", async tv => {
     await signIn(tv);
-    const saved = await tv.page.evaluate(() => [...window.appHarness.keyManager.items]);
+    const saved = await tv.page.evaluate(() => [...window.appHarness.keyManager.items].filter(([alias]) => alias !== "silo.browseArtwork.v1"));
     await tv.page.locator('[data-focus="profiles"]').click();
     await tv.page.getByRole("menuitem", { name: "Change Account", exact: true }).click();
     await tv.page.getByRole("button", { name: "Add server", exact: true }).click();
     await tv.page.locator('[data-screen="entry"]').waitFor();
     await tv.remote(10009);
     assert.equal(await tv.page.locator('[data-view="change-account"]').count(), 1);
-    assert.deepEqual(await tv.page.evaluate(() => [...window.appHarness.keyManager.items]), saved);
+    assert.deepEqual(await tv.page.evaluate(() => [...window.appHarness.keyManager.items].filter(([alias]) => alias !== "silo.browseArtwork.v1")), saved);
     assert.equal(tv.fake.revokedSessions.size, 0);
 });
 
@@ -1016,7 +1037,7 @@ appTest("an offline saved server reports failure and Back preserves both servers
         directory.accounts.push({ ...directory.accounts[0]!, id: "offline-account", baseUrl: "https://offline.example.test" });
         storage.setItem("silo.native.accounts.v1", JSON.stringify(directory));
     });
-    const saved = await tv.page.evaluate(() => [...window.appHarness.keyManager.items]);
+    const saved = await tv.page.evaluate(() => [...window.appHarness.keyManager.items].filter(([alias]) => alias !== "silo.browseArtwork.v1"));
     await tv.page.locator('[data-focus="profiles"]').click();
     await tv.page.getByRole("menuitem", { name: "Change Account", exact: true }).click();
     const reads = tv.fake.requests.length;
@@ -1031,7 +1052,7 @@ appTest("an offline saved server reports failure and Back preserves both servers
     assert.equal(await tv.focused(), "connect");
     await tv.remote(10009);
     assert.equal(await tv.page.locator('.accounts-rail button').count(), 3);
-    assert.deepEqual(await tv.page.evaluate(() => [...window.appHarness.keyManager.items]), saved);
+    assert.deepEqual(await tv.page.evaluate(() => [...window.appHarness.keyManager.items].filter(([alias]) => alias !== "silo.browseArtwork.v1")), saved);
     assert.equal(tv.fake.revokedSessions.size, 0);
 });
 

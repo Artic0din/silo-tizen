@@ -4336,9 +4336,9 @@ browseTest("episode-aware Search preserves opaque paging scope, restarts on an i
     // SiloAPI.nextCatalogPage: a rejected cursor reads a fresh first page in place, with no error screen.
     catalog.failNext("/catalog", problem(400, "invalid_cursor", "Invalid cursor"));
     const before = browseReads(tv, "/catalog").length;
-    await toEnd();
     const later = (): URL[] => browseReads(tv, "/catalog").slice(before).map(request => new URL(request.path, "https://fake.invalid"));
-    await tv.eventually(async () => later().some(url => url.searchParams.get("cursor") === null), "a fresh first page after the rejected cursor");
+    // Back can start a next page on its own; a scroll during that read is ignored, so keep the end in view as a viewer would.
+    await tv.eventually(async () => { await toEnd(); return later().some(url => url.searchParams.get("cursor") === null); }, "a fresh first page after the rejected cursor");
     assert.ok(later()[0]?.searchParams.get("cursor") !== null, "the rejected read was a next page");
     const restart = later().find(url => url.searchParams.get("cursor") === null);
     assert.equal(restart?.searchParams.get("q"), "Signal");

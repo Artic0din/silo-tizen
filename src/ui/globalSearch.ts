@@ -11,7 +11,7 @@ import { requestCard, requestsState } from "./requests.ts";
 import { requestProgress } from "./requestProgress.ts";
 import { el } from "./screen.ts";
 import { searchRail } from "./searchRail.ts";
-import { balanceTwoLineText } from "./textLayout.ts";
+import { balanceTwoLineText, fitCentredLine } from "./textLayout.ts";
 
 export interface SearchSupplement {
     people?: readonly Person[];
@@ -117,6 +117,14 @@ export function globalSearchView(view: View, route: Extract<Route, { kind: "sear
             el("p", "search-requests-description", "Not in the library yet · tap to request"), rail);
         zones.push({ id: "search-requests", layout: "row", spatial: true, items });
     }
+    const grids = content.filter(node => node.classList.contains("browse-grid"));
+    const fit = (): void => {
+        for (const grid of grids) if (grid.isConnected) for (const line of grid.querySelectorAll<HTMLElement>(".browse-card-title, .browse-card-subtitle")) fitCentredLine(line);
+    };
+    requestAnimationFrame(() => {
+        fit();
+        if (document.fonts.status !== "loaded") void document.fonts.ready.then(fit);
+    });
     return { ...view, content, zones };
 }
 

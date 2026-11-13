@@ -1792,6 +1792,32 @@ browseTest("Search centres result captions under each poster and keeps request c
     for (const [name, line] of Object.entries(request)) assert.notEqual(line.align, "center", `request ${name} is not centred`);
 }, { catalog: new SearchCatalog(60) });
 
+browseTest("Search centres a truncated caption under its poster and keeps the full title for assistive tech", async (tv, catalog) => {
+    catalog.add({ id: "movie:long-title", type: "movie", title: "Law & Order: Special Victims Unit", libraryId: "12", year: 1999 });
+    await tv.page.locator('[data-focus="search"]').click();
+    await tv.page.fill("#browse-search", "Law & Order"); await tv.remote(IME_DONE);
+    const card = tv.page.locator('.search-scene > .browse-grid [data-focus="movie:long-title"]');
+    await card.waitFor();
+    // TVMediaCard: .lineLimit(1) and .truncationMode(.tail) in a card-wide, centred frame (TVMediaCard.swift:259-263).
+    const shown = await readLive(tv, () => {
+        const node = document.querySelector('.search-scene > .browse-grid [data-focus="movie:long-title"]');
+        const title = node?.querySelector(".browse-card-title");
+        const art = node?.querySelector(".browse-art")?.getBoundingClientRect();
+        if (title === null || title === undefined || art === undefined) return null;
+        const visible = [...title.childNodes].filter(child => !(child instanceof HTMLElement && child.getAttribute("aria-hidden") !== "true" && child.classList.contains("silo-sr-only")));
+        const range = document.createRange();
+        range.setStartBefore(visible[0]!); range.setEndAfter(visible.at(-1)!);
+        const box = range.getBoundingClientRect();
+        const text = visible.map(child => child.textContent).join("");
+        return { text, width: box.width, art: art.width, offset: box.left + box.width / 2 - (art.left + art.width / 2), lines: Math.round(box.height / parseFloat(getComputedStyle(title).lineHeight)) };
+    }, null, value => value.text.endsWith("…"), "the truncated caption");
+    assert.match(shown.text, /^Law & Order: Spe.*…$/, shown.text);
+    assert.ok(shown.width <= shown.art, `the shortened line fits the card: ${shown.width} > ${shown.art}`);
+    assert.ok(Math.abs(shown.offset) < 1, `the shortened line is centred, off by ${shown.offset}`);
+    assert.equal(shown.lines, 1);
+    await tv.page.getByRole("button", { name: /Law & Order: Special Victims Unit/ }).waitFor();
+});
+
 browseTest("Search counts results from the response total without an estimate marker", async (tv, catalog) => {
     await tv.page.locator('[data-focus="search"]').click();
     const items = Array.from({ length: 3 }, (_, index) => ({ content_id: `movie:estimate-${index}`, type: "movie", title: `Estimate ${index}` }));

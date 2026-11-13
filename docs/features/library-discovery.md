@@ -37,9 +37,6 @@ No collection creation or management controls are offered on this TV surface.
 Collection contents use `POST /catalog/query` with `source=library_collection` for curated collections or `source=user_collection` for personal collections, `collection_id` and the current library scope.
 This matches Apple's `LibraryCollectionDetailViewModel` and includes the profile's `user_state.played` for watched badges.
 The collection membership endpoint's listing projection omits that viewer state.
-Genres keeps filtered results and sort controls under the shared navigation.
-A–Z uses the server's letters, counts and positions with its query window cursor.
-Recently Added requests `added_at` descending.
 Expanded Home and library section rows read 60 cards at a time into one scrolling grid, reading more when the last six cards enter the viewport.
 Section queries send only their Home/library scope, section id, optional library id, limit and cursor, matching Apple's `sectionItems` builder; media filtering stays local because the server rejects query overlays on section sources.
 They retain loaded depth through Details and refresh explicitly invalidated state from the beginning through that depth.
@@ -104,11 +101,11 @@ The signed screen-calibration WGT at `f4096cd` has SHA-256 `81dbbd519e1dfd827443
 All 14 unpacked files matched the installed simulator files; their complete hashes are in [the installed asset manifest](../evidence/screenshots/117-section/installed-calibrated.sha256), SHA-256 `5e910bc2141ad8d298c2acc14be603fb18deaad096d9b3c998fa805f8d2c09a5`.
 The later append-404 correction is covered by native regression tests; it changes error handling without changing this screen geometry.
 
-Search capabilities control the Genres, A–Z and Recently Added destinations.
-Explicit unsupported capabilities leave Recommended, Browse and Collections available; failed capability and member reads show an error and Retry.
-A–Z and Recently Added grids have no marquee; the alphabet rail is on the right and supports remote entry and return.
+The library tabs offer only Apple's three destinations, Recommended, Collections and Browse (`TVLibraryPillRow.swift:7-10`); genre, A–Z and date added are Browse's filter, letter rail and sort.
+Browse's 1920 column, the letter rail and its 32 trailing overflow the screen and centre, as Apple's HStack does at silo-apple `5780c84` (`TVLibraryGridView.swift:98-108`, `TVCatalogGrid.swift:102-143`): the pills and grid start at x55 with the rail closed and slide to x16 as it opens, and the open rail draws on through the bottom safe area.
+The rail's letters, the Sort panel's heading and the filter count use the packaged Roboto Mono in place of SF Mono, because the TV has no monospaced system face (`app/fonts/README.md`).
 All requests use the existing operations/session/NativeHttp owners and active profile authority.
-Changing mode, scope or sort starts a fresh page sequence; Back restores the previous collection, section or genre focus.
+Changing mode, scope or sort starts a fresh page sequence; Back restores the previous collection or section focus.
 Each library mode remembers its own committed card and scroll position under the shared public view id.
 Loading and failed initial reads do not replace a saved visit with placeholder controls.
 Back from Details, playback or Settings keeps the saved position when its card still intersects the viewport and fits horizontally inside its shelf.

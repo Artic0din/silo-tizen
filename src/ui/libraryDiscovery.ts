@@ -2,35 +2,28 @@ import { operations } from "../api/operations.ts";
 import type { RequestSpec } from "../api/http.ts";
 import { ApiError } from "../api/errors.ts";
 import type { Card, HomeSection, UserLibrary } from "../contracts/v2/catalog.ts";
-import type { CatalogFilters, CatalogLetters, CatalogQueryRequest, CatalogSearchCapabilities, FilterGroup, LibraryCollections, MediaScope } from "../contracts/v2/discovery.ts";
+import type { CatalogFilters, CatalogQueryRequest, LibraryCollections, MediaScope } from "../contracts/v2/discovery.ts";
 import { scopeOf } from "./browseModel.ts";
 import { DEFAULT_FILTER, type BrowseFilter, type Facet } from "./libraryBrowse.ts";
 import type { SectionSnapshot } from "./sectionCatalogState.ts";
 
-export type LibraryMode = "Recommended" | "Browse" | "Collections" | "Genres" | "A–Z" | "Recently Added";
-export const LIBRARY_MODES: readonly LibraryMode[] = ["Recommended", "Collections", "Browse", "Genres", "A–Z", "Recently Added"];
+/** TVLibraryPill: the three destinations the top-bar cascade offers (TVLibraryPillRow.swift:7-10). */
+export type LibraryMode = "Recommended" | "Browse" | "Collections";
 export type BrowsePanel = { readonly kind: "sort" } | { readonly kind: "filter"; draft: BrowseFilter; facet: Facet | undefined; lastFacet: Facet | undefined };
 export interface BrowseChange { readonly filter?: BrowseFilter; readonly panel?: BrowsePanel | undefined; readonly preserve?: boolean; readonly focus?: import("./browseFocus.ts").FocusTarget }
 export interface DiscoveryData {
-    readonly capabilities: CatalogSearchCapabilities | undefined;
     readonly sections: readonly HomeSection[];
     /** A narrowed shelf could not be fully refilled (TVLibraryBrowseView.scopeIncomplete). */
     readonly incomplete?: boolean;
     /** Rows were narrowed to the tab's type (TVLibraryBrowseView.mediaScope). */
     readonly scoped?: boolean;
     readonly collections: LibraryCollections | undefined;
+    /** Browse's facet vocabulary. */
     readonly filters: CatalogFilters | undefined;
-    readonly letters: CatalogLetters | undefined;
 }
 export interface DiscoveryState {
-    capabilities: CatalogSearchCapabilities | undefined;
     mode: LibraryMode;
     data: DiscoveryData | undefined;
-    windowCursor: string | undefined;
-    seek: number | undefined;
-    letter: string | undefined;
-    genre: string | undefined;
-    descending: boolean;
     filter: BrowseFilter;
     panel: BrowsePanel | undefined;
     snapshot: SectionSnapshot | undefined;
@@ -38,9 +31,9 @@ export interface DiscoveryState {
     facets: CatalogFilters | undefined;
     facetsRequested: boolean;
 }
-export type LibrarySource = { readonly kind: "collection"; readonly id: string; readonly groupKind: "admin" | "user_collections" } | { readonly kind: "section"; readonly id: string } | { readonly kind: "genre"; readonly name: string };
+export type LibrarySource = { readonly kind: "collection"; readonly id: string; readonly groupKind: "admin" | "user_collections" } | { readonly kind: "section"; readonly id: string };
 export function discoveryState(): DiscoveryState {
-    return { capabilities: undefined, mode: "Recommended", data: undefined, windowCursor: undefined, seek: undefined, letter: undefined, genre: undefined, descending: false, filter: DEFAULT_FILTER, panel: undefined, snapshot: undefined, emptyReason: "libraryEmpty", facets: undefined, facetsRequested: false };
+    return { mode: "Recommended", data: undefined, filter: DEFAULT_FILTER, panel: undefined, snapshot: undefined, emptyReason: "libraryEmpty", facets: undefined, facetsRequested: false };
 }
 /** Apple BrowseMediaType.catalogTypeParam: an audiobook library is scoped by its id alone. */
 export function libraryScope(library: UserLibrary): { library_id: string; type?: MediaScope } {
@@ -50,21 +43,14 @@ export function libraryScope(library: UserLibrary): { library_id: string; type?:
 export function librarySectionQuery(libraryId: string, sectionId: string): CatalogQueryRequest {
     return { source: "section", scope: "library", section_id: sectionId, library_id: libraryId };
 }
-export function genreGroups(name: string): readonly FilterGroup[] {
-    return [{ match: "all", rules: [{ field: "genre", op: "is", value: name }] }];
-}
 export async function readDiscovery(library: UserLibrary, mode: LibraryMode, read: <T>(spec: RequestSpec<T>) => Promise<T>, artwork: Readonly<Record<string, string>> = {}, scope?: VideoScope): Promise<DiscoveryData> {
-    const capabilities = await read(operations.getCatalogSearchCapabilities());
-    const available = capabilities?.allowed === true && capabilities.state === "available";
     const { sections, incomplete } = mode === "Recommended" ? await readSections(library, read, artwork, scope) : { sections: [], incomplete: false };
     // TVLibraryCollectionsView.loadCollections (:183-191): a failed read is shown as no collections.
     const collections = mode === "Collections" ? await read(operations.getLibraryCollections(library.id)).catch((error: unknown) => {
         if (error instanceof ApiError && error.aborted) throw error;
         return undefined;
     }) : undefined;
-    const filters = mode === "Genres" && available && capabilities.extendedQueryRules === true ? await read(operations.getCatalogFilters(libraryScope(library))) : undefined;
-    const letters = mode === "A–Z" && available && capabilities.letterIndex === true ? await read(operations.queryCatalogLetters({ ...libraryScope(library), order: "asc" })) : undefined;
-    return { capabilities, sections, incomplete, scoped: scope !== undefined, collections, filters, letters };
+    return { sections, incomplete, scoped: scope !== undefined, collections, filters: undefined };
 }
 
 /** A library's Recommended shelves at these artwork sizes, narrowed and refilled to a video tab's type when scoped. */

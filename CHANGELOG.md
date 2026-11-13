@@ -49,12 +49,15 @@ All notable changes to this project are documented in this file.
 
 ### Removed
 
+- Removed the hidden Genres, A–Z and Recently Added library modes, which the remote could not reach. As on Apple TV, the Movies and Series tabs offer Recommended, Collections and Browse, and Browse's filters, letter rail and Date Added sort cover the same ground.
 - Removed the custom kbps field and Save action from the Maximum Bitrate picker. A stored cap outside the preset list still appears in that list.
 - Removed the Settings Hidden Libraries editor and duplicate Manage Servers navigation; existing hidden libraries can still be restored.
 - Removed Details Read synopsis, its expanded view, #66's personal star rating control, and Season details to match the controls reachable on Apple TV.
 
 ### Fixed
 
+- Browse's Sort and Filter panels now use Apple TV's top-bar panel look and fade in and out, their eyebrows, section headers and filter count are monospaced, long labels shrink before they truncate, and the current sort's direction stays grey on the focused row. The control pills, panel rows and letter rail animate focus as on Apple TV, the open rail keeps unfocused letters grey with Apple's spacing and scrolls to the focused letter, and Browse text uses Apple's sizes.
+- Browse now starts at Apple TV's 55px inset and slides left as the letter rail opens, so the open rail no longer draws over the last column and shows letters down to X. The rail's letters, the Sort panel's heading and the filter count draw in a packaged monospaced face on the TV. The Sort, Filter and Shuffle pills use Apple TV's symbol sizes, padding and spacing, and the Sort panel uses Apple's row spacing.
 - Browse on the Movies and Series tabs now uses Apple TV's loading, empty, no-matches and error pages: twelve still poster placeholders in the loaded grid's columns while loading, Apple's empty states with their icons, a Clear filters pill like Sort and Filter that Left from the letter rail reaches, and Apple's error page. A failed next page keeps the grid without an error and loads again as you scroll on to more titles, and the loading-more indicator now spins.
 - A long collection or Browse title is now shortened and centred under its card, as on Apple TV, instead of starting at the card's left edge.
 - A mixed library's Movies and Series tabs now show only movies or only series on Recommended, as on Apple TV, and say so when a shelf could not be fully loaded. Recommended and Collections now use Apple TV's loading, empty and error pages, a failed Collections read shows no collections, and collection cards and group headers match Apple TV's.

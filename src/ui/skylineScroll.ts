@@ -2,6 +2,9 @@ import { episodeRailOffset } from "./episodeRail.ts";
 
 /** Apple's focused History rows 2 and 3 put the unlifted poster top here. */
 const HISTORY_POSTER_TOP = 554;
+/** The open letter rail's chip and the gap above each after the first (browse.css .browse-letters). */
+const OPEN_LETTER = 38;
+const LETTER_GAP = 4;
 
 // Measured from the running Apple TV app at 7baff3e, 6 Nov 2026: tvOS focus reveal, not Swift offsets.
 // The poster headings were measured at Compact Poster Size.
@@ -210,7 +213,27 @@ export class SkylineScroll {
     reveal(element: HTMLElement, container: HTMLElement, previous?: Element | null, movingUp?: boolean): void {
         if (element.closest(".settings-categories") !== null) return;
         if (element.closest(".browse-nav, .skyline-selector:not(.details-audio-picker)") !== null) return;
-        const viewport = element.closest<HTMLElement>(".browse-panel-list, .details-popover-scroll, .details-audio-picker, .settings-modal-options, .settings-pane, .skyline-content, .accounts-rail, .accounts-pane, .accounts-settings") ?? container;
+        const viewport = element.closest<HTMLElement>(".browse-panel-list, .browse-letters, .details-popover-scroll, .details-audio-picker, .settings-modal-options, .settings-pane, .skyline-content, .accounts-rail, .accounts-pane, .accounts-settings") ?? container;
+        // TVAlphabetRail.swift:43-44: the open rail scrolls to the focused letter. Entering, its chips are still growing
+        // from 10 to 38, so measure the letter where it lands: each open chip is 38 tall, 4 below the one above. The rail draws
+        // into the bottom safe area like Apple's ScrollView but reveals within its frame, so its bottom padding stays clear.
+        if (viewport.matches(".browse-letters")) {
+            const top = Array.prototype.indexOf.call(viewport.children, element) * (OPEN_LETTER + LETTER_GAP);
+            const bottom = top + OPEN_LETTER;
+            const visible = viewport.clientHeight - parseFloat(getComputedStyle(viewport).paddingBottom);
+            const target = top < viewport.scrollTop ? top : bottom > viewport.scrollTop + visible ? bottom - visible : viewport.scrollTop;
+            viewport.scrollTop = target;
+            // A still-collapsed column is too short to scroll that far; finish once the chip has grown.
+            if (viewport.scrollTop < target) {
+                const grown = (event: TransitionEvent): void => {
+                    if (event.propertyName !== "height") return;
+                    element.removeEventListener("transitionend", grown);
+                    if (document.activeElement === element) viewport.scrollTop = target;
+                };
+                element.addEventListener("transitionend", grown);
+            }
+            return;
+        }
         // TVActionPopoverMenu.onAppear: a long list opens with its initial row in the centre; later moves reveal normally.
         if (viewport.matches(".details-popover-scroll") && (previous === undefined || previous === null || !viewport.contains(previous))) {
             viewport.scrollTop = Math.max(0, element.offsetTop - (viewport.clientHeight - element.offsetHeight) / 2);

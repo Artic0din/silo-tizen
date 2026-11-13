@@ -1,9 +1,9 @@
 import type { CollectionSummary, LibraryCollections } from "../contracts/v2/discovery.ts";
 import type { View, Zone } from "./browseFocus.ts";
 import { newPages, newRoute, type Route, type RouteHandlers } from "./browseRoutes.ts";
-import { actionButton, artwork, errorView, failureError, homeView, homeRows, lines, pagedGrid, zoneNode } from "./browseViews.ts";
+import { actionButton, artwork, errorView, failureError, homeView, homeRows, lines, zoneNode } from "./browseViews.ts";
 import { emptyState, pageOwner, recommendedLoading, type StateSymbol } from "./libraryStates.ts";
-import { LIBRARY_MODES, type DiscoveryState, type LibrarySource } from "./libraryDiscovery.ts";
+import type { DiscoveryState, LibrarySource } from "./libraryDiscovery.ts";
 import { el } from "./screen.ts";
 import { fitCentredLines } from "./textLayout.ts";
 import { browsePage, icon, panelFocus, shuffleAlert } from "./libraryBrowseViews.ts";
@@ -22,30 +22,16 @@ function fitCaptions(content: readonly HTMLElement[]): void {
         if (document.fonts.status !== "loaded") void document.fonts.ready.then(fit);
     });
 }
-export function availableModes(caps: DiscoveryState["capabilities"]): readonly import("./libraryDiscovery.ts").LibraryMode[] {
-    const available = caps?.allowed === true && caps.state === "available";
-    return LIBRARY_MODES.filter(mode => mode === "Recommended" || mode === "Browse" || mode === "Collections" || (available && (mode === "Recently Added" || (mode === "Genres" ? caps.extendedQueryRules === true : caps.letterIndex === true))));
-}
+
 export function discoveryView(route: LibraryRoute, state: DiscoveryState, handlers: RouteHandlers): View {
-    const pills = availableModes(state.data?.capabilities ?? state.capabilities).map(mode => {
-        const item = actionButton(`mode:${mode}`, mode, () => handlers.mode(route, mode));
-        item.element.setAttribute("aria-pressed", String(state.mode === mode));
-        return item;
-    });
-    const pillRow = zoneNode("skyline-pills", pills);
-    pillRow.appendChild(el("span", "skyline-scope", route.library.name));
-    const primary = state.mode === "Recommended" || state.mode === "Collections" || state.genre !== undefined;
-    const content: HTMLElement[] = primary ? [] : [pillRow];
-    const zones: Zone[] = primary ? [] : [{ id: "pills", layout: "row", items: pills, ...(state.mode === "A–Z" ? { down: "grid" } : {}) }];
-    const open = (title: string, source: LibrarySource): void => handlers.push(newRoute({ kind: "libraryResults", library: route.library, title, source, pages: newPages(), descending: false }));
+    const content: HTMLElement[] = [];
+    const zones: Zone[] = [];
+    const open = (title: string, source: LibrarySource): void => handlers.push(newRoute({ kind: "libraryResults", library: route.library, title, source, pages: newPages() }));
+    // TVLibraryGridView draws no mode pills; Up from Sort is the top bar.
     if (state.mode === "Browse") {
         const page = browsePage(route, state, handlers);
-        // TVLibraryGridView (abf4ac45) draws no mode pills. The actions stay in
-        // the document for Genres, A–Z and Recently Added, but they are not
-        // shown and not a focus stop. Up from Sort is the top bar.
-        pillRow.hidden = true;
         fitCaptions(page.content);
-        return { name: `library:${route.library.id}`, content: [pillRow, ...page.content], zones: page.zones, focus: panelFocus(state) ?? { zone: "controls", key: "sort" }, back: page.back ?? handlers.pop, ready: state.snapshot !== undefined };
+        return { name: `library:${route.library.id}`, content: page.content, zones: page.zones, focus: panelFocus(state) ?? { zone: "controls", key: "sort" }, back: page.back ?? handlers.pop, ready: state.snapshot !== undefined };
     }
     const name = route.library.name;
     const ownedPage = (page: HTMLElement, label: string): void => {
@@ -72,16 +58,7 @@ export function discoveryView(route: LibraryRoute, state: DiscoveryState, handle
         const loadingCollections = state.data === undefined && route.failure === undefined;
         if (!loadingCollections) page.append(emptyState("square.stack", "No collections yet", "Collections created on the server will appear here."));
         ownedPage(page, loadingCollections ? "Loading collections" : "No collections yet");
-    } else if (route.failure !== undefined) {
-        const retry = actionButton("retry", "Try again", () => handlers.retry(route));
-        content.push(...lines([route.failure], "error"), zoneNode("browse-actions", [retry]));
-        zones.push({ id: "status", layout: "row", items: [retry] });
-    } else if (state.data === undefined) {
-        const skeleton = el("div", "discovery-skeleton");
-        skeleton.setAttribute("role", "status");
-        skeleton.setAttribute("aria-label", state.mode === "Collections" ? "Loading collections" : "Loading");
-        content.push(skeleton);
-    } else if (state.mode === "Recommended") {
+    } else if (state.mode === "Recommended" && state.data !== undefined) {
         rows.forEach(({ section }) => {
             const row = homeView([], [section], handlers.context, {
                 expand: value => open(value.title, { kind: "section", id: value.id }),
@@ -94,7 +71,7 @@ export function discoveryView(route: LibraryRoute, state: DiscoveryState, handle
         });
         // TVLibraryBrowseView.swift:84-89: the overlay that says a narrowed shelf is short.
         if (state.data.incomplete === true) content.push(el("p", "library-incomplete", "Some shelves could not be fully loaded. Open Browse to see this media type."));
-    } else if (state.mode === "Collections") {
+    } else if (state.mode === "Collections" && state.data !== undefined) {
         const collections = state.data.collections;
         const groups = collections?.groups ?? [];
         const types = new Map((collections?.collections ?? []).map(collection => [collection.id, collection.collectionType]));
@@ -105,40 +82,8 @@ export function discoveryView(route: LibraryRoute, state: DiscoveryState, handle
         for (const group of ordered) {
             if (group.kind === "admin" || group.kind === "user_collections" || group.kind === "unknown") collectionRow(group.id, group.name, group.collections, group.kind === "user_collections" ? "user_collections" : "admin", true, types);
         }
-    } else if (state.mode === "Genres" && state.genre === undefined) {
-        const items = (state.data.filters?.genres ?? []).map(name => actionButton(`genre:${name}`, name, () => handlers.genre(route, name)));
-        content.push(zoneNode("discovery-facets", items));
-        zones.push({ id: "genres", layout: "grid", columns: 6, items });
-    } else {
-        if (state.genre !== undefined) {
-            const sort = actionButton("sort", state.descending ? "Title Z–A" : "Title A–Z", () => handlers.sort(route));
-            content.push(el("h2", "browse-section-title", state.genre), zoneNode("browse-actions", [sort]));
-            zones.push({ id: "actions", layout: "row", items: [sort] });
-        }
-        if (state.mode === "A–Z") {
-            const letters = (state.data.letters?.letters ?? []).map(letter => {
-                const item = actionButton(`letter:${letter.letter}`, letter.letter, () => handlers.jump(route, letter.letter, letter.position));
-                item.element.setAttribute("aria-label", `${letter.letter}, ${letter.count} titles`);
-                item.element.setAttribute("aria-pressed", String(state.letter === letter.letter));
-                return item;
-            });
-            content.push(zoneNode("discovery-letters", letters));
-            zones.push({ id: "letters", layout: "column", left: "grid", up: "nav", items: letters });
-        }
-        if (route.pages.page !== undefined) {
-            if (route.pages.page.items.length === 0) content.push(...lines(["No titles"]));
-            const grid = pagedGrid({ page: route.pages.page, index: route.pages.index, pageSize: 24, loading: handlers.busy, previous: () => handlers.turn(route, route.pages, -1), next: () => handlers.turn(route, route.pages, 1) }, handlers.context);
-            content.push(...grid.content);
-            zones.push(...grid.zones.map(zone => state.mode === "A–Z" && zone.id === "grid" ? { ...zone, up: "nav", right: "letters" } : zone));
-        } else if (handlers.busy) {
-            const loading = el("div", "discovery-skeleton");
-            loading.setAttribute("aria-label", "Loading");
-            loading.setAttribute("role", "status");
-            content.push(loading);
-        }
     }
-    if (state.data !== undefined && route.failure === undefined && state.mode !== "Recommended" && state.mode !== "Collections" && zones.every(zone => zone.items.length === 0 || (zone.id === "pills" && state.mode === "Genres" && state.genre === undefined))) content.push(...lines(["No titles"]));
-    const firstZone = zones.find(zone => (zone.id === "grid" || zone.id.startsWith("section:")) && zone.items.length > 0) ?? zones.find(zone => zone.id !== "pills" && zone.items.length > 0) ?? zones.find(zone => zone.items.length > 0);
+    const firstZone = zones.find(zone => zone.id.startsWith("section:") && zone.items.length > 0) ?? zones.find(zone => zone.items.length > 0);
     const first = firstZone?.items[0];
     fitCaptions(content);
     return { name: state.data === undefined && route.failure === undefined ? "library:loading" : `library:${route.library.id}`, content, zones, focus: first === undefined ? { zone: "nav", key: route.library.type === "series" ? "series" : "movies" } : { zone: firstZone?.id ?? "nav", key: first.key }, back: handlers.pop };
@@ -236,7 +181,6 @@ export function resultsView(route: Extract<Route, { kind: "libraryResults" }>, g
     }
     const back = actionButton("back", "Back", handlers.pop);
     const controls = [back];
-    if (route.source.kind === "genre") controls.push(actionButton("sort", route.descending ? "Title Z–A" : "Title A–Z", () => handlers.sort(route)));
     if (route.failure !== undefined) controls.push(actionButton("retry", "Try again", () => handlers.retry(route)));
     const first = grid.zones.find(zone => zone.items.length > 0);
     return { name: `results:${route.library.id}:${route.title}`, content: [el("h1", "browse-title", route.title), zoneNode("browse-actions", controls), ...(route.failure === undefined ? [] : lines([route.failure], "error")), ...(grid.zones[0]?.items.length === 0 ? lines(route.source.kind === "collection" ? ["Collection is empty", "This collection does not have any items yet."] : ["No titles"]) : []), ...grid.content], zones: [{ id: "actions", layout: "row", items: controls }, ...grid.zones], focus: first?.items[0] === undefined ? { zone: "actions", key: "back" } : { zone: first.id, key: first.items[0].key }, back: handlers.pop };

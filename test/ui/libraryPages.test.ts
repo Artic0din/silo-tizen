@@ -267,7 +267,8 @@ page("Browse's placeholders sit in the loaded grid's columns", async tv => {
     } finally { held.release(); }
     await tv.page.locator(".catalog-grid .browse-card").first().waitFor();
     const loaded = await geometry(".catalog-grid .browse-card .browse-art");
-    assert.deepEqual(loaded, { lefts: [80, 380, 680, 980, 1280, 1580, 80], widths: [260, 260, 260, 260, 260, 260, 260], grid: [80, 1840] });
+    // Apple TV at 5780c84 with the rail closed: columns from x55 on a 300 pitch, the last ending at x1815.
+    assert.deepEqual(loaded, { lefts: [55, 355, 655, 955, 1255, 1555, 55], widths: [260, 260, 260, 260, 260, 260, 260], grid: [55, 1815] });
     assert.deepEqual(skeleton, loaded);
 });
 
@@ -454,6 +455,369 @@ page("an expanded section's loading-more indicator spins too", async tv => {
         assert.ok(await spinner.evaluate(node => node.querySelector("svg") !== null && node.getAnimations({ subtree: true }).length > 0), "the indicator draws and animates");
     } finally { held.release(); }
 }, catalog => { for (let i = 61; i <= 160; i++) catalog.add({ id: `movie:x${i}`, type: "movie", title: `Extra ${i}`, libraryId: "12" }); });
+// Sort, Filter and the letter rail, against TVBrowseFilterUI, TVAlphabetRail and TVSkylinePanelChrome.
+const LONG_GENRE = "Psychological Science Fiction Mystery Thriller Anthology Miniseries Special";
+const style = (tv: Tv, selector: string, ...properties: string[]) => tv.page.locator(selector).first().evaluate((node, names) => Object.fromEntries(names.map(name => [name, getComputedStyle(node).getPropertyValue(name)])), properties);
+async function browseReady(tv: Tv): Promise<void> {
+    await openBrowse(tv);
+    await tv.page.locator(".catalog-grid .browse-card").first().waitFor();
+}
+
+page("Sort and Filter panels use the top-bar panel chrome and fade in and out", async tv => {
+    await browseReady(tv);
+    await tv.page.locator('[data-focus="sort"]').focus();
+    await tv.page.keyboard.press("Enter");
+    const panel = tv.page.locator(".browse .browse-sort-panel");
+    await panel.waitFor();
+    const chrome = await style(tv, ".browse .browse-sort-panel", "background-image", "box-shadow", "border-top-width", "border-radius");
+    assert.deepEqual(chrome, {
+        "background-image": "linear-gradient(rgba(35, 37, 44, 0.92), rgba(20, 21, 25, 0.95))",
+        "box-shadow": "rgba(0, 0, 0, 0.35) 0px 4px 16px 0px, rgba(0, 0, 0, 0.55) 0px 24px 80px 0px",
+        "border-top-width": "0px",
+        "border-radius": "22px",
+    });
+    // Declared timing, not running animations: a slow run can finish a 180 ms fade before it is read.
+    const fades = await tv.page.evaluate(() => [".browse .browse-panel-scrim", ".browse .browse-sort-panel"].map(selector => {
+        const node = document.querySelector(selector);
+        return node === null ? undefined : [getComputedStyle(node).animationDuration, getComputedStyle(node).animationTimingFunction];
+    }));
+    assert.deepEqual(fades, [["0.18s", "ease-out"], ["0.18s", "ease-out"]]);
+    const focused = { "background-color": "rgb(237, 237, 237)", color: "rgb(0, 0, 0)" };
+    // The row's fill eases in over 120 ms.
+    await tv.eventually(async () => JSON.stringify(await style(tv, '[data-focus="sort:title"]', "background-color", "color")) === JSON.stringify(focused), "the focused Sort row is white");
+    await tv.remote(10009);
+    const leaving = await tv.page.evaluate(() => [...document.querySelectorAll(".browse-panel-leaving")].map(node => [node.classList.contains("browse-panel-scrim") || node.classList.contains("browse-sort-panel"), getComputedStyle(node).animationDuration, node.querySelector("[data-focus]") === null]));
+    assert.deepEqual(leaving, [[true, "0.18s", true], [true, "0.18s", true]]);
+    // The fading copy keeps the focused row's white fill and dark text rather than dropping them at once.
+    const ghostRow = await style(tv, ".browse-panel-leaving .browse-panel-row", "background-color", "color");
+    assert.deepEqual(ghostRow, focused);
+    assert.equal(await tv.focused(), "sort");
+});
+
+page("Sort keeps Apple's text: monospaced eyebrow, capped rows and a quiet direction on the focused row", async tv => {
+    await browseReady(tv);
+    assert.deepEqual(await style(tv, '[data-focus="sort"]', "font-size", "transition-property", "transition-duration"), { "font-size": capped(24), "transition-property": "transform, background-color, color", "transition-duration": "0.12s, 0.12s, 0.12s" });
+    await tv.page.locator('[data-focus="sort"]').focus();
+    await tv.page.keyboard.press("Enter");
+    await tv.page.locator('[data-focus="sort:title"]').waitFor();
+    assert.equal(await tv.focused(), "sort:title");
+    const eyebrow = await style(tv, ".browse-sort-panel .browse-panel-eyebrow", "font-family", "font-size");
+    assert.match(eyebrow["font-family"] ?? "", /monospace/);
+    assert.equal(eyebrow["font-size"], "18px");
+    assert.deepEqual(await style(tv, '[data-focus="sort:title"]', "font-size", "transition-property"), { "font-size": capped(26), "transition-property": "background-color, color" });
+    assert.equal((await style(tv, '[data-focus="sort:title"] .browse-panel-detail', "color"))["color"], "rgba(237, 237, 237, 0.6)");
+    assert.deepEqual(await style(tv, '[data-focus="sort:title"] .browse-panel-detail + .browse-icon', "width", "opacity"), { width: "26px", opacity: "1" });
+});
+
+page("with no grid, Browse keeps the plain 1870 column: pills at 80, the rail at its edge, the block at the column's centre", async (tv, catalog) => {
+    // TVLibraryGridView.swift:98-108, :206-213 (5780c84): only the grid's 260 cards hold the column at 1920. A no-matches page
+    // has nothing that wide, so the column is 1920 - 18 - 32 and nothing overflows; its centred block follows the column.
+    await tv.page.emulateMedia({ reducedMotion: "reduce" });
+    await openBrowse(tv);
+    await tv.page.locator(".catalog-grid .browse-card").first().waitFor();
+    catalog.failNext("/catalog/query", { status: 200, body: emptyPage });
+    await chooseLetter(tv, "Q");
+    await tv.page.locator(".browse-empty-state .library-empty").waitFor();
+    const layout = () => tv.page.evaluate(() => {
+        const box = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
+        const icon = box(".browse-empty-state .library-empty-icon"), rail = box(".browse-letters");
+        // The block centres on a fractional title width; Linux lays it out to 1/64 px, so read the centre to the pixel.
+        return { controls: box(".browse-controls").left, rail: [rail.left, rail.right], centre: Math.round((icon.left + icon.right) / 2) };
+    });
+    await tv.page.locator('[data-focus="clear-filters"]').focus();
+    assert.deepEqual(await layout(), { controls: 80, rail: [1870, 1888], centre: 935 });
+    await tv.page.locator('[data-focus="letter:Q"]').focus();
+    await tv.page.waitForTimeout(300);
+    assert.deepEqual(await layout(), { controls: 80, rail: [1792, 1888], centre: 896 });
+});
+
+page("Clear filters and a counted Filter pill keep Apple's widths", async (tv, catalog) => {
+    // TVLibraryGridView.swift:276-283: xmark.circle and "Clear filters" at 24pt medium, 22 + 29 + 10 + 122 + 22 = 205.
+    // TVBrowseFilterUI.swift:46-56: the count is 18pt bold SF Mono, 8 either side, so "1" makes a 28 badge and a 177 pill.
+    await openBrowse(tv);
+    await tv.page.locator(".catalog-grid .browse-card").first().waitFor();
+    await tv.page.locator('[data-focus="filter"]').focus();
+    await tv.page.keyboard.press("Enter");
+    await tv.page.locator('[data-focus="facet:genre"]').focus();
+    await tv.page.keyboard.press("Enter");
+    catalog.failNext("/catalog/query", { status: 200, body: emptyPage });
+    await tv.page.locator('[data-focus="value:Drama"]').focus();
+    await tv.page.keyboard.press("Enter");
+    await tv.remote(37);
+    await tv.page.locator('[data-focus="done"]').focus();
+    await tv.page.keyboard.press("Enter");
+    await tv.page.locator('[data-focus="clear-filters"]').waitFor();
+    await tv.page.locator(".browse-letters .browse-button").first().focus();
+    await tv.page.waitForTimeout(300);
+    const widths = await tv.page.evaluate(() => {
+        const width = (selector: string) => document.querySelector(selector)!.getBoundingClientRect().width;
+        const icon = document.querySelector('[data-focus="clear-filters"] .browse-icon')!.getBoundingClientRect();
+        return { clear: width('[data-focus="clear-filters"]'), clearSymbol: [icon.width, icon.height], filter: width('[data-focus="filter"]'), badge: width(".browse-control-count") };
+    });
+    assert.deepEqual(widths, { clear: 205, clearSymbol: [29, 29], filter: 177, badge: 28 });
+});
+
+page("Sort rows keep Apple's 26pt checkmark frame, so labels start 58 into the row", async tv => {
+    // TVBrowseFilterUI.swift:132-147 (5780c84): HStack(spacing: 14) { checkmark, label } inside 16 padding. The 26pt regular
+    // checkmark's image is 28×27, and rows without it keep the same frame at opacity 0.
+    await browseReady(tv);
+    await tv.page.locator('[data-focus="sort"]').focus();
+    await tv.page.keyboard.press("Enter");
+    await tv.page.locator('[data-focus="sort:title"]').waitFor();
+    const rows = await tv.page.evaluate(() => [...document.querySelectorAll(".browse-sort-panel .browse-panel-row")].map(row => {
+        const box = row.getBoundingClientRect(), icon = row.querySelector(".browse-icon")!.getBoundingClientRect(), label = row.querySelector(".browse-panel-text")!.getBoundingClientRect();
+        return { label: label.left - box.left, icon: [icon.width, icon.height], strokes: [...row.querySelectorAll(".browse-icon:first-child path")].map(path => path.getAttribute("stroke-width")) };
+    }));
+    assert.deepEqual(rows[0], { label: 58, icon: [28, 27], strokes: ["2.42"] });
+    for (const row of rows.slice(1)) assert.deepEqual(row, { label: 58, icon: [28, 27], strokes: [] });
+});
+
+page("Filter text is Apple's: capped rows, monospaced headers and count, and long labels shrink before truncating", async tv => {
+    await browseReady(tv);
+    await tv.page.locator('[data-focus="filter"]').focus();
+    await tv.page.keyboard.press("Enter");
+    await tv.page.locator('[data-focus="facet:genre"]').waitFor();
+    assert.equal((await style(tv, ".browse-filter-panel .browse-panel-title", "font-size"))["font-size"], capped(34));
+    const section = await style(tv, ".browse-filter-panel .browse-panel-section", "font-family", "font-size");
+    assert.match(section["font-family"] ?? "", /monospace/);
+    assert.equal(section["font-size"], "15px");
+    for (const [key, points] of [["facet:genre", 25], ["match:all", 23], ["preserve", 23], ["done", 25]] as const) assert.equal((await style(tv, `[data-focus="${key}"]`, "font-size"))["font-size"], capped(points), key);
+    await tv.page.keyboard.press("Enter");
+    const value = tv.page.locator(`[data-focus="value:${LONG_GENRE}"] .browse-panel-text`);
+    await value.waitFor();
+    const size = parseFloat(await value.evaluate(node => getComputedStyle(node).fontSize));
+    assert.ok(size < 24 * CAP && size >= 24 * CAP * 0.85 - 0.01, `value label shrinks to at most 85%: ${size}`);
+    await tv.page.locator(`[data-focus="value:${LONG_GENRE}"]`).focus();
+    await tv.page.keyboard.press("Enter");
+    await tv.remote(37);
+    const summary = tv.page.locator('[data-focus="facet:genre"] .browse-panel-detail');
+    await tv.eventually(async () => (await summary.innerText()) === LONG_GENRE, "the facet summary names the value");
+    const summarySize = parseFloat(await summary.evaluate(node => getComputedStyle(node).fontSize));
+    assert.ok(summarySize < 25 * CAP && summarySize >= 25 * CAP * 0.8 - 0.01, `facet summary shrinks to at most 80%: ${summarySize}`);
+    await tv.page.locator('[data-focus="done"]').focus();
+    await tv.page.keyboard.press("Enter");
+    // Done re-renders the controls; read the badge once it has settled (a detached node has no computed style).
+    let badge: Record<string, string> = {};
+    await tv.eventually(async () => { badge = await style(tv, ".browse-control-count", "font-family", "font-size"); return /monospace/.test(badge["font-family"] ?? ""); }, "the monospaced filter count");
+    assert.equal(badge["font-size"], "18px");
+}, catalog => {
+    const original = catalog.route.bind(catalog);
+    catalog.route = (method, path, profile, body) => path.startsWith("/catalog/filters") ? { status: 200, body: { ...(original(method, path, profile, body)?.body as Record<string, unknown>), genres: [LONG_GENRE, "Drama"] } } : original(method, path, profile, body);
+});
+
+page("the open letter rail keeps unfocused letters dim, spaces its chips and scrolls to the focused letter", async tv => {
+    await tv.page.emulateMedia({ reducedMotion: "reduce" });
+    await browseReady(tv);
+    await tv.page.locator('[data-focus="letter:A"]').focus();
+    assert.equal((await style(tv, '[data-focus="letter:B"]', "color"))["color"], "rgba(237, 237, 237, 0.6)");
+    const gap = await tv.page.evaluate(() => {
+        const a = document.querySelector('[data-focus="letter:A"]')!.getBoundingClientRect(), b = document.querySelector('[data-focus="letter:B"]')!.getBoundingClientRect();
+        return [a.height, b.top - a.bottom];
+    });
+    assert.deepEqual(gap, [38, 4]);
+    await tv.page.locator('[data-focus="letter:Z"]').focus();
+    await tv.eventually(async () => {
+        const box = await tv.page.locator('[data-focus="letter:Z"]').boundingBox();
+        return box !== null && box.y >= 0 && box.y + box.height <= 1020;
+    }, "the rail scrolls to the focused letter");
+});
+
+page("rail letters animate focus, growth and a held Select's 0.96 press", async tv => {
+    await browseReady(tv);
+    assert.deepEqual(await style(tv, '[data-focus="letter:Z"]', "transition-property"), { "transition-property": "background-color, color, transform, width, height, font-size, line-height" });
+    await tv.page.locator('[data-focus="letter:M"]').focus();
+    await tv.page.keyboard.down("Enter");
+    const letter = tv.page.locator('[data-focus="letter:M"]');
+    await tv.eventually(async () => await letter.getAttribute("data-pressed") === "", "the letter is drawn pressed");
+    await tv.page.keyboard.up("Enter");
+    await tv.eventually(async () => await letter.getAttribute("data-pressed") === null, "release clears the press");
+});
+
+
+page("re-entering the rail at a late letter scrolls it into view once the chips have grown", async tv => {
+    await browseReady(tv);
+    await tv.page.locator('[data-focus="letter:Z"]').focus();
+    await tv.page.waitForTimeout(400);
+    await tv.remote(37);
+    assert.notEqual(await tv.focused(), "letter:Z");
+    // Leave the rail so it collapses, then come back from the grid's last column.
+    await tv.page.locator(".catalog-grid .browse-card").nth(5).focus();
+    await tv.page.waitForTimeout(400);
+    await tv.remote(39);
+    assert.equal(await tv.focused(), "letter:Z");
+    await tv.page.waitForTimeout(400);
+    const box = await tv.page.locator('[data-focus="letter:Z"]').boundingBox();
+    assert.ok(box !== null && box.y >= 0 && box.y + box.height <= 1020, JSON.stringify(box));
+});
+
+page("a closing Filter panel fades from what was on screen", async tv => {
+    await browseReady(tv);
+    await tv.page.locator('[data-focus="filter"]').focus();
+    await tv.page.keyboard.press("Enter");
+    await tv.page.locator('[data-focus="facet:genre"]').waitFor();
+    await tv.page.locator('[data-focus="done"]').focus();
+    await tv.eventually(async () => await tv.page.locator(".browse .browse-panel-list").evaluate(node => node.scrollTop > 0), "the list scrolls to Done");
+    const live = await tv.page.evaluate(() => ({ top: document.querySelector(".browse .browse-panel-list")!.scrollTop, facet: getComputedStyle(document.querySelector('.browse [data-focus="facet:genre"]')!).fontSize }));
+    await tv.page.keyboard.press("Enter");
+    const ghost = await tv.page.evaluate(() => {
+        const list = document.querySelector(".browse-panel-layer .browse-panel-list");
+        const facet = list?.querySelector(".browse-panel-row");
+        return { top: list?.scrollTop, facet: facet === null || facet === undefined ? undefined : getComputedStyle(facet).fontSize };
+    });
+    assert.deepEqual(ghost, live);
+});
+
+page("editing an open Filter panel does not replay its entrance fade", async tv => {
+    await browseReady(tv);
+    await tv.page.locator('[data-focus="filter"]').focus();
+    await tv.page.keyboard.press("Enter");
+    await tv.page.locator('[data-focus="match:any"]').waitFor();
+    await tv.page.locator('[data-focus="match:any"]').focus();
+    await tv.page.keyboard.press("Enter");
+    await tv.page.locator('[data-focus="match:any"][aria-checked="true"]').waitFor();
+    const running = await tv.page.evaluate(() => [".browse .browse-panel-scrim", ".browse .browse-filter-panel"].map(selector => document.querySelector(selector)?.getAnimations().length));
+    assert.deepEqual(running, [0, 0]);
+});
+
+// One screen pixel as [r, g, b], decoded in the page as topBar.test.ts does.
+async function pixel(tv: Tv, x: number, y: number): Promise<number[]> {
+    const png = await tv.page.screenshot({ clip: { x, y, width: 1, height: 1 }, animations: "disabled" });
+    return tv.page.evaluate(async source => {
+        const image = new Image(); image.src = source; await image.decode();
+        const canvas = document.createElement("canvas"); canvas.width = 1; canvas.height = 1;
+        const context = canvas.getContext("2d"); if (context === null) throw new Error("No canvas");
+        context.drawImage(image, 0, 0);
+        return [...context.getImageData(0, 0, 1, 1).data.slice(0, 3)];
+    }, `data:image/png;base64,${png.toString("base64")}`);
+}
+const painted = (rgb: number[]) => rgb.some(channel => channel > 24);
+
+page("Browse sits in Apple's overflowing column and slides left as the letter rail opens", async tv => {
+    // TVCatalogGrid.swift:102-143: each cell is at least its 260 card, so the 1760 grid and TVLibraryGridView's 80 + 80 padding
+    // (:185, :230) make a 1920 column. The column, rail and 32 trailing overflow the screen in an HStack (:98-108) and centre:
+    // 50 over with the 18 rail (content from x55), 128 over with the open 96 rail (content from x16, rail chips at the edge).
+    await tv.page.emulateMedia({ reducedMotion: "reduce" });
+    await browseReady(tv);
+    const layout = () => tv.page.evaluate(() => {
+        const box = (node: Element | null | undefined) => { const rect = node?.getBoundingClientRect(); return rect === undefined ? undefined : [Math.round(rect.left * 100) / 100, Math.round(rect.right * 100) / 100]; };
+        const arts = [...document.querySelectorAll(".catalog-grid .browse-card .browse-art")];
+        return { controls: box(document.querySelector(".browse-controls"))?.[0], first: box(arts[0]), sixth: box(arts[5]), rail: box(document.querySelector(".browse-letters")) };
+    });
+    assert.deepEqual(await layout(), { controls: 55, first: [55, 315], sixth: [1555, 1815], rail: [1895, 1913] });
+    await tv.page.locator('[data-focus="letter:A"]').focus();
+    await tv.page.waitForTimeout(300);
+    assert.deepEqual(await layout(), { controls: 16, first: [16, 276], sixth: [1516, 1776], rail: [1856, 1952] });
+    const chips = await tv.page.evaluate(() => Object.fromEntries(["All", "#", "A", "N", "X"].map(letter => {
+        const rect = document.querySelector(`[data-focus="letter:${letter}"]`)!.getBoundingClientRect();
+        return [letter, [rect.left, rect.right, rect.top + rect.height / 2]];
+    })));
+    // Apple TV at 5780c84: All, # and A centred at y19, 61 and 103 on a 42 pitch, against the screen edge; X shows below the 1020 frame.
+    assert.deepEqual(chips, { All: [1885, 1923, 19], "#": [1885, 1923, 61], A: [1885, 1923, 103], N: [1885, 1923, 649], X: [1885, 1923, 1069] });
+    await tv.page.locator(".catalog-grid .browse-card").nth(5).focus();
+    await tv.page.waitForTimeout(300);
+    assert.deepEqual(await layout(), { controls: 55, first: [55, 315], sixth: [1555, 1815], rail: [1895, 1913] });
+});
+
+page("the Browse column slides with the rail's easeOut(0.18)", async tv => {
+    // TVAlphabetRail.swift:67-71: the rail's width animates, and the centred HStack moves the column with it.
+    await browseReady(tv);
+    const timing = await tv.page.evaluate(() => [".browse-controls", ".catalog-grid"].map(selector => {
+        const style = getComputedStyle(document.querySelector(selector)!);
+        return [style.transitionProperty, style.transitionDuration, style.transitionTimingFunction];
+    }));
+    assert.deepEqual(timing, [["translate", "0.18s", "ease-out"], ["translate", "0.18s", "ease-out"]]);
+});
+
+page("open rail letters draw in the packaged monospaced face", async tv => {
+    // TVAlphabetRail.swift:98-106: SF Mono semibold. The TV has no monospaced system face, so a generic monospace draws proportional.
+    await browseReady(tv);
+    await tv.page.locator('[data-focus="letter:I"]').focus();
+    const face = await tv.page.evaluate(async () => {
+        await document.fonts.ready;
+        const letter = document.querySelector('[data-focus="letter:I"]')!;
+        return { family: getComputedStyle(letter).fontFamily.split(",")[0]?.trim(), loaded: [...document.fonts].some(font => font.family.replace(/"/g, "") === "Roboto Mono" && font.status === "loaded") };
+    });
+    assert.deepEqual(face, { family: '"Roboto Mono"', loaded: true });
+});
+
+page("Browse pills keep Apple's padding, symbol frames and spacing", async tv => {
+    // TVBrowseFilterUI.swift:31-77, :588-590: 22 inside a 1pt inner stroke, SF Symbols at 24pt medium, 10 between parts, 16 between pills.
+    await tv.page.route("**/api/v2/shuffles/capabilities", route => route.fulfill({ json: { allowed: true, state: "available", scope_kinds: ["library"] } }));
+    await browseReady(tv);
+    await tv.page.locator('[data-focus="shuffle"]').waitFor();
+    await tv.page.locator(".catalog-grid .browse-card").first().focus();
+    await tv.page.waitForTimeout(300); // Sort's 1.04 focus scale eases out over 120 ms.
+    const pills = await tv.page.evaluate(() => [...document.querySelectorAll(".browse-controls .browse-button")].map(pill => {
+        const box = pill.getBoundingClientRect();
+        const parts = [...pill.children].map(part => part.getBoundingClientRect());
+        const icon = parts[0]!;
+        return {
+            key: pill.getAttribute("data-focus"), left: box.left, right: box.right,
+            lead: icon.left - box.left, trail: box.right - parts[parts.length - 1]!.right, symbol: [icon.width, icon.height],
+            gaps: parts.slice(1).map((part, index) => part.left - parts[index]!.right),
+            strokes: [...pill.querySelectorAll("svg path")].map(path => path.getAttribute("stroke-width")),
+        };
+    }));
+    assert.deepEqual(pills.map(({ key, lead, trail, symbol, gaps, strokes }) => ({ key, lead, trail, symbol, gaps, strokes })), [
+        { key: "sort", lead: 22, trail: 22, symbol: [35, 28], gaps: [10, 10], strokes: ["2.5"] },
+        { key: "filter", lead: 22, trail: 22, symbol: [31, 19], gaps: [10], strokes: ["2.3"] },
+        { key: "shuffle", lead: 22, trail: 22, symbol: [34, 27], gaps: [10], strokes: ["2.41", "2.08"] },
+    ]);
+    assert.deepEqual(pills.slice(1).map((pill, index) => pill.left - pills[index]!.right), [16, 16]);
+    // SwiftUI lays each Text out on whole points, so SF Pro's 107.35, 44.56, 53.17 and 76.53 become 108, 45, 54 and 77, and
+    // with the symbols, 10s and 22s the pills are 252, 139 and 165 wide, as the Apple TV draws them at 5780c84.
+    assert.deepEqual(pills.map(pill => pill.right - pill.left), [252, 139, 165]);
+});
+
+page("the Sort panel keeps Apple's stack: 4 between parts, 58-point rows and SF Mono tracking", async tv => {
+    // TVBrowseFilterUI.swift:125-155: a 4pt VStack inside 14 padding, centred on y510; rows 13 + 32 + 13; the eyebrow 18pt mono, tracking 2.
+    await browseReady(tv);
+    await tv.page.locator('[data-focus="sort"]').focus();
+    await tv.page.keyboard.press("Enter");
+    await tv.page.locator('[data-focus="sort:title"]').waitFor();
+    const layout = await tv.page.evaluate(() => {
+        const panel = document.querySelector(".browse-sort-panel")!.getBoundingClientRect();
+        const eyebrow = document.querySelector(".browse-sort-panel .browse-panel-eyebrow")!;
+        const rows = [...document.querySelectorAll(".browse-sort-panel .browse-panel-row")].map(row => row.getBoundingClientRect());
+        const text = document.createRange(); text.selectNodeContents(eyebrow);
+        return {
+            top: panel.top, height: panel.height, eyebrow: eyebrow.getBoundingClientRect().top - panel.top, first: rows[0]!.top - panel.top,
+            rows: rows.map(row => row.height), pitch: rows.slice(1).map((row, index) => row.top - rows[index]!.top), bottom: panel.bottom - rows[rows.length - 1]!.bottom,
+            family: getComputedStyle(eyebrow).fontFamily.split(",")[0]?.trim(), tracking: getComputedStyle(eyebrow).letterSpacing, width: Math.round(text.getBoundingClientRect().width * 10) / 10,
+        };
+    });
+    assert.deepEqual(layout, {
+        top: 264.5, height: 491, eyebrow: 14, first: 14 + 21 + 8 + 4,
+        rows: [58, 58, 58, 58, 58, 58, 58], pitch: [62, 62, 62, 62, 62, 62], bottom: 14,
+        // SF Mono's advance is 0.618 em and Roboto Mono's 0.6 em; 0.33px more tracking keeps Apple's 91.9 SORT BY.
+        family: '"Roboto Mono"', tracking: "2.33px", width: 91.9,
+    });
+});
+
+page("choosing a letter keeps the open rail's size and scroll while the grid reloads", async tv => {
+    // TVAlphabetRail.swift:42-72: the rail is one view that stays expanded under focus; choosing a letter does not rebuild it.
+    await browseReady(tv);
+    const letter = tv.page.locator('[data-focus="letter:Z"]');
+    await tv.page.locator('[data-focus="letter:Y"]').focus();
+    await tv.page.waitForTimeout(400);
+    await tv.remote(40);
+    await tv.eventually(async () => { const box = await letter.boundingBox(); return box !== null && box.height === 38 && box.y + box.height <= 1020; }, "the rail scrolls to Z");
+    await tv.page.waitForTimeout(300);
+    // Layout boxes, not client rects: Select's 0.96 press scale is a transform and may still be easing back.
+    const chip = () => tv.page.evaluate(() => {
+        const node = document.querySelector<HTMLElement>('[data-focus="letter:Z"]')!;
+        const rail = node.parentElement!;
+        return { top: node.offsetTop - rail.scrollTop, height: node.offsetHeight, scroll: rail.scrollTop, focused: document.activeElement === node };
+    });
+    const before = await chip();
+    assert.equal(before.height, 38);
+    await tv.page.keyboard.press("Enter");
+    await tv.page.waitForTimeout(50);
+    assert.deepEqual(await chip(), before);
+    await tv.eventually(async () => await letter.getAttribute("aria-pressed") === "true", "Z is chosen");
+    assert.deepEqual(await chip(), before);
+});
+
 // TVCollectionPosterCard.swift:108-123 and TVMediaCard.swift:258-276 (5780c84): one tail-truncated line, centred under the card.
 const LONG_TITLE = "Trending Movies This Week Around the World";
 async function centredCaption(tv: Tv, card: string): Promise<{ text: string; offset: number; full: string | null }> {

@@ -57,7 +57,7 @@ export type RouteData =
     | { readonly kind: "homeSection"; readonly id: string; readonly title: string; readonly continuing: boolean; pages: Pages; pendingIndex: number | undefined }
     | { readonly kind: "resume"; readonly id: string; readonly title: string; readonly episode?: true; readonly startOver?: boolean; readonly selection?: EpisodeSelection; readonly seriesLine?: SeriesLine }
     | { readonly kind: "library"; readonly library: UserLibrary; pages: Pages; discovery?: DiscoveryState }
-    | { readonly kind: "libraryResults"; readonly library: UserLibrary; readonly title: string; readonly source: LibrarySource; pages: Pages; descending: boolean }
+    | { readonly kind: "libraryResults"; readonly library: UserLibrary; readonly title: string; readonly source: LibrarySource; pages: Pages }
     /** `resultsFor`: the query the shown page answers, which typing can move ahead of. */
     | { readonly kind: "search"; query: string; pages: Pages | undefined; resultsFor: string; resultsFilter?: SearchFilter | undefined; appending?: boolean; restarted?: boolean; searchType?: TextSearchScope; filter?: SearchFilter | undefined; peopleSupported?: boolean; boxSetsSupported?: boolean; supplement?: SearchSupplement }
     | { readonly kind: "audiobook"; readonly id: string; readonly title: string; data: Audiobook | undefined; /** The chapter picker covers the page. */ picker?: boolean }
@@ -97,7 +97,7 @@ export function hasData(current: Route): boolean {
         case "personal":
             return current.pages.page !== undefined || current.capability !== undefined;
         case "library":
-            return current.discovery?.mode === "Browse" ? current.discovery.snapshot !== undefined : current.discovery?.data !== undefined && (!(current.discovery.mode === "A–Z" || current.discovery.mode === "Recently Added" || current.discovery.genre !== undefined) || current.pages.page !== undefined);
+            return current.discovery?.mode === "Browse" ? current.discovery.snapshot !== undefined : current.discovery?.data !== undefined;
         // A loaded filmography is kept; only a missing person is read again (Apple loadInitial: person == nil, items.isEmpty).
         case "person": return current.data !== undefined || current.pages.page !== undefined;
         case "libraryResults":
@@ -146,9 +146,6 @@ export interface RouteHandlers {
     readonly retry: (route: Route) => void;
     readonly turn: (route: Route, pages: Pages, step: -1 | 1) => void;
     readonly mode: (route: Extract<Route, { kind: "library" }>, mode: LibraryMode) => void;
-    readonly jump: (route: Extract<Route, { kind: "library" }>, letter: string, position: number) => void;
-    readonly sort: (route: Extract<Route, { kind: "libraryResults" | "library" }>) => void;
-    readonly genre: (route: Extract<Route, { kind: "library" }>, name: string | undefined) => void;
 }
 
 export function routeView(current: Route, handlers: RouteHandlers): View {

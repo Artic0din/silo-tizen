@@ -39,7 +39,12 @@ export interface FeedGrid {
  */
 /** The catalog grid's width for its columns at a poster scale; the Browse placeholders use it too. */
 export function feedGridWidth(columns: number, scale: number): number {
-    return Math.max(1710, columns * 260 * scale + (columns - 1) * 40);
+    return Math.max(1710, feedGridMinWidth(columns, scale));
+}
+
+/** The cards and gaps alone, which Apple's grid cells never shrink below (TVCatalogGrid.swift:102-143). */
+export function feedGridMinWidth(columns: number, scale: number): number {
+    return columns * 260 * scale + (columns - 1) * 40;
 }
 
 export function feedGrid(owner: object, page: CatalogPage, context: ViewContext, lead: number, busy: boolean, more: () => void, columns = FEED_COLUMNS, posterWidth = 260, gridWidth?: number): FeedGrid {

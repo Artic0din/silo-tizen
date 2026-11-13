@@ -268,7 +268,7 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
             await tv.jump(200);
             await selectLibraryMode(tv, "Collections");
             await ready(tv, "library:12");
-            for (const mode of ["Collections", "Genres", "A–Z"] as const) await selectLibraryMode(tv, mode);
+            for (const mode of ["Collections", "Browse", "Recommended"] as const) await selectLibraryMode(tv, mode);
             const state = await tv.page.evaluate(() => {
                 const snapshots = document.querySelectorAll(".skyline-route-outgoing");
                 return { layers: snapshots.length, nested: document.querySelectorAll(".skyline-route-outgoing .skyline-route-outgoing").length, metadata: document.querySelectorAll(".skyline-route-outgoing [id], .skyline-route-outgoing [data-focus], .skyline-route-outgoing [data-section], .skyline-route-outgoing .browse-nav").length, tabbable: Array.from(document.querySelectorAll<HTMLElement>(".skyline-route-outgoing button, .skyline-route-outgoing input")).filter(node => node.tabIndex !== -1).length };

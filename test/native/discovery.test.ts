@@ -74,8 +74,6 @@ test("structured queries preserve scope, groups, cursor, prefix and server posit
     const spec = api.queryCatalogItems(body);
     assert.deepEqual(JSON.parse(JSON.stringify(spec.body)), body);
     assert.equal(spec.path, "/catalog/query?image_size=small");
-    const letters = { library_id: "opaque/1", type: "movie", order: "desc", groups: body.groups } as const;
-    assert.deepEqual(JSON.parse(JSON.stringify(api.queryCatalogLetters(letters).body)), letters);
     assert.deepEqual(api.queryCatalogItems({ library_id: "1", type: "movie", sort: "added_at", order: "desc" }).body,
         { library_id: "1", type: "movie", sort: "added_at", order: "desc" });
     for (const limit of [0, 101, 1.5, NaN]) assert.throws(() => api.queryCatalogItems({ type: "movie", limit }), RangeError);
@@ -83,11 +81,11 @@ test("structured queries preserve scope, groups, cursor, prefix and server posit
     for (const seek of [-1, 10000001, 1.5]) assert.throws(() => api.queryCatalogItems({ type: "movie", seek }), RangeError);
 });
 
-test("all eight reads leave authentication to session.call and permit the existing safe retry", () => {
+test("all seven reads leave authentication to session.call and permit the existing safe retry", () => {
     const specs = [api.listLibrarySections("1"), api.getLibrarySectionItems("1", "r"), api.getLibraryCollections("1"),
         api.getLibraryCollectionItems("1", "c", { limit: 1 }), api.getCatalogFilters({ type: "movie" }),
-        api.queryCatalogItems({ type: "movie" }), api.queryCatalogLetters({ type: "movie" }), api.getCatalogSearchCapabilities()];
-    assert.deepEqual(specs.map(s => s.method), ["GET", "GET", "GET", "GET", "GET", "POST", "POST", "GET"]);
+        api.queryCatalogItems({ type: "movie" }), api.getCatalogSearchCapabilities()];
+    assert.deepEqual(specs.map(s => s.method), ["GET", "GET", "GET", "GET", "GET", "POST", "GET"]);
     for (const spec of specs) { assert.equal(spec.retry, "safe"); assert.equal(spec.bearer, undefined); assert.equal(spec.profile, undefined); }
     assert.equal(api.listLibrarySections("1").decode, decodeHomeSections);
     assert.equal(api.getLibraryCollectionItems("1", "c", { limit: 1 }).decode, decodeCollectionItemsPage);
@@ -200,9 +198,9 @@ test("discovery POST reads carry session profile headers, retry identically and 
     assert.deepEqual(requests[1]?.body, body);
     assert.equal(requests[0]?.headers["x-profile-id"], owner.id);
     assert.ok(requests[0]?.headers.authorization?.startsWith("Bearer "));
-    const hold = h.fake.hold("/catalog/letters");
+    const hold = h.fake.hold("/catalog/query");
     const canceled = assert.rejects(h.core.session.call({
-        ...api.queryCatalogLetters({ library_id: "opaque/1", type: "movie", order: "asc" }),
+        ...api.queryCatalogItems({ library_id: "opaque/1", type: "movie", order: "asc" }),
         profileScoped: true,
     }), (error: unknown) => error instanceof ApiError && error.aborted);
     await h.clock.advance(0);

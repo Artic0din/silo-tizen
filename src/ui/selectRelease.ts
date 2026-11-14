@@ -75,7 +75,8 @@ const onPress = (event: KeyboardEvent): void => {
     // Until its keyup, every Enter keydown belongs to the press already down: a TV may not flag auto-repeat.
     fresh = !event.repeat && (!enterDown || releaseLost);
     enterDown = true;
-    releaseLost = false;
+    // Only a new press or a keyup settles a lost release; a repeat of the interrupted press does not.
+    if (fresh) releaseLost = false;
     if (!fresh) return;
     release();
     const target = document.activeElement;

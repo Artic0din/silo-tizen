@@ -482,6 +482,24 @@ test("a card hold made while the card is disabled opens no menu and runs nothing
     } finally { await tv.page.context().close(); }
 });
 
+test("a held Select whose release is lost after a blur leaves the next fresh Select its own, even after a repeat", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        await start(tv);
+        await hold(tv);
+        await row(tv, "Mark as Watched").waitFor();
+        await tv.down(13);
+        await tv.page.evaluate(() => window.dispatchEvent(new Event("blur")));
+        await tv.remote(10009);
+        assert.equal(await menu(tv).count(), 0, "Back closed the menu");
+        await tv.down(13, true);
+        // The interrupted press's keyup never arrives; the next press is a new one.
+        await tv.page.keyboard.press("Enter");
+        await tv.eventually(async () => await tv.page.locator(".browse").getAttribute("data-view") === "item:movie:m0001", "the next fresh Select opens Details");
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
+
 test("a row is chosen on Select's release, and that release cannot reach the card", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {

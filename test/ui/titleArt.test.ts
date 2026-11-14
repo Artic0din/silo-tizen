@@ -56,8 +56,12 @@ async function holdDetail(tv: Tv): Promise<() => void> {
     const held = new Promise<void>(resolve => { release = resolve; });
     await tv.page.route("**/api/v2/catalog/items/movie%3Am0001?**", async route => { await held; await route.fallback().catch(() => undefined); });
     // Home prefetches the detail; a fresh mount without the cached copy opens the loading frame.
+    const reads = titleArtReads(tv);
     await tv.page.evaluate(() => { window.browseHarness.clearResponseCache(); window.browseHarness.destroy(); window.browseHarness.mount(); });
     await tv.page.locator('[data-view="home"]').waitFor();
+    // The remounted Home reads title art again; let that read land before a caller counts reads.
+    await tv.eventually(async () => titleArtReads(tv) > reads, "remounted Home title-art read");
+    await tv.jump(240);
     return release;
 }
 
@@ -84,8 +88,6 @@ test("a remembered Off answer keeps the loading frame and Details as text with z
     tv.page.on("request", r => { if (new URL(r.url()).pathname === LOGO) logos++; });
     try {
         const release = await holdDetail(tv);
-        await tv.eventually(async () => titleArtReads(tv) >= 2, "remount title-art read");
-        await tv.jump(240);
         await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').click();
         await tv.page.locator('[data-view="item:loading"]').waitFor();
         assert.equal(await tv.page.locator(".details-loading-title-text").textContent(), "Movie 0001", "the card's own title");
@@ -177,6 +179,28 @@ test("detailed seasons use the same false policy and leave episode navigation us
         assert.equal(logos, 0);
         assert.ok(await tv.page.locator('[data-focus^="episode:"]').count() > 0);
     } finally { await tv.page.context().close(); }
+});
+
+test("an Off answer that lands while a detailed season is open turns its logo back to text", async () => {
+    let hold: { release(): void } | undefined;
+    const { tv, settings } = await setup(page => { hold = page.fake.hold("/settings/contract", true); }, false);
+    try {
+        await tv.page.route("**/api/v2/catalog/items/series%3As1-S1?**", async route => {
+            const base = tv.fake.catalog?.route("GET", "/catalog/items/series%3As1-S1", "p-owner");
+            assert.ok(base);
+            await route.fulfill({ status: 200, json: { ...base.body as Record<string, unknown>, logo_url: "/art/season-logo.svg" } });
+        });
+        await tv.page.locator('[data-focus="series"][role="tab"]').click();
+        await tv.page.locator('[data-focus="series:s1"]').first().click();
+        await tv.page.locator('[data-focus="season:1"]').click();
+        await tv.page.locator('[data-focus="series:s1-S1"]').click();
+        await tv.page.locator('[data-view="season:series:s1:1"]').waitFor();
+        await tv.page.locator(".details-editorial h1 .details-logo").waitFor();
+        settings.profile().set(TITLE, false);
+        hold?.release();
+        await tv.eventually(async () => await tv.page.locator(".details-editorial h1 .details-logo").count() === 0, "season text title after Off");
+        assert.equal(await tv.page.locator(".details-editorial h1").textContent(), "Harbor Lights · Season 1");
+    } finally { hold?.release(); await tv.page.context().close(); }
 });
 
 for (const mode of ["logo", "broken", "default-false"] as const) test(`Details supported title art: ${mode}`, async () => {

@@ -33,6 +33,7 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Buttons, cards and menu rows now act when Select is released, as on Apple TV. Cards, For You and profile menu rows, library letters, Details actions and PIN keys stay drawn pressed while it is held. Holding Select no longer repeats a button, and moving off a held button cancels it.
 - Details now uses the same remembered title-art answer as Home, as on Apple TV: the loading frame shows the card's logo when it opens from a Home or recommendation row, and the page no longer starts on its text title and swaps to the logo once a settings read answers.
 - Documented where the Details hero, meta lines and loading states still differ from Apple TV on purpose, and why: the movie hero grows instead of clipping its action row, a series readout hides without values, and scrolling back to the hero skips Apple's focus-engine corrections.
 - The player's Subtitles tab now matches Apple TV: TRACKS and OPTIONS sit in two columns, option values line up on the right with chevrons, Appearance shows its Aa glyph, and pickers are titled in sentence case. Pickers float over the dimmed pane and close with Back, selected tracks show a checkmark without a highlight, and Search and AI rows show Apple's symbols. Video gains Apple's PLAYBACK rows (Quality, Speed, Aspect, each opening a picker) and a SYNC column with Subtitle delay beside Auto-play next. Up and Down stay in a column, Left and Right cross between columns, and tabs change only on the tab bar, as on Apple TV. The panel and pickers use translucent glass, selected tracks show Apple's full-size checkmark, the columns fill the panel, and long option values truncate as on Apple TV.
@@ -58,6 +59,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Cancelled a held Select when a player menu repaint replaced its row with a disabled copy, even if it became enabled before release.
 - Poster badge icons now match Apple TV: HDR, HDR10, ATMOS and AV1 marks use Apple's sizes and heavier weight, Dolby Vision is its ring mark beside the full label, Resolution + HDR shows HDR10+, and the Resolution + HDR + Audio badge is drawn instead of being dropped.
 - Posters now show Apple TV's watch status in the top-right corner: a small green check on a watched title, or the number of episodes left on a series or season you have started, sized with the poster on Home, library, Search and every other poster grid.
 - The profile menu's Sign Out and Watch Party icons now match Apple TV's symbols in shape and size: Sign Out is the door with an arrow leaving it, and Watch Party is three people, wider than the other icons as on Apple TV.

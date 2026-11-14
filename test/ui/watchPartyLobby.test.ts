@@ -637,6 +637,33 @@ test("a guest marks Ready over the room socket, sees You're ready once the room 
     } finally { await tv.page.context().close(); }
 });
 
+test("a Select pressed on Ready while it is disabled stays inert after the party reconnects, and one pressed enabled stays inert once it disables", async () => {
+    const { tv, fake } = await inLobby("guest", fake => { fake.selectedContentId = "movie:m0004"; });
+    try {
+        await tv.eventually(async () => (await button(tv, "ready").textContent()) === "I'm ready", "Ready offered");
+        await fake.sockets[0]?.route.close({ code: 1011 });
+        await tv.eventually(async () => (await button(tv, "ready").getAttribute("aria-disabled")) === "true", "Ready disabled while reconnecting");
+        assert.equal(await tv.focused(), "ready");
+        await tv.page.keyboard.down("Enter");
+        await tv.jump(1000);
+        await connected(tv, fake, 2);
+        await tv.eventually(async () => (await button(tv, "ready").getAttribute("aria-disabled")) === "false", "Ready enabled again");
+        assert.equal(await tv.focused(), "ready");
+        await tv.page.keyboard.up("Enter");
+        await tv.jump(100);
+        assert.deepEqual(fake.sockets[1]?.sent.filter(frame => frame.type === "lobby_ready"), [], "a press made while disabled does not mark ready");
+        await tv.page.keyboard.down("Enter");
+        await fake.sockets[1]?.route.close({ code: 1011 });
+        await tv.eventually(async () => (await button(tv, "ready").getAttribute("aria-disabled")) === "true", "Ready disabled again");
+        await tv.page.keyboard.up("Enter");
+        await tv.jump(1000);
+        await connected(tv, fake, 3);
+        assert.deepEqual(fake.sockets.flatMap(socket => socket.sent.filter(frame => frame.type === "lobby_ready")), [], "a press whose button disabled before release does not mark ready");
+        await tv.page.keyboard.press("Enter");
+        await tv.eventually(async () => fake.sockets[2]?.sent.some(frame => frame.type === "lobby_ready") === true, "a fresh press marks ready");
+    } finally { await tv.page.context().close(); }
+});
+
 test("a server without lobby readiness offers a guest no Ready", async () => {
     const { tv } = await inLobby("guest", fake => { fake.flags = { ...fake.flags, lobby_ready: false }; });
     try {

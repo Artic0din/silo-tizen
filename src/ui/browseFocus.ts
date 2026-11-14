@@ -9,9 +9,15 @@
 // The sign-in ScreenHost moves through one list; grids and stacked rows need two dimensions.
 
 import { remoteKey } from "./keys.ts";
+import { heldSelect, isFreshSelect, listenSelectRelease, moveSelect } from "./selectRelease.ts";
 import { SkylineScroll } from "./skylineScroll.ts";
 
 const SELECT_HOLD_MS = 650;
+
+/** A press runs only on a control that was enabled when pressed and still is (aria-disabled controls stay focusable). */
+function enabled(element: HTMLElement): boolean {
+    return !element.matches(':disabled, [aria-disabled="true"]');
+}
 /** Scrolling panels whose position survives a repaint of their screen, keyed by data-scroll-key. */
 const SCROLL_PANELS = ".browse-panel-list[data-scroll-key], .settings-modal-options[data-scroll-key], .settings-pane[data-scroll-key], .accounts-rail[data-scroll-key], .accounts-pane[data-scroll-key]";
 
@@ -103,10 +109,6 @@ export class FocusHost {
     private incoming: HTMLElement[] = [];
     private transitionTimer: number | undefined;
     private press: { item: FocusItem; started: number; timer: number | undefined; cancelled: boolean } | undefined;
-    /** The rail letter Select is holding down (TVAlphabetRail.swift:148-151); its choice re-renders the page before release. */
-    private heldLetter: HTMLElement | undefined;
-    /** The card or For You and profile menu row Select is holding down, drawn pressed (TVCardFocusStyle.swift:150-153, TVTopMenuBar.swift:1323) until release. */
-    private pressedCard: HTMLElement | undefined;
     /** One Play claim per Details visit. tvOS retries it; a failed claim used to leave body focused until the next key. */
     private playClaim: { visit: string; attempts: number; waits: number; finished: boolean; timer: number | undefined; moved: boolean; awaitingPrimary: boolean } | undefined;
     private readonly detach = new MutationObserver(() => {
@@ -115,6 +117,7 @@ export class FocusHost {
 
     constructor(container: HTMLElement) {
         this.container = container;
+        listenSelectRelease();
     }
 
     get name(): string | undefined {
@@ -166,6 +169,8 @@ export class FocusHost {
         const sameVisit = previousView !== undefined && visitKey(previousView) === visitKey(view);
         const press = this.press?.cancelled === false && sameVisit ? this.press : undefined;
         const pressed = press === undefined ? undefined : this.focused();
+        const held = heldSelect();
+        const holding = sameVisit && held !== undefined && held.element === document.activeElement ? this.focused() : undefined;
         this.cancelPress();
         const changed = (this.view?.transition?.key ?? this.view?.name) !== (view.transition?.key ?? view.name);
         const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -241,13 +246,10 @@ export class FocusHost {
         }
         else this.focusFirst(offscreenShelf ? [view.focus] : [focus, nearby === undefined ? kept : { zone: previous?.zone.id ?? "", key: nearby.key }, restoring ? this.memoryTarget() : undefined, view.focus]);
         this.settlePrimaryFocus(view);
-        // A rail letter's choice re-renders the page while Select is still held; the retained letter stays drawn pressed until release.
-        const held = this.heldLetter;
-        if (held !== undefined && held.isConnected && document.activeElement === held) {
-            this.pressedCard = held;
-            held.setAttribute("data-pressed", "");
-        }
         const focused = this.focused();
+        // A repaint while Select is held keeps the press on the same item, so its release still runs it.
+        const repainted = this.locate(document.activeElement)?.item.element;
+        if (held !== undefined && holding !== undefined && focused?.zone === holding.zone && focused.key === holding.key && repainted !== undefined && heldSelect()?.element !== repainted) moveSelect(held, repainted);
         const sameIdentity = unchanged !== undefined && focused?.zone === unchanged.zone && focused.key === unchanged.key;
         if ((sameIdentity || returnSnap) && visit !== undefined && !retainedPerson) {
             // Repainting the same identity (including a dismissed modal) must keep its viewport, and a
@@ -277,7 +279,7 @@ export class FocusHost {
             for (const node of this.incoming) node.classList.add(drift && !node.classList.contains("skyline-marquee") ? "skyline-content-drift" : "skyline-content-enter");
         }
         const current = this.locate(document.activeElement);
-        if (press !== undefined && this.press === press && !changed && !document.hidden && current?.zone.id === pressed?.zone && current?.item.key === pressed?.key && current?.item.quickAction !== undefined) {
+        if (press !== undefined && this.press === press && !changed && !document.hidden && current?.zone.id === pressed?.zone && current?.item.key === pressed?.key && current?.item.quickAction !== undefined && enabled(current.item.element)) {
             press.item = current.item;
             press.cancelled = false;
             this.armPress(press);
@@ -712,13 +714,7 @@ export class FocusHost {
         return zone === undefined || key === undefined ? undefined : { zone, key };
     }
 
-    private releaseCard(): void {
-        this.pressedCard?.removeAttribute("data-pressed");
-        this.pressedCard = undefined;
-    }
-
     private readonly cancelPress = (): void => {
-        this.releaseCard();
         if (this.press === undefined) return;
         if (this.press.timer !== undefined) window.clearTimeout(this.press.timer);
         this.press.timer = undefined;
@@ -728,20 +724,15 @@ export class FocusHost {
     private readonly onPress = (event: KeyboardEvent): void => {
         const key = remoteKey(event);
         if (key !== "enter") { if (key !== undefined) this.cancelPress(); return; }
-        const card = document.activeElement;
-        // Cards (TVCardFocusStyle.swift:150-153), For You and profile menu rows (TVTopMenuBar.swift:1323) and the rail's letters
-        // (TVAlphabetRail.swift:148-151) are drawn pressed while Select is held.
-        if (!event.repeat && card instanceof HTMLElement && (card.classList.contains("browse-card") || card.classList.contains("skyline-menu-item") || card.parentElement?.classList.contains("browse-letters") === true) && this.container.contains(card)) {
-            this.releaseCard();
-            this.pressedCard = card;
-            card.setAttribute("data-pressed", "");
-            if (card.parentElement?.classList.contains("browse-letters") === true) this.heldLetter = card;
-        }
+        // A fresh press while a hold is still recorded means that hold's release was lost or swallowed: drop it.
+        if (this.press !== undefined && isFreshSelect()) { this.cancelPress(); this.press = undefined; }
         if (this.press !== undefined) { event.preventDefault(); event.stopImmediatePropagation(); return; }
-        if (event.defaultPrevented) return;
+        // Only a fresh press can start a hold: a repeat belongs to a press made before focus arrived here.
+        if (event.defaultPrevented || !isFreshSelect()) return;
         const item = this.locate(document.activeElement)?.item;
-        if (item?.quickAction === undefined) return;
-        // Enter's default click runs on keydown, before a hold can be distinguished.
+        // A disabled card takes no press; selectRelease takes Chromium's click from it.
+        if (item?.quickAction === undefined || !enabled(item.element)) return;
+        // This press is the card's own: a hold opens its menu, a release clicks it.
         event.preventDefault();
         const press = { item, started: performance.now(), timer: undefined as number | undefined, cancelled: false };
         this.press = press;
@@ -752,6 +743,8 @@ export class FocusHost {
         // A fixed 650 ms separates deliberate holds from ordinary Select presses; tune on TV.
         press.timer = window.setTimeout(() => {
             press.timer = undefined;
+            // A card disabled when its hold completes ends the press, so a later release cannot run it either.
+            if (!press.cancelled && !enabled(press.item.element)) { press.cancelled = true; return; }
             if (!press.cancelled && press.item.element.isConnected && document.activeElement === press.item.element && !document.hidden) {
                 press.cancelled = true;
                 press.item.quickAction?.();
@@ -760,7 +753,6 @@ export class FocusHost {
     }
 
     private readonly onRelease = (event: KeyboardEvent): void => {
-        if (remoteKey(event) === "enter") { this.heldLetter = undefined; this.releaseCard(); }
         if (remoteKey(event) !== "enter" || this.press === undefined) return;
         event.preventDefault();
         event.stopImmediatePropagation();
@@ -768,7 +760,7 @@ export class FocusHost {
         const activate = !press.cancelled;
         this.cancelPress();
         this.press = undefined;
-        if (activate && press.item.element.isConnected && document.activeElement === press.item.element && !document.hidden) {
+        if (activate && press.item.element.isConnected && document.activeElement === press.item.element && enabled(press.item.element) && !document.hidden) {
             if (performance.now() - press.started >= SELECT_HOLD_MS) press.item.quickAction?.();
             else press.item.element.click();
         }
@@ -801,7 +793,7 @@ export class FocusHost {
             return;
         }
         if (key !== "up" && key !== "down" && key !== "left" && key !== "right") {
-            // Enter is left to the browser: it presses a button and opens the TV keyboard on a field.
+            // Enter is left to the browser: selectRelease clicks a button on release, and a field opens the TV keyboard.
             return;
         }
         const inText = document.activeElement instanceof HTMLInputElement;

@@ -354,9 +354,11 @@ test("the Select that chooses a row, held until it repeats, does not open the ca
         await tv.remote(40);
         assert.equal(await tv.focused(), "favorites");
         await tv.down(13);
-        assert.equal(await menu(tv).count(), 0, "the row runs on press");
+        assert.equal(await menu(tv).count(), 1, "the row waits for Select release");
         for (let repeat = 0; repeat < 4; repeat++) { await tv.down(13, true); await tv.jump(200); }
+        assert.deepEqual(catalog.mutations, [], "holding Select does not run the row");
         await tv.up(13);
+        assert.equal(await menu(tv).count(), 0, "the row runs once on release");
         await tv.jump(500);
         assert.equal(await tv.page.locator(".browse").getAttribute("data-view"), "home", "no Details from the held press");
         assert.equal(await menu(tv).count(), 0, "no second menu from the held press");

@@ -101,7 +101,10 @@ test("chapters seek in source time, close options and retain a remote focus targ
         await nextTab(page, 5);
         assert.equal(await focused(page), "chapter:0");
         await remote(page, DOWN);
-        await remote(page, ENTER);
+        await page.evaluate((code) => document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { keyCode: code, bubbles: true, cancelable: true })), ENTER);
+        await page.evaluate((code) => document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { keyCode: code, repeat: true, bubbles: true, cancelable: true })), ENTER);
+        assert.deepEqual(await commands(page), [], "a chapter waits for Select's release");
+        await page.evaluate((code) => document.activeElement?.dispatchEvent(new KeyboardEvent("keyup", { keyCode: code, bubbles: true, cancelable: true })), ENTER);
         assert.deepEqual(await commands(page), ["seekToSeconds 800"]);
         assert.equal(await page.locator(".player-hud").isVisible(), false);
         assert.equal(await focused(page), "position");
@@ -266,6 +269,119 @@ test("transport focus re-arms five seconds then hides and hidden Up reveals the 
         await remote(page, UP);
         assert.equal(await page.locator(".player-overlay-hidden").count(), 0);
         assert.equal(await focused(page), "position");
+    } finally { await page.close(); }
+});
+
+test("a Select held while the window loses focus runs nothing on release", async () => {
+    const { page } = await open();
+    try {
+        await show(page, { ...playing(TRACKS), hud: { chapters: [{ title: "Opening", seconds: 0 }, { title: "Second", seconds: 800 }], chapterState: "ready", stats: [["Engine", "AVPlay"]], speeds: [1, 2], aspects: ["Fit", "Stretch"], speed: 1, aspect: "Fit", autoNext: false, busy: false } });
+        await openPanel(page);
+        await nextTab(page, 5);
+        await remote(page, DOWN);
+        await page.evaluate((code) => document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { keyCode: code, bubbles: true, cancelable: true })), ENTER);
+        await page.evaluate(() => window.dispatchEvent(new Event("blur")));
+        await page.evaluate((code) => document.activeElement?.dispatchEvent(new KeyboardEvent("keyup", { keyCode: code, bubbles: true, cancelable: true })), ENTER);
+        assert.deepEqual(await commands(page), [], "the release after a lost window ran nothing");
+        await remote(page, ENTER);
+        assert.deepEqual(await commands(page), ["seekToSeconds 800"], "the next fresh Select runs");
+    } finally { await page.close(); }
+});
+
+test("a Select whose focus leaves its control and returns runs nothing on release", async () => {
+    const { page } = await open();
+    try {
+        await show(page, playing(TRACKS));
+        await remote(page, DOWN);
+        assert.equal(await focused(page), "pause");
+        await page.evaluate((code) => document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { keyCode: code, bubbles: true, cancelable: true })), ENTER);
+        await page.evaluate(() => {
+            const pause = document.activeElement;
+            document.querySelector<HTMLElement>('[data-focus="position"]')?.focus();
+            if (pause instanceof HTMLElement) pause.focus();
+        });
+        assert.equal(await focused(page), "pause");
+        await page.evaluate((code) => document.activeElement?.dispatchEvent(new KeyboardEvent("keyup", { keyCode: code, bubbles: true, cancelable: true })), ENTER);
+        assert.deepEqual(await commands(page), [], "the press ended when focus left Pause");
+        await keyEvent(page, "keydown", ENTER);
+        await page.keyboard.press("Shift");
+        assert.equal(await focused(page), "pause");
+        await keyEvent(page, "keyup", ENTER);
+        assert.deepEqual(await commands(page), [], "any other key ends the held press");
+        await remote(page, ENTER);
+        assert.deepEqual(await commands(page), ["togglePause"], "the next fresh Select runs");
+    } finally { await page.close(); }
+});
+
+const keyEvent = (page: Page, type: "keydown" | "keyup", code: number): Promise<void> => page.evaluate(({ type, code }) => { document.activeElement?.dispatchEvent(new KeyboardEvent(type, { keyCode: code, bubbles: true, cancelable: true })); }, { type, code });
+
+test("a Select held on a menu row through a HUD repaint runs that row on release", async () => {
+    const { page } = await open();
+    try {
+        const hud = { chapters: [{ title: "Opening", seconds: 0 }, { title: "Second", seconds: 800 }], chapterState: "ready" as const, stats: [["Engine", "AVPlay"]] as const, speeds: [1, 2], aspects: ["Fit", "Stretch"] as const, speed: 1, aspect: "Fit" as const, autoNext: false, busy: false };
+        await show(page, { ...playing(TRACKS), hud });
+        await openPanel(page);
+        await nextTab(page, 5);
+        await remote(page, DOWN);
+        const before = await page.evaluate(() => document.activeElement);
+        await keyEvent(page, "keydown", ENTER);
+        await show(page, { ...playing(TRACKS), hud: { ...hud, stats: [["Engine", "AVPlay"], ["Dropped", "0"]] } });
+        assert.equal(await focused(page), "chapter:1");
+        assert.equal(await page.evaluate(node => node !== document.activeElement, before), true, "the repaint replaced the focused row");
+        await keyEvent(page, "keyup", ENTER);
+        assert.deepEqual(await commands(page), ["seekToSeconds 800"]);
+    } finally { await page.close(); }
+});
+
+test("a Select held through a HUD repaint still ends when focus leaves the repainted row", async () => {
+    const { page } = await open();
+    try {
+        const hud = { chapters: [{ title: "Opening", seconds: 0 }, { title: "Second", seconds: 800 }], chapterState: "ready" as const, stats: [["Engine", "AVPlay"]] as const, speeds: [1, 2], aspects: ["Fit", "Stretch"] as const, speed: 1, aspect: "Fit" as const, autoNext: false, busy: false };
+        await show(page, { ...playing(TRACKS), hud });
+        await openPanel(page);
+        await nextTab(page, 5);
+        await remote(page, DOWN);
+        await keyEvent(page, "keydown", ENTER);
+        await show(page, { ...playing(TRACKS), hud: { ...hud, stats: [["Engine", "AVPlay"], ["Dropped", "0"]] } });
+        assert.equal(await focused(page), "chapter:1");
+        await page.evaluate(() => {
+            const row = document.activeElement;
+            document.querySelector<HTMLElement>('[data-focus="chapter:0"]')?.focus();
+            if (row instanceof HTMLElement) row.focus();
+        });
+        assert.equal(await focused(page), "chapter:1");
+        await keyEvent(page, "keyup", ENTER);
+        assert.deepEqual(await commands(page), [], "focus left the repainted row, so the press ended");
+    } finally { await page.close(); }
+});
+
+test("a prompt that appears while Select is held does not take the release", async () => {
+    const { page } = await open();
+    try {
+        await show(page, playing(TRACKS));
+        await page.clock.runFor(5000);
+        assert.equal(await page.locator(".player-overlay-hidden").count(), 1);
+        await keyEvent(page, "keydown", ENTER);
+        await show(page, inMarker(INTRO, 25));
+        await keyEvent(page, "keyup", ENTER);
+        assert.deepEqual(await commands(page), [], "the Skip Intro that appeared mid-press did not run");
+    } finally { await page.close(); }
+});
+
+test("a Select held while the controls hide does not run on the scrubber it lands on", async () => {
+    const { page } = await open();
+    try {
+        await show(page, playing(TRACKS));
+        await remote(page, DOWN);
+        await remote(page, RIGHT);
+        await remote(page, RIGHT);
+        const held = await focused(page);
+        await page.evaluate((code) => document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { keyCode: code, bubbles: true, cancelable: true })), ENTER);
+        await page.clock.runFor(5000);
+        assert.notEqual(await focused(page), held, "hiding the controls moved focus");
+        await page.evaluate((code) => document.activeElement?.dispatchEvent(new KeyboardEvent("keyup", { keyCode: code, bubbles: true, cancelable: true })), ENTER);
+        assert.deepEqual(await commands(page), [], "the release ran nothing");
+        assert.equal(await page.locator(".player-hud").isVisible(), false);
     } finally { await page.close(); }
 });
 
@@ -766,6 +882,24 @@ test("the skip pill says what Apple TV says for an intro, a recap and credits, w
         await show(page, playing(TRACKS));
         assert.equal(await pill(page), null);
         assert.deepEqual(logs, []);
+    } finally { await page.close(); }
+});
+
+test("a Select pressed on a disabled Skip stays inert once it enables, and a changed skip prompt cancels a held press", async () => {
+    const { page } = await open();
+    try {
+        await show(page, inMarker(INTRO, 25));
+        assert.equal(await focused(page), "skip");
+        await page.evaluate(() => document.activeElement?.setAttribute("aria-disabled", "true"));
+        await keyEvent(page, "keydown", ENTER);
+        await page.evaluate(() => document.activeElement?.removeAttribute("aria-disabled"));
+        await keyEvent(page, "keyup", ENTER);
+        assert.deepEqual(await commands(page), [], "a press made on a disabled Skip runs nothing");
+        await keyEvent(page, "keydown", ENTER);
+        await show(page, inMarker(CREDITS, 7010));
+        assert.equal(await pill(page), "Skip Credits");
+        await keyEvent(page, "keyup", ENTER);
+        assert.deepEqual(await commands(page), [], "Skip Intro held into Skip Credits runs neither");
     } finally { await page.close(); }
 });
 
@@ -2075,6 +2209,61 @@ test("audio and quality stay disabled while a subtitle report is pending", async
         await remote(page, DOWN);
         await remote(page, ENTER);
         assert.deepEqual(await commands(page), [], "a disabled audio row does not select");
+        // A press made while the row is disabled stays inert when the report ends before its release.
+        const row = await focused(page);
+        await keyEvent(page, "keydown", ENTER);
+        await show(page, playing({ ...tracks, reporting: false }));
+        assert.equal(await focused(page), row);
+        assert.equal(await page.locator(`[data-focus="${row}"]`).getAttribute("aria-disabled"), "false");
+        await keyEvent(page, "keyup", ENTER);
+        assert.deepEqual(await commands(page), [], "the release of a press made while disabled selects nothing");
+        await remote(page, ENTER);
+        assert.equal((await commands(page)).length, 1, "a fresh press on the enabled row selects it");
+    } finally { await page.close(); }
+});
+
+test("a Select held on an audio row that a repaint disables is cancelled, even if the row enables again before release", async () => {
+    const { page } = await open();
+    try {
+        await show(page, playing(TRACKS));
+        await openAudio(page);
+        await remote(page, DOWN);
+        const row = await focused(page);
+        assert.equal(await page.locator(`[data-focus="${row}"]`).getAttribute("aria-disabled"), "false");
+        await keyEvent(page, "keydown", ENTER);
+        await show(page, playing({ ...TRACKS, reporting: true }));
+        assert.equal(await page.locator(`[data-focus="${row}"]`).getAttribute("aria-disabled"), "true");
+        await show(page, playing({ ...TRACKS, reporting: false }));
+        assert.equal(await focused(page), row);
+        await keyEvent(page, "keyup", ENTER);
+        assert.deepEqual(await commands(page), [], "the press ended when its row was disabled");
+    } finally { await page.close(); }
+});
+
+test("a Select held through a silent disabled menu replacement stays cancelled after the row enables", async () => {
+    const { page, logs } = await open();
+    try {
+        await show(page, playing(TRACKS));
+        await openAudio(page);
+        await remote(page, DOWN);
+        const row = await focused(page);
+        const original = await page.locator(`[data-focus="${row}"]`).elementHandle();
+        assert.ok(original);
+        // Model an engine that removes the focused row without firing focusout.
+        await page.evaluate(() => window.addEventListener("focusout", event => event.stopImmediatePropagation(), true));
+        await keyEvent(page, "keydown", ENTER);
+        await show(page, playing({ ...TRACKS, reporting: true }));
+        assert.equal(await original.evaluate(node => node.isConnected), false, "the held row was replaced");
+        assert.equal(await focused(page), row);
+        assert.equal(await page.locator(`[data-focus="${row}"]`).getAttribute("aria-disabled"), "true");
+        await show(page, playing({ ...TRACKS, reporting: false }));
+        assert.equal(await focused(page), row);
+        assert.equal(await page.locator(`[data-focus="${row}"]`).getAttribute("aria-disabled"), "false");
+        await keyEvent(page, "keyup", ENTER);
+        assert.deepEqual(await commands(page), [], "the disabled replacement ended the held press");
+        await remote(page, ENTER);
+        assert.deepEqual(await commands(page), [`selectAudio ${row}`], "a fresh press still selects the enabled row");
+        assert.deepEqual(logs, []);
     } finally { await page.close(); }
 });
 

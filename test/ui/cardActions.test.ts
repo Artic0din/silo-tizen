@@ -296,6 +296,31 @@ test("a menu reopened while its card's change is pending updates and re-enables 
     } finally { await tv.page.context().close(); }
 });
 
+test("a Select held on Resume while a pending change redraws the menu plays on release", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const catalog = await start(tv);
+        await hold(tv, true);
+        const answer = tv.fake.hold("/favorites/movie%3Am0001", true);
+        await row(tv, "Add to Favorites").click();
+        await tv.eventually(async () => catalog.mutations.length === 1, "favorite sent");
+        await hold(tv, true);
+        const resume = menu(tv).locator('[data-focus="card-play"]');
+        await resume.focus();
+        const before = await resume.elementHandle();
+        assert.ok(before);
+        await tv.down(13);
+        answer.release();
+        await row(tv, "Remove from Favorites").waitFor();
+        assert.equal(await before.evaluate(node => node.isConnected), false, "the landed change redrew the menu");
+        assert.equal(await tv.focused(), "card-play");
+        await tv.up(13);
+        assert.equal(await menu(tv).count(), 0, "release chose the redrawn Resume");
+        await tv.eventually(async () => (await tv.page.evaluate(() => window.browseHarness.plays)).length === 1, "Resume plays");
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
+
 test("reopening a card before Home rereads shows the change the server accepted", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {
@@ -325,8 +350,14 @@ test("Select on a disabled row leaves the menu answering later presses once it r
         await row(tv, "Add to Watchlist").focus();
         await tv.page.keyboard.press("Enter");
         assert.equal(await menu(tv).count(), 1, "a disabled row does not close the menu");
+        // A press made on the disabled row stays inert even when the row re-enables before its release.
+        await tv.page.keyboard.down("Enter");
         answer.release();
         await row(tv, "Remove from Favorites").waitFor();
+        assert.equal(await row(tv, "Add to Watchlist").getAttribute("aria-disabled"), null);
+        await tv.page.keyboard.up("Enter");
+        assert.equal(await menu(tv).count(), 1, "the release of a press made while disabled chooses nothing");
+        assert.equal(catalog.watchlist, false);
         await row(tv, "Add to Watchlist").focus();
         await tv.page.keyboard.press("Enter");
         assert.equal(await menu(tv).count(), 0, "a fresh Select chooses the re-enabled row");
@@ -368,18 +399,13 @@ for (const where of ["chosen row", "open menu"] as const) test(`losing window fo
         if (where === "chosen row") {
             await row(tv, "Mark as Watched").focus();
             await tv.down(13);
-            assert.equal(await menu(tv).count(), 0, "the row was chosen");
-            await tv.eventually(async () => catalog.mutations.length === 1, "watched sent");
             await tv.page.evaluate(() => window.dispatchEvent(new Event("blur")));
-            await origin(tv).focus();
-            // Focus came back while Select is still held: its repeats and release stay with the old press.
-            for (let repeat = 0; repeat < 4; repeat++) { await tv.jump(200); await tv.down(13, true); }
             await tv.up(13);
-            await tv.jump(700);
-            assert.equal(await tv.page.locator(".browse").getAttribute("data-view"), "home", "held repeats after focus returns did not open Details");
-            assert.equal(await menu(tv).count(), 0, "held repeats after focus returns did not reopen the menu");
+            assert.equal(await menu(tv).count(), 1, "a press that lost window focus chooses nothing on release");
+            assert.equal(catalog.mutations.length, 0);
             await tv.page.keyboard.press("Enter");
-            await tv.eventually(async () => await tv.page.locator(".browse").getAttribute("data-view") === "item:movie:m0001", "the first Select after return opens Details");
+            assert.equal(await menu(tv).count(), 0, "the first Select after return chooses the row");
+            await tv.eventually(async () => catalog.mutations.length === 1, "watched sent");
         } else {
             const answer = tv.fake.hold("/favorites/movie%3Am0001", true);
             await row(tv, "Add to Favorites").click();
@@ -399,16 +425,117 @@ for (const where of ["chosen row", "open menu"] as const) test(`losing window fo
     } finally { await tv.page.context().close(); }
 });
 
-test("a held Select that chooses a row cannot reach the card once the menu closes", async () => {
+// A TV may not flag auto-repeat, so until the release every Enter keydown belongs to the held press. After a blur the
+// release may be lost, so only flagged repeats are known to be the old press.
+for (const [blurred, flagged] of [[false, true], [false, false], [true, true]] as const) test(`a menu Back closes while Select is held${blurred ? " after a window blur" : ""}, and the rest of that press${flagged ? "" : " (unflagged repeats)"} cannot reach the card`, async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {
         const catalog = await start(tv);
         await hold(tv);
         await row(tv, "Mark as Watched").waitFor();
         await tv.down(13);
-        assert.equal(await menu(tv).count(), 0, "the row was chosen");
-        for (let repeat = 0; repeat < 4; repeat++) { await tv.jump(200); await tv.down(13, true); }
+        if (blurred) await tv.page.evaluate(() => window.dispatchEvent(new Event("blur")));
+        await tv.remote(10009);
+        assert.equal(await menu(tv).count(), 0, "Back closed the menu");
+        assert.equal(await tv.focused(), "movie:m0001");
+        for (let repeat = 0; repeat < 4; repeat++) { await tv.jump(200); await tv.down(13, flagged); }
         await tv.up(13);
+        await tv.jump(700);
+        assert.equal(await menu(tv).count(), 0, "the held repeats did not reopen a menu");
+        assert.equal(await tv.page.locator(".browse").getAttribute("data-view"), "home", "the release did not open Details");
+        assert.equal(catalog.mutations.length, 0);
+        await tv.page.keyboard.press("Enter");
+        await tv.eventually(async () => await tv.page.locator(".browse").getAttribute("data-view") === "item:movie:m0001", "the next fresh Select opens Details");
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
+
+test("a card hold made while the card is disabled opens no menu and runs nothing, even once it enables", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const catalog = await start(tv);
+        await origin(tv).focus();
+        await origin(tv).evaluate(node => node.setAttribute("aria-disabled", "true"));
+        await tv.page.keyboard.down("Enter");
+        await tv.jump(300);
+        await origin(tv).evaluate(node => node.removeAttribute("aria-disabled"));
+        await tv.jump(700);
+        assert.equal(await menu(tv).count(), 0, "a hold that began disabled opens no menu");
+        await tv.page.keyboard.up("Enter");
+        await tv.jump(300);
+        assert.equal(await tv.page.locator(".browse").getAttribute("data-view"), "home", "its release opens nothing");
+        await tv.page.keyboard.down("Enter");
+        await origin(tv).evaluate(node => node.setAttribute("aria-disabled", "true"));
+        await tv.page.keyboard.up("Enter");
+        await origin(tv).evaluate(node => node.removeAttribute("aria-disabled"));
+        await tv.jump(300);
+        assert.equal(await tv.page.locator(".browse").getAttribute("data-view"), "home", "a card disabled before release opens nothing");
+        await tv.page.keyboard.down("Enter");
+        await origin(tv).evaluate(node => node.setAttribute("aria-disabled", "true"));
+        await tv.jump(700);
+        assert.equal(await menu(tv).count(), 0, "a card disabled during its hold opens no menu");
+        await origin(tv).evaluate(node => node.removeAttribute("aria-disabled"));
+        await tv.page.keyboard.up("Enter");
+        await tv.jump(300);
+        assert.equal(await menu(tv).count(), 0, "a hold that completed while disabled stays ended once the card enables");
+        assert.equal(await tv.page.locator(".browse").getAttribute("data-view"), "home");
+        assert.equal(catalog.mutations.length, 0);
+        await tv.page.keyboard.press("Enter");
+        await tv.eventually(async () => await tv.page.locator(".browse").getAttribute("data-view") === "item:movie:m0001", "a fresh press on the enabled card opens Details");
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
+
+test("a held Select whose release is lost after a blur leaves the next fresh Select its own, even after a repeat", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        await start(tv);
+        await hold(tv);
+        await row(tv, "Mark as Watched").waitFor();
+        await tv.down(13);
+        await tv.page.evaluate(() => window.dispatchEvent(new Event("blur")));
+        await tv.remote(10009);
+        assert.equal(await menu(tv).count(), 0, "Back closed the menu");
+        await tv.down(13, true);
+        // The interrupted press's keyup never arrives; the next press is a new one.
+        await tv.page.keyboard.press("Enter");
+        await tv.eventually(async () => await tv.page.locator(".browse").getAttribute("data-view") === "item:movie:m0001", "the next fresh Select opens Details");
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
+
+test("a row is chosen on Select's release, and that release cannot reach the card", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const catalog = await start(tv);
+        await hold(tv);
+        await row(tv, "Mark as Watched").waitFor();
+        await tv.down(13);
+        await tv.page.evaluate(hidden => { Object.defineProperty(document, "hidden", { configurable: true, value: hidden }); document.dispatchEvent(new Event("visibilitychange")); }, true);
+        await tv.up(13);
+        await tv.page.evaluate(hidden => { Object.defineProperty(document, "hidden", { configurable: true, value: hidden }); document.dispatchEvent(new Event("visibilitychange")); }, false);
+        assert.equal(await menu(tv).count(), 1, "a press the hidden page lost chooses nothing");
+        assert.equal(catalog.mutations.length, 0);
+        // Focus leaving the held row and coming back without a key ends the press too.
+        await tv.down(13);
+        await row(tv, "Add to Favorites").focus();
+        await row(tv, "Mark as Watched").focus();
+        await tv.up(13);
+        assert.equal(await menu(tv).count(), 1, "a press whose focus left its row chooses nothing");
+        for (const other of ["Tab", "Shift"]) {
+            await tv.down(13);
+            await tv.page.keyboard.press(other);
+            await row(tv, "Mark as Watched").focus();
+            await tv.up(13);
+            assert.equal(await menu(tv).count(), 1, `${other} ended the held press, so its release chooses nothing`);
+        }
+        assert.equal(catalog.mutations.length, 0);
+        await tv.down(13);
+        for (let repeat = 0; repeat < 4; repeat++) { await tv.jump(200); await tv.down(13, true); }
+        assert.equal(await menu(tv).count(), 1, "a held row waits for release");
+        assert.equal(catalog.mutations.length, 0);
+        await tv.up(13);
+        assert.equal(await menu(tv).count(), 0, "release chose the row");
         await tv.jump(700);
         assert.equal(await tv.page.locator(".browse").getAttribute("data-view"), "home", "the release did not open Details");
         assert.equal(await menu(tv).count(), 0, "the held repeats did not reopen the menu");
@@ -727,10 +854,13 @@ test("a card whose item cannot be read shows the alert instead of an empty menu"
         await card.waitFor();
         const id = await card.getAttribute("data-focus") ?? "";
         tv.fake.script(`/catalog/items/${encodeURIComponent(id)}?image_size=large`, problem(404, "not_found", "Not found"));
-        await card.focus(); await tv.down(13); await tv.jump(650); await tv.up(13);
+        // The alert lands while the opening hold is still down: its release is swallowed, and the next fresh Select is the alert's.
+        await card.focus(); await tv.down(13); await tv.jump(650);
         await tv.page.getByRole("alertdialog", { name: "Couldn’t Update Item" }).waitFor();
+        await tv.up(13);
         assert.equal(await menu(tv).count(), 0);
         await tv.page.keyboard.press("Enter");
+        assert.equal(await tv.page.getByRole("alertdialog").count(), 0, "the first fresh Select dismisses the alert");
         assert.equal(await tv.focused(), id);
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }

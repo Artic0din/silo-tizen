@@ -126,13 +126,15 @@ They intercept it first, in an earlier phase of the DOM event path.
 
 | Order | Listener | Phase | Behaviour |
 | --- | --- | --- | --- |
-| 1 | Exit dialog (`exitDialog.ts`) | `window`, capture | Handles every remote key, then `preventDefault` and `stopImmediatePropagation`. A `focusin` trap pulls focus back inside. |
+| 0 | Select release (`selectRelease.ts`) | `window`, capture | Draws the focused button pressed on a fresh Enter and ends the press on any other key or on Enter's release. It never stops a key. |
+| 1 | Exit dialog (`exitDialog.ts`) | `window`, capture | Handles every remote key, then `preventDefault` and `stopImmediatePropagation`. Enter runs the focused button on its `keyup`. A `focusin` trap pulls focus back inside. |
 | 2 | `FocusHost.onPress` | `document`, capture | Enter only, for cards with a quick action (hold). Registered when browse starts, so it runs before card actions. |
-| 3 | Card actions (`cardActions.ts`) | `document`, capture | Registered while its menu or failure alert is open. Up and Down move through the single column, Left and Right stay put, Enter chooses only on a fresh press, Back closes; then `stopImmediatePropagation`. |
+| 3 | Card actions (`cardActions.ts`) | `document`, capture | Registered while its menu or failure alert is open. Up and Down move through the single column, Left and Right stay put, a fresh Enter chooses on its release, Back closes; then `stopImmediatePropagation`. |
 | 4 | `Skyline.onKey` | container, capture | Menus, dwell panels, Down into a panel, Back inside the shell. |
 | 4 | Settings (`settings.ts`) | container, capture | Left to the categories and the credits scroll. |
 | 6 | `FocusHost.onKey`, `ScreenHost.onKey`, player `onKey` | `document`, bubble | Ordinary movement. `FocusHost` returns at once if `event.defaultPrevented`. |
 | 7 | App `onBack` (`src/app.ts`) | `window`, bubble | Opens the Exit dialog on an unhandled Back. |
+| 8 | Select release (`selectRelease.ts`) | `window`, bubble | Takes the browser's click from an Enter no earlier listener prevented, and clicks the same button on Enter's `keyup`. |
 
 `app.test.ts` asserts the result: with the Exit dialog open, Down and Right send no requests and do not move browse focus.
 
@@ -167,7 +169,7 @@ Other layers:
 - A modal view in browse mode replaces `back` with its own dismiss handler.
 - A `ScreenHost` screen with `back: undefined` lets Back reach the app's handler, so sign-in's first screen opens the Exit dialog.
 - A no-op handler (`back: () => undefined` while a probe runs in `signIn.ts`) swallows Back deliberately.
-- The Exit dialog defaults to Cancel; Back cancels, Enter on Exit calls `options.exit` (`tizen.application` exit in `src/platform.ts`).
+- The Exit dialog defaults to Cancel; Back cancels, Select released on Exit calls `options.exit` (`tizen.application` exit in `src/platform.ts`).
 
 ## Samsung Remote Specifics
 
@@ -178,9 +180,23 @@ Other layers:
   Do not rely on browser tab order or spatial navigation.
   The browser's own movement can fire a second move in grids, which is why hosts call `preventDefault` on every arrow they handle.
   Every control must be reachable by arrows alone.
-- Enter is delivered on every remote without registration.
-  `ScreenHost` leaves Enter to the browser: a focused `<button>` gets its `click`, and a text field opens the TV keyboard.
-  `FocusHost` also leaves Enter alone, except for cards with a `quickAction` (see below).
+- Enter is delivered on every remote without registration, as `keydown` and `keyup`.
+- Select acts on release, as on tvOS: the focused control runs when Enter is released.
+  `selectRelease.ts` marks the held control `data-pressed`. Only controls with a matched Apple pressed look style it: cards, For You and profile menu rows, rail letters, Details pill and circle actions, and PIN keys. Every other control looks unchanged while held until its Apple pressed look is matched.
+  `selectRelease.ts` takes Chromium's keydown click from a focused `<button>` or link and clicks it on `keyup` instead, only when focus has not moved.
+  Until Enter's keyup, every Enter keydown belongs to the press already down, flagged as a repeat or not (`isFreshSelect`); after a window blur or hidden page the keyup may be lost, so the next Enter starts a new press.
+  Auto-repeat never clicks again, and any other key, focus leaving the button, a window blur or a hidden page cancels the press.
+  A browse repaint that replaces the held button with the same item's new one keeps the press (`FocusHost.show`).
+  A press on a control marked `aria-disabled` never arms, so it never runs, even if a redraw enables that control before release.
+  A press whose control is disabled by release time, or repainted as a disabled control, runs nothing either.
+  The player checks the same rule for every button it presses, and cancels a held press when a prompt, mode or skip target changes before release.
+  An overlay that closes while Select is down (card menu, request menu, Exit dialog, player) calls `swallowSelect()`, so the rest of that press, its repeats and its release, cannot reach what takes focus next; a new press goes through.
+  `FocusHost` starts a hold only on a fresh press on an enabled card, and a card disabled before its hold completes or before release runs nothing.
+  `ScreenHost` and `FocusHost` leave Enter to it, except for cards with a `quickAction` (see below).
+  Menus, the Exit dialog and the player own Enter themselves and also act on its release.
+  The Exit dialog, the request menu and the card menu run a button only when `releasedSelect()` names it: the button the press was made on, still focused and enabled, with the press never cancelled.
+  A card menu redraw hands a held press to the redrawn row with `moveSelect`.
+  A text field keeps the TV keyboard's own Enter.
 - Media keys are registered at startup in `registerMediaKeys` (`src/platform.ts`).
   It registers Play/Pause, Play, Pause, Stop, Rewind and Fast Forward one at a time, only if the TV lists them as supported, and a refusal does not stop the others.
   Add any new remote key to `BY_CODE`/`BY_NAME` in `keys.ts` and, if it needs registration, to that list.

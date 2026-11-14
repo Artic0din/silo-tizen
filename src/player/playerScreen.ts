@@ -15,6 +15,7 @@ import type { ConnectedServer } from "../session/core.ts";
 import type { PublicStorage, RandomBytes } from "../session/deviceIdentity.ts";
 import { blurEpisodeStill, type EpisodeSpoilerSettings } from "../ui/episodeSpoilers.ts";
 import { remoteKey } from "../ui/keys.ts";
+import { isFreshSelect, listenSelectRelease, swallowSelect } from "../ui/selectRelease.ts";
 import { el } from "../ui/screen.ts";
 import { artworkUrl } from "../ui/browseModel.ts";
 import type { AVPlay } from "./avplay.ts";
@@ -477,6 +478,10 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     let pictureShown = false;
     let cancelHide: (() => void) | undefined;
     let menuOpen = false;
+    /** Where a fresh Select press was made, waiting for its release; another key or a focus change ends it, and so does its control becoming disabled. */
+    let selectHeld: { readonly element: Element | null; readonly key: string | null; readonly context: string } | undefined;
+    /** A press runs only on an enabled button; aria-disabled rows stay focusable but ignore presses. */
+    const disabledControl = (target: Element | null): boolean => target instanceof HTMLButtonElement && (target.disabled || target.getAttribute("aria-disabled") === "true");
     let seekPreview: number | undefined;
     let pendingSkipTarget: number | undefined;
     /** Which skip pill is up, and the source second its action seeks to. */
@@ -791,6 +796,15 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     };
 
     const render = (): void => {
+        draw();
+        // A redraw that disables the held control ends the press, even if a later redraw enables it again.
+        if (selectHeld !== undefined) {
+            const active = document.activeElement;
+            const replacement = selectHeld.element?.isConnected === false && selectHeld.key !== null && active?.getAttribute("data-focus") === selectHeld.key ? active : null;
+            if (disabledControl(selectHeld.element) || disabledControl(replacement)) selectHeld = undefined;
+        }
+    };
+    const draw = (): void => {
         if (view.phase === "playing" || view.phase === "paused") pictureShown = true;
         backdrop.hidden = pictureShown || view.phase !== "loading";
         renderSubtitles(view);
@@ -1413,12 +1427,24 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         tabs[column]?.focus();
     };
 
-    const onKey = (event: KeyboardEvent): void => {
+    /** What Select would act on beyond the focused control: a prompt or mode that appears mid-press replaces the press's action. */
+    const selectContext = (): string => [skipKind, skipTarget, view.phase, view.phase === "playing" || view.phase === "paused" ? view.upNext !== undefined : false, menuOpen, timeline, seekPreview !== undefined, autoRate, overlay.classList.contains("player-overlay-hidden"), skipUsable(), bufferingButtons().length, bufferingTarget].join("|");
+    const onKey = (event: KeyboardEvent, released = false): void => {
         const key = remoteKey(event);
+        // Any other key, remote or not, ends a held Select.
+        if (key !== "enter") selectHeld = undefined;
         if (key === undefined || view.phase === "closed") {
             return;
         }
         event.preventDefault();
+        // tvOS runs Select on release: a fresh press waits for onKeyUp, and its repeats change nothing.
+        if (key === "enter" && !released) {
+            // A press on a disabled button stays inert, even if a redraw enables it before release. The scrubber is
+            // not a button: while it is inactive, Select acts on a prompt, which the held context covers.
+            const target = document.activeElement;
+            if (isFreshSelect()) selectHeld = disabledControl(target) ? undefined : { element: target, key: target?.getAttribute("data-focus") ?? null, context: selectContext() };
+            return;
+        }
         if ((view.phase === "playing" || view.phase === "paused") && view.upNext !== undefined) {
             if (key === "play_pause") { controls.togglePause(); return; }
             if (key === "play" || key === "pause") { controls.setPaused(key === "pause"); return; }
@@ -1569,8 +1595,34 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         render();
     };
 
+    // A lost window loses Select's release, so the next press is a fresh one.
+    const endSelect = (): void => { selectHeld = undefined; };
+    // Focus leaving the pressed control ends the press; a repaint handing focus to the same control's new node keeps it.
+    const onFocusOut = (event: FocusEvent): void => {
+        const held = selectHeld;
+        if (held === undefined || event.target !== held.element) return;
+        const next = event.relatedTarget;
+        // The press follows the same control's replacement, so a later focus departure from it still ends the press.
+        if (held.key !== null && next instanceof Element && next.getAttribute("data-focus") === held.key) { selectHeld = disabledControl(next) ? undefined : { ...held, element: next }; return; }
+        // A repaint removes the focused row before focusing its replacement, so decide once the repaint has run.
+        queueMicrotask(() => {
+            if (selectHeld !== held) return;
+            const active = document.activeElement;
+            selectHeld = held.key !== null && held.element?.isConnected === false && active?.getAttribute("data-focus") === held.key && !disabledControl(active) ? { ...held, element: active } : undefined;
+        });
+    };
+
     const onKeyUp = (event: KeyboardEvent): void => {
         const key = remoteKey(event);
+        if (key === "enter") {
+            const held = selectHeld;
+            selectHeld = undefined;
+            // Release runs the press only on the control it was made on, or that control's repainted replacement: onFocusOut
+            // retargets the press when removal fires focusout, and the key check covers an engine that removes it silently.
+            const active = document.activeElement;
+            if (held !== undefined && held.context === selectContext() && !disabledControl(active) && (active === held.element || (held.key !== null && held.element?.isConnected === false && active?.getAttribute("data-focus") === held.key))) onKey(event, true);
+            return;
+        }
         if ((key !== "left" && key !== "right") || pendingTap !== key) return;
         cancelHold?.();
         cancelHold = undefined;
@@ -1589,6 +1641,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
 
     const onVisibility = (): void => {
         if (document.hidden) {
+            selectHeld = undefined;
             cancelScrub();
             cancelHide?.();
             cancelHide = undefined;
@@ -1601,9 +1654,12 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         }
     };
 
+    listenSelectRelease();
     document.addEventListener("keydown", onKey);
     document.addEventListener("keyup", onKeyUp);
     document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("blur", endSelect);
+    document.addEventListener("focusout", onFocusOut, true);
     const unsubscribe = controls.subscribe((next) => {
         if ((next.phase !== "playing" && next.phase !== "paused") || next.previewKey !== undefined) pendingSkipTarget = undefined;
         const starting = next.phase === "playing" && view.phase !== "playing" && view.phase !== "paused";
@@ -1639,9 +1695,13 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             skipPrompt.reset();
             unsubscribe();
             cancelHide?.();
+            // A Select still down when the player closes must not reach the screen underneath.
+            swallowSelect();
             document.removeEventListener("keydown", onKey);
             document.removeEventListener("keyup", onKeyUp);
             document.removeEventListener("visibilitychange", onVisibility);
+            window.removeEventListener("blur", endSelect);
+            document.removeEventListener("focusout", onFocusOut, true);
             if (section.parentNode === root) {
                 root.removeChild(section);
             }

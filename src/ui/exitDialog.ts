@@ -1,4 +1,5 @@
 import { remoteKey } from "./keys.ts";
+import { listenSelectRelease, releasedSelect, swallowSelect } from "./selectRelease.ts";
 import { actions, button, el } from "./screen.ts";
 
 export interface ExitDialog { destroy(): void; }
@@ -18,7 +19,10 @@ export function mountExitDialog(root: HTMLElement, exit: () => void, closed: () 
     const destroy = (): void => {
         if (!destroyed) {
             destroyed = true;
+            // Select may still be down; the rest of that press must not reach the screen underneath.
+            swallowSelect();
             window.removeEventListener("keydown", onKey, true);
+            window.removeEventListener("keyup", onRelease, true);
             document.removeEventListener("focusin", onFocus, true);
             overlay.remove();
             closed();
@@ -65,12 +69,24 @@ export function mountExitDialog(root: HTMLElement, exit: () => void, closed: () 
             yes.element.focus();
         } else if (key === "right" || key === "down") {
             no.element.focus();
-        } else if (key === "enter") {
-            if (document.activeElement === yes.element) {
-                confirm();
-            } else {
-                cancel();
-            }
+        }
+        // Enter waits for its release (onRelease).
+    };
+    const onRelease = (event: KeyboardEvent): void => {
+        if (remoteKey(event) !== "enter") {
+            return;
+        }
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        // tvOS runs a button when Select is released on it; a press cancelled or made elsewhere runs nothing.
+        const pressed = releasedSelect();
+        if (pressed === undefined || pressed !== document.activeElement) {
+            return;
+        }
+        if (pressed === yes.element) {
+            confirm();
+        } else if (pressed === no.element) {
+            cancel();
         }
     };
     for (const node of [title, status, actions([yes, no])]) {
@@ -79,7 +95,9 @@ export function mountExitDialog(root: HTMLElement, exit: () => void, closed: () 
     overlay.appendChild(panel);
     // Screen owners replace the app root while asynchronous requests settle.
     root.ownerDocument.body.appendChild(overlay);
+    listenSelectRelease();
     window.addEventListener("keydown", onKey, true);
+    window.addEventListener("keyup", onRelease, true);
     document.addEventListener("focusin", onFocus, true);
     no.element.focus();
     return { destroy };

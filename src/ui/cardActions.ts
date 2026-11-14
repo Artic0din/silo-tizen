@@ -10,6 +10,7 @@ import type { NativeSession } from "../session/session.ts";
 import { centredDialog } from "./confirmationDialog.ts";
 import { remoteKey } from "./keys.ts";
 import { el } from "./screen.ts";
+import { heldSelect, listenSelectRelease, moveSelect, releasedSelect, swallowSelect } from "./selectRelease.ts";
 
 /** What the opener knows about the card. A field it does not know is read from the item before the menu opens. */
 export type MenuCard = Pick<Card, "id" | "title" | "type"> & Partial<Pick<Card, "played" | "favorite" | "watchlist" | "positionSeconds" | "seriesId">> & {
@@ -81,7 +82,6 @@ const MENU_MARGIN = 60;
 export class CardActions {
     private panel: HTMLElement | undefined;
     private rows: HTMLButtonElement[] = [];
-    private pressed = false;
     private listening = false;
     /** The card drawn lifted while its menu is open, and its art's rest box measured before the lift. */
     private lifted: { readonly card: HTMLElement; readonly rest: Box } | undefined;
@@ -216,16 +216,19 @@ export class CardActions {
         const shown = this.shown;
         if (shown === undefined) return;
         if (next === undefined) {
-            // Select may still be down on a disabled row; its repeats and release must not reach what takes focus next.
-            if (this.pressed) swallowSelect();
             this.close();
             return;
         }
         const focused = document.activeElement?.getAttribute("data-focus");
+        const press = heldSelect();
+        const held = press !== undefined && press.element === document.activeElement ? press : undefined;
         this.panel?.remove();
         this.panel = undefined;
         this.show(next, shown.options, shown.anchor, shown.source);
-        this.rows.find(row => row.getAttribute("data-focus") === focused)?.focus({ preventScroll: true });
+        const kept = this.rows.find(row => row.getAttribute("data-focus") === focused);
+        kept?.focus({ preventScroll: true });
+        // A held Select stays with its row through the redraw, unless the redrawn row is disabled.
+        if (held !== undefined && kept !== undefined) moveSelect(held, kept);
     }
 
     private menuRows(card: MenuCard, options: CardMenuOptions, source: MenuCard): Row[] {
@@ -327,20 +330,19 @@ export class CardActions {
     private capture(): void {
         if (this.listening) return;
         this.listening = true;
-        this.pressed = false;
+        listenSelectRelease();
         this.host.opened();
         document.addEventListener("keydown", this.onKey, true);
         document.addEventListener("keyup", this.onRelease, true);
-        window.addEventListener("blur", this.onBlur);
     }
 
     private release(): void {
         if (!this.listening) return;
         this.listening = false;
-        this.pressed = false;
+        // Select may still be down; the rest of that press must not reach what takes focus next.
+        swallowSelect();
         document.removeEventListener("keydown", this.onKey, true);
         document.removeEventListener("keyup", this.onRelease, true);
-        window.removeEventListener("blur", this.onBlur);
     }
 
     private abortAll(): void {
@@ -355,11 +357,13 @@ export class CardActions {
         this.stopAuthority();
     }
 
-    /** Losing focus loses Select's release, so the next press is a fresh one. */
-    private readonly onBlur = (): void => { this.pressed = false; };
-
     private readonly onRelease = (event: KeyboardEvent): void => {
-        if (remoteKey(event) === "enter") { this.pressed = false; event.preventDefault(); event.stopImmediatePropagation(); }
+        if (remoteKey(event) !== "enter") return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        // The shared Select release names the row the press was made on, enabled and focused throughout; anything else runs nothing.
+        const chosen = releasedSelect();
+        if (chosen !== undefined && chosen === document.activeElement && this.rows.some(row => row === chosen)) chosen.click();
     };
 
     private readonly onKey = (event: KeyboardEvent): void => {
@@ -374,17 +378,8 @@ export class CardActions {
             const index = this.rows.findIndex(row => row === document.activeElement);
             const step = key === "up" || event.shiftKey ? -1 : 1;
             this.rows[Math.max(0, Math.min(this.rows.length - 1, index + step))]?.focus({ preventScroll: true });
-        } else if (key === "enter") {
-            // Select is still held from the long press that opened the menu; only a fresh press chooses a row.
-            if (this.pressed || event.repeat) return;
-            this.pressed = true;
-            const chosen = this.rows.find(row => row === document.activeElement);
-            // A disabled row stays open and keeps its own release handling.
-            if (chosen === undefined || chosen.getAttribute("aria-disabled") === "true") return;
-            // Choosing closes the menu while Select is still down; its repeats and release must not reach the card.
-            swallowSelect();
-            chosen.click();
         }
+        // Enter waits for its release (onRelease); the long press that opened the menu never names a row.
     };
 }
 
@@ -398,29 +393,6 @@ function menuLabel(text: string): HTMLElement {
     if (words.length < 3) { label.textContent = text; return label; }
     label.append(`${words.slice(0, -2).join(" ")} `, el("span", "card-menu-keep", words.slice(-2).join(" ")));
     return label;
-}
-
-/** Consumes the rest of a Select press: window capture runs ahead of the screen's document listeners. */
-function swallowSelect(): void {
-    // Losing focus can lose the release. Repeats and a late release still belong to the old press,
-    // but a fresh, non-repeat Select after focus returns is a new press and goes through.
-    let blurred = false;
-    const consume = (event: KeyboardEvent): void => {
-        if (remoteKey(event) !== "enter") return;
-        if (event.type === "keydown" && blurred && !event.repeat) { stop(); return; }
-        event.preventDefault();
-        event.stopImmediatePropagation();
-        if (event.type === "keyup") stop();
-    };
-    const lost = (): void => { blurred = true; };
-    const stop = (): void => {
-        window.removeEventListener("keydown", consume, true);
-        window.removeEventListener("keyup", consume, true);
-        window.removeEventListener("blur", lost);
-    };
-    window.addEventListener("keydown", consume, true);
-    window.addEventListener("keyup", consume, true);
-    window.addEventListener("blur", lost);
 }
 
 /** The tvOS menu opens beside the focused card, inside the safe area. */

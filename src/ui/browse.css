@@ -158,7 +158,8 @@
 /* TVPrimaryPillButton in TVDetailActionRow (TVDetailActions.swift:53-56, 714): fixed 340 width, 22 inset, 16 spacing, 36 icon frame, 29 pt title. */
 .details-editorial .details-play:not(.box-set-play) { width: 340px; padding: 0 22px; gap: 16px; font-size: calc(29px * var(--silo-sf-cap-scale)); white-space: nowrap; }
 .details-play:not(.box-set-play) svg { width: 36px; height: 36px; }
-.details-editorial .details-play:active { transform: scale(.98); }
+/* TVPillButtonStyle presses to 0.98 (TVDetailActions.swift:762); TVCirclePillSurface to 0.95 (:381). */
+.details-editorial .details-play:is(:active, [data-pressed]) { transform: scale(.98); }
 /* Box set Play is TVPrimaryPillButton with stabilizesFocusMotion (TVDetailActions.swift:53-67,674,691-694).
    The verb sits on the film title; the icon is beside that stack. */
 .details-editorial .details-action.box-set-play { box-sizing: border-box; justify-content: flex-start; gap: 16px; height: 76px; min-width: 0; padding: 0 22px; }
@@ -176,7 +177,7 @@
 .details-editorial .details-circle { min-width: 76px; padding: 0; gap: 0; transition: padding .28s ease-in-out, transform .12s ease-out; }
 .details-circle .details-action-label { max-width: 0; margin-left: 0; overflow: hidden; white-space: nowrap; opacity: 0; transition: max-width .28s ease-in-out, margin-left .28s ease-in-out, opacity .08s ease-in; }
 .details-circle:is(:focus, [aria-expanded="true"]) .details-action-label { max-width: 320px; margin-left: 14px; opacity: 1; transition: max-width .28s ease-in-out, margin-left .28s ease-in-out, opacity .18s ease-out .06s; }
-.details-editorial .details-circle:active { transform: scale(.95); }
+.details-editorial .details-circle:is(:active, [data-pressed]) { transform: scale(.95); }
 .details-external-rating { display: inline-flex; align-items: center; gap: 10px; margin: 0 14px; }
 .details-external-rating img { width: 54px; height: 20px; }
 .details-rating-divider { height: 22px; border-left: 1px solid rgba(255,255,255,.45); }

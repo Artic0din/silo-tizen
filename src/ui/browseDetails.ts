@@ -513,7 +513,7 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
         // TVSimilarRail passes neither overlayData nor userState to TVMediaCard.
         // AppRouter.openRelatedTitle: a related pick replaces a page that a related pick opened.
         const openRelated = (destination: Destination): void => context.open(destination.kind === "item" ? { ...destination, fromRelated: true } : destination);
-        const related = titleCards((state.related ?? []).map(card => ({ ...card, played: undefined })), { ...context, open: openRelated, overlays: undefined, cardOverlays: () => undefined });
+        const related = titleCards((state.related ?? []).map(card => ({ ...card, played: undefined, episodesLeft: undefined })), { ...context, open: openRelated, overlays: undefined, cardOverlays: () => undefined });
         if (!(state.offline && state.related === undefined) && !state.relatedFailed && (state.related === undefined || related.length > 0)) {
             const section = zoneNode("browse-row", related);
             section.setAttribute("data-detail-section", "related");

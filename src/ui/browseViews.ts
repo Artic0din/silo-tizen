@@ -5,7 +5,7 @@
 import type { Card, CardOverlay, CatalogPage, HomeSection, UserLibrary } from "../contracts/v2/catalog.ts";
 import type { FocusItem, View, Zone } from "./browseFocus.ts";
 import { artworkUrl, type Destination, type EpisodeSelection, type SeriesLine, browseCardDestination, destinationOf } from "./browseModel.ts";
-import { type CardOverlayPrefs, overlayLayer } from "./cardOverlays.ts";
+import { type CardOverlayPrefs, overlayLayer, watchStatus } from "./cardOverlays.ts";
 import { homeCaption } from "./cardPresentation.ts";
 import type { CardMenuOptions, MenuCard } from "./cardActions.ts";
 import type { HomeDismissal } from "../api/detailOperations.ts";
@@ -237,13 +237,17 @@ export function cardItem(card: Card, context: ViewContext): FocusItem | undefine
             element.firstElementChild?.appendChild(thumbnailProgress(card.positionSeconds / card.durationSeconds));
         }
     }
-    // Badges sit under the progress bar and the watched tick, which win a shared corner.
+    // Badges sit under the progress bar and the watch status, which win a shared corner.
     const saved = continuing ? context.savedFileOverlay?.(card) : undefined;
     const scale = context.homeCaptions === true ? context.posterScale?.() ?? 1 : 1;
+    const artWidth = (thumbnail ? HOME_STILL_WIDTH : context.posterWidth ?? (context.homeCaptions === true ? HOME_POSTER_WIDTH : 260)) * scale;
     const overlays = context.overlays ?? context.cardOverlays?.();
-    const badges = overlays === undefined ? undefined : overlayLayer(saved === undefined ? card : { ...card, overlay: saved }, overlays, thumbnail ? "wide" : "poster", (thumbnail ? HOME_STILL_WIDTH : context.posterWidth ?? (context.homeCaptions === true ? HOME_POSTER_WIDTH : 260)) * scale);
+    const badges = overlays === undefined ? undefined : overlayLayer(saved === undefined ? card : { ...card, overlay: saved }, overlays, thumbnail ? "wide" : "poster", artWidth);
     if (badges !== undefined) element.firstElementChild?.insertBefore(badges, element.firstElementChild.querySelector(".skyline-progress"));
-    if (card.played === true) {
+    // TVMediaCard.swift:237-243 draws CardWatchStatus on every poster; a still keeps EpisodeThumbCard's check (:211-225).
+    const status = thumbnail ? undefined : watchStatus(card, artWidth);
+    if (status !== undefined) element.firstElementChild?.appendChild(status);
+    if (thumbnail && card.played === true) {
         const tick = el("span", "browse-watched");
         tick.appendChild(el("span", "silo-sr-only", "Watched"));
         element.firstElementChild?.appendChild(tick);

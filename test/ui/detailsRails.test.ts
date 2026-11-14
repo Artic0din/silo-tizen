@@ -212,6 +212,34 @@ for (const [size, width] of [["compact", 189.2], ["large", 264]] as const) railT
     for (const [w, h] of boxes) { assert.ok(Math.abs(w! - width) < 0.05, `card ${w}px wide`); assert.ok(Math.abs(h! - width * 1.5) < 0.25, `card ${h}px tall`); }
 }, size);
 
+// CardWatchStatus sizes from the poster it sits on (CardWatchStatus.swift:29-30, :58): 22 and 8 points at 185 wide.
+// TVBoxSetRow draws 220-wide TVMediaCards scaled by the card size (TVBoxSetRow.swift:20,48); the box set page's grid
+// is 220 wide (BoxSetDetailView.swift:246) and does not scale here (browse.css box-set-grid).
+railTest("the box set row and page size the watched check from their own posters", async (tv, details) => {
+    await routeMovie(tv, details);
+    const watched = { ...BOX_SET, items: BOX_SET.items.map(item => ({ ...item, user_state: { played: item.content_id === "movie:m0002" } })) };
+    await tv.page.route("**/api/v2/catalog/items/movie%3Am0001/box-set?**", route => route.fulfill({ json: { box_set: watched } }));
+    await tv.page.route("**/api/v2/catalog/box-sets/1241?**", route => route.fulfill({ json: watched }));
+    const measure = (scope: string) => tv.page.evaluate(scope => {
+        const art = document.querySelector(`${scope} [data-focus="movie:m0002"] .browse-art`), mark = art?.querySelector(".card-watch-status-played");
+        if (art === null || art === undefined || mark === null || mark === undefined) return undefined;
+        const a = art.getBoundingClientRect(), m = mark.getBoundingClientRect();
+        return { poster: a.width, size: m.width, inset: a.right - m.right };
+    }, scope);
+    await tv.page.locator(MOVIE).first().click();
+    await tv.page.locator('.box-set-row [data-focus="movie:m0002"] .card-watch-status-played').waitFor();
+    const row = await measure(".box-set-row");
+    assert.ok(row !== undefined && Math.abs(row.poster - 264) < 0.05, `row poster ${row?.poster}`);
+    assert.ok(Math.abs(row.size - 22 * 264 / 185) < 0.05, `row check ${row.size}px`);
+    assert.ok(Math.abs(row.inset - 8 * 264 / 185) < 0.05, `row inset ${row.inset}px`);
+    await tv.page.locator('.box-set-row [data-focus="box-set-explore"]').click();
+    await tv.page.locator('.box-set-grid [data-focus="movie:m0002"] .card-watch-status-played').waitFor();
+    const page = await measure(".box-set-grid");
+    assert.ok(page !== undefined && page.poster === 220, `page poster ${page?.poster}`);
+    assert.ok(Math.abs(page.size - 22 * 220 / 185) < 0.05, `page check ${page.size}px`);
+    assert.ok(Math.abs(page.inset - 8 * 220 / 185) < 0.05, `page inset ${page.inset}px`);
+}, "large");
+
 railTest("an empty facts list keeps the Details header, and a credit without a character has no role line", async (tv, details) => {
     await routeMovie(tv, details, body => ({ ...body, cast: [{ person_id: "7", name: "River Vale", character: "Alex", order: 0 }, { name: "Morgan Lane", character: "", order: 1 }], crew: [], studios: [], countries: [], original_language: undefined, genres: [], release_date: undefined, premiere_date: undefined, year: undefined }));
     await tv.page.locator(MOVIE).first().click();

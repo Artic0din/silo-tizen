@@ -33,6 +33,17 @@ test("episode rows retain resume seconds from user data", () => {
     assert.throws(() => decode({ played: false, position_seconds: 60, duration_seconds: "240" }), WireError);
 });
 
+test("a started, unfinished series card carries its episodes left; others carry none (Models.swift:111-114)", () => {
+    const series = { content_id: "series:1", type: "series", title: "Show" };
+    const left = (user_state: Record<string, unknown>) => decodeCatalogPage({ items: [{ ...series, user_state: { is_favorite: false, in_watchlist: false, not_interested: false, ...user_state } }], total: 1, total_exact: true }).items[0]?.episodesLeft;
+    assert.equal(left({ played: false, watched_count: 4, unplayed_count: 6 }), 6);
+    assert.equal(left({ played: false, watched_count: 0, unplayed_count: 10 }), undefined, "an untouched series shows no count");
+    assert.equal(left({ played: false, watched_count: 4, unplayed_count: 0 }), undefined);
+    assert.equal(left({ played: true, watched_count: 10, unplayed_count: 2 }), undefined, "a watched title shows the check");
+    assert.equal(left({ played: false }), undefined, "a server before the counts sends none");
+    assert.throws(() => left({ played: false, watched_count: 4, unplayed_count: "6" }), WireError);
+});
+
 test("local extras retain authoritative watch targets and numeric file IDs", () => {
     const detail = decodeItemDetail({ ...fixture("get_catalog_item_ok"), extras: [{ content_id: "extra:1", file_id: 71, kind: "trailer", title: "Trailer", duration_seconds: 90, still_url: "/extra.jpg" }] });
     assert.deepEqual(detail.extras, [{ contentId: "extra:1", fileId: "71", kind: "trailer", title: "Trailer", durationSeconds: 90, stillUrl: "/extra.jpg" }]);
@@ -85,6 +96,7 @@ test("browse fixtures decode with the production decoders", () => {
         genres: ["Crime"],
         overlay: { resolution: "4K", hdr: "Dolby Vision", audio: undefined, audioChannels: undefined, videoCodec: undefined, container: undefined, aspectRatio: undefined, releaseType: undefined, edition: undefined, multiAudio: undefined, multiSub: undefined },
         played: false,
+        episodesLeft: undefined,
         favorite: false,
         watchlist: true,
         logoUrl: undefined,

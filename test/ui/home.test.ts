@@ -1001,9 +1001,9 @@ journey("Home cards caption episodes by series, mark watched titles and label Co
     assert.deepEqual(await caption("episode:s1e12"), ["Harbor Lights", "S01E02 · Harbor Lights chapter 1.2"]);
     assert.deepEqual(await caption("movie:m0001"), ["Movie 0001", "1991"]);
     const watched = tv.page.locator('[data-section="recent/12"] [data-focus="movie:m0005"]');
-    assert.equal(await watched.locator(".browse-watched").count(), 1);
+    assert.equal(await watched.locator(".card-watch-status-played").count(), 1);
     assert.match(await watched.getAttribute("aria-label") ?? await watched.innerText(), /Watched/);
-    assert.equal(await tv.page.locator('[data-section="recent/12"] [data-focus="movie:m0006"] .browse-watched').count(), 0);
+    assert.equal(await tv.page.locator('[data-section="recent/12"] [data-focus="movie:m0006"] .card-watch-status').count(), 0);
     assert.equal(await tv.page.locator('[data-section="resume/opaque"] .browse-section-title .home-row-glyph').count(), 1);
     assert.equal(await tv.page.locator('[data-section="recent/12"] .browse-section-title .home-row-glyph').count(), 0);
     assert.equal(await tv.page.locator('[data-section="resume/opaque"] .browse-section-title').innerText(), "Continue Watching");
@@ -1382,6 +1382,8 @@ let heldBadges: { release(): void } | undefined;
 
 journey("Home reads the rested card once and sends nothing while focus is still moving", async (tv, catalog) => {
     const continuing = ["episode:s1e12", "movie:m0001"];
+    // Rows can paint before Playwright records their Continue Watching detail requests.
+    await tv.eventually(async () => continuing.every(id => detailReads(tv).includes(id)), "Continue Watching detail reads started");
     assert.deepEqual([...new Set(detailReads(tv))].sort(), [...continuing].sort(), "after first paint only Continue Watching is read");
     await tv.page.keyboard.press("ArrowDown");
     // The first card's own rest may finish on the running clock before that Down replaces it; that read is the landing,

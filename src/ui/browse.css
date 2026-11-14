@@ -1109,6 +1109,10 @@ svg.library-empty-icon { width: auto; }
 .skyline-continue .browse-watched { top: 14px; right: 14px; }
 /* Poster badges (Apple CardOverlays); per-preset sizes and colours are set inline from the badge document. */
 /* Positions are on the artwork, which does not mirror. */
+/* CardWatchStatus.swift:31-59: a disc or capsule with a 1pt inner ring and an unscaled shadow (SwiftUI radius 1.5 is a 3px CSS blur). */
+.card-watch-status { position: absolute; box-sizing: border-box; display: flex; align-items: center; justify-content: center; border-radius: 999px; background: rgba(0,0,0,.65); box-shadow: inset 0 0 0 1px rgba(255,255,255,.2); filter: drop-shadow(0 1px 3px rgba(0,0,0,.15)); color: #fff; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1; white-space: nowrap; pointer-events: none; }
+.card-watch-status-played { box-shadow: inset 0 0 0 1px rgba(255,255,255,.35); }
+.card-watch-status svg { display: block; flex: none; fill: none; stroke: #fff; stroke-width: 3.25px; stroke-linecap: round; stroke-linejoin: round; }
 .card-overlays { position: absolute; top: 0; right: 0; bottom: 0; left: 0; pointer-events: none; direction: ltr; }
 .card-overlay-stack { position: absolute; display: flex; flex-direction: column; }
 /* A side rail is centred on its edge. */

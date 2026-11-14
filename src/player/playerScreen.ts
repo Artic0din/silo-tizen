@@ -15,7 +15,7 @@ import type { ConnectedServer } from "../session/core.ts";
 import type { PublicStorage, RandomBytes } from "../session/deviceIdentity.ts";
 import { blurEpisodeStill, type EpisodeSpoilerSettings } from "../ui/episodeSpoilers.ts";
 import { remoteKey } from "../ui/keys.ts";
-import { swallowSelect } from "../ui/selectRelease.ts";
+import { isFreshSelect, listenSelectRelease, swallowSelect } from "../ui/selectRelease.ts";
 import { el } from "../ui/screen.ts";
 import { artworkUrl } from "../ui/browseModel.ts";
 import type { AVPlay } from "./avplay.ts";
@@ -1432,7 +1432,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             // not a button: while it is inactive, Select acts on a prompt, which the held context covers.
             const target = document.activeElement;
             const disabled = target instanceof HTMLButtonElement && (target.disabled || target.getAttribute("aria-disabled") === "true");
-            if (!event.repeat) selectHeld = disabled ? undefined : { element: target, key: target?.getAttribute("data-focus") ?? null, context: selectContext() };
+            if (isFreshSelect()) selectHeld = disabled ? undefined : { element: target, key: target?.getAttribute("data-focus") ?? null, context: selectContext() };
             return;
         }
         if ((view.phase === "playing" || view.phase === "paused") && view.upNext !== undefined) {
@@ -1644,6 +1644,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         }
     };
 
+    listenSelectRelease();
     document.addEventListener("keydown", onKey);
     document.addEventListener("keyup", onKeyUp);
     document.addEventListener("visibilitychange", onVisibility);

@@ -421,7 +421,9 @@ for (const where of ["chosen row", "open menu"] as const) test(`losing window fo
     } finally { await tv.page.context().close(); }
 });
 
-for (const blurred of [false, true]) test(`a menu Back closes while Select is held${blurred ? " after a window blur" : ""}, and the rest of that press cannot reach the card`, async () => {
+// A TV may not flag auto-repeat, so until the release every Enter keydown belongs to the held press. After a blur the
+// release may be lost, so only flagged repeats are known to be the old press.
+for (const [blurred, flagged] of [[false, true], [false, false], [true, true]] as const) test(`a menu Back closes while Select is held${blurred ? " after a window blur" : ""}, and the rest of that press${flagged ? "" : " (unflagged repeats)"} cannot reach the card`, async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {
         const catalog = await start(tv);
@@ -432,7 +434,7 @@ for (const blurred of [false, true]) test(`a menu Back closes while Select is he
         await tv.remote(10009);
         assert.equal(await menu(tv).count(), 0, "Back closed the menu");
         assert.equal(await tv.focused(), "movie:m0001");
-        for (let repeat = 0; repeat < 4; repeat++) { await tv.jump(200); await tv.down(13, true); }
+        for (let repeat = 0; repeat < 4; repeat++) { await tv.jump(200); await tv.down(13, flagged); }
         await tv.up(13);
         await tv.jump(700);
         assert.equal(await menu(tv).count(), 0, "the held repeats did not reopen a menu");
@@ -830,10 +832,13 @@ test("a card whose item cannot be read shows the alert instead of an empty menu"
         await card.waitFor();
         const id = await card.getAttribute("data-focus") ?? "";
         tv.fake.script(`/catalog/items/${encodeURIComponent(id)}?image_size=large`, problem(404, "not_found", "Not found"));
-        await card.focus(); await tv.down(13); await tv.jump(650); await tv.up(13);
+        // The alert lands while the opening hold is still down: its release is swallowed, and the next fresh Select is the alert's.
+        await card.focus(); await tv.down(13); await tv.jump(650);
         await tv.page.getByRole("alertdialog", { name: "Couldn’t Update Item" }).waitFor();
+        await tv.up(13);
         assert.equal(await menu(tv).count(), 0);
         await tv.page.keyboard.press("Enter");
+        assert.equal(await tv.page.getByRole("alertdialog").count(), 0, "the first fresh Select dismisses the alert");
         assert.equal(await tv.focused(), id);
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }

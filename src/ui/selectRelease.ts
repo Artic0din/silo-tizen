@@ -15,6 +15,10 @@ let released: HTMLElement | undefined;
 let listening = false;
 /** Enter is physically down: set by any Enter keydown, cleared only by its keyup, so a window blur does not clear it. */
 let enterDown = false;
+/** A blur or hidden page while Enter was down may have lost its keyup, so the next Enter keydown starts a new press. */
+let releaseLost = false;
+/** Whether the Enter keydown being dispatched starts a new press. */
+let fresh = false;
 
 /** A control Chromium would click on Enter keydown. */
 function clickable(element: Element | null): element is HTMLElement {
@@ -40,6 +44,11 @@ export function heldSelect(): SelectPress | undefined {
     return held === undefined ? undefined : { element: held, owned };
 }
 
+/** During an Enter keydown: whether it starts a new press rather than continuing the one already down. */
+export function isFreshSelect(): boolean {
+    return fresh;
+}
+
 /** A repaint replaced the held control with this one for the same item: it keeps the press, even if the repaint's focus change ended it. */
 export function moveSelect(press: SelectPress, element: HTMLElement): void {
     held?.removeAttribute("data-pressed");
@@ -50,6 +59,11 @@ export function moveSelect(press: SelectPress, element: HTMLElement): void {
     element.setAttribute("data-pressed", "");
 }
 
+const loseRelease = (): void => {
+    release();
+    releaseLost = enterDown;
+};
+
 // Focus leaving the held control ends the press, so focus returning to it cannot run it on release.
 const onFocusOut = (event: FocusEvent): void => {
     if (event.target === held) release();
@@ -58,8 +72,11 @@ const onFocusOut = (event: FocusEvent): void => {
 const onPress = (event: KeyboardEvent): void => {
     // Any other key, Tab included, ends the press, as moving focus off a held tvOS control does.
     if (remoteKey(event) !== "enter") { release(); return; }
+    // Until its keyup, every Enter keydown belongs to the press already down: a TV may not flag auto-repeat.
+    fresh = !event.repeat && (!enterDown || releaseLost);
     enterDown = true;
-    if (event.repeat) return;
+    releaseLost = false;
+    if (!fresh) return;
     release();
     const target = document.activeElement;
     if (!activatable(target)) return;
@@ -71,13 +88,14 @@ const onUnhandled = (event: KeyboardEvent): void => {
     if (remoteKey(event) !== "enter" || event.defaultPrevented || !clickable(document.activeElement)) return;
     // Auto-repeat keeps the default taken too, so a held Select never clicks again.
     event.preventDefault();
-    if (!event.repeat && document.activeElement === held) owned = true;
+    if (fresh && document.activeElement === held) owned = true;
 };
 
 // A screen may stop a keyup it owns, so the press ends at capture; only a release no screen took clicks.
 const onReleaseStart = (event: KeyboardEvent): void => {
     if (remoteKey(event) !== "enter") return;
     enterDown = false;
+    releaseLost = false;
     // The press runs only on the control it was made on, still focused and still enabled.
     released = document.hidden || held === undefined || !activatable(held) ? undefined : held;
     releasing = owned ? released : undefined;
@@ -104,13 +122,13 @@ export function releasedSelect(): HTMLElement | undefined {
 
 /**
  * An overlay that closes while Select is down consumes the rest of that press, its repeats and its release, so it cannot
- * reach what takes focus next. A fresh, non-repeat Select is a new press and goes through.
+ * reach what takes focus next. A new press (isFreshSelect) goes through.
  */
 export function swallowSelect(): void {
     if (!enterDown) return;
     const consume = (event: KeyboardEvent): void => {
         if (remoteKey(event) !== "enter") return;
-        if (event.type === "keydown" && !event.repeat) { stop(); return; }
+        if (event.type === "keydown" && fresh) { stop(); return; }
         event.preventDefault();
         event.stopImmediatePropagation();
         if (event.type === "keyup") stop();
@@ -132,7 +150,7 @@ export function listenSelectRelease(): void {
     window.addEventListener("keydown", onUnhandled);
     window.addEventListener("keyup", onReleaseStart, true);
     window.addEventListener("keyup", onRelease);
-    window.addEventListener("blur", release);
+    window.addEventListener("blur", loseRelease);
     document.addEventListener("focusout", onFocusOut, true);
-    document.addEventListener("visibilitychange", release);
+    document.addEventListener("visibilitychange", loseRelease);
 }

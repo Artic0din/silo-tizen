@@ -9,7 +9,7 @@
 // The sign-in ScreenHost moves through one list; grids and stacked rows need two dimensions.
 
 import { remoteKey } from "./keys.ts";
-import { heldSelect, listenSelectRelease, moveSelect } from "./selectRelease.ts";
+import { heldSelect, isFreshSelect, listenSelectRelease, moveSelect } from "./selectRelease.ts";
 import { SkylineScroll } from "./skylineScroll.ts";
 
 const SELECT_HOLD_MS = 650;
@@ -724,9 +724,11 @@ export class FocusHost {
     private readonly onPress = (event: KeyboardEvent): void => {
         const key = remoteKey(event);
         if (key !== "enter") { if (key !== undefined) this.cancelPress(); return; }
+        // A fresh press while a hold is still recorded means that hold's release was lost or swallowed: drop it.
+        if (this.press !== undefined && isFreshSelect()) { this.cancelPress(); this.press = undefined; }
         if (this.press !== undefined) { event.preventDefault(); event.stopImmediatePropagation(); return; }
         // Only a fresh press can start a hold: a repeat belongs to a press made before focus arrived here.
-        if (event.defaultPrevented || event.repeat) return;
+        if (event.defaultPrevented || !isFreshSelect()) return;
         const item = this.locate(document.activeElement)?.item;
         // A disabled card takes no press; selectRelease takes Chromium's click from it.
         if (item?.quickAction === undefined || !enabled(item.element)) return;

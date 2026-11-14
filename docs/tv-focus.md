@@ -183,12 +183,13 @@ Other layers:
 - Enter is delivered on every remote without registration, as `keydown` and `keyup`.
 - Select acts on release, as on tvOS: the focused control is drawn pressed while Enter is held and runs when it is released.
   `selectRelease.ts` takes Chromium's keydown click from a focused `<button>` or link and clicks it on `keyup` instead, only when focus has not moved.
+  Until Enter's keyup, every Enter keydown belongs to the press already down, flagged as a repeat or not (`isFreshSelect`); after a window blur or hidden page the keyup may be lost, so the next Enter starts a new press.
   Auto-repeat never clicks again, and any other key, focus leaving the button, a window blur or a hidden page cancels the press.
   A browse repaint that replaces the held button with the same item's new one keeps the press (`FocusHost.show`).
   A press on a control marked `aria-disabled` never arms, so it never runs, even if a redraw enables that control before release.
   A press whose control is disabled by release time, or repainted as a disabled control, runs nothing either.
   The player checks the same rule for every button it presses, and cancels a held press when a prompt, mode or skip target changes before release.
-  An overlay that closes while Select is down (card menu, request menu, Exit dialog, player) calls `swallowSelect()`, so the rest of that press, its repeats and its release, cannot reach what takes focus next; a fresh, non-repeat Select goes through.
+  An overlay that closes while Select is down (card menu, request menu, Exit dialog, player) calls `swallowSelect()`, so the rest of that press, its repeats and its release, cannot reach what takes focus next; a new press goes through.
   `FocusHost` starts a hold only on a fresh press on an enabled card, and a card disabled before its hold completes or before release runs nothing.
   `ScreenHost` and `FocusHost` leave Enter to it, except for cards with a `quickAction` (see below).
   Menus, the Exit dialog and the player own Enter themselves and also act on its release.

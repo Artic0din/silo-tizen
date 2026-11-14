@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import type { Browser } from "playwright";
 import { FakeDetails } from "../native/support/fakeDetails.ts";
-import { launchBrowser, openTv, readLive, type Tv } from "./support/tv.ts";
+import { launchBrowser, openTv, pauseTvClock, readLive, type Tv } from "./support/tv.ts";
 
 let browser: Browser;
 before(async () => { browser = await launchBrowser(); });
@@ -232,6 +232,7 @@ trailerTest("a series with a YouTube video shows the rail and hides it when the 
     await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
     await tv.page.locator(".details-extras").waitFor();
     assert.equal(await tv.page.getByRole("heading", { name: "Trailers & More", exact: true }).count(), 1);
+    await pauseTvClock(tv);
     catalog.videos = [];
     await tv.remote(10009);
     const fresh = tv.fake.hold("/catalog/items/series%3As1", true);

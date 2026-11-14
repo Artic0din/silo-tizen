@@ -4217,6 +4217,7 @@ browseTest("typing invalidates an in-flight search before the debounce expires",
     await tv.page.fill("#browse-search", "Movie 0001");
     await tv.remote(IME_DONE);
     await tv.eventually(async () => browseReads(tv, "/catalog").length === 1, "the first search");
+    await pauseTvClock(tv);
     await tv.page.fill("#browse-search", "night");
     first.release();
     await tv.jump(0);

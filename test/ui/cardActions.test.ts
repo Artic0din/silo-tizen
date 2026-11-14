@@ -123,6 +123,10 @@ test("the lift ends on every close: a chosen row, a redraw that closes, and the 
         await hold(tv);
         assert.equal(await lifted(tv), true);
         write.release();
+        await tv.eventually(async () => await row(tv, "Mark as Watched").getAttribute("aria-disabled") === null, "the failed change re-enables the menu");
+        assert.equal(await tv.page.getByRole("alertdialog").count(), 0, "the failure waits for the reopened menu to close");
+        assert.equal(await lifted(tv), true, "the open menu keeps its lifted preview");
+        await tv.remote(10009);
         await tv.page.getByRole("alertdialog").waitFor();
         assert.equal(await tv.page.locator(".card-menu-lifted").count(), 0, "the alert drops the lift");
         assert.deepEqual(tv.console, []);

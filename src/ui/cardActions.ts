@@ -159,6 +159,12 @@ export class CardActions {
         if (rows.length === 0) { this.host.closed(); return; }
         const busy = this.writes.has(card.id) || this.host.pendingElsewhere?.() === true;
         const scrim = el("div", "card-actions-scrim card-menu-scrim");
+        for (const type of ["click", "contextmenu"]) scrim.addEventListener(type, event => {
+            if (event.target !== scrim) return;
+            event.preventDefault();
+            event.stopPropagation();
+            this.close();
+        });
         const menu = el("div", "card-menu");
         menu.setAttribute("role", "menu");
         menu.setAttribute("aria-label", card.title);
@@ -277,6 +283,7 @@ export class CardActions {
         }, () => {
             if (this.writes.get(id) !== controller) return;
             this.writes.delete(id);
+            if (this.shown?.card.id === id) this.redraw(this.shown.card);
             this.alert();
             // Even a lost answer may have landed; reread once the alert closes so the rows show what the server holds.
             this.host.applied(id, false);
@@ -285,7 +292,8 @@ export class CardActions {
 
     /** HomeView's `.alert`: the shared centred alert over the screen, with one OK. */
     private alert(): void {
-        if (this.host.canAlert?.() === false) { this.deferredAlert = true; return; }
+        // A reopened menu keeps its focus and Resume action until it closes.
+        if (this.shown !== undefined || this.host.canAlert?.() === false) { this.deferredAlert = true; return; }
         if (this.active) this.dismiss();
         const ok = el("button", "card-alert-button", "OK");
         ok.type = "button";

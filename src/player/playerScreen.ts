@@ -798,7 +798,11 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     const render = (): void => {
         draw();
         // A redraw that disables the held control ends the press, even if a later redraw enables it again.
-        if (selectHeld !== undefined && disabledControl(selectHeld.element)) selectHeld = undefined;
+        if (selectHeld !== undefined) {
+            const active = document.activeElement;
+            const replacement = selectHeld.element?.isConnected === false && selectHeld.key !== null && active?.getAttribute("data-focus") === selectHeld.key ? active : null;
+            if (disabledControl(selectHeld.element) || disabledControl(replacement)) selectHeld = undefined;
+        }
     };
     const draw = (): void => {
         if (view.phase === "playing" || view.phase === "paused") pictureShown = true;

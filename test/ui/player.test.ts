@@ -2240,6 +2240,33 @@ test("a Select held on an audio row that a repaint disables is cancelled, even i
     } finally { await page.close(); }
 });
 
+test("a Select held through a silent disabled menu replacement stays cancelled after the row enables", async () => {
+    const { page, logs } = await open();
+    try {
+        await show(page, playing(TRACKS));
+        await openAudio(page);
+        await remote(page, DOWN);
+        const row = await focused(page);
+        const original = await page.locator(`[data-focus="${row}"]`).elementHandle();
+        assert.ok(original);
+        // Model an engine that removes the focused row without firing focusout.
+        await page.evaluate(() => window.addEventListener("focusout", event => event.stopImmediatePropagation(), true));
+        await keyEvent(page, "keydown", ENTER);
+        await show(page, playing({ ...TRACKS, reporting: true }));
+        assert.equal(await original.evaluate(node => node.isConnected), false, "the held row was replaced");
+        assert.equal(await focused(page), row);
+        assert.equal(await page.locator(`[data-focus="${row}"]`).getAttribute("aria-disabled"), "true");
+        await show(page, playing({ ...TRACKS, reporting: false }));
+        assert.equal(await focused(page), row);
+        assert.equal(await page.locator(`[data-focus="${row}"]`).getAttribute("aria-disabled"), "false");
+        await keyEvent(page, "keyup", ENTER);
+        assert.deepEqual(await commands(page), [], "the disabled replacement ended the held press");
+        await remote(page, ENTER);
+        assert.deepEqual(await commands(page), [`selectAudio ${row}`], "a fresh press still selects the enabled row");
+        assert.deepEqual(logs, []);
+    } finally { await page.close(); }
+});
+
 test("Down opens audio and subtitles with focus on the current track; the menu keeps every key to itself", async () => {
     const { page, logs } = await open();
     try {

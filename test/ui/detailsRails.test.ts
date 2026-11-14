@@ -203,7 +203,10 @@ for (const [size, width] of [["compact", 189.2], ["large", 264]] as const) railT
     await routeMovie(tv, details);
     await tv.page.locator(MOVIE).first().click();
     await tv.page.locator('.box-set-row [data-focus="box-set-explore"]').waitFor();
-    const boxes = await tv.page.locator(".box-set-row .browse-art").evaluateAll(nodes => nodes.map(node => { const box = node.getBoundingClientRect(); return [box.width, box.height]; }));
+    // Later answers (watchlist and favorites membership, settings) repaint Details and replace the row. locator.evaluateAll
+    // finds the cards and measures them in separate browser turns, so a repaint between the two measures detached cards
+    // as 0 px. Find and measure them in one turn.
+    const boxes = await tv.page.evaluate(() => [...document.querySelectorAll(".box-set-row .browse-art")].map(node => { const box = node.getBoundingClientRect(); return [box.width, box.height]; }));
     // TVMediaCard.artworkSize: 220 times 0.86 or 1.2, with a 2:3 poster; Explore all takes the same size.
     assert.equal(boxes.length, 3);
     for (const [w, h] of boxes) { assert.ok(Math.abs(w! - width) < 0.05, `card ${w}px wide`); assert.ok(Math.abs(h! - width * 1.5) < 0.25, `card ${h}px tall`); }

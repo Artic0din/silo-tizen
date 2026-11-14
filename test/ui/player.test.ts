@@ -2222,6 +2222,24 @@ test("audio and quality stay disabled while a subtitle report is pending", async
     } finally { await page.close(); }
 });
 
+test("a Select held on an audio row that a repaint disables is cancelled, even if the row enables again before release", async () => {
+    const { page } = await open();
+    try {
+        await show(page, playing(TRACKS));
+        await openAudio(page);
+        await remote(page, DOWN);
+        const row = await focused(page);
+        assert.equal(await page.locator(`[data-focus="${row}"]`).getAttribute("aria-disabled"), "false");
+        await keyEvent(page, "keydown", ENTER);
+        await show(page, playing({ ...TRACKS, reporting: true }));
+        assert.equal(await page.locator(`[data-focus="${row}"]`).getAttribute("aria-disabled"), "true");
+        await show(page, playing({ ...TRACKS, reporting: false }));
+        assert.equal(await focused(page), row);
+        await keyEvent(page, "keyup", ENTER);
+        assert.deepEqual(await commands(page), [], "the press ended when its row was disabled");
+    } finally { await page.close(); }
+});
+
 test("Down opens audio and subtitles with focus on the current track; the menu keeps every key to itself", async () => {
     const { page, logs } = await open();
     try {

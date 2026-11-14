@@ -478,6 +478,10 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     let pictureShown = false;
     let cancelHide: (() => void) | undefined;
     let menuOpen = false;
+    /** Where a fresh Select press was made, waiting for its release; another key or a focus change ends it, and so does its control becoming disabled. */
+    let selectHeld: { readonly element: Element | null; readonly key: string | null; readonly context: string } | undefined;
+    /** A press runs only on an enabled button; aria-disabled rows stay focusable but ignore presses. */
+    const disabledControl = (target: Element | null): boolean => target instanceof HTMLButtonElement && (target.disabled || target.getAttribute("aria-disabled") === "true");
     let seekPreview: number | undefined;
     let pendingSkipTarget: number | undefined;
     /** Which skip pill is up, and the source second its action seeks to. */
@@ -792,6 +796,11 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     };
 
     const render = (): void => {
+        draw();
+        // A redraw that disables the held control ends the press, even if a later redraw enables it again.
+        if (selectHeld !== undefined && disabledControl(selectHeld.element)) selectHeld = undefined;
+    };
+    const draw = (): void => {
         if (view.phase === "playing" || view.phase === "paused") pictureShown = true;
         backdrop.hidden = pictureShown || view.phase !== "loading";
         renderSubtitles(view);
@@ -1414,8 +1423,6 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         tabs[column]?.focus();
     };
 
-    /** Where a fresh Select press was made, waiting for its release; another key or a focus change ends it. */
-    let selectHeld: { readonly element: Element | null; readonly key: string | null; readonly context: string } | undefined;
     /** What Select would act on beyond the focused control: a prompt or mode that appears mid-press replaces the press's action. */
     const selectContext = (): string => [skipKind, skipTarget, view.phase, view.phase === "playing" || view.phase === "paused" ? view.upNext !== undefined : false, menuOpen, timeline, seekPreview !== undefined, autoRate, overlay.classList.contains("player-overlay-hidden"), skipUsable(), bufferingButtons().length, bufferingTarget].join("|");
     const onKey = (event: KeyboardEvent, released = false): void => {
@@ -1431,8 +1438,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             // A press on a disabled button stays inert, even if a redraw enables it before release. The scrubber is
             // not a button: while it is inactive, Select acts on a prompt, which the held context covers.
             const target = document.activeElement;
-            const disabled = target instanceof HTMLButtonElement && (target.disabled || target.getAttribute("aria-disabled") === "true");
-            if (isFreshSelect()) selectHeld = disabled ? undefined : { element: target, key: target?.getAttribute("data-focus") ?? null, context: selectContext() };
+            if (isFreshSelect()) selectHeld = disabledControl(target) ? undefined : { element: target, key: target?.getAttribute("data-focus") ?? null, context: selectContext() };
             return;
         }
         if ((view.phase === "playing" || view.phase === "paused") && view.upNext !== undefined) {
@@ -1593,12 +1599,12 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         if (held === undefined || event.target !== held.element) return;
         const next = event.relatedTarget;
         // The press follows the same control's replacement, so a later focus departure from it still ends the press.
-        if (held.key !== null && next instanceof Element && next.getAttribute("data-focus") === held.key) { selectHeld = { ...held, element: next }; return; }
+        if (held.key !== null && next instanceof Element && next.getAttribute("data-focus") === held.key) { selectHeld = disabledControl(next) ? undefined : { ...held, element: next }; return; }
         // A repaint removes the focused row before focusing its replacement, so decide once the repaint has run.
         queueMicrotask(() => {
             if (selectHeld !== held) return;
             const active = document.activeElement;
-            selectHeld = held.key !== null && held.element?.isConnected === false && active?.getAttribute("data-focus") === held.key ? { ...held, element: active } : undefined;
+            selectHeld = held.key !== null && held.element?.isConnected === false && active?.getAttribute("data-focus") === held.key && !disabledControl(active) ? { ...held, element: active } : undefined;
         });
     };
 
@@ -1610,7 +1616,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             // Release runs the press only on the control it was made on, or that control's repainted replacement: onFocusOut
             // retargets the press when removal fires focusout, and the key check covers an engine that removes it silently.
             const active = document.activeElement;
-            if (held !== undefined && held.context === selectContext() && (active === held.element || (held.key !== null && held.element?.isConnected === false && active?.getAttribute("data-focus") === held.key))) onKey(event, true);
+            if (held !== undefined && held.context === selectContext() && !disabledControl(active) && (active === held.element || (held.key !== null && held.element?.isConnected === false && active?.getAttribute("data-focus") === held.key))) onKey(event, true);
             return;
         }
         if ((key !== "left" && key !== "right") || pendingTap !== key) return;

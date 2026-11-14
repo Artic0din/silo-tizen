@@ -20,17 +20,21 @@ A newly observed profile choice or revision stops the old plan and asks for a re
 There is no atomic settings batch or conditional DELETE in this contract: another device can still write between the final read and mutation, and that unavoidable race is last-write-wins.
 These controls are not a cross-device transaction.
 
+Home's marquee, Details and the Details loading frame read one answer, as every Apple surface reads `TitleArtPreferences.shared.showsTitleArt` ([`TitleArtPreferences.swift:25-30, 201-203`](https://github.com/Silo-Server/silo-apple/blob/5780c84f4a9c1e2bff006e653dd787e01ca24480/iosApp/iosApp/Networking/TitleArtPreferences.swift#L25-L30), [`TVDetailHero.swift:585-590`](https://github.com/Silo-Server/silo-apple/blob/5780c84f4a9c1e2bff006e653dd787e01ca24480/iosApp/iosApp/tvOS/Screens/Detail/TVDetailHero.swift#L585-L590), [`TVItemDetailLoadingView.swift:122-140`](https://github.com/Silo-Server/silo-apple/blob/5780c84f4a9c1e2bff006e653dd787e01ca24480/iosApp/iosApp/tvOS/Screens/Detail/TVItemDetailLoadingView.swift#L122-L140)).
+Logos show unless the last confirmed answer, kept on the TV per server and profile, is off ([Skyline browse shell](skyline-browse-shell.md)).
+Home reads the answer when it loads and after Settings closes; Details makes no title-art read of its own.
+A pending or failed read keeps the last confirmed answer, or logos when there is none, and Details shows no title-art error.
+Confirmed false, including an administrator's inherited false, starts zero logo requests on Home, Details and the loading frame.
+Settings' confirmed answer applies at once, and an answer that changes while Details is open repaints its heading without moving focus.
 Item and detailed-season headers share the existing DetailsState lifecycle and renderer.
-Pending or failed/malformed supported reads show accessible title text and start no logo request.
-Failed reads leave playback and **Retry title art** reachable.
-Confirmed false, including an administrator's inherited false, starts zero logo requests.
-Confirmed true may request artwork; missing or broken artwork keeps text, and transitions never wait for logos.
-Late reads and image callbacks cannot replace headings after stop, profile/server authority loss or while the connected page is hidden during playback.
-Returning rechecks policy without a persistent cache; optional reads preserve the current focus.
-Older servers identified by a missing capability endpoint (404/501) or a pre-16 manifest retain the built-in logos-on compatibility behavior; this is not a fabricated saved true value.
+Missing or broken artwork keeps text, and transitions never wait for logos.
+Late image callbacks cannot replace headings after stop, profile/server authority loss or while the connected page is hidden during playback.
+Older servers identified by a missing capability endpoint (404/501) or a pre-16 manifest drop the remembered answer, so logos show again; this is not a fabricated saved true value.
 Person names/photos are unchanged.
-Home's marquee follows Apple's fallback instead: logos unless the last confirmed answer, kept on the TV per server and profile, is off ([Skyline browse shell](skyline-browse-shell.md)).
-Details still shows the text title until a logo first decodes. A logo that has decoded stays in the heading for the rest of that visit, including later repaints, matching [`TVDecodedLogoTitle`](https://github.com/Silo-Server/silo-apple/blob/e28300c61f044a9322f588203c8819d6f06e6197/iosApp/iosApp/tvOS/Screens/Detail/TVDetailHero.swift) seeding its pipeline cache. The title-art answer itself is still rechecked without a persistent cache.
+The loading frame shows the opening card's logo, as Apple's route seed carries it ([`Route.swift:147-155, 199-209`](https://github.com/Silo-Server/silo-apple/blob/5780c84f4a9c1e2bff006e653dd787e01ca24480/iosApp/iosApp/Navigation/Route.swift#L147-L209)).
+The frame and Details show the text title until a logo first decodes.
+A logo that has decoded stays in the heading for the rest of that visit, including later repaints, matching [`TVDecodedLogoTitle`](https://github.com/Silo-Server/silo-apple/blob/e28300c61f044a9322f588203c8819d6f06e6197/iosApp/iosApp/tvOS/Screens/Detail/TVDetailHero.swift) seeding its pipeline cache.
+When the card and the loaded title name the same logo, the loaded heading therefore opens on the logo the frame decoded.
 
 The primary sources are the [server manifest](https://github.com/Silo-Server/silo-server/blob/cc8514943289045e7b9f7ac8d36d4968bfe93926/contracts/settings/v1/manifest.json), [server wire encoder](https://github.com/Silo-Server/silo-server/blob/cc8514943289045e7b9f7ac8d36d4968bfe93926/internal/apiv2/settings.go) and [Apple title-art plan](https://github.com/Silo-Server/silo-apple/blob/f33479404712737499b22365430db1885cf6c6ab/iosApp/iosApp/Networking/TitleArtPreferences.swift).
 The binding [Skyline guide](https://github.com/Silo-Server/silo-apple/blob/f33479404712737499b22365430db1885cf6c6ab/docs/skyline-design-guide.md) was verified with SHA-256 `2d42d292e01ab6ee539278b63c286756fc432edf876a9286a33c9e853672cac2`.

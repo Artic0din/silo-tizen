@@ -9,7 +9,7 @@ import type { ViewContext } from "./browseViews.ts";
 import { runtimeText } from "./cardPresentation.ts";
 import { blurEpisodeStill, hidesEpisodeImage, hidesEpisodeOverview } from "./episodeSpoilers.ts";
 import { heroBackdrop } from "./heroBackdrop.ts";
-import { detailPalette } from "./browseDetails.ts";
+import { decodedLogoTitle, detailPalette } from "./browseDetails.ts";
 import { el } from "./screen.ts";
 
 export interface LoadingRoute {
@@ -81,9 +81,9 @@ export function detailsLoadingView(route: LoadingRoute, context: ViewContext, ba
     const titleSlot = el("div", "details-loading-title");
     const title = nonEmpty(seed?.title) ?? nonEmpty(route.title);
     if (title !== undefined) {
-        // Apple seeds the logo here too. Tizen confirms the title-art setting per page after this frame, and an
-        // unconfirmed setting is text-only with no logo request, so the frame keeps the text title.
-        titleSlot.append(el("span", "details-loading-title-text", title));
+        // TVItemDetailLoadingView.loadingTitle: the card's logo under the same remembered answer the loaded page uses.
+        const showText = (): void => titleSlot.replaceChildren(el("span", "details-loading-title-text", title));
+        decodedLogoTitle(titleSlot, artworkUrl(nonEmpty(seed?.logoUrl), context.baseUrl), title, () => context.titleArt?.() ?? false, showText, "details-logo");
     } else titleSlot.append(placeholder(520, 64, 10));
 
     const meta = el("div", "details-loading-meta");

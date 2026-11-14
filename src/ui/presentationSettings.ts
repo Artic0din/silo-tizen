@@ -1,6 +1,6 @@
 // Profile settings that change how titles and cards look: title art (`ui.title_art`) and poster
 // badges (`ui.card_overlays`, `ui.card_overlays_enabled` and `/settings/overlay-config`). Read-only.
-// Home follows silo-apple 1a7cceeaf3b2bfc4f889c00487d19b2c6f843940:
+// Home and Details follow silo-apple 1a7cceeaf3b2bfc4f889c00487d19b2c6f843940:
 // - `Networking/TitleArtPreferences.swift`: logos show unless the server's last confirmed answer for
 //   this server and profile says off. That answer is kept on the TV, so a failed or pending read keeps
 //   it, and a server without the key drops it.
@@ -116,6 +116,11 @@ export class PresentationSettings {
     /** Starts the reads unless they are in flight or both answered; a failed half retries. */
     ensure(): void {
         if (this.controller === undefined && (!this.titleArtAnswered || !this.overlaysHydrated || !this.posterAnswered)) this.load();
+    }
+
+    /** The title-art answer Settings just confirmed, kept before the reread lands so no page shows the old one. */
+    acceptTitleArt(value: boolean): void {
+        this.applyTitleArt(value, () => true);
     }
 
     /** Rereads both answers, as after the person leaves Settings. The last answers stay until new ones land. */

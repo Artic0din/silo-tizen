@@ -53,6 +53,8 @@ export interface ViewContext {
     readonly cardDestination?: (card: Card) => Destination | undefined;
     /** Captions a series with the years it ran (Apple CardYears), as Home rows and catalog grids do; Watchlist, Favorites and More Like This show its year. */
     readonly seriesYears?: boolean;
+    /** Whether a title's logo may replace its text title on Details: Home's remembered answer. Absent reads as off. */
+    readonly titleArt?: () => boolean;
     /** Profile spoiler switches. Absent reads as both off. */
     readonly spoilers?: () => EpisodeSpoilerSettings;
     /** WatchPartyEntry: offered while the experimental switch is on and the server can host a party; open starts a room with the title. */

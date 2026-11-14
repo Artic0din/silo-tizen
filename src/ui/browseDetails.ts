@@ -216,8 +216,8 @@ function detailHeader(detail: ItemDetail, context: ViewContext, actions: readonl
         title.replaceChildren(primary);
         if (secondary !== undefined) title.appendChild(secondary);
     };
-    const allowed = state?.titleArtGuard();
-    decodedLogoTitle(title, artworkUrl(detail.extra?.logoUrl, context.baseUrl), detail.title, () => allowed?.() ?? false, showText, "details-logo");
+    const live = state?.generationGuard();
+    decodedLogoTitle(title, artworkUrl(detail.extra?.logoUrl, context.baseUrl), detail.title, () => (live?.() ?? false) && (context.titleArt?.() ?? false), showText, "details-logo");
     nodes.push(title);
     const episode = state?.series?.episodes?.find(item => item.id === state.heroEpisodeId);
     const playback = state?.nextEpisodeState;
@@ -455,7 +455,6 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
         action.element.addEventListener("focusout", () => { const index = focusable.indexOf(action); if (index >= 0) focusable.splice(index, 1); }, { once: true });
     }
     if (state?.nextEpisodeFailed === true && !state.offline) content.push(...lines(["Could not load the next episode."], "error"));
-    if (state?.titleArtPolicy === "failed" && !state.offline) content.push(...lines(["Could not load title-art settings."], "error"));
     // TVSeriesDetailView.episodeExperience: the trailer pill is the episode block's last line, under the rail.
     const seriesStatus = detail.type === "series" ? trailerStatus(state) : undefined;
     if (series !== undefined) content.push(...series.content);

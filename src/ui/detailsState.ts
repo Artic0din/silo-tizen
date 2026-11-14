@@ -5,11 +5,9 @@ import type { RequestSpec } from "../api/http.ts";
 import { detailOperations, RELATED_LIMIT, type PersonalAction } from "../api/detailOperations.ts";
 import { operations } from "../api/operations.ts";
 import type { Card, ItemDetail, LocalExtra } from "../contracts/v2/catalog.ts";
-import { TITLE_ART_KEY } from "../contracts/v2/settings.ts";
 import { playChoices, type PlayRequest } from "./browseModel.ts";
 import type { Clock } from "../api/clock.ts";
 import type { NativeSession } from "../session/session.ts";
-import { readSettingsCapability, readTitleArt } from "./presentationSettings.ts";
 import { ADVISORY_KEY } from "../contracts/v2/settingsRows.ts";
 import type { SubtitleIntent } from "../contracts/v2/preplaySubtitles.ts";
 import { SeriesEpisodes } from "./seriesEpisodes.ts";
@@ -130,8 +128,6 @@ export class DetailsState {
     relatedFailed = false;
     personalSupported: boolean | undefined;
     personalFailed = false;
-    titleArtPolicy: "pending" | "supported" | "compatibility" | "failed" = "pending";
-    titleArt: boolean | undefined;
     readonly values = new Map<PersonalAction, boolean>();
     readonly changes = new Map<PersonalAction, PersonalChange>();
     private controller: AbortController | undefined;
@@ -222,7 +218,6 @@ export class DetailsState {
         if (this.controller === undefined || !this.full) return;
         if (this.personalFailed || retrySupporting) this.loadPersonal();
         if (this.relatedFailed || retrySupporting) this.loadRelated();
-        if (this.titleArtPolicy === "failed" || retrySupporting) this.loadTitleArt();
         if (retrySupporting) this.loadSupportingPreferences();
     }
 
@@ -243,7 +238,6 @@ export class DetailsState {
         for (const [id, state] of this.previousEpisodeStates) if (state.audioPreference.failed || state.subtitlePreference.failed) this.queueEpisode(id);
         if (mode === "full") this.series?.start();
         if (mode === "full") this.warmSeriesEpisodes();
-        if (mode === "full") this.loadTitleArt();
         if (mode === "full") this.loadSupportingPreferences();
         if (mode === "full" && (this.nextEpisode === undefined || this.restored) && !this.nextEpisodeFailed) this.loadNextEpisode();
         let interrupted = false;
@@ -310,37 +304,10 @@ export class DetailsState {
         this.nextEpisodeLoading = false;
     }
 
-    /** Capture the route generation as well as the confirmed policy for late image events. */
-    acceptTitleArt(value: boolean): void {
-        this.titleArt = value;
-        this.titleArtPolicy = "supported";
-        for (const path of this.responses.keys()) if (path.includes(TITLE_ART_KEY)) this.responses.delete(path);
-    }
-
-    titleArtGuard(): () => boolean {
+    /** True while this page generation is live, so a late image event cannot replace a stopped or hidden heading. */
+    generationGuard(): () => boolean {
         const controller = this.controller;
-        return () => controller !== undefined && this.current(controller) && (this.titleArtPolicy === "compatibility" || (this.titleArtPolicy === "supported" && this.titleArt === true));
-    }
-
-    loadTitleArt(): void {
-        const controller = this.controller;
-        if (controller === undefined) return;
-        if (this.titleArtPolicy === "failed") this.titleArtPolicy = "pending";
-        this.changed();
-        const run = async (): Promise<void> => {
-            const read = <T>(spec: RequestSpec<T>): Promise<T> => this.read(spec, controller);
-            const answer = await readTitleArt(read, this.session, await readSettingsCapability(read));
-            if (!this.current(controller) || answer === undefined) return;
-            if (answer === "compatibility") { this.titleArtPolicy = "compatibility"; return; }
-            this.titleArt = answer;
-            this.titleArtPolicy = "supported";
-        };
-        run().then(() => { if (this.current(controller)) this.changed(); }, (error: unknown) => {
-            if (!this.current(controller)) return;
-            const transport = error instanceof ApiError && ["network", "timeout"].includes(error.failure.kind);
-            if (!transport || !["compatibility", "supported"].includes(this.titleArtPolicy)) this.titleArtPolicy = "failed";
-            this.changed();
-        });
+        return () => controller !== undefined && this.current(controller);
     }
 
     select(fileId: string | undefined): void {
@@ -353,8 +320,6 @@ export class DetailsState {
     restore(previous: DetailsState | undefined): void {
         if (previous === undefined) return;
         this.restored = true;
-        this.titleArt = previous.titleArt;
-        this.titleArtPolicy = previous.titleArtPolicy;
         for (const [key, value] of previous.responses) this.responses.set(key, value);
         this.related = previous.related;
         this.nextEpisode = previous.nextEpisode?.id === this.detail.playContentId ? previous.nextEpisode : undefined;

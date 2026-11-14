@@ -48,6 +48,7 @@ export interface DetailSeed {
     readonly runtimeMinutes?: number | undefined;
     readonly contentRating?: string | undefined;
     readonly genre?: string | undefined;
+    readonly logoUrl?: string | undefined;
     readonly backdropUrl?: string | undefined;
     readonly backdropThumbhash?: string | undefined;
     readonly backdropIsEpisodeStill?: boolean | undefined;
@@ -60,7 +61,7 @@ export function detailSeed(card: Card): DetailSeed {
     const series = card.type === "episode" && card.seriesBackdropUrl !== undefined && card.seriesBackdropUrl !== "";
     return {
         type: card.type, title: card.title, year: card.year, overview: card.overview, runtimeMinutes: card.runtimeMinutes,
-        contentRating: card.contentRating, genre: card.genres?.[0],
+        contentRating: card.contentRating, genre: card.genres?.[0], logoUrl: card.logoUrl,
         backdropUrl: series ? card.seriesBackdropUrl : card.backdropUrl, backdropThumbhash: series ? undefined : card.backdropThumbhash,
         backdropIsEpisodeStill: series ? false : card.backdropIsEpisodeStill,
         ...(card.type === "episode" ? { episodeWatch: { played: card.played === true, isInProgress: card.played !== true && (card.positionSeconds ?? 0) > 0, ...(card.positionSeconds === undefined ? {} : { positionSeconds: card.positionSeconds }) } } : {}),
@@ -70,7 +71,7 @@ export function detailSeed(card: Card): DetailSeed {
 /** TVItemDetailRouteSeed(parentSeriesFrom:): the series title and backdrop only, never the episode's metadata. */
 function parentSeriesSeed(card: Card): DetailSeed {
     const backdrop = card.seriesBackdropUrl !== undefined && card.seriesBackdropUrl !== "" ? card.seriesBackdropUrl : undefined;
-    return { type: "series", title: seriesCardTitle(card), backdropUrl: backdrop, ...(backdrop === undefined ? {} : { backdropIsEpisodeStill: false }) };
+    return { type: "series", title: seriesCardTitle(card), logoUrl: card.logoUrl, backdropUrl: backdrop, ...(backdrop === undefined ? {} : { backdropIsEpisodeStill: false }) };
 }
 
 export interface SeriesContext {

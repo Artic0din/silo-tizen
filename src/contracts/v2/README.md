@@ -81,6 +81,7 @@ See [quality selection](../../../docs/playback/playback-quality.md) for highligh
 
 `catalog.ts` holds the browse decoders. They are handwritten from `openapi.json` at the commit in `SOURCE`, not generated.
 `getCatalogItem` reads optional `extras` (`ItemExtraInfo`) and `videos` (`ItemVideoInfo`). The vendored item fixture omits both, and a missing list decodes as empty. A missing `is_official` follows Apple and becomes false so one omitted flag cannot reject the detail; a non-boolean still fails.
+A card's `user_state.watched_count` and `unplayed_count` are newer than `SOURCE`: [`CatalogItemUserState`](https://github.com/Silo-Server/silo-server/blob/3f1081bdfe82285ede3925473a1d63bb197e68f5/contracts/api/v2/openapi.json) gained them at silo-server `3f1081bdfe82285ede3925473a1d63bb197e68f5`. Both are optional, so an older server sends neither and the card shows no episodes-left count; the tests build those bodies from that schema.
 The browse fixtures (`user_libraries`, `list_effective_settings_ok`, `list_home_sections_ok`, `list_catalog_items_ok`, `get_catalog_item_ok`, `list_series_seasons_ok`, `list_series_seasons_without_artwork`, `list_season_episodes_ok`) are copied unchanged from the same commit.
 Artwork URLs in these responses are signed (`/api/v2/artwork/{key}?exp=…&sig=…`, operation `getArtwork`, public) or presigned storage URLs ([`docs/images-api.md`](https://github.com/Artic0din/silo-server/blob/cc8514943289045e7b9f7ac8d36d4968bfe93926/docs/images-api.md)); the client draws them with plain `<img>` and never adds credentials.
 
@@ -97,7 +98,7 @@ Recent browsing uses `sort: "added_at", order: "desc"`.
 Letter requests carry the same library, media type, filter groups and title order as the title browse.
 Use server letter positions as `seek` and retain the window cursor when continuing that browse; runs may repeat a letter.
 The factories add no credentials or new retry machinery.
-The six GET operations are reads; `queryCatalogItems` and `queryCatalogLetters` declare `natural_idempotent`, so both use the transport's existing safe retry.
+The six GET operations are reads; `queryCatalogItems` declares `natural_idempotent`, so it uses the transport's existing safe retry.
 
 The public discovery fixtures are byte-identical copies of `contracts/api/v2/fixtures/` at `SOURCE`:
 `list_library_sections_ok`, `get_library_section_items_ok`, `get_library_collections_ok`, `get_catalog_filters_ok`, `query_catalog_items_ok`, `query_catalog_letters_ok`, and `get_catalog_search_capabilities_ok`.
@@ -109,6 +110,32 @@ The episode-inclusive request type is limited to text Search and is not added to
 See [Text Search](../../../docs/features/skyline-browse-shell.md#text-search) for route ownership, continuation and source evidence.
 Unknown members are ignored and response enums are additive; malformed consumed fields fail without echoing values.
 These factories do not implement the library UI or complete issue 28.
+
+## Audiobooks
+
+`audiobooks.ts` and `api/audiobookOperations.ts` carry the audiobook contract at `SOURCE`; `operations` exposes them. `ui/audiobookDetail.ts` and `ui/audiobookView.ts` draw the detail and chapter picker on top of it.
+Apple behavior is read from `AudiobookPlaybackContext.swift`, `AudiobookProgress.swift` and `APIv2CatalogReadProjection.swift`.
+
+| Operation | Retry class | Client behavior |
+| --- | --- | --- |
+| `listAudiobookGroups` | read (`profile_scoped`) | Authors, narrators or series with counts, durations and up to four covers; limit 1–200; a group's `name` is the filter value for its books. Apple does not call it; the server publishes it |
+| `getCatalogItem` as `getAudiobook` | read (`profile_scoped`) | Decodes the `audiobook` extension, the audio parts, chapters and `user_data` |
+| `queryCatalogItems` as `queryAudiobooks` | `natural_idempotent` (`profile_scoped`) | Scoped by `library_id` with no `type`, as Apple omits it for audiobook libraries; the author, narrator or series filter is one `match: any` group of `is` rules |
+| `syncProgress` | `non_retryable` (`profile_scoped`) | The only durable resume point; whole-book milliseconds with `force_overwrite`; never resent, so the caller passes `replayAfterRefresh: false` and the next sample carries a fresh position |
+
+Library gating: `listUserLibraries` reports `type: "audiobooks"`, and `audiobookLibraries` drops hidden ones.
+`nav.show_audiobooks` is `client_local` and defaults to false in the manifest, so the opt-in is stored per profile on the device and is never read from or written to the server.
+There is no server capability flag for audiobooks; a server without audiobook libraries simply lists none.
+`player.audiobook_skip_back_seconds` and `player.audiobook_skip_forward_seconds` are ordinary profile settings (revision 9); this change only names them.
+
+Parts follow Apple: a version is a part when `presentation_kind` is `audiobook_part` or it carries `codec_audio` or `duration`, ordered by `presentation_part_index` and then numerically by `file_id`.
+Part offsets and chapter starts are summed onto one whole-book timeline; the playback API only knows files.
+The total is the larger of the stitched length and `audiobook.total_duration_seconds`. The resume position never passes a known total (an unknown total of 0 leaves it as the server sent it, where Apple clamps it to 0), and a seek never passes the end of its file.
+One deliberate difference from Apple: a part with no `duration` is sized by its furthest chapter `end_seconds`, never by a chapter start, and a multi-part book with any unknown part length is rejected rather than stitched on a guess.
+`syncProgress` answers are decoded as Apple does: exactly one result per written item, matched by index and id, and anything else is a contract break, not success.
+
+`fixtures/list_audiobook_groups_ok.json`, `list_audiobook_groups_invalid_group_by.json` and `list_audiobook_groups_profile_header_required.json` are byte-identical copies from `SOURCE`.
+The server publishes no audiobook item or progress fixture; the tests build those bodies from `CatalogItemDetail`, `FileVersion`, `VersionChapter`, `WatchRollup`, `AudiobookDetailExtension` and the `ProgressSync*` schemas in `openapi.json`.
 
 ## Preplay audio and resume
 
@@ -157,6 +184,43 @@ Desktop tests do not prove Samsung hardware rendering or live server CORS.
 `decodeTokenPair` reads `access_token`, `refresh_token`, `expires_in` and `user` (`id`, `username`, `password_change_required`), shared with the device poll's `tokens`.
 Refusals follow `internal/apiv2/auth.go` at `SOURCE`: 401 `invalid_token` for a wrong password or unknown name alike, 403 `local_login_disabled`, `not_permitted`, `password_expired`, `account_required`, 409 `email_in_use`, `identity_linked_elsewhere`, 429 `rate_limited`, and 503 `dependency_unavailable` when the server is too busy to check a password.
 The copy for each follows the Apple TV app's `LoginViewModel.message`.
+
+## Watch Together (Watch Party)
+
+`watchTogether.ts` decodes the `/watch-together` documents and the `silo.room.v2` socket frames; `api/watchTogetherOperations.ts` supplies the specs (capabilities, create, join by code, room read, close, socket ticket, the host's stage, select, start, stop, mode and policy calls, the picker read, and the ballot's suggestions read, add suggestion, vote and promote).
+The Watch Party hub and lobby call the HTTP specs, and `src/ui/watchPartySocket.ts` mints the ticket and decodes the frames (issue 54); the lobby uses snapshots, `suggestions_update`, pongs, `room_closed`, `connection_replaced` and `error`, sends `lobby_ready` and `ping`, and nothing uses transport commands yet.
+Pass each spec to `session.call({ ...spec, profileScoped: true })`, as Apple's calls run for the active profile.
+`room`, `socketTicket`, `picker` and the ballot calls add the room's `X-Room-Token` (`RequestSpec.roomToken`); every create, join and read answer returns a `room_access_token` that replaces the previous one; never log or store it.
+
+`watch_together_capabilities` is a byte-identical copy from `SOURCE` and carries `allowed: false`, so it proves the closed gate.
+It is the only Watch Together fixture the server publishes.
+Room, join, ticket and socket bodies are built in the tests from the `WatchTogetherRoomSnapshot`, `WatchTogetherRoomMember` and `EventsSocketTicket` schemas, and the socket frames from `internal/watchtogether/service.go` and `internal/api/handlers/watch_together.go` at `SOURCE`; the frames are not in `openapi.json`.
+
+Everything is gated by `GET /watch-together/capabilities`: `watchTogetherAvailable` needs `state: "available"` and `allowed: true`, and `watchTogetherSocketSupported` also needs `socket_protocol: "silo.room.v2"` and `connection_replaced: true`, as Apple requires before it joins.
+Apple additionally requires the playback capabilities features `watch_party_coordinator_v1` and `fixed_media_file_v1`; that check belongs with the player work.
+Flags the first servers lacked default to false; `allowed` defaults to false.
+
+| Operation | Retry class (`x-silo-retry-safety`) | Client behavior |
+| --- | --- | --- |
+| `getWatchTogetherCapabilities` | read | One transport retry |
+| `createWatchTogetherRoom` | `unique_constraint` | The caller's `room_id` UUID makes an exact replay return the same room, so the transport may resend it and a 401 refresh may replay it. Reuse the id for any resend |
+| `joinWatchTogetherRoom` | `natural_idempotent` | One transport retry. Body `code` only, trimmed, 1 to 128 characters; the invite `join_token` is not used |
+| `getWatchTogetherRoom` | read | One transport retry; the lobby state |
+| `closeWatchTogetherRoom` | `natural_idempotent` | Host only, by account and profile (no room token in the contract); 204, 409 once ended. A guest has no HTTP leave: leaving is closing the room socket, as in Apple's `leave()` |
+| `createWatchTogetherSocketTicket` | `natural_idempotent` | A single-use ticket for one connection; mint a new one for every reconnect |
+| `listWatchTogetherSuggestions` | read | 100 rows a page in creation order, continued by `page.next_cursor`; the only source of `voted_by_me` |
+| `createWatchTogetherSuggestion` | `unique_constraint` | The caller's `suggestion_id` UUID makes a resend return the same suggestion; 201 with the id; `content_type` is `movie` or `episode` |
+| `voteWatchTogetherSuggestion`, `unvoteWatchTogetherSuggestion` | `unique_constraint`, `natural_idempotent` | `POST` and `DELETE` on `.../suggestions/{id}/vote`; 204, and a vote already in that state is a no-op |
+| `promoteWatchTogetherSuggestion` | `non_retryable` | Host only; plays the suggestion for everyone and answers with the room. A lost answer is read back from the room, never resent |
+
+Socket frames still carry numeric `user_id`, `selected_file_id`, `selected_library_id` and `suggester_user_id`, while HTTP v2 bodies carry strings; both decode to strings, as Apple's `watchPartyID` does.
+`anchor_updated_at` is RFC 3339; command and message times are RFC 3339 with nanoseconds and decode to epoch milliseconds.
+`suggestions_update` rows always carry `voted_by_me: false`; the server strips it because it is per viewer, so this profile's votes come only from the HTTP read.
+Unknown `type` values decode to `unknown` and unknown enum values to `"unknown"`; a frame without a string `type`, or with a missing or malformed consumed member, throws `WireError`.
+`encodeRoomClientMessage` writes the seven client frames the server accepts and refuses an empty session id or a position that is not a finite number of seconds, zero or more.
+`roomSocketHandshake` builds the `wss://<server>/api/v2/watch-together/rooms/{id}/ws` address and the `["silo.room.v2", "silo.ticket.<ticket>"]` subprotocols.
+
+The room operations that this layer does not cover yet (suggestion delete, member state, source fallback) are in the same contract and are left for the lobby and playback work.
 
 ## Updating the pinned contract
 

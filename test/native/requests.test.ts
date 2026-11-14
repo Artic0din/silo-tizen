@@ -158,5 +158,8 @@ test("errorState follows Apple's ErrorState copy and ErrorView headline", () => 
         [new ApiError({ kind: "network" }), { headline: wrong, message: "Can't reach the server. Check your connection and try again.", signIn: false }],
         [new ApiError({ kind: "timeout" }), { headline: wrong, message: "Can't reach the server. Check your connection and try again.", signIn: false }],
         [new ApiError({ kind: "invalid_response", path: "x" }), { headline: wrong, message: "The server response was in an unexpected format.", signIn: false }],
+        // UpdateRequirement.app: only the client_upgrade_required problem; a bare 410 is not an update prompt.
+        [problem(410, "client_upgrade_required", "Hidden"), { headline: "Update required", message: "Update Silo to keep using this server.", signIn: false }],
+        [http(410), { headline: wrong, message: "Something went wrong while talking to the server.", signIn: false }],
     ] as const) assert.deepEqual(errorState(error), expected);
 });

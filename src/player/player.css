@@ -844,10 +844,29 @@
     display: flex;
     flex-direction: column;
     padding: 22px 28px;
-    border: 1px solid rgba(255, 255, 255, 0.14);
     border-radius: 28px;
-    background: rgba(26, 26, 26, 0.88);
-    box-shadow: 0 10px 20px rgba(0, 0, 0, 0.5);
+    /* A stacking context for the glass layer below; the panel itself carries no filter, so a picker's blur can see the pane. */
+    z-index: 0;
+}
+
+/*
+ * siloPlayerGlass (SiloGlass.swift:35-57) is Liquid Glass (Glass.regular) on the TV models it targets; its flat
+ * white-0.10 at 88% fill is only the low-power fallback. Apple's capture passes ~63% of the video and lifts black to
+ * 13, which this fill reproduces. The blur is the app's glass radius (signIn.css); it reaches web layers only, since
+ * AVPlay draws on a plane below the page. It sits on a layer because an element with backdrop-filter becomes the
+ * backdrop root for its children, which would leave the floating picker's blur nothing to sample.
+ */
+.player-menu::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    background: rgba(32, 32, 32, 0.37);
+    -webkit-backdrop-filter: blur(30px);
+    backdrop-filter: blur(30px);
+    /* The 14% stroke is an overlay (TVPlayerInfoHUD.swift:196-199), so it takes no layout, then the 20pt shadow. */
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14), 0 10px 20px rgba(0, 0, 0, 0.5);
 }
 
 .player-menu-panes {
@@ -872,6 +891,187 @@
     opacity: 1;
     pointer-events: auto;
     scroll-behavior: smooth;
+}
+
+/*
+ * HUDPickerDialog (TVPlayerInfoHUD.swift:1042-1104): 620 wide, 34/28 padding, 28 corner, 18% stroke, centred over the
+ * pane it opened from, which dims to 28%. It spans the panel's padded content, so the status line sits behind it too.
+ */
+.player-menu-panes:has(.player-menu-picker),
+.player-menu-panes:has(.player-menu-picker) > .player-menu-pane-active {
+    position: static;
+}
+
+.player-menu-behind {
+    height: 100%;
+    overflow: hidden;
+    opacity: 0.28;
+}
+
+.player-menu:has(.player-menu-picker) .player-menu-status {
+    opacity: 0.28;
+}
+
+.player-menu-picker {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+    width: 620px;
+    max-height: calc(100% - 44px);
+    padding: 28px 34px;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 28px;
+    /* The same siloPlayerGlass (TVPlayerInfoHUD.swift:1085); its blur softens the dimmed pane behind it. */
+    background: rgba(32, 32, 32, 0.37);
+    -webkit-backdrop-filter: blur(30px);
+    backdrop-filter: blur(30px);
+    box-shadow: 0 14px 26px rgba(0, 0, 0, 0.62);
+    transform: translate(-50%, -50%);
+}
+
+.player-menu-picker-options {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    scroll-behavior: smooth;
+}
+
+/* HUDPickerOptionLabel: 24pt medium rows 4pt apart, a 22pt checkmark and the 14% selected wash (HUDRowButtonStyle isSelected, :1107-1144). */
+.player-menu-picker-options .player-choice {
+    margin-bottom: 4px;
+    border-radius: 10px;
+    font-size: 24px;
+}
+
+.player-menu-picker-options .player-choice-current {
+    background: rgba(255, 255, 255, 0.14);
+}
+
+/* HUDPickerOptionLabel's checkmark is 22pt (TVPlayerInfoHUD.swift:1138-1139): the same glyph at 22/20 scale. */
+.player-menu-picker-options .player-choice-current::after {
+    width: 26px;
+    height: 26px;
+}
+
+.player-menu-picker-options .player-choice-current:focus {
+    background: #ffffff;
+}
+
+.player-menu-picker-title {
+    flex: none;
+    margin: 0 0 18px;
+    font-size: 30px;
+    font-weight: 600;
+    color: #ffffff;
+}
+
+/* PaneColumn pairs: SubtitlesPane is 470 + 58 + 440 and VideoPane two equal columns 48 apart, centred in the panel. */
+.player-menu-columns {
+    display: flex;
+    justify-content: center;
+    gap: 48px;
+    height: 100%;
+}
+
+.player-menu-columns-subtitles {
+    gap: 58px;
+}
+
+.player-menu-column {
+    display: flex;
+    flex: 1 1 0;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+}
+
+.player-menu-column-tracks {
+    flex: none;
+    width: 470px;
+}
+
+.player-menu-column-options {
+    flex: none;
+    width: 440px;
+}
+
+.player-menu-column-rows {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    scroll-behavior: smooth;
+}
+
+/* HUDSettingRowLabel: 22pt medium label, 22pt semibold value at 72%, 15pt bold chevron at 45%; black on focus. */
+.player-setting {
+    border-radius: 10px;
+}
+
+.player-setting-glyph {
+    display: flex;
+    flex: none;
+    justify-content: center;
+    min-width: 22px;
+    font-size: 20px;
+    font-weight: 600;
+}
+
+/* `textformat` at 20pt is a 28pt frame: Apple's capture puts Appearance's label 42pt after the row's leading padding. */
+[data-focus="subtitle-appearance"] .player-setting-glyph {
+    width: 28px;
+}
+
+/* SF Symbols at 20pt semibold draw about 22px. */
+.player-setting-glyph svg {
+    width: 22px;
+    height: 22px;
+}
+
+.player-setting-label {
+    flex: 1 0 auto;
+    white-space: nowrap;
+}
+
+/*
+ * HStack(spacing: 14) around Spacer(minLength: 18) (TVPlayerInfoHUD.swift:559, :578): the value starts at least
+ * 14 + 18 + 14 after the label and takes only what is left, so a long value truncates ("Box, Large, Bott…").
+ */
+.player-setting-value {
+    flex: 0 1 auto;
+    min-width: 0;
+    margin-left: 32px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.72);
+}
+
+/* HStack(spacing: 10) then the chevron's 11pt frame (TVPlayerInfoHUD.swift:579, :588-590). */
+.player-setting-chevron {
+    display: flex;
+    flex: none;
+    width: 11px;
+    height: 15px;
+    margin-left: -4px;
+    color: rgba(255, 255, 255, 0.45);
+}
+
+.player-setting-chevron svg {
+    width: 100%;
+    height: 100%;
+}
+
+.player-setting:focus .player-setting-value {
+    color: rgba(0, 0, 0, 0.78);
+}
+
+.player-setting:focus .player-setting-chevron {
+    color: rgba(0, 0, 0, 0.55);
 }
 
 .player-info {
@@ -953,6 +1153,7 @@
 
 .player-choice-detail {
     font-size: 17px;
+    line-height: 21px;
     font-weight: 400;
     color: rgba(255, 255, 255, 0.55);
 }
@@ -972,33 +1173,60 @@
     opacity: 0.35;
 }
 
-.player-choice-label {
+/* SF at 22pt and 17pt sets 27px and 21px lines: Apple's HUD rows are 49px, or 73px with a detail line, in its capture. */
+.player-choice-label,
+.player-setting-label,
+.player-setting-value {
     display: block;
+    line-height: 27px;
 }
 
-.player-choice-current {
-    background: rgba(255, 255, 255, 0.14);
-}
-
+/*
+ * HUDTrackRow marks the selected track with a checkmark only, no wash (TVPlayerInfoHUD.swift:2202). Its 20pt semibold
+ * `checkmark` (:2239-2241) draws 17x17 of ink in a 24pt frame at the row's trailing padding, as in Apple's capture.
+ */
 .player-choice-current::after {
-    content: "\2713";
-    font-size: 20px;
-    font-weight: 600;
+    content: "";
+    flex: none;
+    width: 24px;
+    height: 24px;
+    background-color: currentColor;
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='none' stroke='%23000' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round' d='M5 12 9.9 19 19 4.5'/%3E%3C/svg%3E") center / 100% 100% no-repeat;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='none' stroke='%23000' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round' d='M5 12 9.9 19 19 4.5'/%3E%3C/svg%3E") center / 100% 100% no-repeat;
 }
 
+/*
+ * Apple's 380pt panel holds only the pane (TVPlayerInfoHUD.swift:190), so its columns run to the padded bottom edge.
+ * The status line has no Apple counterpart; it sits just below the panel instead of taking 36px from the columns.
+ * Over video it carries siloPlayerGlass's non-sampling fill (SiloGlass.swift:51-52) so it reads on bright frames.
+ */
 .player-menu-status {
-    flex: none;
-    max-height: 72px;
+    position: absolute;
+    top: 100%;
+    left: 28px;
+    box-sizing: border-box;
+    width: max-content;
+    max-width: 1044px;
+    /* Three 17px lines at 1.35 plus the plate's padding: the remote cannot scroll it while focus stays in the menu. */
+    max-height: calc(3 * 17px * 1.35 + 12px);
     overflow-y: auto;
-    min-height: 28px;
-    margin: 8px 0 0;
+    margin: 12px 0 0;
+    padding: 6px 14px;
+    border-radius: 14px;
+    background: rgba(26, 26, 26, 0.88);
     font-size: 17px;
     line-height: 1.35;
     color: rgba(255, 255, 255, 0.7);
 }
 
+.player-menu-status:empty {
+    display: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
-    .player-menu-list.player-menu-pane-active {
+    .player-menu-list.player-menu-pane-active,
+    .player-menu-picker-options,
+    .player-menu-column-rows {
         scroll-behavior: auto;
     }
     .player-spinner-mark { animation: none; }

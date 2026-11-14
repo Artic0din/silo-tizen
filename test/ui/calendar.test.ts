@@ -75,11 +75,11 @@ async function ready(tv: Tv, count?: number): Promise<void> {
         throw new Error(`${String(error)}: ${JSON.stringify(state)}; recent requests: ${JSON.stringify(tv.fake.requests.slice(-8).map(request => ({ method: request.method, path: request.path })))}`);
     }
 }
-function calendarTest(name: string, body: (tv: Tv, catalog: FakeCalendar) => Promise<void>, startTime?: string): void {
+function calendarTest(name: string, body: (tv: Tv, catalog: FakeCalendar) => Promise<void>, startTime?: string, catalog = new FakeCalendar()): void {
     test(name, async () => {
         const tv = await openTv(browser, { app: "browse", ...(startTime === undefined ? {} : { time: Date.parse(startTime) }), ...(process.env.CALENDAR_VIDEO && name.startsWith("Calendar complete") ? { video: process.env.CALENDAR_VIDEO } : {}) });
         try {
-            const catalog = await start(tv);
+            await start(tv, catalog);
             await body(tv, catalog);
             assert.deepEqual(tv.console, []);
         } finally { await tv.page.context().close(); }
@@ -97,6 +97,30 @@ calendarTest("Calendar loading focus stays on Apple's blank owner", async (tv) =
     assert.equal(loading.text, "");
     assert.equal(loading.outline, "none");
     held.release();
+});
+
+calendarTest("Calendar Select held on Next week through the week's repaint runs once on release", async (tv) => {
+    await activate(tv, "calendar");
+    await ready(tv, 3);
+    await activate(tv, "next-week");
+    await ready(tv, 0);
+    const held = tv.fake.hold("/calendar", true);
+    await activate(tv, "today");
+    await tv.page.locator(".calendar-loading").waitFor();
+    const next = tv.page.locator('.browse [data-focus="next-week"]');
+    await next.focus();
+    const before = await next.elementHandle();
+    assert.ok(before);
+    await tv.page.keyboard.down("Enter");
+    held.release();
+    await tv.eventually(() => before.evaluate(node => !node.isConnected), "the week's arrival repaints Next week");
+    await ready(tv, 3);
+    assert.equal(await tv.focused(), "next-week");
+    assert.equal(await next.getAttribute("data-pressed"), "", "the repainted button keeps the press");
+    const reads0 = reads(tv).length;
+    await tv.page.keyboard.up("Enter");
+    await ready(tv, 0);
+    assert.equal(reads(tv).length, reads0 + 1, "release runs Next week once");
 });
 
 calendarTest("Calendar Today keeps a move made while the week is loading", async (tv) => {
@@ -339,40 +363,39 @@ calendarTest("card quick-actions target Calendar episode and season content IDs,
     await activate(tv, "filter:everything"); await ready(tv, 32);
     const episode = tv.page.locator('.calendar-event[data-content-id="episode:s1e22"]');
     await episode.focus(); await tv.down(13); await tv.jump(650); await tv.up(13);
-    const panel = tv.page.getByRole("dialog", { name: "Card actions" });
-    await panel.getByRole("button", { name: "Mark watched", exact: true }).click();
-    await panel.getByRole("button", { name: "Mark unwatched", exact: true }).waitFor();
-    assert.ok(tv.fake.requests.some(r => r.method === "POST" && r.path === "/watched/episode%3As1e22"));
-    assert.equal(tv.fake.requests.filter(r => r.path === "/watched/series%3As1").length, 0);
+    const panel = tv.page.getByRole("menu");
     const count = reads(tv).length;
-    await tv.remote(10009);
+    await panel.getByRole("menuitem", { name: "Mark as Watched", exact: true }).click();
+    await tv.eventually(async () => tv.fake.requests.some(r => r.method === "POST" && r.path === "/watched/episode%3As1e22"), "episode watched sent");
+    assert.equal(tv.fake.requests.filter(r => r.path === "/watched/series%3As1").length, 0);
     await tv.eventually(async () => reads(tv).length === count + 1 && (await episode.getAttribute("aria-label"))?.includes("Watched") === true, "refreshed Calendar decoration");
     const own = "season:s1:2";
     tv.fake.script(`/catalog/items/${encodeURIComponent(own)}?image_size=large`, { status: 200, body: { ...fixture("get_catalog_item_ok"), content_id: own, type: "season", series_id: "series:s1", season_number: 2, user_state: { played: false }, versions: [] } });
     const before = tv.fake.requests.length;
     await tv.page.locator(`.calendar-event[data-content-id="${own}"]`).focus();
     await tv.down(13); await tv.jump(650); await tv.up(13);
-    await panel.getByRole("button", { name: "Mark all watched", exact: true }).waitFor();
-    assert.equal(await panel.getByRole("button").count(), 2, "season exposes watched and Close only");
+    await panel.getByRole("menuitem", { name: "Mark as Watched", exact: true }).waitFor();
+    assert.equal(await panel.getByRole("menuitem").count(), 1, "season exposes watched only");
     assert.deepEqual(tv.fake.requests.slice(before).filter(r => /membership|catalog\/items/.test(r.path)).map(r => r.path.split("?")[0]), ["/catalog/items/season%3As1%3A2"]);
 });
 
-for (const [kind, label, confirmed] of [["watched", "Mark watched", "Mark unwatched"], ["favorites", "Remove favorite", "Add favorite"], ["watchlist", "Add to watchlist", "Remove from watchlist"]] as const) {
-    calendarTest(`card ${kind} invalidates retained Calendar Following through a Home origin`, async tv => {
+for (const [kind, label] of [["watched", "Mark as Watched"], ["favorites", "Add to Favorites"], ["watchlist", "Add to Watchlist"]] as const) {
+    const rows = new FakeCalendar();
+    rows.cardUserState = true;
+    calendarTest(`card ${kind} invalidates retained Calendar Following through a Home origin`, async (tv, catalog) => {
         await activate(tv, "calendar"); await ready(tv, 3);
         const count = reads(tv).length;
         await activate(tv, "home");
         await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').focus();
         await tv.down(13); await tv.jump(650); await tv.up(13);
-        const panel = tv.page.getByRole("dialog", { name: "Card actions" });
-        await panel.getByRole("button", { name: label, exact: true }).click();
-        await panel.getByRole("button", { name: confirmed, exact: true }).waitFor();
-        await tv.remote(10009);
+        const mutations = catalog.mutations.length;
+        await tv.page.getByRole("menu").getByRole("menuitem", { name: label, exact: true }).click();
+        await tv.eventually(async () => catalog.mutations.length === mutations + 1, `${kind} sent`);
         await activate(tv, "calendar");
         await tv.eventually(async () => reads(tv).length === count + 1, "stale retained Calendar read");
         await ready(tv);
         assert.equal(new URL(reads(tv).slice(-1)[0]?.path ?? "", "https://fake.invalid").searchParams.get("filter"), "following");
-    });
+    }, undefined, rows);
 }
 
 calendarTest("Calendar complete remote journey retains every event and restores exact scroll and context", async (tv) => {
@@ -525,12 +548,12 @@ calendarTest("Calendar metadata-only and missing targets retain safe Details and
     catalog.failNext("/catalog/items/movie%3Am0002", { status: 200, body: { ...fixture("get_catalog_item_ok"), content_id: "movie:m0002", versions: [] } });
     await tv.page.locator('.calendar-event[data-content-id="movie:m0002"]').first().focus(); await tv.page.keyboard.press("Enter");
     await tv.page.getByText("This title has no file this TV can play.").waitFor();
-    assert.equal(await tv.page.locator('[data-focus="play"]').count(), 0);
+    assert.equal(await tv.page.locator('[data-focus="play"]').getAttribute("aria-disabled"), "true", "Play stays in the row, disabled");
     await tv.remote(10009); await ready(tv, 33);
     catalog.removed.add("movie:m0003");
     await tv.page.locator('.calendar-event[data-content-id="movie:m0003"]').focus(); await tv.page.keyboard.press("Enter");
-    await tv.page.getByText("This title is no longer available.").waitFor();
-    await activate(tv, "back"); await ready(tv, 33);
+    await tv.page.getByText("We couldn't find what you were looking for. It may have been removed or moved.").waitFor();
+    await activate(tv, "go-back"); await ready(tv, 33);
     assert.equal(await tv.page.locator(":focus").getAttribute("data-content-id"), "movie:m0003");
 });
 
@@ -545,7 +568,7 @@ calendarTest("Calendar return revalidates mutations and preserves nearby identit
         throw new Error(JSON.stringify(state), { cause: error });
     });
     await tv.page.getByText("Loading personal actions.", { exact: true }).waitFor({ state: "hidden" });
-    await tv.page.getByText("Loading related titles.", { exact: true }).waitFor({ state: "hidden" });
+    await tv.page.locator(".details-related-placeholder").first().waitFor({ state: "hidden" });
     await activate(tv, "watched");
     await activate(tv, "more");
     await tv.eventually(async () => catalog.watched, "watched mutation");
@@ -769,7 +792,7 @@ async function homeDetails(tv: Tv, id = "movie:m0001"): Promise<void> {
     await tv.eventually(async () => await tv.page.locator(`.browse[data-view="item:${id}"]`).count() === 1
         && await tv.page.locator('[data-focus="watchlist"]').count() === 1
         && await tv.page.getByText("Loading personal actions.", { exact: true }).count() === 0
-        && await tv.page.getByText("Loading related titles.", { exact: true }).count() === 0, "Home item Details");
+        && await tv.page.locator(".details-related-placeholder").count() === 0, "Home item Details");
 }
 
 calendarTest("S-C2 Calendar re-entry refreshes watched changes made through Home", async (tv, catalog) => {

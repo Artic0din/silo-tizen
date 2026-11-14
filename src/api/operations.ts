@@ -56,10 +56,12 @@ import type { RequestSpec } from "./http.ts";
 import { decodeImageCapabilities, type ImageCapabilities } from "../contracts/v2/images.ts";
 import { discoveryOperations } from "./discoveryOperations.ts";
 import { settingsOperations } from "./settingsOperations.ts";
+import { themeMusicOperations } from "./themeMusicOperations.ts";
 import { trickplayOperations } from "./trickplayOperations.ts";
 import { subtitleOperations } from "./subtitleOperations.ts";
 import { markerOperations } from "./markerOperations.ts";
 import { bandwidthProbeOperations } from "./bandwidthProbeOperations.ts";
+import { audiobookOperations } from "./audiobookOperations.ts";
 
 type Spec<T> = RequestSpec<T>;
 
@@ -92,9 +94,12 @@ export type CatalogPageRequest = {
     readonly cursor: string | undefined;
 } & ({ readonly libraryId?: string; readonly q?: string; readonly type: BrowseScope }
     // Search-only scope on listCatalogItems' default query source, never a library browse.
-    | { readonly libraryId?: never; readonly q: string; readonly type: "video_with_episodes" });
+    | { readonly libraryId?: never; readonly q: string; readonly type: "video_with_episodes" }
+    // Apple SearchMediaType: All names no scope while audiobooks take part.
+    | { readonly libraryId?: never; readonly q: string; readonly type: "audiobook" | undefined });
 
 export const operations = {
+    ...audiobookOperations,
     ...bandwidthProbeOperations,
     ...recommendationOperations,
     ...shuffleOperations,
@@ -104,6 +109,7 @@ export const operations = {
     }),
     ...discoveryOperations,
     ...settingsOperations,
+    ...themeMusicOperations,
     ...trickplayOperations,
     ...markerOperations,
     /** getSystemInfo: public, read. */

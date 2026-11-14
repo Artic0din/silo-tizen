@@ -14,6 +14,8 @@ export class FakeDetails extends FakeCatalog {
     get watched(): boolean { return this.personalMembers("p-owner", "watched").has("movie:m0001"); }
     set watched(value: boolean) { this.setMember("p-owner", "watched", "movie:m0001", value); }
     capability = true;
+    /** Home and catalog cards carry `user_state` and, while in progress, `progress_updated_at`, as the server sends them. */
+    cardUserState = false;
     empty = false;
     extras: readonly Record<string, unknown>[] = [];
     videos: readonly Record<string, unknown>[] = [];
@@ -44,8 +46,29 @@ export class FakeDetails extends FakeCatalog {
         else this.personalMembers(profile, kind).delete(id);
     }
 
+    protected override card(id: string): Record<string, unknown> {
+        const card = super.card(id);
+        if (!this.cardUserState) return card;
+        return { ...card, ...(card.position_seconds === undefined ? {} : { progress_updated_at: "2026-11-01T10:00:00.123456Z" }),
+            user_state: { played: this.playedFor(id, "p-owner"), is_favorite: this.personalMembers("p-owner", "favorites").has(id), in_watchlist: this.personalMembers("p-owner", "watchlist").has(id), not_interested: false } };
+    }
+
+    private playedFor(id: string, profileId: string | undefined): boolean {
+        const title = this.titles.get(id);
+        return title?.type === "series" ? this.episodesPlayed(id, profileId) : title?.type === "episode" ? this.personalMembers(profileId, "episodes").has(id) : this.personalMembers(profileId, "watched").has(id);
+    }
+
     override route(method: string, path: string, profileId: string | undefined, body?: Record<string, unknown>): Reply | undefined {
         const url = new URL(path, "https://example.test");
+        const dismissal = /^\/home\/dismissals\/(continue_watching|next_up)\/([^/]+)$/.exec(url.pathname);
+        if (dismissal !== null && method === "PUT") {
+            this.mutations.push(`${method} ${url.pathname} ${JSON.stringify(body ?? {})}`);
+            if (this.mutationFailure !== undefined) { const failure = this.mutationFailure; this.mutationFailure = undefined; return failure; }
+            const field = dismissal[1] === "continue_watching" ? "progress_updated_at" : "series_id";
+            if (typeof body?.[field] !== "string" || Object.keys(body).length !== 1) return problem(422, "validation_failed", `${field} is required`);
+            this.homeDismissed.add(decodeURIComponent(dismissal[2] ?? ""));
+            return { status: 204 };
+        }
         if (method === "GET" && url.pathname.startsWith("/watch/")) {
             const reply = this.route("GET", `/catalog/items/${url.pathname.slice(7)}`, profileId);
             if (reply?.status !== 200) return reply;
@@ -105,8 +128,7 @@ export class FakeDetails extends FakeCatalog {
         if (reply?.status === 200 && url.pathname.startsWith("/catalog/items/")) {
             const body = object(reply.body, "detail");
             const id = string(body, "content_id", "detail");
-            const title = this.titles.get(id);
-            const played = title?.type === "series" ? this.episodesPlayed(id, profileId) : title?.type === "episode" ? this.personalMembers(profileId, "episodes").has(id) : this.personalMembers(profileId, "watched").has(id);
+            const played = this.playedFor(id, profileId);
             reply.body = { ...body,
                 ...(Array.isArray(body.versions) ? { versions: body.versions.map((value: unknown) => {
                     const file = object(value, "version");
@@ -114,7 +136,7 @@ export class FakeDetails extends FakeCatalog {
                     return { ...file, ...(audio === undefined ? {} : { audio_tracks: audio }) };
                 }) } : {}),
                 ...(id === "series:s1" ? { extras: this.extras, videos: this.videos } : {}),
-                user_state: { played }, user_data: this.neverPlayed.has(id) && !played ? undefined : { ...object(body.user_data, "user_data"), played } };
+                user_state: { played, is_favorite: this.personalMembers(profileId, "favorites").has(id), in_watchlist: this.personalMembers(profileId, "watchlist").has(id) }, user_data: this.neverPlayed.has(id) && !played ? undefined : { ...object(body.user_data, "user_data"), played } };
         }
         if (url.pathname === "/catalog/items/movie%3Am0001" && reply?.status === 200 && typeof reply.body === "object" && reply.body !== null) {
             return { status: 200, body: { ...reply.body,
@@ -169,7 +191,7 @@ export class FakeDetails extends FakeCatalog {
         return { status: 200, body: {
             window_cursor: "synthetic-person-window", total: population.length, total_exact: true,
             effective_sort: { field: "year", order: descending ? "desc" : "asc" },
-            items: population.slice(offset, offset + limit).map(title => ({ content_id: title.id, title: title.title, type: title.type, year: title.year,
+            items: population.slice(offset, offset + limit).map(title => ({ content_id: title.id, title: title.title, type: title.type, year: title.year, show_status: title.showStatus, last_air_date: title.lastAirDate,
                 ...(title.poster === null ? {} : { poster_url: title.poster ?? `/art/${encodeURIComponent(title.id)}.svg` }) })),
             page: next === undefined ? { has_more: false } : { has_more: true, next_cursor: next },
         } };

@@ -72,19 +72,19 @@ File pointers are repository-relative.
 | Feature | Tizen | Apple TV | Android TV | Notes |
 |---|:---:|:---:|:---:|---|
 | Movies and Series tabs, per-type library scope | ✅ | ✅ | ✅ | Scope remembered per server, profile and type. Android: `TvLibraryTabType`, `TvLibraryScopeStore` |
-| Library modes: Recommended, Browse, Collections, Genres, A–Z, Recently Added | ✅ | 🟡 | 🟡 | Apple: `TVLibraryTypeTabView`. Recommended shares Home's Skyline scene (#152); the historical section HTTP 422 remains unverified (#89). Android: Recommended, Browse (with A–Z rail) and Collections in `TvLibraryDetailScreen`; Genres and Recently Added not found as separate modes. Apple: three modes (`TVLibraryPill`); Genres is a filter, Recently Added a Date Added sort, A–Z the rail in Browse |
+| Library modes: Recommended, Browse, Collections | ✅ | 🟡 | 🟡 | Apple: `TVLibraryTypeTabView`. Recommended shares Home's Skyline scene (#152); the historical section HTTP 422 remains unverified (#89). Android: Recommended, Browse (with A–Z rail) and Collections in `TvLibraryDetailScreen`; Genres and Recently Added not found as separate modes. Apple: three modes (`TVLibraryPill`); Genres is a filter, Recently Added a Date Added sort, A–Z the rail in Browse |
 | Browse grid: sort, filters, A–Z rail, remembered choices | ✅ | ✅ | ✅ | 100 cards per read. Apple: `TVLibraryGridView`, `TVBrowseFilterUI`. Android: `TvFilterSheet`, `TvAlphabetRail` |
 | Expanded section grid (60-card reads) | ✅ | ✅ | ✅ | Apple: `SectionCatalogView`. Android: `TvSectionBrowseScreen` |
 | Collections (fan-card grid, personal collections) | ✅ | ✅ | ✅ | Layout parity open (#100). Android: `TvCollectionsScreen` |
 | Library Shuffle | ✅ | ✅ | ✅ | Server-owned; hidden in mixed-library scope. Apple: `ShuffleFeatureStore`. Android: no mixed-library screen on TV |
 | Music | 🚧 | ✅ | 🟡 | Blocked on the server parity contract (#56). Android: Music tab browses the library (`TvLibraryTabType.Music`); no music player found in `androidTvApp` |
-| Audiobooks | 🚧 | ✅ | ✅ | #55. Apple: `TVAudiobookDetailView`, `AudioFullPlayerView`. Android: `TvAudiobookPlayerScreen`; top-bar tab is opt-in (Settings → Show Audiobooks) |
+| Audiobooks | 🚧 | ✅ | ✅ | #55. Apple: `TVAudiobookDetailView`, `AudioFullPlayerView`. Android: `TvAudiobookPlayerScreen`; top-bar tab is opt-in (Settings → Show Audiobooks). Tizen has the tab, library, cards and detail; audiobook playback is not built |
 
 ## Search
 
 | Feature | Tizen | Apple TV | Android TV | Notes |
 |---|:---:|:---:|:---:|---|
-| Text search (debounced, paginated, episodes when the server supports it) | ✅ | ✅ | ✅ | Uses the TV keyboard, not yet validated. Layout parity open (#99). Android: `TvSearchScreen` |
+| Text search (debounced, continuous grid, episodes when the server supports it) | ✅ | ✅ | ✅ | Uses the TV keyboard, not yet validated. Layout parity open (#99). Android: `TvSearchScreen` |
 | Voice search | ➖ | ✅ | ➖ | Apple: Siri search request into `SearchView`. Android: voice is the system keyboard's mic only |
 
 ## Details & people
@@ -115,7 +115,7 @@ File pointers are repository-relative.
 
 | Feature | Tizen | Apple TV | Android TV | Notes |
 |---|:---:|:---:|:---:|---|
-| For You hub (discover rows, Explore all) | ✅ | ✅ | ✅ | Reuses Home renderers. Apple: `RecommendationsView`. Android: `TvRecommendationsScreen` |
+| For You hub (discover rows) | ✅ | ✅ | ✅ | Reuses Home renderers. Apple: `RecommendationsView`. Android: `TvRecommendationsScreen` |
 | Watchlist and Favorites shortcuts from the For You menu | ➖ | ✅ | ✅ | Tizen reaches them from the profile menu (#105). Android: dropdown under the For You tab in `TvTopMenuBar` |
 
 ## Calendar
@@ -183,8 +183,9 @@ File pointers are repository-relative.
 | Autoplay, Next Up, Skip Intros, Skip Credits switches | ➖ | ✅ | ✅ | Tizen reads autoplay but never writes it |
 | Episode spoiler protection (hide unwatched stills and descriptions) | ✅ | ✅ | ✅ | Apple: `TVPlaybackSettingsView`. Android: `TvSettingsScreen` |
 | Subtitle settings (language, behaviour, appearance) | 🟡 | ✅ | ✅ | Profile language/behaviour, metadata language and profile/device appearance; OS subtitle accessibility settings are unavailable |
-| HDR, Dolby Vision, buffering, lossless audio, deinterlacing | 🟡 | ✅ | 🟡 | HDR is a device switch when the server offers the key. Dolby Vision is absent: Samsung exposes no Dolby Vision support check and this client claims no Dolby Vision profile. Lower quality when buffering works on playback (Apple's decision, pill and replans; default Automatically) but has no Settings row yet. Lossless audio and deinterlacing are still absent. Android has Dolby Vision, Force HDR Passthrough, buffering quality and frame-rate matching; lossless audio and deinterlacing settings not found |
-| Poster size, advisory age, theme music, Show Audiobooks | ➖ | ✅ | 🟡 | Tizen honours the saved poster size but has no editor. Android has Poster Size, Theme Music and Show Audiobooks; advisory age not found |
+| HDR, Dolby Vision, buffering, lossless audio, deinterlacing | 🟡 | ✅ | 🟡 | HDR is a device switch when the server offers the key. Dolby Vision is absent: Samsung exposes no Dolby Vision support check and this client claims no Dolby Vision profile. Lower quality when buffering works on playback (Apple's decision, pill and replans; default Automatically), with the Settings row and the learned-limit Reset. Lossless audio and deinterlacing are still absent. Android has Dolby Vision, Force HDR Passthrough, buffering quality and frame-rate matching; lossless audio and deinterlacing settings not found |
+| Poster size, advisory age | ➖ | ✅ | 🟡 | Tizen honours the saved poster size but has no editor. Android has Poster Size; advisory age not found. Show Audiobooks is built (see Audiobooks) |
+| Theme music (Play and Loop rows; Details plays the title's theme) | 🟡 | ✅ | ✅ | Plays through an HTML5 `<audio>` element because AVPlay belongs to video, and stops before playback opens. Not yet checked on a physical TV |
 | Acknowledgements (TMDB and open source) | ✅ | ✅ | ➖ | Android: Settings → Server → About shows App Version and Privacy Policy only |
 | Privacy policy | ➖ | ✅ | ✅ | Android: `TvPrivacyPolicyDialog` |
 

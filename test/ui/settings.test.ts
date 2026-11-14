@@ -5,6 +5,7 @@ import { FakeCatalog } from "../native/support/fakeCatalog.ts";
 import { FakeSettings } from "../native/support/fakeSettings.ts";
 import { AUDIO_KEY, HDR_KEY, HIDDEN_KEY, QUALITY_KEY, BITRATE_KEY, SUBTITLE_LANGUAGE_KEY, SUBTITLE_MODE_KEY, SHOW_FORCED_KEY } from "../../src/contracts/v2/settings.ts";
 import { fixture, problem } from "../native/support/fakeSilo.ts";
+import { assertSignOutDialog } from "./support/signOutDialog.ts";
 import { launchBrowser, openTv, readLive, type Tv } from "./support/tv.ts";
 
 const DOLBY_VISION_KEY = "player.dolby_vision_enabled";
@@ -134,6 +135,27 @@ test("Settings pins its rail, resets pane scroll and keeps modal background geom
         assert.equal(await tv.page.locator('.settings-pane').evaluate(node => node.scrollTop), 0);
         await tv.page.locator('[data-focus="subtitles"]').click();
         assert.equal(await tv.page.locator('.settings-pane').evaluate(node => node.scrollTop), 0, "returning to a category starts at the top too");
+    } finally { await tv.page.context().close(); }
+});
+
+test("a held Select on a Settings row draws no pressed state and opens the row on release", async () => {
+    const { tv } = await setup();
+    try {
+        await openSettings(tv);
+        const row = tv.page.locator('[data-focus="playback"]');
+        await row.focus();
+        await tv.jump(300);
+        const look = () => row.evaluate(node => { const style = getComputedStyle(node); return [style.transform, style.scale, style.opacity, style.backgroundColor, style.color, style.boxShadow, style.borderColor].join("|"); });
+        const resting = await look();
+        const pane = () => tv.page.locator(".settings-pane").innerText();
+        const before = await pane();
+        await tv.page.keyboard.down("Enter");
+        await tv.jump(300);
+        // Apple's TVSettingsRailRowStyle press (TVSettingsComponents.swift:208) is not matched yet, so a held row looks as it does on main.
+        assert.equal(await look(), resting, "a held Settings row shows no new visual state");
+        assert.equal(await pane(), before, "the row waits for release");
+        await tv.page.keyboard.up("Enter");
+        await tv.eventually(async () => await tv.focused() !== "playback" || await pane() !== before, "release opens the row");
     } finally { await tv.page.context().close(); }
 });
 
@@ -655,6 +677,9 @@ test("Subtitles, the profile account line and sign-out confirmation follow Apple
         assert.equal(await tv.page.locator(".settings-version").textContent(), "Silo 0.0.1");
         assert.equal(await tv.page.getByRole("button", { name: /Diagnostics/ }).count(), 0);
         assert.equal(await tv.page.locator('[data-focus="subtitles"] .settings-category-detail').textContent(), "Language and appearance");
+        // Apple's siloSecondaryText is #EDEDED at 60%.
+        const secondary = await tv.page.locator('.settings-version, [data-focus="subtitles"] .settings-category-detail').evaluateAll(nodes => nodes.map(node => getComputedStyle(node).color));
+        assert.deepEqual(secondary, ["rgba(237, 237, 237, 0.6)", "rgba(237, 237, 237, 0.6)"]);
         await tv.page.locator('[data-focus="subtitles"]').click();
         assert.equal(await tv.page.locator(".settings-blurb").textContent(), "Language, behavior, and on-screen appearance.");
         assert.equal(await tv.page.locator('[data-focus="subtitle-language"] .settings-row-value').textContent(), "None");
@@ -678,6 +703,15 @@ test("Subtitles, the profile account line and sign-out confirmation follow Apple
         await tv.page.getByRole("heading", { name: "Sign out of laura on this server?" }).waitFor();
         await tv.page.getByText("This account's profiles and settings leave this TV, and this server will be removed from it.", { exact: true }).waitFor();
         assert.equal(await tv.focused(), "cancel-signout");
+        await assertSignOutDialog(tv.page, "Sign out of laura on this server?");
+        await tv.page.keyboard.press("ArrowRight");
+        assert.equal(await tv.focused(), "confirm-signout");
+        await tv.page.keyboard.press("ArrowLeft");
+        assert.equal(await tv.focused(), "cancel-signout", "focus stays inside the dialog");
+        await tv.remote(10009);
+        await tv.page.locator('[data-focus="settings-signout"]').waitFor();
+        assert.equal(await tv.focused(), "settings-signout", "Back cancels and returns to Sign Out");
+        assert.equal(await tv.page.getByRole("alertdialog").count(), 0);
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }
 });
@@ -813,6 +847,74 @@ test("quality footer and bitrate labels follow Apple TV", async () => {
         assert.equal(await dialog.getByRole("textbox").count(), 0);
         assert.equal(await dialog.getByRole("button", { name: "Save", exact: true }).count(), 0);
     } finally { await tv.page.context().close(); }
+});
+
+const BUFFERING_MODE_KEY = "playback.buffering_quality_mode";
+const BUFFERING_SENTENCES = "What Silo does on Auto when playback keeps buffering. Silo always asks before lowering a quality you picked.";
+
+test("Lower quality when buffering follows Apple's QUALITY rows and saves for this TV only", async () => {
+    const { tv, settings } = await setup(true);
+    settings.bufferingRows = true;
+    try {
+        const deviceId = tv.fake.requests.find(r => r.headers["x-silo-device-id"])?.headers["x-silo-device-id"];
+        assert.ok(deviceId);
+        const device = settings.device("p-owner", deviceId);
+        settings.profile().set(BUFFERING_MODE_KEY, "ask");
+        await openSettings(tv);
+        await tv.page.locator('[data-focus="playback"]').click();
+        const row = tv.page.locator('[data-focus="buffering-mode"]');
+        await row.waitFor();
+        assert.equal(await row.locator(".settings-row-title").textContent(), "Lower quality when buffering");
+        assert.equal(await row.locator(".settings-row-value").textContent(), "Ask first");
+        // TVPlaybackSettingsView.swift:60-90: Resolution, Maximum Bitrate, the buffering row, then one footer with both sentences.
+        const order = await tv.page.evaluate(() => {
+            const keys = ["quality", "bitrate", "buffering-mode"].map(key => document.querySelector(`[data-focus="${key}"]`));
+            const footer = document.querySelector(".settings-quality-footer");
+            const streaming = [...document.querySelectorAll(".settings-section-header")].find(node => node.textContent === "STREAMING");
+            const nodes = [...keys, footer, streaming];
+            if (nodes.some(node => node === null || node === undefined)) return false;
+            return nodes.every((node, index) => index === 0 || (((nodes[index - 1] as Node).compareDocumentPosition(node as Node)) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0);
+        });
+        assert.equal(order, true);
+        assert.equal(await tv.page.locator(".settings-quality-footer").textContent(), `Plays the original file whenever your device and connection can handle it. ${BUFFERING_SENTENCES}`);
+        await row.click();
+        const dialog = tv.page.getByRole("dialog", { name: "Lower quality when buffering" });
+        await dialog.waitFor();
+        assert.deepEqual(await dialog.locator(".settings-modal-options [data-focus]").allTextContents(), ["Use Profile Setting", "Never", "Ask first", "Automatically"]);
+        // No device value yet: the profile's Ask first applies, so Use Profile Setting is the checked choice.
+        assert.equal(await dialog.locator('[data-focus="reset-row"]').getAttribute("aria-checked"), "true");
+        assert.equal(await dialog.locator('[data-focus="choice:ask"]').getAttribute("aria-checked"), "false");
+        await dialog.locator('[data-focus="choice:never"]').click();
+        await row.waitFor();
+        assert.equal(await tv.focused(), "buffering-mode");
+        assert.equal(device.get(BUFFERING_MODE_KEY), "never");
+        assert.equal(settings.profile().get(BUFFERING_MODE_KEY), "ask");
+        assert.equal(await row.locator(".settings-row-value").textContent(), "Never");
+        await row.click();
+        await tv.page.locator('[data-focus="reset-row"]').click();
+        await row.waitFor();
+        assert.equal(device.has(BUFFERING_MODE_KEY), false);
+        assert.equal(await row.locator(".settings-row-value").textContent(), "Ask first");
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
+
+test("Lower quality when buffering defaults to Automatically and is hidden where the server lacks it", async () => {
+    const shown = await setup(true);
+    shown.settings.bufferingRows = true;
+    try {
+        await openSettings(shown.tv);
+        await shown.tv.page.locator('[data-focus="playback"]').click();
+        assert.equal(await shown.tv.page.locator('[data-focus="buffering-mode"] .settings-row-value').textContent(), "Automatically");
+    } finally { await shown.tv.page.context().close(); }
+    const hidden = await setup(true);
+    try {
+        await openSettings(hidden.tv);
+        await hidden.tv.page.locator('[data-focus="playback"]').click();
+        await hidden.tv.page.locator('[data-focus="quality"]').waitFor();
+        assert.equal(await hidden.tv.page.locator('[data-focus="buffering-mode"]').count(), 0);
+        assert.equal(await hidden.tv.page.locator(".settings-quality-footer").textContent(), "Plays the original file whenever your device and connection can handle it.");
+    } finally { await hidden.tv.page.context().close(); }
 });
 
 test("Playback restores video skip intervals after episodes and focus moves do not write settings", async () => {
@@ -1196,7 +1298,7 @@ test("Server settings open Acknowledgements with TMDB's logo and required notice
     try {
         await openSettings(tv);
         await tv.page.locator('[data-focus="server"]').click();
-        assert.deepEqual(await tv.page.locator(".settings-section-header").allTextContents(), ["ACTIVE SERVER", "ABOUT"]);
+        assert.deepEqual(await tv.page.locator(".settings-section-header").allTextContents(), ["ACTIVE SERVER", "ABOUT", "EXTRA FEATURES"]);
         await tv.page.getByRole("button", { name: "Acknowledgements", exact: true }).click();
         const credits = tv.page.locator(".acknowledgements-document");
         await credits.waitFor();

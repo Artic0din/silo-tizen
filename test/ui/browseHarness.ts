@@ -8,11 +8,15 @@ import { connect } from "../../src/session/core.ts";
 import { type Browse, mountBrowse, type PlayRequest } from "../../src/ui/browse.ts";
 import { browseCache, clearBrowseCache } from "../../src/session/browseCache.ts";
 import { operations } from "../../src/api/operations.ts";
+import type { ThemeAudioOutput } from "../../src/ui/themeMusic.ts";
+import { ExperimentalFeatures, type ExperimentalFeature } from "../../src/session/experimentalFeatures.ts";
 import { FakeKeyManager, MemoryPublicStorage } from "../native/support/keyManager.ts";
 
 export interface BrowseHarness {
     loginPhase: string;
     readonly plays: PlayRequest[];
+    /** Theme audio as heard, in order: `grant <url>`, `play`, `pause`, `teardown`, and `player` when a video request opens. */
+    readonly themeEvents: string[];
     /** Whether browse's container was still in the root when onChooseProfile ran. */
     readonly chooseProfileCalls: boolean[];
     signOutCalls: number;
@@ -25,6 +29,8 @@ export interface BrowseHarness {
     clearResponseCache(): void;
     cacheOffline(route?: "home" | "for_you" | "movie:m0004"): boolean;
     failPublicStorage(read: boolean, write: boolean): void;
+    /** Turns a device experimental feature on before mount, as Settings does. */
+    setExperimental(feature: ExperimentalFeature, enabled: boolean): void;
     hasImageCapabilityCache(): boolean;
     /** As the profile screens do on Switch profile: clear the profile, which ends browse's authority. */
     clearProfile(): void;
@@ -63,9 +69,24 @@ function connected(): ConnectedServer {
     return server;
 }
 
+const themeEvents: string[] = [];
+function recordingTheme(url: string): ThemeAudioOutput {
+    themeEvents.push(`grant ${url}`);
+    let playing = false;
+    return {
+        volume: 0, loops: false,
+        get playing() { return playing; },
+        onEnded: undefined, onFailed: undefined, onProgress: undefined,
+        play() { playing = true; themeEvents.push("play"); },
+        pause() { playing = false; themeEvents.push("pause"); },
+        tearDown() { playing = false; themeEvents.push("teardown"); },
+    };
+}
+
 const harness: BrowseHarness = {
     loginPhase: "none",
     plays: [],
+    themeEvents,
     chooseProfileCalls: [],
     signOutCalls: 0,
     lastKeyPrevented: undefined,
@@ -118,7 +139,9 @@ const harness: BrowseHarness = {
             server: connected(),
             ...(profileName === undefined ? {} : { profileName }),
             publicStorage,
+            themeOutput: grant => recordingTheme(grant.url),
             onPlay: (request) => {
+                themeEvents.push("player");
                 harness.plays.push(request);
             },
             onChooseProfile: () => {
@@ -147,6 +170,9 @@ const harness: BrowseHarness = {
     failPublicStorage(read, write) {
         publicStorage.failGet = read;
         publicStorage.failSet = write;
+    },
+    setExperimental(feature, enabled) {
+        new ExperimentalFeatures(publicStorage).setEnabled(feature, enabled);
     },
     hasImageCapabilityCache() {
         return publicStorage.getItem(`silo.imageCapability:${connected().server.serverId}`) !== null;

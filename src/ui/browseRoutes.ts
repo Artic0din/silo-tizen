@@ -4,34 +4,41 @@
 import { ApiError } from "../api/errors.ts";
 import { requestsView, type RequestsHandlers, type RequestsState, type RequestWrite } from "./requests.ts";
 import type { TextSearchScope } from "../api/operations.ts";
+import type { Audiobook } from "../contracts/v2/audiobooks.ts";
+import { audiobookView } from "./audiobookView.ts";
 import type { CatalogPage, Episode, HomeSection, ItemDetail, Season, UserLibrary } from "../contracts/v2/catalog.ts";
 import type { Person } from "../contracts/v2/details.ts";
 import type { PersonMetadataRefresh } from "./personMetadataRefresh.ts";
 import type { DetailsState } from "./detailsState.ts";
 import { SessionError, SessionRefreshError } from "../session/session.ts";
 import type { FocusTarget, View } from "./browseFocus.ts";
-import { itemView, seasonView } from "./browseDetails.ts";
-import { browseCardDestination, type EpisodeSelection, type PlayRequest, type SeriesContext, type SeriesLine } from "./browseModel.ts";
+import { itemView, seasonView, withDetailsAlert } from "./browseDetails.ts";
+import { detailsLoadingView } from "./detailsLoading.ts";
+import { browseCardDestination, type SearchFilter, type EpisodeSelection, type PlayRequest, type SeriesContext, type SeriesLine, type DetailSeed } from "./browseModel.ts";
 import type { CalendarState } from "./calendarState.ts";
 import { calendarView, type CalendarHandlers } from "./calendarView.ts";
-import { actionButton, FAILURE_ICON, homeView, lines, pagedGrid, type SearchResults, searchState, searchView, statusView, type ViewContext, zoneNode } from "./browseViews.ts";
+import { actionButton, homeView, lines, errorView, failureError, pagedGrid, type SearchResults, searchView, statusView, type ViewContext, zoneNode } from "./browseViews.ts";
 import { el } from "./screen.ts";
 import { discoveryState, type BrowseChange, type DiscoveryState, type LibraryMode, type LibrarySource } from "./libraryDiscovery.ts";
 import { discoveryView, resultsView } from "./libraryDiscoveryViews.ts";
 import { personalView, type PersonalFilter, type PersonalSource, type PersonalListCapability } from "./personalLists.ts";
 import type { MediaScope } from "../contracts/v2/discovery.ts";
 import { personFilmographyView } from "./personFilmography.ts";
-import type { RecommendationLocator, RecommendationRow } from "../contracts/v2/recommendations.ts";
+import type { RecommendationRow } from "../contracts/v2/recommendations.ts";
 import { globalSearchView, type SearchSupplement } from "./globalSearch.ts";
+import { feedGrid } from "./catalogFeed.ts";
 import { boxSetView } from "./boxSetView.ts";
 import type { BoxSetRowState } from "./boxSetRow.ts";
 import { boxSetNextMovie, type CatalogBoxSetDetail } from "../contracts/v2/boxSets.ts";
 import { recommendationsView } from "./recommendationsView.ts";
+import { watchPartyView, type WatchPartyScreen } from "./watchParty.ts";
 
 /** Cards per catalog page: four grid rows. Only the shown page is kept. */
 export const PAGE_SIZE = 24;
-/** Apple's SearchViewModel.pageSize. A 25-result query is one page, with no pager. */
+/** Apple's SearchViewModel.pageSize: each read adds this many titles to the one grid. */
 export const SEARCH_PAGE_SIZE = 60;
+/** TVCatalogGrid.prefetchRowsRemaining: the next page is read once a card this many rows from the end is on screen. */
+const SEARCH_LOAD_ROWS = 8;
 
 export interface Pages {
     page: CatalogPage | undefined;
@@ -42,26 +49,29 @@ export interface Pages {
 
 export type RouteData =
     | { readonly kind: "for_you"; data: RecommendationRow[] | undefined }
-    | { readonly kind: "recommendationSection"; readonly locator: RecommendationLocator; readonly title: string; pages: Pages }
     | { readonly kind: "requests"; readonly requests: RequestsState; readonly anchor?: string }
+    | { readonly kind: "watchParty"; readonly watchParty: WatchPartyScreen; readonly anchor?: string }
     | { readonly kind: "calendar"; readonly calendar: CalendarState }
     | { readonly kind: "personal"; readonly source: PersonalSource; readonly anchor?: string; filter: PersonalFilter; capability: PersonalListCapability | undefined; pages: Pages; pendingIndex: number | undefined; error?: ErrorState | undefined; elsewhere?: boolean }
     | { readonly kind: "home"; data: { libraries: UserLibrary[]; sections: HomeSection[] } | undefined }
     | { readonly kind: "homeSection"; readonly id: string; readonly title: string; readonly continuing: boolean; pages: Pages; pendingIndex: number | undefined }
     | { readonly kind: "resume"; readonly id: string; readonly title: string; readonly episode?: true; readonly startOver?: boolean; readonly selection?: EpisodeSelection; readonly seriesLine?: SeriesLine }
     | { readonly kind: "library"; readonly library: UserLibrary; pages: Pages; discovery?: DiscoveryState }
-    | { readonly kind: "libraryResults"; readonly library: UserLibrary; readonly title: string; readonly source: LibrarySource; pages: Pages; descending: boolean }
+    | { readonly kind: "libraryResults"; readonly library: UserLibrary; readonly title: string; readonly source: LibrarySource; pages: Pages }
     /** `resultsFor`: the query the shown page answers, which typing can move ahead of. */
-    | { readonly kind: "search"; query: string; pages: Pages | undefined; resultsFor: string; searchType?: TextSearchScope; filter?: "movie" | "series" | undefined; peopleSupported?: boolean; boxSetsSupported?: boolean; supplement?: SearchSupplement }
+    | { readonly kind: "search"; query: string; pages: Pages | undefined; resultsFor: string; resultsFilter?: SearchFilter | undefined; appending?: boolean; restarted?: boolean; searchType?: TextSearchScope; filter?: SearchFilter | undefined; peopleSupported?: boolean; boxSetsSupported?: boolean; supplement?: SearchSupplement }
+    | { readonly kind: "audiobook"; readonly id: string; readonly title: string; data: Audiobook | undefined; /** The chapter picker covers the page. */ picker?: boolean }
     | { readonly kind: "boxSet"; readonly id: string; readonly libraryId: string; readonly title: string; data: CatalogBoxSetDetail | undefined }
-    | { readonly kind: "item"; readonly id: string; readonly title: string; readonly seriesContext?: SeriesContext; error?: ErrorState; data: { detail: ItemDetail; seasons: Season[]; details?: DetailsState; boxSet?: BoxSetRowState } | undefined }
-    | { readonly kind: "person"; readonly id: string; readonly title: string; data: { person: Person } | undefined; metadataLoading?: boolean; metadataRefresh?: PersonMetadataRefresh; metadataFailure?: string | undefined; availabilityLoading?: boolean; availableFilters?: MediaScope[]; filter: MediaScope; pages: Pages; pendingIndex: number | undefined }
+    | { readonly kind: "item"; readonly id: string; readonly title: string; readonly seriesContext?: SeriesContext; readonly seed?: DetailSeed; readonly fromRelated?: boolean; error?: ErrorState; data: { detail: ItemDetail; seasons: Season[]; details?: DetailsState; boxSet?: BoxSetRowState } | undefined }
+    | { readonly kind: "person"; readonly id: string; readonly title: string; data: { person: Person } | undefined; metadataLoading?: boolean; metadataRefresh?: PersonMetadataRefresh; metadataFailure?: string | undefined; metadataError?: ErrorState | undefined; availabilityLoading?: boolean; availableFilters?: MediaScope[]; filter: MediaScope; pages: Pages; pendingIndex: number | undefined }
     | { readonly kind: "season"; readonly seriesId: string; readonly seasonNumber: number; readonly title: string; readonly id?: string; readonly episodeId?: string; data: { episodes: Episode[]; detail: ItemDetail | undefined; details?: DetailsState } | undefined };
 
 export type Route = RouteData & {
     /** Where focus was when another route covered this one. */
     focus: FocusTarget | undefined;
     failure: string | undefined;
+    /** Apple ErrorState for the last failed read, which picks the error page's headline and buttons. */
+    error?: ErrorState | undefined;
     slow: boolean;
     /** Shown data may be out of date (after playback): refresh it in place when shown. */
     stale: boolean;
@@ -78,6 +88,8 @@ export function newPages(): Pages {
 export function hasData(current: Route): boolean {
     switch (current.kind) {
         case "requests": return current.requests.data !== undefined;
+        // The hub reads nothing to open: its support answer comes with the entry point.
+        case "watchParty": return true;
         case "calendar":
             return current.calendar.data !== undefined;
         case "resume":
@@ -85,12 +97,11 @@ export function hasData(current: Route): boolean {
         case "personal":
             return current.pages.page !== undefined || current.capability !== undefined;
         case "library":
-            return current.discovery?.mode === "Browse" ? current.discovery.snapshot !== undefined : current.discovery?.data !== undefined && (!(current.discovery.mode === "A–Z" || current.discovery.mode === "Recently Added" || current.discovery.genre !== undefined) || current.pages.page !== undefined);
+            return current.discovery?.mode === "Browse" ? current.discovery.snapshot !== undefined : current.discovery?.data !== undefined;
         // A loaded filmography is kept; only a missing person is read again (Apple loadInitial: person == nil, items.isEmpty).
         case "person": return current.data !== undefined || current.pages.page !== undefined;
         case "libraryResults":
         case "homeSection":
-        case "recommendationSection":
             return current.pages.page !== undefined;
         case "search":
             return current.pages?.page !== undefined;
@@ -110,8 +121,10 @@ export interface RouteHandlers {
     readonly requests: (route: Extract<Route, { kind: "requests" }>) => RequestsHandlers;
     readonly personFilter: (route: Extract<Route, { kind: "person" }>, filter: MediaScope) => void;
     readonly morePerson: (route: Extract<Route, { kind: "person" }>) => void;
+    readonly moreSearch: (route: Extract<Route, { kind: "search" }>) => void;
     readonly calendar: (route: Extract<Route, { kind: "calendar" }>) => CalendarHandlers;
     readonly personalFilter: (route: Extract<Route, { kind: "personal" }>, filter: PersonalFilter) => void;
+    readonly audiobookPicker: (route: Extract<Route, { kind: "audiobook" }>, open: boolean) => void;
     readonly morePersonal: (route: Extract<Route, { kind: "personal" }>) => void;
     readonly signIn: (() => void) | undefined;
     readonly context: ViewContext;
@@ -121,7 +134,9 @@ export interface RouteHandlers {
     /** The search heading, label and field, kept across renders. */
     readonly searchHead: readonly HTMLElement[];
     readonly input: HTMLInputElement;
-    readonly searchFilter: (route: Extract<Route, { kind: "search" }>, filter: "movie" | "series" | undefined) => void;
+    readonly searchFilter: (route: Extract<Route, { kind: "search" }>, filter: SearchFilter | undefined) => void;
+    /** Audiobooks take part in Search: the opt-in is on and an audiobook library is visible. */
+    readonly audiobooksEnabled: boolean;
     readonly retryPeople: (route: Extract<Route, { kind: "search" }>) => void;
     readonly push: (route: Route) => void;
     readonly pop: () => void;
@@ -131,14 +146,12 @@ export interface RouteHandlers {
     readonly retry: (route: Route) => void;
     readonly turn: (route: Route, pages: Pages, step: -1 | 1) => void;
     readonly mode: (route: Extract<Route, { kind: "library" }>, mode: LibraryMode) => void;
-    readonly jump: (route: Extract<Route, { kind: "library" }>, letter: string, position: number) => void;
-    readonly sort: (route: Extract<Route, { kind: "libraryResults" | "library" }>) => void;
-    readonly genre: (route: Extract<Route, { kind: "library" }>, name: string | undefined) => void;
 }
 
 export function routeView(current: Route, handlers: RouteHandlers): View {
-    if (current.kind === "for_you" || current.kind === "recommendationSection") return recommendationsView(current, handlers);
+    if (current.kind === "for_you") return recommendationsView(current, handlers);
     if (current.kind === "requests") return requestsView(current.requests, handlers.requests(current), handlers.context.baseUrl);
+    if (current.kind === "watchParty") return watchPartyView(current.watchParty, handlers.pop, handlers.context.baseUrl);
     const { context, pop } = handlers;
     if (current.kind === "calendar") return calendarView(current.calendar, handlers.calendar(current));
     const back = current.kind === "home" ? undefined : pop;
@@ -154,28 +167,24 @@ export function routeView(current: Route, handlers: RouteHandlers): View {
         return globalSearchView(searchView(handlers.searchHead, handlers.input, searchResults(current, handlers), pop), current, handlers);
     }
     if (current.failure !== undefined && !hasData(current)) {
-        if (current.kind === "home" || current.kind === "item" && current.error?.headline === "Something went wrong") {
-            const retry = actionButton("retry", "Try Again", () => handlers.retry(current));
-            const controls = [retry, ...(current.kind === "home" && handlers.manageServers ? [actionButton("manage-servers", "Manage Servers", handlers.manageServers)] : [])];
-            const page = searchState("Something went wrong", current.failure, "details-failure", FAILURE_ICON);
-            page.setAttribute("role", "alert");
-            page.appendChild(zoneNode("browse-actions", controls));
-            return { name: `${current.kind}:failed`, content: [page], zones: [{ id: "status", layout: "column", items: controls }], focus: { zone: "status", key: "retry" }, back };
-        }
-        return statusView(`${current.kind}:failed`, "Something went wrong", [current.failure], [actionButton("retry", "Try again", () => handlers.retry(current)), escape], back, "error");
+        return errorView(`${current.kind}:failed`, failureError(current.failure, current.error), () => handlers.retry(current), back, handlers.signIn, current.kind === "home" ? handlers.manageServers : undefined);
     }
     switch (current.kind) {
         case "home": {
-            if (current.data === undefined) return homeLoadingView();
+            if (current.data === undefined) return pageLoadingView("home:loading", "Loading home");
             const view = homeView(current.data.libraries, current.data.sections, context, {
                 expand: section => handlers.push(newRoute({ kind: "homeSection", id: section.id, title: section.title, continuing: section.sectionType === "continue_watching", pages: newPages(), pendingIndex: undefined })),
                 search: () => handlers.push(newRoute({ kind: "search", query: "", pages: undefined, resultsFor: "" })),
                 library: (library) => handlers.push(newRoute({ kind: "library", library, pages: newPages() })),
                 chooseProfile: handlers.chooseProfile,
+                dismisses: true,
             });
-            if (current.failure === undefined && !handlers.busy) return view;
-            const retry = current.failure === undefined ? [] : [actionButton("retry", "Try again", () => handlers.retry(current))];
-            return { ...view, content: [...view.content, ...lines([current.failure ?? "Refreshing titles."], current.failure === undefined ? "info" : "error"), zoneNode("browse-actions", retry)], zones: [...view.zones, { id: "status", layout: "row", items: retry }] };
+            // Apple tvOS HomeView shows only the feed while it has rows, whether a refresh is running or failed;
+            // with no rows, a failure is the whole page.
+            if (current.failure !== undefined && view.zones.every(zone => zone.id === "empty")) {
+                return errorView("home:failed", failureError(current.failure, current.error), () => handlers.retry(current), back, handlers.signIn, handlers.manageServers);
+            }
+            return view;
         }
         case "homeSection":
             if (current.pages.page !== undefined) {
@@ -203,7 +212,12 @@ export function routeView(current: Route, handlers: RouteHandlers): View {
                 const view = itemView(current.data.details?.detail ?? current.data.detail, current.data.seasons, {
                     ...context, open: destination => context.open(destination.kind === "season" && episodeId !== undefined ? { ...destination, episodeId } : destination),
                 }, handlers.play, pop, current.data.details, current.data.boxSet);
-                return withNote(view, current.failure);
+                return withDetailsAlert(withNote(view, current.failure), current.data.details);
+            }
+            break;
+        case "audiobook":
+            if (current.data !== undefined) {
+                return withNote(audiobookView(current.data, { context, pickerOpen: current.picker === true, setPicker: open => handlers.audiobookPicker(current, open), back: pop }), current.failure);
             }
             break;
         case "boxSet":
@@ -217,22 +231,23 @@ export function routeView(current: Route, handlers: RouteHandlers): View {
             break;
         case "season":
             if (current.data !== undefined) {
-                return withNote(seasonView(`season:${current.seriesId}:${current.seasonNumber}`, current.title, current.data.episodes, context, pop, handlers.play, current.data.details?.detail ?? current.data.detail, current.data.details), current.failure);
+                return withDetailsAlert(withNote(seasonView(`season:${current.seriesId}:${current.seasonNumber}`, current.title, current.data.episodes, context, pop, handlers.play, current.data.details?.detail ?? current.data.detail, current.data.details), current.failure), current.data.details);
             }
     }
+    if (current.kind === "item") return detailsLoadingView(current, context, pop);
     // Other routes keep the slow note. Home returned above: an empty page labelled "Loading home".
     const waiting = current.slow ? ["Still waiting for the server."] : [];
     return statusView(`${current.kind}:loading`, "Loading", waiting, [escape], back);
 }
 
-/** Apple tvOS HomeView while sections are empty and loading: a clear page, accessibility label "Loading home". */
-function homeLoadingView(): View {
+/** Apple tvOS HomeView and RecommendationsView while loading with nothing to show: a clear `tvPageFocusOwner` page that is only spoken. */
+export function pageLoadingView(name: string, label: string): View {
     const page = el("div", "home-loading");
     page.tabIndex = 0;
-    page.setAttribute("aria-label", "Loading home");
+    page.setAttribute("aria-label", label);
     page.setAttribute("data-focus", "loading");
     return {
-        name: "home:loading",
+        name,
         content: [page],
         zones: [{ id: "loading", layout: "row", items: [{ key: "loading", element: page }] }],
         focus: { zone: "loading", key: "loading" },
@@ -245,16 +260,14 @@ function grid(current: Route, pages: Pages, page: CatalogPage, handlers: RouteHa
         {
             page,
             index: pages.index,
-            pageSize: current.kind === "search" ? SEARCH_PAGE_SIZE : current.kind === "libraryResults" && current.source.kind === "collection" ? 60 : PAGE_SIZE,
+            pageSize: current.kind === "libraryResults" && current.source.kind === "collection" ? 60 : PAGE_SIZE,
             loading: handlers.busy,
             previous: () => handlers.turn(current, pages, -1),
             next: () => handlers.turn(current, pages, 1),
         },
-        current.kind === "search"
-            ? searchCards(handlers.context)
-            : current.kind === "libraryResults" && current.source.kind === "collection"
-                ? { ...handlers.context, overlays: handlers.context.cardOverlays?.(), posterWidth: 260 * (handlers.context.posterScale?.() ?? 1) }
-                : handlers.context,
+        current.kind === "libraryResults" && current.source.kind === "collection"
+            ? { ...handlers.context, seriesYears: true, overlays: handlers.context.cardOverlays?.(), posterWidth: 260 * (handlers.context.posterScale?.() ?? 1) }
+            : { ...handlers.context, seriesYears: true },
     );
 }
 
@@ -263,13 +276,13 @@ function grid(current: Route, pages: Pages, page: CatalogPage, handlers: RouteHa
  * Select opens the card's detail route. It does not use the shared episode play shortcut.
  */
 function searchCards(context: ViewContext): ViewContext {
-    return { ...context, overlays: context.cardOverlays?.(), posterWidth: 220 * (context.posterScale?.() ?? 1), cardDestination: browseCardDestination };
+    return { ...context, cardDestination: browseCardDestination, seriesYears: true };
 }
 
 function searchResults(current: Extract<Route, { kind: "search" }>, handlers: RouteHandlers): SearchResults {
     const pages = current.pages;
     if (current.failure !== undefined) {
-        return { status: "failed", text: current.failure, retry: () => handlers.retry(current) };
+        return { status: "failed", error: failureError(current.failure, current.error), retry: () => handlers.retry(current), signIn: handlers.signIn };
     }
     if (pages === undefined) {
         return { status: "idle" };
@@ -277,7 +290,11 @@ function searchResults(current: Extract<Route, { kind: "search" }>, handlers: Ro
     if (pages.page === undefined) {
         return { status: "searching" };
     }
-    return { status: "ready", query: current.resultsFor, grid: grid(current, pages, pages.page, handlers) };
+    // One grid for every loaded page (TVCatalogGrid), keyed by this answer's pages so a new answer starts a new one.
+    const feed = feedGrid(pages, pages.page, searchCards(handlers.context), SEARCH_LOAD_ROWS * handlers.gridColumns, handlers.busy, () => handlers.moreSearch(current), handlers.gridColumns, 220);
+    // Search draws its own poster grid (browse.css `.search-scene > .browse-grid`), not the catalog grid's.
+    feed.content[0]?.classList.remove("catalog-grid");
+    return { status: "ready", query: current.resultsFor, grid: feed };
 }
 
 /** A failed refresh or page turn keeps what is shown and says why above it. */
@@ -317,6 +334,8 @@ export function errorState(error: unknown): ErrorState {
     if (failure.kind === "invalid_response") return generic("The server response was in an unexpected format.");
     if (failure.kind !== "problem") return generic("Can't reach the server. Check your connection and try again.");
     const { status, id, title, detail } = failure.problem;
+    // UpdateRequirement.app: only this problem is an update prompt; a bare 410 also ends playback sessions and sign-in codes.
+    if (status === 410 && id === "client_upgrade_required") return { headline: "Update required", message: "Update Silo to keep using this server.", signIn: false };
     if (status === 401 || status === 404) return forStatus(status);
     if (status === 403) return forStatus(403, id === "permission_denied" && detail?.trim() ? detail : statusMessage(403));
     return forStatus(status, detail?.trim() ? detail : title);
@@ -348,7 +367,7 @@ export function unconfirmedWriteMessage(action: RequestWrite): string {
 /** What to tell the person; undefined for an error that is not a server or session answer (a defect). */
 export function failureText(error: unknown, current: Route): string | undefined {
     if (error instanceof SessionError) {
-        return error.reason === "unavailable" ? "The server had a problem. Try again in a moment." : "This TV is no longer signed in.";
+        return error.reason === "unavailable" ? "The server ran into a problem. Try again in a moment." : "This TV is no longer signed in.";
     }
     if (!(error instanceof ApiError)) {
         return undefined;
@@ -359,6 +378,7 @@ export function failureText(error: unknown, current: Route): string | undefined 
     }
     if (error.status === 404) {
         if (current.kind === "calendar") return "Could not load Calendar. Try again.";
+        if (current.kind === "audiobook") return "This audiobook is no longer available.";
         if (current.kind === "boxSet") return "This box set isn't available. Box sets may be turned off for this library, or too few of its movies are here.";
         return current.kind === "library"
             ? "This library is no longer available."
@@ -373,5 +393,5 @@ export function failureText(error: unknown, current: Route): string | undefined 
     if (kind === "invalid_response") {
         return "The server sent an answer this TV could not read.";
     }
-    return error.transient ? "The server had a problem. Try again in a moment." : "Something went wrong. Try again.";
+    return error.transient ? "The server ran into a problem. Try again in a moment." : "Something went wrong. Try again.";
 }

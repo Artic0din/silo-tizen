@@ -85,6 +85,13 @@ test("Details offers Translate Description and shows the translating and transla
         const panel = tv.page.getByRole("dialog", { name: "More", exact: true });
         await panel.locator('[data-focus="translate-description"]').click();
         assert.equal(await tv.page.locator(".description-translation-status").textContent(), "Translating…");
+        // DescriptionTranslationStatusLabel: the translate symbol 6 before the text, 21 medium, pulsing while translating.
+        const status = await tv.page.locator(".description-translation-status").evaluate(node => {
+            const style = getComputedStyle(node);
+            const icon = node.querySelector("svg");
+            return { gap: style.columnGap, size: style.fontSize, weight: style.fontWeight, icon: icon !== null && node.firstElementChild === icon, pulse: icon === null ? "" : getComputedStyle(icon).animationName };
+        });
+        assert.deepEqual(status, { gap: "6px", size: `${Math.round(21 * 0.9685 * 1e4) / 1e4}px`, weight: "500", icon: true, pulse: "details-symbol-pulse" });
         assert.equal(await tv.page.getByRole("dialog", { name: "More", exact: true }).count(), 0, "the menu closes so the synopsis status is visible");
         await tv.eventually(() => Promise.resolve(translation.posts().length === 1), "description translation");
         const post = translation.posts()[0];
@@ -96,6 +103,7 @@ test("Details offers Translate Description and shows the translating and transla
         await tv.remote(10009);
         await tv.jump(1000);
         await tv.page.getByText("Translated by AI", { exact: true }).waitFor();
+        assert.equal(await tv.page.locator(".description-translation-status svg").evaluate(icon => getComputedStyle(icon).animationName), "none", "the symbol stops pulsing once translated");
         assert.match(await tv.page.locator(".details-editorial .browse-overview").textContent() ?? "", /Translated overview/);
         await tv.remote(10009);
         await tv.page.route("**/api/v2/**", route => route.abort("connectionrefused"));
@@ -128,6 +136,28 @@ test("automatic Details translation starts with the page and a failed run offers
         await tv.page.locator('[data-focus="more"]').click();
         await tv.page.locator('[data-focus="translate-description"]').waitFor();
         assert.equal(translation.posts().length, 1, "opening More does not translate again");
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
+
+test("a title without a synopsis shows no translation status, as TVDetailHero draws it inside the synopsis", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    const catalog = new FakeDetails();
+    tv.fake.catalog = catalog;
+    install(tv.fake, catalog, "auto", ["movie:m0001"], true);
+    try {
+        await signIn(tv);
+        const body = catalog.route("GET", "/catalog/items/movie%3Am0001", "p-owner")?.body;
+        assert.ok(body && typeof body === "object");
+        await tv.page.route("**/api/v2/catalog/items/movie%3Am0001?**", route => route.fulfill({ json: { ...body, overview: "" } }));
+        const held = tv.fake.hold("/catalog/items/movie%3Am0001/translate-description");
+        await tv.page.evaluate(() => window.browseHarness.mount());
+        await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().click();
+        await tv.page.locator('[data-view="item:movie:m0001"] .details-hero').waitFor();
+        await tv.jump(500);
+        assert.equal(await tv.page.locator(".details-editorial .browse-overview").count(), 0);
+        assert.equal(await tv.page.locator(".description-translation-status").count(), 0);
+        held.release();
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }
 });
@@ -275,9 +305,8 @@ test("a replaced marquee keeps the new card's translation on the incoming layer"
         assert.equal(crossing.incoming?.title, "Movie 0004");
         assert.equal(crossing.incoming?.synopsis, "Translated overview");
         assert.equal(crossing.incoming?.status, "Translated by AI");
-        assert.notEqual(crossing.outgoing?.title, "Movie 0004");
-        assert.notEqual(crossing.outgoing?.synopsis, "Translated overview");
-        assert.equal(crossing.outgoing?.status, "");
+        // Apple's foreground has no transition (TVFocusMarquee.swift:1262-1264): the previous card's text is already gone.
+        assert.equal(crossing.outgoing, null);
         await tv.jump(300);
         const settled = await marqueeLayers(tv);
         assert.equal(settled.outgoing, null);

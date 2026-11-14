@@ -54,6 +54,9 @@ SELECTED=(
   get_system_info_ok
   get_watch_state_ok
   get_watch_trickplay_ok
+  list_audiobook_groups_invalid_group_by
+  list_audiobook_groups_ok
+  list_audiobook_groups_profile_header_required
   list_auth_providers_ok
   list_catalog_item_versions_ok
   list_catalog_items_ok
@@ -92,6 +95,7 @@ SELECTED=(
   user_libraries
   verify_profile_pin_ok
   verify_profile_pin_wrong
+  watch_together_capabilities
 )
 
 # Present at silo-server 6e8c68d and newer than SOURCE. Kept until SOURCE includes it

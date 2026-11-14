@@ -5,7 +5,6 @@ Home, Movies, Series and Profiles share mounted root navigation.
 Only visible video library types appear, and mixed libraries can be scoped to either video type.
 Search, Detail, season and playback routes remove the root chrome.
 The library dropdown offers Recommended, Collections and Browse, in that order, matching the tvOS cascade.
-Browse retains the capability-gated Genres, A–Z and Recently Added mode controls.
 
 ## Details layout and selection
 
@@ -208,14 +207,22 @@ Changing text resets the cursor; late query/profile answers cannot paint or star
 Focus, render and page changes do not reread a resolved Search capability.
 
 Episode cards retain their content ID, series title and season/episode metadata and start prepared playback on Select; Card actions offers explicit Episode information.
-Back from Details restores result focus and retains the query and page; opening Search through navigation starts empty with focus on the field.
-The 600 ms debounce, TV Done key and cancellation remain unchanged.
+Back from Details restores result focus and retains the query and every loaded title; opening Search through navigation starts empty with focus on the field.
+Search waits 300 ms after the last edit, as `SearchViewModel.onQueryChanged` and `RequestSearchSectionViewModel.onQueryChanged` do; the TV Done key searches at once.
+An edit stops obsolete reads at once, but titles, People, box sets, the count and Requests stay on screen until each replacement answers.
+A spinner replaces the page only while a search runs with nothing to show; otherwise it sits under the title grid.
+An emptied field clears every section at once, and a one-letter query clears Requests.
+Titles load as one continuous grid: when a card within eight rows of the end scrolls into view, the next 60 are appended in place (`TVCatalogGrid.onNearEnd`), with no page buttons.
+A rejected next-page cursor reads a fresh first page in place (`SiloAPI.nextCatalogPage`).
+A failed search shows Apple's `ErrorView`: its headline follows the error, a 401 offers Sign In Again then Try Again, a 403 or 404 offers Go Back then Try Again, and Try Again searches again from the first page.
+Search has no visible navigation title, including after Back (`SearchView.swift:65-69`).
 Search is pushed above its originating page without invisible root-navigation targets.
 Back returns to that page; profile menus on root pages retain their own Back priority.
 
-All/Movies/Series filters apply to the whole server query and reset its cursor.
+All/Movies/Series filters apply to the whole server query and start a new search; the shown results stay until it answers.
 All retains the negotiated episode scope; Movies and Series send their literal native types.
-Search shows the server title count (with `+` for an estimate) only when titles exist, and an idle Search Silo prompt.
+Search shows the server title count as "N results", with no estimate marker, only when titles exist, and an idle Search Silo prompt.
+The field prompt names audiobooks only while they take part in Search.
 People appears before titles, using 200 px circular portraits and centered two-line names.
 People-only results omit the title count and empty-catalog message.
 Filters appear only for a nonblank query.
@@ -223,6 +230,8 @@ People uses profile-scoped `GET /catalog/people?q&media_scope&limit=20` only aft
 Its independent read cannot hide usable titles on failure and shows no separate error or retry control; a new query tries People again.
 Pending People prevents premature No results but never hides a catalog error or Try Again.
 The title grid and remote row navigation use five columns for large posters and six for standard or compact posters.
+Cards sit 40 px apart, 260 px from one card's leading edge to the next at the standard size, as `TVCatalogGrid` places them inside Search's 1444 px column (x 238 to 1682).
+A grid with fewer cards than a row starts at x 238; a grid of full rows wider than the column (standard 1520 px, large 1480 px) is centred on it, starting at x 200 or 220, as SwiftUI centres a row that cannot shrink. A short last row under them starts at x 238, because each row lays out on its own and a short row's empty columns are flexible spacers.
 People cards use real person IDs, with no reads on focus.
 People and supplementary Requests retain the logical scroll frame while painting whole cards that intersect its edges, matching the native lazy rails.
 Remote navigation reaches all loaded cards; visibility observers are released when the query or route replaces a rail.
@@ -239,6 +248,9 @@ Recognized request states take precedence over availability; only In library plu
 The Search card presentation boundary delegates to the shared Requests card and progress owners.
 Supplementary posters scale from 220×330 with the existing preference; focus uses the shared 1.05 lift and 4 px outline at 70% white without moving or whitening request captions.
 Search catalog captions use a 16 px gap and Requests use 22 px, matching the tvOS branches of `TVMediaCard` and `RequestMediaCard`.
+Result and box set captions are centred under each poster, as `TVMediaCard.caption` frames each line to the card width; request captions stay leading, as `RequestMediaCard.caption` is a leading stack.
+A caption too long for its card is shortened with "…" and the shortened line is centred, as SwiftUI's one-line tail truncation does; CSS `text-overflow` would start it at the card's left edge. The full title stays available to assistive tech.
+A series result is captioned with the years it ran, as Apple's `CardYears` does: "2024 – Present" while it is returning, "2019 – 2023" once it has ended or been cancelled (from `last_air_date`), and its year otherwise.
 The native Samsung text field remains attached across renders; the tvOS alphabet keyboard is an operating-system surface, not a custom keyboard to port.
 Samsung simulator keyboard rendering and final same-state visual acceptance remain unverified.
 These source changes do not diagnose historical keyboard or first-query latency reports.
@@ -262,20 +274,38 @@ The fixed roots follow Apple TVRootDestination.visibleRoots: Home, Movies, Serie
 Library types appear only when a matching visible library exists; mixed video libraries appear under Movies and Series.
 Music opens an explicit unavailable page because the existing catalog browser supports video queries only; it sends no library queries and offers Back.
 Saved menu order, omissions and library shortcuts no longer affect the bar.
-Audiobooks requires Apple's opt-in feature; Tizen has no audiobook feature and omits it.
-Watch Party requires both local opt-in and synchronized-party support; Tizen has neither and omits that profile row.
+Audiobooks follows music in the bar and appears only with Show Audiobooks on and an audiobook library the profile has not hidden.
+The bar order is Apple's `Home · Movies · Series · Music · Audiobooks · For You · Calendar` (`TVMainTabView.swift`).
+The tab never takes focus when it appears, and turning the switch off from the Audiobooks tab returns to Home with focus on the Home tab (`TVMainTabView.ensureSelectedRootIsVisible`).
+It opens the same Recommended, Collections and Browse cascade as the video tabs, with square covers, and Browse offers Apple's audiobook sorts (Title, Author, Narrator, Series, Date Added, Runtime) and sends no `type`.
+Home, For You and Search open an audiobook card on its own detail: cover, author and narrator, chapters, a state line and Resume, Play or Play Again.
+Play, Resume and Start Over are drawn but inert until the player can open an audiobook.
+Watch Party requires both local opt-in (Settings › Server › Extra Features) and synchronized-party support, as Apple's `WatchPartyEntry.isAvailable` does, and sits after Requests in the profile menu only when both hold ([Watch Party](watch-party.md)).
 Search is 58 px wide with an 8 px gap before the roots and an invisible equal-width balance after them, keeping the roots centered at x960.
-Labels retain Apple's 29 px horizontal inset (including the CSS border), 26 px semibold type and 8 px gaps.
+Labels retain Apple's 29 px horizontal inset (including the CSS border), 26 pt semibold type scaled by `--silo-sf-cap-scale` and 8 px gaps.
+Resting labels and the magnifier are white at 62% and the selected tab is white; a capsule reaches 318 px before its label truncates.
+Tab and Search capsules spring into focus, a selection change alone eases over 0.18 s, and the bar dims with a 0.2 s ease-in-out.
 Removing Requests lets the shared flex row recalculate every horizontal anchor from the remaining labels.
 
 The avatar uses the server-resolved image through the existing artwork URL policy, keeping the initial visible until loading succeeds or if it fails.
 Its focused ring is opaque white, 3 px wide and inset within the avatar edge, matching Apple's `strokeBorder`.
-The anchored profile menu includes Switch Profile, History, capability-gated Requests, Settings, Change Account and a red, unfocused Sign Out row.
+The avatar sits on a white 18% disc with a white initial at 0.34 of its size; focus keeps that disc, adds the ring and scales it to 1.05, and Reduce Motion drops the scale.
+A profile with no name shows a person glyph in secondary text.
+The menu header's 44 px avatar sits on white 16%.
+The anchored profile menu follows Apple's `TVProfileDropdown` order: History, capability-gated Requests and Watch Party, a divider, then Settings, the profile row, Change Account and a red, unfocused Sign Out row.
+The profile row is Add Profile when the open account's cached list holds one profile, and Switch Profile otherwise, as Apple's `ProfileMenuRow` chooses it.
+Tizen does not read the account's profile limit, so Add Profile also shows for an account that may hold only one profile; the server refuses the creation.
+Add Profile reads the profiles again and routes by that fresh list, as Apple's `AddProfileRequest.start` does: profile creation when the only profile is the open one, ending on the profiles after a creation and back on Home with the open profile when closed without one, as Back from Switch Profile does (returning to the originating page instead is #466); the picker when the household has grown; and a refusal when the only profile is not the open one.
+The dwell opens a passive preview with focus left on the avatar; Select, or Down, enters History, as Apple's `openProfilePanelImmediately` does.
 Watchlist and Favorites remain under For You.
 Requests pushes a screen without the top bar.
 Back from Requests, History or Settings keeps the profile menu closed and restores the selected tab.
 Back from the open profile menu itself still restores avatar focus.
-The header uses the confirmed server branding name, falling back to the host when none is cached.
+Every top-bar menu uses Apple's `TVSkylinePanelChrome`: a top-lit gradient, a frosted backdrop, a white hairline that fades down the edge and two shadows.
+A menu grows from 0.96 under its tab or avatar over 0.12 s and fades back toward it when it closes; the modes flyout only fades, over 0.16 s.
+The Sign Out confirmation and its backdrop fade in and out over 0.2 s.
+Profile and For You rows use original filled glyphs for Apple's filled symbols (people, clock, paper plane, gear, bookmark, heart, sparkles), sized to Apple's measured ink in the same 30 × 20 icon box; Change Account is a person in a circle with a tick badge, and Watch Party and Sign Out stay outlined as on Apple TV.
+The header uses the confirmed server branding name, falling back to the host when none is cached, in the bundled Roboto Mono at Apple's tracking.
 Every focused menu row uses a white platter and black text, including Sign Out.
 Change Account opens saved accounts without logging out or deleting saved sign-ins.
 Back leaves the profile menu closed and restores the selected tab and its page.
@@ -284,19 +314,22 @@ Sign Out requires confirmation; Cancel and Back preserve the session and restore
 Its two-action layout follows `TVSettingsConfirmationOverlay`: centered surface, 48/42 px padding, 38 px title, 22 px message, horizontal 260 px buttons with 16 px spacing and a 0.62 black backdrop.
 The existing focus host owns that row; Up/Down stay inside it, Left/Right select an action, and tapping the backdrop cancels without activating the covered page.
 Back dismisses either anchored menu until focus leaves its anchor or the viewer presses it again.
+A menu the dwell opened, and not yet entered, closes when focus moves from the bar into the page, as when a late load hands the page focus (`enterContentFromBar`).
 Up from the first dropdown row returns to its anchor, and Down from the last For You action returns to content.
 
 For You reuses Home's Skyline artwork, marquee and shelf renderers.
 Returning to a retained Home or For You feed restarts only unfinished enrichment through the existing cache owner.
 Its rows come from `/recommendations/discover`; nonempty rows titled “For You” are stably placed first.
-Explore All is offered only for a supported recommendation `kind`/`key` and uses `/recommendations/section/{kind}` with its terminal 60-card contract.
+As in Apple `RecommendationsView`, For You rows have no Explore all tile and there is no row page.
+Each selection of For You from another root starts at its first row and reads `/recommendations/discover` again over the cached rows; a failed read keeps rows already on screen.
+With no rows, the page is Apple's: a blank focus owner spoken as "Loading recommendations", then `ErrorView` by status (Sign In Again for a 401, no Go Back) or the centred empty state.
 Recommendation identities are namespaced separately from Home sections; no continuation or exact total is invented.
 The server web client's recommendation adapter was checked, but importing its React/legacy-card layer would add a second transport and model without reducing this port.
 
 This slice does not implement Apple's saved-server list or the additional Sign Out & Remove Server confirmation action.
 The saved-server list is tracked in #127; the additional removal action remains under #107.
 Those are client work, not claimed Tizen limitations.
-Music, Audiobooks and Watch Party remain in their existing separate scopes.
+Music and Watch Party remain in their existing separate scopes.
 Inter, original SVG drawings and CSS material/focus effects remain documented platform equivalents; full-product and physical-TV parity are not established by these changes.
 The [current signed simulator comparisons](../evidence/screenshots/94-navigation/README.md) record package identity, historical-frame labels, measured menu/dialog bounds and remaining validation limits.
 
@@ -328,7 +361,7 @@ At scale 1 the server resolves the 1344 px fill request to a 1920 px backdrop; s
 The one-size fallback resolves backdrops to 2560 px and episode stills to 1280 px.
 The probe runs once per Home session, and its last answer for the server is remembered so Home does not wait for it.
 Apple reads item detail when focus rests for the aired-date and cast line, and Continue Watching reads the last-played file when that card is mounted.
-Tizen reads Continue Watching's saved file when the row loads, four titles at a time. The row draws every card up front, and the reads stay on that queue of four. Every other title waits until focus has rested for 150 ms, then reads that one card. A move before the answer cancels it. For You also warms at most sixteen cards that omit a content rating, three at a time. Answers stay for the Browse session; Continue Watching reads again when `progress_updated_at` moves.
+Tizen reads Continue Watching's saved file when the row loads, four titles at a time. The row draws every card up front, and the reads stay on that queue of four. Every other title waits until focus has rested for 150 ms, then reads that one card; a row change reads the new card at once, as Apple does. A move before the answer cancels it. For You also warms at most sixteen cards that omit a content rating, three at a time. Answers stay for the Browse session; Continue Watching reads again when `progress_updated_at` moves.
 The aired line (`Aired 12 Mar 2026 · first three billed cast`, in an Australian region) fills in place when its answer lands and keeps its space until then.
 Dates follow the device region and retain the server's calendar day.
 Detail also supplies a runtime or content rating omitted by a row, without replacing the row's confirmed values.
@@ -340,6 +373,7 @@ The effective `ui.card_presentation` value is read for the `tv` client family th
 The last confirmed size is cached per server/profile, a transient failure keeps it, an older incompatible server restores Standard, and optional storage failure does not block a successful in-memory answer.
 Poster badge sizes use the actual scaled artwork width; still badges retain their fixed wide-card size.
 Episode cards are captioned with their series and an `S01E02 · Pilot` line.
+A series card on Home rows and on catalog grids (library Recommended and Browse, collections, box sets, Explore all, person filmography, History and the Watch Party picker) is captioned with the years it ran, as Apple's `CardYears` does; Watchlist, Favorites and More Like This show its first year, as Apple's tvOS cards there do.
 Unfocused captions dim; focus brightens and drops the caption below a lift of the artwork only.
 Cards use Apple's shared 1.05 artwork lift and 4px white outline at 70% opacity.
 The focused shadow uses SwiftUI radius 18, converted to CSS box-shadow blur 36 px, with an 8 px vertical offset and 45% black opacity, with 120ms ease-out timing.
@@ -361,12 +395,21 @@ The 38 px added artwork height is the measured native-card substitute, not a uni
 The [current signed scene evidence](../evidence/screenshots/152-library-skyline/README.md) records shared-scene calibration, corrected Collections-to-row artwork clearance, reduced motion, expansion and controlled failure recovery, with historical Apple and simulator limits disclosed.
 Other legacy card owners, detail backgrounds and the historical Home row alignment remain separate investigations.
 Continue Watching's heading carries a drawn play-circle mark; Apple's SF Symbol is not bundled.
-Watched titles show a check disc on every card.
+Posters draw Apple `CardWatchStatus` in the top-right corner whether or not badges are on: a 22 px emerald disc with a white check on a watched title, or the episodes a started series or season has left in a dark capsule, both scaled from the 185 px poster reference.
+An untouched series shows nothing there. Stills keep Apple `EpisodeThumbCard`'s check disc.
 Home cards draw the profile's poster badges (Apple `CardOverlays`): the profile's `ui.card_overlays` document wins outright, else the administrator's baseline from `/settings/overlay-config`, else the registry defaults.
 The profile's `ui.card_overlays_enabled` choice overrides the server-wide default in either direction.
 As in Apple `OverlayPrefsStore`, the registry defaults show until the reads answer; a failed read keeps that half's last answer, so a known administrator or profile off stays off.
 Poster badges scale from Apple's 185 px poster reference; still badges keep their size and clear the progress bar.
-Brand marks (DV, HDR10, ATMOS, AV1) are text as in Apple; Apple's other badge icons are SF Symbols and are not drawn.
+Badges follow Apple `CardOverlays` at silo-apple `5780c84`: the top-left corner, a bottom row shared by the two bottom corners, and a rail centred on each side edge.
+The top-right corner is left to the watch-status mark, so a badge stored at `top-right` draws on the right rail, and the top-left row stops short of that corner on posters.
+A corner draws three badges and a rail four; a filled badge on a rail is a tab flush against the card edge.
+Ratings default to the left rail and series status to the right.
+The Plate and Edge band presets, style overrides and uploaded badge images are not drawn yet.
+Wordmarks (HDR, HDR10, ATMOS, AV1) are black-weight text at 10/12 of the icon size, ATMOS at 9/12 with half a unit of tracking, and replace a label that says the same thing; Dolby Vision is Apple's drawn ring beside the whole label.
+The ATMOS mark shows only for an audio value of exactly Atmos, so TrueHD Atmos keeps its label.
+The combined Resolution + HDR + Audio badge shows the parts the file has and hides the resolution, HDR, audio and Resolution + HDR badges while it is on.
+Apple's other badge icons are SF Symbols and are not drawn.
 The settings are read when Home loads and again after Settings closes, never on focus.
 Home shows non-empty rows in the server's profile order, matching the Apple TV client.
 Sections whose server `featured` flag is true render as ordinary rows.
@@ -378,7 +421,7 @@ This preserves server-resolved membership, preferences, episode cards and cursor
 
 Home's row band begins at y596 with height 484, and the bottom-anchored marquee frame is at x88/y256, 880×280, at the 1920×1080 logical viewport.
 Rows start at x80 and retain an 80 px trailing reveal clearance.
-The top bar uses the packaged 96 px wordmark, 26 px semibold labels, 56 px tab capsules and 58 px icon targets; this slice preserves its existing destinations and ordering.
+The top bar uses the packaged 96 px wordmark, 26 pt semibold labels, 56 px tab capsules and 58 px icon targets; this slice preserves its existing destinations and ordering.
 The backdrop follows `TVRootHeroBackdrop`: a top-right 1228.8×756 artwork block with multiplied horizontal/vertical masks, a 190 px top scrim and sampled base/accent/shadow washes over black.
 Home immediately uses small artwork while an optional cold-start probe runs, then upgrades once through its existing load owner when the answer advertises better artwork sizing.
 The upgrade merges only artwork for retained section/card identities, preserving focus, content, hidden-library choices and in-flight metadata reads.
@@ -439,11 +482,16 @@ It hands off once through the existing app/player owner without showing Details.
 Back or account/profile authority changes cancel resolution; unavailable files and unreadable or failed reads retain Retry and Back.
 Playback return restores the originating row rather than replaying the resolution route.
 Select on all Home rows opens Details; Continue Watching hold Select also offers Play or Resume in Card actions.
+Card actions is the tvOS context menu beside the card: no title, one column of rows with their symbols, in MediaStateMenuItems order (Play or Resume, Mark as Watched or Unwatched, Add to or Remove from Favorites, Add to or Remove from Watchlist), then the destructive Remove from Continue Watching or Remove from Next Up on those Home rows.
+It opens at once from the row's data; choosing a row closes it, the change runs behind it and Home rereads its rows, and a failure shows Couldn’t Update Item with OK.
+Home with no rows shows Apple's EmptyStateView, "Nothing to watch yet", under a page focus owner; while Home has rows, a refresh that runs or fails shows only the feed.
 This is a scoped Home journey delivery against canonical Apple `f33479404712737499b22365430db1885cf6c6ab` and the guide hash `2d42d292e01ab6ee539278b63c286756fc432edf876a9286a33c9e853672cac2`.
 The Select and Play behavior follows Apple `7baff3ef657757cc0a69202e86dd4bd5c7fcb585`; native same-state acceptance remains pending.
 It does not complete whole-Home parity, issue #28, preplay controls, next-up behaviour or hardware acceptance.
 Progress appears only when the server supplies position and duration.
-The first card previews immediately; subsequent previews wait 150 ms and crossfade for 240 ms.
+The marquee text follows focus at once, with no animation.
+The backdrop shows at once for the first card; later backdrops wait for focus to rest 150 ms, or after a row change until Apple's 320 ms hold cap (the tvOS band's scroll phase outlasts it, so Apple always swaps there), then fade in over the previous art with `ease-in-out` over 240 ms.
+The same artwork never fades, and the backdrop shows its ThumbHash until the image decodes.
 Root transitions take 200 ms, and reduced motion snaps transitions and scrolling.
 Deliberate pill and same-tab scope changes crossfade for 200 ms with a 12 px upward drift of incoming content.
 Focus and remote input take effect synchronously; chrome and pills stay mounted above the outgoing layer.

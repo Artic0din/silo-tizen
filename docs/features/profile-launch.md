@@ -1,7 +1,9 @@
 # TV launch profiles
 
 TVs show Who's watching by default.
-The first selection offers Remember this profile or Ask who's watching at launch.
+The first selection asks Apple TV's "Open <name> automatically?" as a small centred alert over the dimmed picker, reading "this Apple TV" as "this TV".
+Ask Every Time comes first and Remember second, with focus on Remember, as in the tvOS `.alert`.
+Back answers Ask Every Time, as Menu runs the alert's cancel button on Apple TV.
 General Settings can change that choice later.
 Selecting another protected profile still requires its PIN.
 
@@ -35,18 +37,25 @@ Live server, Tizen KeyManager hardware and software-emulator acceptance remain s
 
 ## Picker and temporary management
 
-The picker follows the pinned Apple `ProfileSelectionView` and `ProfileTile`: 220 px avatar, avatar-only 1.12 focus scaling, 240 px columns, 44 px horizontal gaps and at most six columns including Add profile.
+The picker follows the pinned Apple `ProfileSelectionView` and `ProfileTile`: 220 px avatar, avatar-only 1.12 focus scaling, 240 px columns, 44 px horizontal gaps and at most six columns including Add.
 The 120 px top/bottom CSS inset compensates for the TV safe area visible in the historical reference in addition to Swift's 60 px vertical padding; it is a measured layout choice, not a new Swift constant.
 Names occupy one line and keep their full accessible name when visually truncated.
-The account line uses the existing signed-in username, and the remembered tile carries an Auto-login badge.
+The account line uses the existing signed-in username, and the remembered tile carries Apple TV's "Apple TV user" caption as "TV user", matching the TV USER Settings section.
+A focused name drops 18 px by an offset, so focus never changes a tile's or the grid's height.
+The focus ring sits behind the avatar's KIDS and lock badges.
 Resolved profile artwork takes priority; failed images retain the raw text or initial fallback, and a successful transparent image removes it.
+An emoji avatar also replaces the initial in the top bar, the profile menu and the Settings profile row, at 45% of the avatar, as Apple's `ProfileAvatarView` draws it.
 Inter, a CSS ring/shadow and a drawn lock stand in for Apple's fonts, focus rendering and symbol.
+
+Sign out asks in Apple TV's `TVSettingsConfirmationOverlay` (`AccountRemovalConfirmation` on tvOS): a centred dialog over the picker with Cancel, then a red Sign Out, and Cancel focused; Back cancels and returns to Sign out.
+Settings and Settings › Accounts show the same dialog through `src/ui/confirmationDialog.ts`.
 
 Change server belongs to the application owner and preserves saved credentials.
 It currently opens manual server entry; the saved-server-list destination remains tracked in #127 and is not a platform limitation.
 
-Add profile uses the server's explicit `POST /profiles` operation without automatic retry.
+Add uses the server's explicit `POST /profiles` operation without automatic retry.
 For a nonempty household it temporarily selects the primary profile, verifies its PIN when required and restores management ownership without changing the remembered launch choice.
+When the primary is already open and the fresh list shows it has a PIN, the PIN is asked for again before the form, as Apple's `AddProfileFromMenu` does, because the profile may have been opened before the PIN was set; the open profile stays open.
 Cleanup matches the exact account, profile and authority generation so it cannot clear a successor.
 An existing primary selection is retained rather than cleared.
 The form provides the pinned preset styles, initials, name, optional four-digit PIN and child content-rating/library restrictions.

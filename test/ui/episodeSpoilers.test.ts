@@ -53,7 +53,7 @@ test("unwatched episode stills blur and descriptions drop while series text stay
             return title.includes("Harbor Lights") && meta.includes("chapter 1.2");
         }, "episode marquee");
         assert.equal(await tv.page.locator(".skyline-marquee-layer:not(.skyline-outgoing) .skyline-synopsis").count(), 0);
-        assert.equal(await tv.page.locator(".skyline-marquee-layer:not(.skyline-outgoing) .skyline-backdrop").count(), 0);
+        assert.equal(await tv.page.locator(".skyline-marquee-art:not(.skyline-outgoing) .skyline-backdrop").count(), 0);
         assert.equal(await tv.page.getByText("Secret chapter", { exact: true }).count(), 0);
         await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').click();
         await tv.page.locator(".details-episodes [data-focus='episode:s1e12']").waitFor();
@@ -98,7 +98,7 @@ test("returning from Settings repaints the same episode marquee after spoiler ch
         await tv.page.locator(card).focus();
         await readLive(tv, () => {
             const layer = document.querySelector(".skyline-marquee-layer:not(.skyline-outgoing)");
-            return layer === null ? null : { text: layer.querySelector(".skyline-synopsis")?.textContent ?? "", backdrop: layer.querySelector(".skyline-backdrop") !== null };
+            return layer === null ? null : { text: layer.querySelector(".skyline-synopsis")?.textContent ?? "", backdrop: document.querySelector(".skyline-marquee-art:not(.skyline-outgoing) .skyline-backdrop") !== null };
         }, undefined, value => value.text === "" && !value.backdrop, "protected same-card marquee");
     } finally { await tv.page.context().close(); }
 });
@@ -137,7 +137,7 @@ test("spoiler switches off leave the still and the description visible", async (
         assert.equal(await tv.page.locator('[data-section="continue_watching"] [data-focus="episode:s1e12"] .episode-spoiler-blur').count(), 0);
         await tv.page.locator('[data-section="continue_watching"] [data-focus="episode:s1e12"]').focus();
         await tv.eventually(async () => (await tv.page.locator(".skyline-marquee-layer:not(.skyline-outgoing) .skyline-synopsis").allInnerTexts()).includes("Secret chapter"), "episode description");
-        assert.match(await tv.page.locator(".skyline-marquee-layer:not(.skyline-outgoing) .skyline-backdrop").getAttribute("src") ?? "", /-still\.svg$/);
+        assert.match(await tv.page.locator(".skyline-marquee-art:not(.skyline-outgoing) .skyline-backdrop").getAttribute("src") ?? "", /-still\.svg$/);
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }
 });
@@ -178,6 +178,31 @@ test("Playback saves the image switch for the profile", async () => {
         assert.equal(await tv.page.locator('[data-focus="spoiler-images"]').getAttribute("aria-checked"), "true");
         const saved = tv.fake.requests.find(request => request.method === "PUT" && request.path === `/settings/values/${SPOILER_IMAGE_KEY}?scope=profile`);
         assert.deepEqual(saved?.body, { value: true });
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
+
+for (const art of ["none", "loading"] as const) test(`a hidden episode still with ${art === "none" ? "no backdrop renders without one" : "its backdrop loading blurs the ThumbHash too"}`, async () => {
+    const { tv } = await mount({ stills: true, images: true });
+    try {
+        const catalog = new FakeCatalog(); catalog.episodeStills = true;
+        const body = catalog.route("GET", "/catalog/items/episode%3As1e12", "p-owner")?.body;
+        assert.ok(body && typeof body === "object");
+        const backdrop = art === "none" ? { backdrop_url: undefined, poster_url: "/art/episode-still.svg", poster_is_episode_still: true } : { backdrop_url: "/art/held-still.svg", backdrop_is_episode_still: true, backdrop_thumbhash: "1QcSHQRnh493V4dIh4eXh1h4kJUI" };
+        await tv.page.route("**/api/v2/catalog/items/episode%3As1e12?**", route => route.fulfill({ json: { ...body, ...backdrop, user_state: { played: false } } }));
+        await tv.page.route("**/art/held-still.svg**", () => undefined);
+        await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').click();
+        await tv.page.locator(".details-episodes [data-focus='episode:s1e12']").click({ button: "right" });
+        await tv.page.locator('[data-focus="episode-information"]').click();
+        await tv.page.locator('[data-view="item:episode:s1e12"] .details-hero').waitFor();
+        if (art === "none") assert.equal(await tv.page.locator(".details-hero .skyline-art-frame").count(), 0);
+        else {
+            const filter = await readLive(tv, () => {
+                const node = document.querySelector(".details-hero .episode-spoiler-blur > .hero-art-thumbhash");
+                return node === null ? null : getComputedStyle(node).filter;
+            }, undefined, value => value !== "", "blurred ThumbHash");
+            assert.equal(filter, "blur(24px)");
+        }
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }
 });

@@ -35,6 +35,7 @@ The public sign-in reads (branding and auth providers) call `NativeHttp.send` di
   - `Content-Type: application/json` when a body is sent.
   - `Authorization: Bearer <token>` when the spec carries a bearer.
   - `X-Profile-Id`, and `X-Profile-Token` when a PIN proof exists, for profile-scoped specs.
+  - `X-Room-Token` when the spec carries a Watch Together room token (`src/api/watchTogetherOperations.ts`).
   - `X-Silo-Client-Family: tv`, set only on the two `effectiveSettings` reads for the primary menu and card presentation (`src/ui/navigationSettings.ts`, `src/ui/presentationSettings.ts`).
 - **Success.** A 2xx with status 204 or an empty body decodes `undefined`. Any other 2xx body must have media type `application/json`, otherwise the result is `invalid_response` at `content-type`.
 
@@ -98,6 +99,7 @@ Tokens live only in protected storage (`src/session/secretStore.ts`).
 On a TV that is Tizen KeyManager (`tizen.keymanager`), through `keyManagerStore`.
 Without KeyManager the app uses `memoryStore`, which keeps credentials for the current run only.
 The code states it never falls back to `localStorage`.
+The same protected storage keeps the signed artwork URLs of the Home and For You snapshots ([cached browse content](offline-browse.md)).
 `NativeSession.persistence` reports `persistent` or `session_only`, and the sign-in result passes that to the screens.
 
 `CredentialVault` (`src/session/credentialVault.ts`) stores one record per server, keyed by a hash of `baseUrl`, in two alternating slots.
@@ -264,10 +266,11 @@ Defined in `src/api/operations.ts` unless noted.
 | person | `GET /catalog/people/{id}` (`src/api/detailOperations.ts`) | safe |
 | refresh person metadata | `POST /catalog/people/{id}/refresh` (`src/api/detailOperations.ts`), queued receipt for the requested person | never |
 | filmography | `queryCatalogItems`: `POST /catalog/query?image_size=small`, body from `personQuery` (`src/ui/personFilmography.ts`), 60-title pages | safe |
-| similar | `GET /recommendations/similar/{id}?limit=24&image_size=small` (`src/api/detailOperations.ts`) | safe |
+| similar | `GET /recommendations/similar/{id}?limit=12&image_size=small` (`src/api/detailOperations.ts`) | safe |
 | library sections | `GET /library/{id}/sections?image_size=small` (`src/api/discoveryOperations.ts`) | safe |
 | section items | `GET /library/{id}/sections/{sectionId}/items?image_size=small` (`src/api/discoveryOperations.ts`) | safe |
-| library collections | `GET /library/{id}/collections` (`src/api/discoveryOperations.ts`) | safe |
+| mixed-library shelf refill | `POST /catalog/query` with `source: section`, `scope: library`, `library_id`, `section_id`, `limit: 100` and cursor, at the library sections read's artwork sizes (`src/ui/libraryDiscovery.ts`). Only on a Movies or Series tab showing a mixed library; up to eight pages per row and three rows at a time. A failed read keeps the row's own titles | safe |
+| library collections | `GET /library/{id}/collections` (`src/api/discoveryOperations.ts`); a failed read shows no collections, as Apple TV does | safe |
 | collection items | `POST /catalog/query` with `source: library_collection` or `user_collection`, `collection_id`, `limit: 60`, `match: all` and cursor; library/media scope only when narrowing a mixed library, no sort override (`src/api/discoveryOperations.ts`); includes profile viewer state | safe |
 | catalog filters | `GET /catalog/filters?...` (`src/api/discoveryOperations.ts`) | safe |
 | search capabilities | `GET /catalog/search/capabilities` (`src/api/discoveryOperations.ts`) | safe |
@@ -275,8 +278,7 @@ Defined in `src/api/operations.ts` unless noted.
 | searchCatalogBoxSets | `GET /catalog/box-sets?q&limit=5` (`src/api/boxSetOperations.ts`), All and Movies only, gated by `box_sets: true` | safe |
 | getCatalogBoxSet | `GET /catalog/box-sets/{id}?library_id&image_size=medium` (`src/api/boxSetOperations.ts`) | safe |
 | getCatalogItemBoxSet | `GET /catalog/items/{id}/box-set?image_size=medium` (`src/api/boxSetOperations.ts`), movie pages only, gated by `box_sets: true`. `box_set` absent means no row. Library browse does not group box sets | safe |
-| queryCatalogItems | `POST /catalog/query?image_size=small` (`src/api/discoveryOperations.ts`) | safe |
-| queryCatalogLetters | `POST /catalog/letters` (`src/api/discoveryOperations.ts`) | safe |
+| queryCatalogItems | `POST /catalog/query?image_size=small[&slot widths]` (`src/api/discoveryOperations.ts`) | safe |
 
 Notes:
 
@@ -289,7 +291,8 @@ Notes:
 - `queryCatalogItems` also serves the watchlist, favorites and history lists (`src/ui/personalLists.ts`).
 - Person works use that same POST through `personQuery`: `source: "person"`, `person_id`, `type` (`video`, `movie` or `series`), `sort: "year"`, `order: "desc"`, `limit: 24` and an optional opaque `cursor`. `detailOperations.filmography` (`GET /catalog?source=person...`) is not called.
 - The detail view reads the same `GET /catalog/items/{id}` for Home marquee fields (`marqueeDetail`).
-- Library search capabilities are probed with `GET /catalog/search/capabilities` (`src/ui/libraryDiscovery.ts`). Text Search sends the episode-inclusive request only after an allowed, available `video_with_episodes_scope: true` answer (`src/contracts/v2/README.md`, Text Search).
+- Item detail carries `themes`: `owner_id` and ordered `items` (`id`, `title`, `duration_seconds`). A season or episode answers with the set it inherits. A malformed set reads as none, because the server treats the theme lookup as optional.
+- Text Search probes `GET /catalog/search/capabilities` and sends the episode-inclusive request only after an allowed, available `video_with_episodes_scope: true` answer (`src/contracts/v2/README.md`, Text Search).
 
 ### Personal state and lists
 
@@ -304,9 +307,11 @@ All are Bearer plus Profile.
 | remove from watchlist or favorites | `DELETE /watchlist/{id}`, `DELETE /favorites/{id}` | never |
 | mark watched | `POST /watched/{id}` | never |
 | mark unwatched | `DELETE /watched/{id}` | never |
+| remove from Continue Watching or Next Up | `PUT /home/dismissals/continue_watching/{id}` with the card's `progress_updated_at`, or `PUT /home/dismissals/next_up/{id}` with its `series_id` (`dismissHomeItem`) | never |
 
 Gating: `decodePersonalCapability` is true only when `state === "available"`, `allowed` and `membership_supported` are all true (`src/contracts/v2/details.ts`).
 Mutations are sent once, with refresh replay off, and repeat only when the person presses again (comment in `detailOperations.ts`).
+The card menu reads watched, Favorites and Watchlist from the card's own `user_state` (`is_favorite`, `in_watchlist`), as Apple's MediaCard does; it reads the item only for a card that carries none.
 The list screens decode the same capability with a second decoder in `src/ui/personalLists.ts`, which requires a `revision` string.
 
 ### Recommendations
@@ -317,7 +322,6 @@ Bearer plus Profile, both safe.
 | Operation | Method and path |
 | --- | --- |
 | discover | `GET /recommendations/discover?image_size=small` (or the artwork query passed in) |
-| section | `GET /recommendations/section/{kind}?limit=60&image_size=small[&key=]` |
 
 ### Calendar
 
@@ -402,7 +406,58 @@ Bearer plus Profile.
 Shuffle is offered only when `allowed` is true, `state === "available"`, and `scope_kinds` includes `library` (`canShuffle`, `src/ui/browse.ts`).
 Creation is sent once with refresh replay off.
 A 404 on create shows "This is no longer available to shuffle."
+Details' More sends `series` and `season` scopes when `scope_kinds` lists them; a failure there is the "Couldn't Shuffle" alert, which reads a Problem Details 409 as "Nothing here can be played.", a 404 as above, and anything else as "Couldn't start the shuffle. Try again."
 `advance` runs when the current item finishes (`src/player/nextShuffle.ts`).
+
+### Watch Together (hub, lobby, ballot and room socket)
+
+Defined in `src/api/watchTogetherOperations.ts`. The Watch Party hub (`src/ui/watchPartyHub.ts`) calls `capabilities`, `createRoom`, `joinByCode`, the host's lobby calls below, `picker` and, when the host ends the party, `closeRoom`.
+Back and Leave party only close this TV's room socket, for the host too, as Apple's `leaveRoom`.
+The hub also reads `GET /playback/capabilities` for the playback features Apple requires, and reads the chosen title with `getCatalogItem` and the picker's series with `listSeriesSeasons` and `listSeasonEpisodes`.
+Bearer plus Profile.
+`room`, `socketTicket`, `picker` and the ballot calls also send `X-Room-Token` (`RequestSpec.roomToken`).
+The host's calls take no room token: the contract authorizes them by account and profile, as it does `closeRoom`, and each answers with the room as it now stands, which replaces the lobby's room unless a newer socket snapshot already has.
+
+The room socket (`src/ui/watchPartySocket.ts`) keeps the lobby current, as Apple's, which never polls.
+Each connection attempt reads `room`, mints a single-use `socketTicket` with the renewed room token, and opens `wss://<base>/api/v2/watch-together/rooms/{id}/ws` offering the subprotocols `silo.room.v2` and `silo.ticket.<ticket>` (`roomSocketHandshake`); the address comes from the session's API root, never from a screen.
+A server that answers with any other subprotocol is refused.
+Snapshots replace the room unless they are older (`RoomState`); `room_closed`, a snapshot in the `ended` phase, `connection_replaced` and a 409 end the party for this TV; 401, 403, 404, 410, a malformed answer or a frame that breaks the contract end it as expired.
+Any other failure reconnects after 1, 2, 4, 8, then 15 seconds, for as long as the room is open; a socket that stayed open 30 seconds, which the server ends at its connection deadline, reconnects at once.
+The open socket sends `ping` every 2 seconds until four pongs set the server clock offset (`RoomClock`), then every 15.
+Leave, Back, End party, sign-out and a profile switch close the socket with code 1000.
+A guest's I'm ready sends `{ "type": "lobby_ready", "ready": true }` on the open socket when the capabilities say `lobby_ready`; the snapshot that follows marks the seat, and nothing is sent while the socket is not open.
+In a vote room the lobby reads the ballot (`suggestions`, every page) 200 ms after the socket opens and after each `suggestions_update`, one read at a time, as Apple's; a read that falls due while a change runs, including the host's own switch to voting, runs when that change finishes.
+A failed ballot read tries again after 1, 2 and 4 seconds, and a vote the server accepted stands even when the read after it fails.
+The host's Start in a vote room waits until the ballot has been read on the current socket connection, since a ballot from before an outage may name a stale winner.
+Suggestion posters, on the cards and as the lobby backdrop, are drawn only from the server's own origin: the server stores whatever the suggesting client sent, so a poster on another host (such as presigned storage) shows the blank poster.
+`suggestions_update` replaces the tallies at once but always says `voted_by_me: false`, so this profile's own votes come only from that read; a read that a socket update or a vote overtook is dropped and read again, up to three times (`RoomVotes`, `src/ui/watchPartyVotes.ts`).
+Voting and Add suggestion read the ballot again afterwards, including after a failure, since a lost answer may have landed.
+The host's Start in a vote room promotes the winner: most votes, then the earlier suggestion, then the smaller id; nobody voting is no winner.
+Transport commands arrive on the socket but nothing uses them yet (issue 54).
+The packaged `.wgt` sends `Origin: file://` on the handshake; the server's origin check treats a non-web scheme like no `Origin` and lets it through, and refuses a foreign web origin with 403.
+
+| Operation | Method and path | Retry |
+| --- | --- | --- |
+| capabilities | `GET /watch-together/capabilities` | safe |
+| createRoom | `POST /watch-together/rooms` with `{ "room_id": <uuid>, "selection_mode": ... }` | safe (the `room_id` makes a replay return the same room) |
+| joinByCode | `POST /watch-together/join` with `{ "code": ... }` | safe |
+| room | `GET /watch-together/rooms/{id}` | safe |
+| closeRoom | `DELETE /watch-together/rooms/{id}`, host only, 204; no room token | safe |
+| stageSelection | `PUT /watch-together/rooms/{id}/staged-selection` with `{ "content_id": ... }`, host only | safe (natural idempotent) |
+| selectItem | `PUT /watch-together/rooms/{id}/selection`, for a party that is already playing, host only | never (non-retryable) |
+| startPlayback | `POST /watch-together/rooms/{id}/playback/start`, host only | never (non-retryable) |
+| stopPlayback | `POST /watch-together/rooms/{id}/playback/stop`, host only | safe |
+| setSelectionMode | `PATCH /watch-together/rooms/{id}/selection-mode` with `{ "selection_mode": ... }`, host only | safe |
+| setGuestControlPolicy | `PATCH /watch-together/rooms/{id}/policy` with `{ "guest_control_policy": ... }`, host only | safe |
+| picker | `GET /watch-together/rooms/{id}/picker` | safe |
+| socketTicket | `POST /watch-together/rooms/{id}/ws-ticket` | safe |
+| suggestions | `GET /watch-together/rooms/{id}/suggestions?limit=100&cursor=` | safe |
+| addSuggestion | `POST /watch-together/rooms/{id}/suggestions` with `{ "suggestion_id": <uuid>, "content_id", "content_type": "movie" or "episode", "title", "subtitle"?, "poster_url"? }`, 201 | safe (the `suggestion_id` makes a replay return the same suggestion) |
+| setVote | `POST` to vote, `DELETE` to take it back, `/watch-together/rooms/{id}/suggestions/{suggestionId}/vote`, 204 | safe |
+| promoteSuggestion | `POST /watch-together/rooms/{id}/suggestions/promote` with `{ "suggestion_id": ... }`, host only | never (non-retryable) |
+
+Everything is offered only when `allowed` is true and `state === "available"` (`watchTogetherAvailable`, `src/contracts/v2/watchTogether.ts`).
+See `src/contracts/v2/README.md` for the socket frames and the operations left for later.
 
 ### Playback plan, progress and stop
 
@@ -417,6 +472,8 @@ All are Bearer plus Profile, with refresh replay left at its default.
 | replanPlayback | `POST /playback/{sessionId}/replan` | never |
 | updatePlaybackProgress | `POST /playback/{sessionId}/progress` | never |
 | stopPlayback | `DELETE /playback/{sessionId}` with a JSON body | never |
+| getPlaybackConnection | `GET /playback/connection` | safe |
+| resetPlaybackLearnedLimit | `DELETE /playback/connection/learned-limit` | never |
 | playback defaults | `GET /settings/values/effective?keys=...` | safe |
 
 Gating (`src/player/controller.ts`): playback proceeds only when the capability answer has `state` available, `allowed`, protocol version 3 in `protocol_versions`, an `installation_id`, and an active profile.
@@ -505,6 +562,21 @@ AI subtitles (`src/player/subtitleAI.ts`):
 Subtitle search (`src/player/subtitleSearch.ts`) stays offered until provider status says the viewer is not allowed, the state is not `available`, or providers are not enabled. A failed probe is not retried and does not change that. Search and download are each sent once. A stored subtitle is selected through the existing track owner. An uncertain download is not sent again while the menu stays open.
 
 Subtitle delay and appearance (`src/player/subtitleDisplay.ts`) are shown only when the settings contract advertises `player.subtitle_sync_ms` and `playback.subtitle_appearance`, and only while the selected subtitle is not burn-in or text AVPlay is drawing itself. A scope is a name, or `{ "scope", "introduced_in" }` from that revision; delay's profile scope starts at revision 19. Delay is clamped to ±10000 ms and written at profile scope, or `profile_device` when "Only on this TV" is on or the manifest revision is below 19. The offset moves cues this app draws. AVPlay has no subtitle-offset call, so text it draws itself is not shifted; a TV has to confirm whether that platform can move its own TEXT track.
+
+### Theme music
+
+Defined in `src/api/themeMusicOperations.ts`. Bearer plus Profile. Used only when the profile opted in (`ui.theme_music_enabled`). See [Theme music](settings.md#theme-music).
+
+| Operation | Method and path | Retry |
+| --- | --- | --- |
+| themeCapability | `GET /catalog/themes/capabilities` | safe |
+| themePlayback | `POST /catalog/items/{owner_id}/themes/{theme_id}/playback`, body `{ "accepted_formats": [{ "container", "audio_codec" }] }` or none | safe |
+
+- The capability counts only when `state` is `available` and `allowed` is not false. The answer stands for 60 s.
+- A grant carries `url`, `delivery` (`original` or `converted`), `content_type` and `expires_at`. It lasts at most five minutes, so a loop of a converted theme asks for a new one.
+- `url` is root-relative (this server's audio route) or an absolute proxy URL. It is resolved with `artworkUrl`, which refuses anything but HTTPS (or HTTP from an HTTP server). It authorizes itself by its token, so no credential is added. It is never logged, stored or shown.
+- `accepted_formats` is built from `canPlayType` on this TV's Chromium. With no body the server sends the original; with `mp4`/`aac` accepted it may convert to progressive AAC in MP4.
+- The audio route (`GET|HEAD .../themes/{theme_id}/audio?token=`) is read by the `<audio>` element, not by `NativeHttp`.
 
 ### Settings
 

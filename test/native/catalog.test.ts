@@ -33,6 +33,17 @@ test("episode rows retain resume seconds from user data", () => {
     assert.throws(() => decode({ played: false, position_seconds: 60, duration_seconds: "240" }), WireError);
 });
 
+test("a started, unfinished series card carries its episodes left; others carry none (Models.swift:111-114)", () => {
+    const series = { content_id: "series:1", type: "series", title: "Show" };
+    const left = (user_state: Record<string, unknown>) => decodeCatalogPage({ items: [{ ...series, user_state: { is_favorite: false, in_watchlist: false, not_interested: false, ...user_state } }], total: 1, total_exact: true }).items[0]?.episodesLeft;
+    assert.equal(left({ played: false, watched_count: 4, unplayed_count: 6 }), 6);
+    assert.equal(left({ played: false, watched_count: 0, unplayed_count: 10 }), undefined, "an untouched series shows no count");
+    assert.equal(left({ played: false, watched_count: 4, unplayed_count: 0 }), undefined);
+    assert.equal(left({ played: true, watched_count: 10, unplayed_count: 2 }), undefined, "a watched title shows the check");
+    assert.equal(left({ played: false }), undefined, "a server before the counts sends none");
+    assert.throws(() => left({ played: false, watched_count: 4, unplayed_count: "6" }), WireError);
+});
+
 test("local extras retain authoritative watch targets and numeric file IDs", () => {
     const detail = decodeItemDetail({ ...fixture("get_catalog_item_ok"), extras: [{ content_id: "extra:1", file_id: 71, kind: "trailer", title: "Trailer", duration_seconds: 90, still_url: "/extra.jpg" }] });
     assert.deepEqual(detail.extras, [{ contentId: "extra:1", fileId: "71", kind: "trailer", title: "Trailer", durationSeconds: 90, stillUrl: "/extra.jpg" }]);
@@ -50,7 +61,7 @@ test("item videos keep the contract fields and a missing official flag does not 
     assert.deepEqual(decodeItemDetail(fixture("get_catalog_item_ok")).videos, []);
     assert.throws(() => decodeItemDetail({ ...fixture("get_catalog_item_ok"), videos: [{ kind: "trailer", site: "youtube", site_key: "k", is_official: "yes" }] }), WireError);
 });
-import { artworkUrl, clockTime, destinationOf, playChoices, resumeSeconds, browseCardDestination, seriesPlayback, visibleLibraries } from "../../src/ui/browseModel.ts";
+import { type Destination, artworkUrl, clockTime, destinationOf, playChoices, resumeSeconds, browseCardDestination, seriesPlayback, visibleLibraries } from "../../src/ui/browseModel.ts";
 import { moveWithin } from "../../src/ui/browseFocus.ts";
 import { fixture } from "./support/fakeSilo.ts";
 
@@ -68,6 +79,7 @@ test("browse fixtures decode with the production decoders", () => {
         title: "Heat",
         year: 1995,
         posterUrl: "https://s3.example.test/poster.jpg",
+        posterThumbhash: undefined,
         backdropUrl: undefined,
         backdropThumbhash: undefined,
         overview: undefined,
@@ -84,6 +96,9 @@ test("browse fixtures decode with the production decoders", () => {
         genres: ["Crime"],
         overlay: { resolution: "4K", hdr: "Dolby Vision", audio: undefined, audioChannels: undefined, videoCodec: undefined, container: undefined, aspectRatio: undefined, releaseType: undefined, edition: undefined, multiAudio: undefined, multiSub: undefined },
         played: false,
+        episodesLeft: undefined,
+        favorite: false,
+        watchlist: true,
         logoUrl: undefined,
         ratingImdb: 8.3,
         ratingTmdb: undefined,
@@ -94,6 +109,7 @@ test("browse fixtures decode with the production decoders", () => {
         studios: undefined,
         networks: undefined,
         showStatus: undefined,
+        lastAirDate: undefined,
     });
 
     const page = decodeCatalogPage(fixture("list_catalog_items_ok"));
@@ -129,13 +145,13 @@ test("Home featured is a boolean independent of the opaque section identity and 
     assert.throws(() => decodeHomeSections({ sections: [{ ...section, featured: "true" }] }), WireError);
 });
 
-test("Home backdrop ThumbHashes retain strings and reject malformed wire values", () => {
+for (const [wire, field] of [["backdrop_thumbhash", "backdropThumbhash"], ["poster_thumbhash", "posterThumbhash"]] as const) test(`Home ${wire} retains strings and rejects malformed wire values`, () => {
     const raw = fixture("list_home_sections_ok") as { sections: { items: Record<string, unknown>[] }[] };
     const card = raw.sections[0]?.items[0];
     assert.ok(card);
-    card.backdrop_thumbhash = "1QcSHQRnh493V4dIh4eXh1h4kJUI";
-    assert.equal(decodeHomeSections(raw)[0]?.items[0]?.backdropThumbhash, card.backdrop_thumbhash);
-    card.backdrop_thumbhash = ["invalid"];
+    card[wire] = "1QcSHQRnh493V4dIh4eXh1h4kJUI";
+    assert.equal(decodeHomeSections(raw)[0]?.items[0]?.[field], card[wire]);
+    card[wire] = ["invalid"];
     assert.throws(() => decodeHomeSections(raw), WireError);
 });
 
@@ -144,7 +160,8 @@ test("unknown media and library kinds decode as unknown; wrong shapes fail witho
         sections: [{ id: "books", section_type: "recommendations", title: "Books", items: [{ content_id: "ebook:1", type: "ebook", title: "Dune" }] }],
     });
     assert.equal(sections[0]?.items[0]?.type, "unknown");
-    assert.equal(decodeUserLibraries({ items: [{ id: "3", name: "Audio", type: "audiobooks", sort_order: 1 }] })[0]?.type, "unknown");
+    assert.equal(decodeUserLibraries({ items: [{ id: "3", name: "Audio", type: "audiobooks", sort_order: 1 }] })[0]?.type, "audiobooks");
+    assert.equal(decodeUserLibraries({ items: [{ id: "4", name: "Future", type: "future", sort_order: 2 }] })[0]?.type, "unknown");
     assert.deepEqual(
         decodeHiddenLibraries({ items: [{ key: "ui.disabled_library_ids", value: [13, 15], source: "profile", definition_revision: 1 }], revision: 1 }),
         ["13", "15"],
@@ -202,38 +219,59 @@ test("episode-inclusive text search uses the existing GET operation with opaque 
 
 test("Home keeps movies, series, seasons and episodes, and leaves other media out", () => {
     const card = { id: "x", title: "X", year: undefined, posterUrl: undefined, seriesId: undefined, seriesTitle: undefined, seasonNumber: undefined, episodeNumber: undefined };
-    assert.deepEqual(destinationOf({ ...card, type: "movie" }), { kind: "item", id: "x", title: "X" });
-    assert.deepEqual(destinationOf({ ...card, type: "episode" }), { kind: "item", id: "x", title: "X" });
-    assert.deepEqual(destinationOf({ ...card, type: "season", seriesId: "s", seasonNumber: 0 }), { kind: "season", id: "x", seriesId: "s", seasonNumber: 0, title: "X" });
-    assert.equal(destinationOf({ ...card, type: "season" }), undefined, "a season without its series cannot open");
-    assert.equal(destinationOf({ ...card, type: "unknown" }), undefined);
+    assert.deepEqual(route(destinationOf({ ...card, type: "movie" })), { kind: "item", id: "x", title: "X" });
+    assert.deepEqual(route(destinationOf({ ...card, type: "episode" })), { kind: "item", id: "x", title: "X" });
+    assert.deepEqual(route(destinationOf({ ...card, type: "season", seriesId: "s", seasonNumber: 0 })), { kind: "season", id: "x", seriesId: "s", seasonNumber: 0, title: "X" });
+    assert.equal(route(destinationOf({ ...card, type: "season" })), undefined, "a season without its series cannot open");
+    assert.equal(route(destinationOf({ ...card, type: "unknown" })), undefined);
 });
 
 test("Search Select opens an episode or season on its series and leaves movies and series on themselves", () => {
     const card = { id: "episode:s1e12", title: "Pilot", year: undefined, posterUrl: undefined, seriesId: "series:s1", seriesTitle: "Harbor Lights", seasonNumber: 1, episodeNumber: 2 };
-    assert.deepEqual(browseCardDestination({ ...card, type: "episode" }), {
+    assert.deepEqual(route(browseCardDestination({ ...card, type: "episode" })), {
         kind: "item", id: "series:s1", title: "Harbor Lights", seriesContext: { seasonNumber: 1, episodeId: "episode:s1e12" },
     });
-    assert.deepEqual(browseCardDestination({ ...card, type: "episode", seriesTitle: "  " }), {
+    assert.deepEqual(route(browseCardDestination({ ...card, type: "episode", seriesTitle: "  " })), {
         kind: "item", id: "series:s1", title: "Pilot", seriesContext: { seasonNumber: 1, episodeId: "episode:s1e12" },
     });
-    assert.deepEqual(browseCardDestination({ ...card, type: "episode", seriesId: " episode:s1e12 " }), { kind: "item", id: "episode:s1e12", title: "Pilot" });
-    assert.deepEqual(browseCardDestination({ ...card, id: "season:s1", type: "season", episodeNumber: undefined, title: "Season 1" }), {
+    assert.deepEqual(route(browseCardDestination({ ...card, type: "episode", seriesId: " episode:s1e12 " })), { kind: "item", id: "episode:s1e12", title: "Pilot" });
+    assert.deepEqual(route(browseCardDestination({ ...card, id: "season:s1", type: "season", episodeNumber: undefined, title: "Season 1" })), {
         kind: "item", id: "series:s1", title: "Harbor Lights", seriesContext: { seasonNumber: 1, episodeId: undefined },
     });
-    assert.deepEqual(browseCardDestination({ ...card, id: "movie:heat", type: "movie", seriesId: undefined, title: "Heat" }), { kind: "item", id: "movie:heat", title: "Heat" });
-    assert.deepEqual(browseCardDestination({ ...card, id: "series:s1", type: "series", seriesId: undefined, title: "Harbor Lights" }), { kind: "item", id: "series:s1", title: "Harbor Lights" });
-    assert.equal(browseCardDestination({ ...card, type: "unknown" }), undefined);
+    assert.deepEqual(route(browseCardDestination({ ...card, id: "movie:heat", type: "movie", seriesId: undefined, title: "Heat" })), { kind: "item", id: "movie:heat", title: "Heat" });
+    assert.deepEqual(route(browseCardDestination({ ...card, id: "series:s1", type: "series", seriesId: undefined, title: "Harbor Lights" })), { kind: "item", id: "series:s1", title: "Harbor Lights" });
+    assert.equal(route(browseCardDestination({ ...card, type: "unknown" })), undefined);
 });
 
-test("libraries: video kinds in server order, minus the profile's own hidden list", () => {
+/** The routing fields of a destination; the loading seed is checked on its own. */
+function route(destination: Destination | undefined): Destination | undefined {
+    if (destination === undefined || destination.kind !== "item") return destination;
+    const { seed: _seed, ...rest } = destination;
+    return rest;
+}
+
+test("a card opens its Details page seeded with what Apple's loading frame paints", () => {
+    const card = { id: "episode:s1e12", title: "Pilot", year: 2024, posterUrl: undefined, seriesId: "series:s1", seriesTitle: "Harbor Lights", seasonNumber: 1, episodeNumber: 2, overview: "A storm.", runtimeMinutes: 52, contentRating: "TV-14", genres: ["Drama", "Mystery"], logoUrl: "/logo", backdropUrl: "/still", backdropThumbhash: "hash", seriesBackdropUrl: "/series-art", played: false, positionSeconds: 30 };
+    const movie = destinationOf({ ...card, id: "movie:heat", type: "movie" });
+    assert.deepEqual(movie?.kind === "item" ? movie.seed : undefined, { type: "movie", title: "Pilot", year: 2024, overview: "A storm.", runtimeMinutes: 52, contentRating: "TV-14", genre: "Drama", logoUrl: "/logo", backdropUrl: "/still", backdropThumbhash: "hash", backdropIsEpisodeStill: undefined }, "only an episode card swaps in the series backdrop");
+    const episode = destinationOf({ ...card, type: "episode" });
+    assert.deepEqual(episode?.kind === "item" ? { backdrop: episode.seed?.backdropUrl, hash: episode.seed?.backdropThumbhash, still: episode.seed?.backdropIsEpisodeStill, watch: episode.seed?.episodeWatch } : undefined,
+        { backdrop: "/series-art", hash: undefined, still: false, watch: { played: false, isInProgress: true, positionSeconds: 30 } }, "an episode card shows its series backdrop");
+    const parent = browseCardDestination({ ...card, type: "episode" });
+    assert.deepEqual(parent?.kind === "item" ? parent.seed : undefined, { type: "series", title: "Harbor Lights", logoUrl: "/logo", backdropUrl: "/series-art", backdropIsEpisodeStill: false }, "the parent Series frame keeps only the series title, logo and backdrop");
+});
+
+
+test("libraries: supported kinds, audiobooks included, in server order, minus the profile's own hidden list", () => {
     const libraries = [
         { id: "13", name: "Shows", type: "series" as const, sortOrder: 3 },
         { id: "12", name: "Movies", type: "movies" as const, sortOrder: 1 },
         { id: "14", name: "Books", type: "unknown" as const, sortOrder: 0 },
         { id: "15", name: "Home videos", type: "mixed" as const, sortOrder: 2 },
+        { id: "16", name: "Audio", type: "audiobooks" as const, sortOrder: 4 },
     ];
-    assert.deepEqual(visibleLibraries(libraries, ["15"]).map((library) => library.id), ["12", "13"]);
+    assert.deepEqual(visibleLibraries(libraries, ["15"]).map((library) => library.id), ["12", "13", "16"]);
+    assert.deepEqual(visibleLibraries(libraries, ["16"]).map((library) => library.id), ["12", "15", "13"], "a hidden audiobook library is dropped");
 });
 
 test("artwork: references resolve against the server; only HTTPS is drawn; nothing is added to the URL", () => {
@@ -255,6 +293,8 @@ test("resume: positive positions resume unless within 5 seconds of the end", () 
     assert.equal(resumeSeconds(10195, 10200), undefined);
     assert.equal(resumeSeconds(10194.9, 10200), 10194.9);
     assert.equal(resumeSeconds(0, 10200), undefined);
+    assert.equal(resumeSeconds(30, 10200), undefined, "PlaybackResumePoint: 30 s or less plays from the start");
+    assert.equal(resumeSeconds(30.5, 10200), 30.5);
     assert.equal(resumeSeconds(undefined, 10200), undefined);
     assert.equal(resumeSeconds(300, undefined), 300, "an unknown length still resumes");
     assert.equal(clockTime(1200.5), "20:00");

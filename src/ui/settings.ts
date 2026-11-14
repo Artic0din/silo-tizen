@@ -8,17 +8,21 @@ import { SettingsState } from "./settingsState.ts";
 import type { ProfileLaunch, LaunchBehavior } from "../session/profileLaunch.ts";
 import { acknowledgementsDocument } from "./acknowledgements.ts";
 import type { EpisodeSpoilerPreferences } from "./episodeSpoilers.ts";
-import { settingsRows, rowValue, rowEdit, type SettingsRow } from "./settingsRows.ts";
-import { APPEARANCE_KEY } from "../contracts/v2/settingsRows.ts";
+import type { ThemeMusicPreferences } from "./themeMusicPreferences.ts";
+import { settingsRows, rowValue, rowEdit, BUFFERING_ROW_ID, type SettingsRow } from "./settingsRows.ts";
+import { APPEARANCE_KEY, BUFFERING_MODE_KEY } from "../contracts/v2/settingsRows.ts";
 import { qrCode } from "./qr.ts";
-import { navigationAvatar } from "./navigationAvatar.ts";
+import { profileMenuAvatar } from "./navigationAvatar.ts";
+import { centredDialog } from "./confirmationDialog.ts";
 import { navigationIcon } from "./navigationIcon.ts";
 import { decodeAppearance, DEFAULT_APPEARANCE } from "../contracts/v2/subtitles.ts";
 import { applySubtitleAppearance } from "../player/subtitleView.ts";
 import { pairedProfileDescription, pairedProfileLabel, profileSelectionCaption } from "./pairedProfile.ts";
-import { bitrateLabel, qualityFooter } from "./qualitySettings.ts";
-import { ConnectionSpeed } from "./connectionSpeed.ts";
+import { BUFFERING_QUALITY_MODES, BUFFERING_QUALITY_TITLE, bitrateLabel, qualityFooter } from "./qualitySettings.ts";
+import { ConnectionSpeed, LEARNED_LIMIT_RESET_ACTION, learnedLimitText } from "./connectionSpeed.ts";
 import { signOutConfirmationCopy } from "./signOutConfirmation.ts";
+import type { ShowAudiobooks } from "./audiobookPreference.ts";
+import { EXPERIMENTAL_FEATURES, type ExperimentalFeatures } from "../session/experimentalFeatures.ts";
 
 type Category = "general" | "playback" | "subtitles" | "server";
 const CATEGORY_LABELS = { general: "General", playback: "Playback", subtitles: "Subtitles", server: "Server" } as const;
@@ -44,10 +48,10 @@ type Picker = "audio" | "quality" | "bitrate" | "seek-back" | "seek-forward" | "
 const PICKER_KEYS = { audio: AUDIO_KEY, quality: QUALITY_KEY, bitrate: BITRATE_KEY, "seek-back": SEEK_BACK_KEY, "seek-forward": SEEK_FORWARD_KEY, "subtitle-language": SUBTITLE_LANGUAGE_KEY, "subtitle-mode": SUBTITLE_MODE_KEY } as const;
 const PICKER_LABELS = { audio: "Audio Language", quality: "Resolution", bitrate: "Maximum Bitrate", "seek-back": "Skip Back", "seek-forward": "Skip Forward", "subtitle-language": "Language", "subtitle-mode": "Behavior" } as const;
 const BITRATE_CHOICES = [200000, 100000, 60000, 40000, 20000, 15000, 10000, 6000, 4000, 2000, 1500];
-export interface SettingsActions { readonly profileName: string; readonly profileAvatarUrl?: string | undefined; readonly accountName?: string | undefined; readonly switchProfile: () => void; readonly signOut?: () => void; readonly serverName?: string | undefined; readonly switchServer?: (back: () => void) => void; /** True when this sign-out removes the saved server. Unreadable account lists return false. */ readonly removesServer?: () => boolean }
+export interface SettingsActions { readonly showAudiobooks?: ShowAudiobooks; readonly profileName: string; readonly profileAvatarUrl?: string | undefined; readonly profileAvatarText?: string | undefined; readonly accountName?: string | undefined; readonly switchProfile: () => void; readonly signOut?: () => void; readonly serverName?: string | undefined; readonly switchServer?: (back: () => void) => void; /** True when this sign-out removes the saved server. Unreadable account lists return false. */ readonly removesServer?: () => boolean }
 export interface SettingsScreen { destroy(): void }
 
-export function mountSettings(root: HTMLElement, session: NativeSession, close: (hiddenChanged: boolean, titleArt?: boolean) => void, launch?: ProfileLaunch, actions?: SettingsActions, accounts?: (back: () => void) => void, spoilers?: EpisodeSpoilerPreferences): SettingsScreen {
+export function mountSettings(root: HTMLElement, session: NativeSession, close: (hiddenChanged: boolean, titleArt?: boolean) => void, launch?: ProfileLaunch, actions?: SettingsActions, accounts?: (back: () => void) => void, spoilers?: EpisodeSpoilerPreferences, experimental?: ExperimentalFeatures, themeMusic?: ThemeMusicPreferences): SettingsScreen {
     const container = el("section", "browse settings");
     container.setAttribute("aria-label", "Settings");
     root.appendChild(container);
@@ -93,11 +97,13 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
     const state = new SettingsState(session, () => render());
     const connection = new ConnectionSpeed(session, () => { if (!torn) render(host.focused()); });
     const stopSpoilers = spoilers?.subscribe(() => { if (!torn) render(host.focused()); }) ?? (() => undefined);
+    const stopThemeMusic = themeMusic?.subscribe(() => { if (!torn) render(host.focused()); }) ?? (() => undefined);
     const destroy = (): void => {
         if (torn) return;
         torn = true;
         connection.stop();
         stopSpoilers();
+        stopThemeMusic();
         launchController.abort();
         stopAuthority();
         state.stop();
@@ -409,8 +415,14 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
         }
         if (confirmingSignOut) {
             const copy = signOutConfirmationCopy(actions?.accountName, actions?.serverName, actions?.removesServer?.() ?? false);
-            const controls = [actionButton("cancel-signout", "Cancel", back), actionButton("confirm-signout", "Sign Out", () => { destroy(); actions?.signOut?.(); })];
-            host.show({ name: "settings:signout", content: [el("h1", "browse-title", copy.title), el("p", "settings-value", copy.message), zoneNode("settings-controls", controls)], zones: [{ id: "settings-confirm", layout: "column", items: controls }], focus: { zone: "settings-confirm", key: "cancel-signout" }, back });
+            const cancel = actionButton("cancel-signout", "Cancel", back);
+            const confirm = actionButton("confirm-signout", "Sign Out", () => { destroy(); actions?.signOut?.(); });
+            const controls = [cancel, confirm];
+            // AccountRemovalConfirmation on tvOS: TVSettingsConfirmationOverlay over Settings, Cancel then Sign Out, Cancel focused.
+            const behind = paneSnapshot?.cloneNode(true);
+            host.show({ name: "settings:signout", content: centredDialog({ style: "confirmation", id: "settings-signout", title: copy.title, message: copy.message,
+                buttons: controls.map(control => control.element), destructive: confirm.element, behind: behind instanceof HTMLElement ? [behind] : [] }),
+                zones: [{ id: "settings-confirm", layout: "row", items: controls }], focus: { zone: "settings-confirm", key: "cancel-signout" }, back });
             return;
         }
         if (acknowledging) { renderAcknowledgements(); return; }
@@ -434,7 +446,7 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
             profile.element.classList.add("settings-profile");
             const copy = el("span", "settings-profile-copy");
             copy.append(el("span", "settings-profile-name", actions.profileName), el("span", "settings-profile-account", account));
-            profile.element.replaceChildren(navigationAvatar(actions.profileName, actions.profileAvatarUrl, session.http.base.baseUrl, 68), copy, el("span", "settings-chevron", "›"));
+            profile.element.replaceChildren(profileMenuAvatar(actions.profileName, actions.profileAvatarUrl, actions.profileAvatarText, session.http.base.baseUrl, 68), copy, el("span", "settings-chevron", "›"));
             profile.element.setAttribute("aria-label", `${actions.profileName}, ${account}`);
             categories.unshift(profile);
             if (actions.signOut !== undefined) {
@@ -538,6 +550,24 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
                 ? `Title art is ${titleArtState} on every device signed into this profile. Changing it here changes it everywhere. Turn off Apply to All Devices to choose for this TV only.`
                 : "Use logo artwork as the title when available. Only affects this TV. Your other devices keep their own setting."));
         }
+        if (category === "general" && state.loaded && themeMusic?.isOffered === true) {
+            body.appendChild(el("h3", "settings-section-header", "THEME MUSIC"));
+            for (const [key, text, checked, action, enabled] of [
+                ["theme-music", "Play Theme Music", themeMusic.playsThemeMusic, () => themeMusic.setEnabled(!themeMusic.playsThemeMusic), themeMusic.allowsEditing],
+                ["theme-music-loop", "Loop Theme Music", themeMusic.loops, () => themeMusic.setLoop(!themeMusic.loops), themeMusic.allowsEditing && themeMusic.playsThemeMusic],
+            ] as const) {
+                const item = button(key, text, () => { if (enabled) action(); });
+                item.element.appendChild(el("span", "settings-row-value", checked ? "On" : "Off"));
+                item.element.setAttribute("role", "switch");
+                item.element.setAttribute("aria-label", text);
+                item.element.setAttribute("aria-checked", String(checked));
+                if (!enabled) item.element.setAttribute("aria-disabled", "true");
+                rows.push(item);
+                body.appendChild(item.element);
+            }
+            body.appendChild(el("p", "settings-value", "Play a title's theme song from your library while its page is open. Only affects this TV."));
+            if (themeMusic.error !== undefined) body.appendChild(el("p", "settings-value", themeMusic.error));
+        }
         for (const id of pickers) {
             if (id === "seek-back" || id === "seek-forward") continue;
             const key = PICKER_KEYS[id];
@@ -551,13 +581,41 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
             rows.push(item);
             body.append(item.element);
         }
+        // TVPlaybackSettingsView.swift:60-120: Resolution, Maximum Bitrate, the buffering row, the learned limit, then one footer.
+        const bufferingRow = category === "playback" && state.loaded ? settingsRows("playback", state).find(row => row.id === BUFFERING_ROW_ID) : undefined;
+        if (bufferingRow !== undefined) {
+            const mode = rowValue(bufferingRow, state);
+            const item = button(BUFFERING_ROW_ID, BUFFERING_QUALITY_TITLE, () => { extraPicker = bufferingRow; render(); });
+            item.element.replaceChildren(el("span", "settings-row-title", BUFFERING_QUALITY_TITLE), el("span", "settings-row-value", BUFFERING_QUALITY_MODES.find(([value]) => value === mode)?.[1] ?? "Automatically"), el("span", "settings-chevron", "›"));
+            rows.push(item);
+            beforeStreaming(body, [item.element]);
+        }
+        // The server's default mode is Automatically; Never ignores the limit (SettingsViewModel.learnedConnectionLimitText).
+        const learned = category === "playback" && state.effective.get(BUFFERING_MODE_KEY)?.value !== "never" ? connection.learnedLimit : undefined;
+        if (learned !== undefined) {
+            const text = learnedLimitText(learned);
+            const item = button("learned-limit", text, () => {
+                void connection.resetLearnedLimit().then(cleared => {
+                    if (!cleared || torn) return;
+                    // The row is gone, so focus moves to the row above it only if it is still on Reset (TVPlaybackSettingsView.swift:116-124).
+                    const focused = host.focused();
+                    render(focused?.key === "learned-limit" ? { zone: "settings-rows", key: bufferingRow === undefined ? "bitrate" : BUFFERING_ROW_ID } : focused);
+                });
+            });
+            item.element.replaceChildren(el("span", "settings-row-title", text), el("span", "settings-row-value", LEARNED_LIMIT_RESET_ACTION));
+            item.element.classList.add("settings-learned-limit");
+            rows.push(item);
+            beforeStreaming(body, [item.element]);
+        }
         if (category === "playback" && state.loaded && state.definitions.some(def => def.key === QUALITY_KEY)) {
             const resolution = state.effective.get(QUALITY_KEY)?.value;
             const bitrate = state.effective.get(BITRATE_KEY)?.value;
-            const footer = el("p", "settings-value settings-quality-footer", qualityFooter(typeof resolution === "string" ? resolution : null, typeof bitrate === "number" ? bitrate : null));
-            const streaming = [...body.children].find(node => node.classList.contains("settings-section-header") && node.textContent === "STREAMING");
-            if (streaming !== undefined) body.insertBefore(footer, streaming);
-            else body.appendChild(footer);
+            beforeStreaming(body, [el("p", "settings-value settings-quality-footer", qualityFooter(typeof resolution === "string" ? resolution : null, typeof bitrate === "number" ? bitrate : null, bufferingRow !== undefined))]);
+        }
+        if (category === "playback" && connection.learnedResetError !== undefined) {
+            const warning = el("p", "browse-text browse-error", connection.learnedResetError);
+            warning.setAttribute("role", "alert");
+            beforeStreaming(body, [warning]);
         }
         const speed = category === "playback" ? connection.view : undefined;
         if (speed !== undefined) {
@@ -569,15 +627,15 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
             if (speed.disabled) item.element.setAttribute("aria-disabled", "true");
             if (speed.testing) item.element.setAttribute("aria-busy", "true");
             const nodes: HTMLElement[] = [el("h3", "settings-section-header", "CONNECTION"), item.element];
-            if (speed.budget !== undefined) nodes.push(el("p", "settings-value settings-connection-budget", speed.budget));
+            // Never ignores the limit the server's budget counts, so Apple drops the sentence (SettingsViewModel.swift:626-632).
+            const ignoresLimit = state.effective.get(BUFFERING_MODE_KEY)?.value === "never" && connection.learnedLimit !== undefined;
+            if (speed.budget !== undefined && !ignoresLimit) nodes.push(el("p", "settings-value settings-connection-budget", speed.budget));
             if (speed.message !== undefined) {
                 const warning = el("p", "browse-text browse-error", speed.message);
                 warning.setAttribute("role", "alert");
                 nodes.push(warning);
             }
-            const streaming = [...body.children].find(node => node.classList.contains("settings-section-header") && node.textContent === "STREAMING");
-            if (streaming !== undefined) for (const node of nodes) body.insertBefore(node, streaming);
-            else for (const node of nodes) body.appendChild(node);
+            beforeStreaming(body, nodes);
             rows.push(item);
         }
         if (category === "subtitles" && state.loaded) {
@@ -615,7 +673,7 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
                 }
                 body.appendChild(el("h3", "settings-section-header", "EPISODES"));
             }
-            for (const row of settingsRows(category, state)) {
+            for (const row of settingsRows(category, state).filter(row => row.id !== BUFFERING_ROW_ID)) {
                 if (row.id === "metadata-language") body.appendChild(el("h3", "settings-section-header", "METADATA"));
                 const value = rowValue(row, state);
                 const item = button(row.id, row.title, () => {
@@ -703,6 +761,18 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
                 }
             }
         }
+        if (category === "general" && actions?.showAudiobooks !== undefined) {
+            // TVGeneralSettingsView TOP MENU: a client_local opt-in, stored on this TV per profile.
+            const audiobooks = actions.showAudiobooks;
+            const on = audiobooks.value;
+            const item = button("show-audiobooks", "Show Audiobooks", () => { audiobooks.set(!audiobooks.value); render({ zone: "settings-rows", key: "show-audiobooks" }); });
+            item.element.appendChild(el("span", "settings-row-value", on ? "On" : "Off"));
+            item.element.setAttribute("role", "switch");
+            item.element.setAttribute("aria-label", "Show Audiobooks");
+            item.element.setAttribute("aria-checked", String(on));
+            rows.push(item);
+            body.append(el("h3", "settings-section-header", "TOP MENU"), item.element, el("p", "settings-value", "Adds an Audiobooks tab when an audiobook library is available."));
+        }
         if (state.loaded && rows.length === 0) body.appendChild(el("p", "browse-text", "No supported settings in this category."));
         if (category === "server") {
             for (const row of rows) {
@@ -710,6 +780,18 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
                 row.element.classList.add("settings-server-action");
                 row.element.prepend(navigationIcon(icon));
                 row.element.appendChild(navigationIcon(row.key === "privacy" ? "qr" : row.key === "acknowledgements" ? "document" : "chevron-right"));
+            }
+        }
+        // Apple's Server pane ends with EXTRA FEATURES: one On/Off row per experimental feature, off until chosen on this device.
+        if (category === "server" && experimental !== undefined) {
+            body.appendChild(el("h3", "settings-section-header", "EXTRA FEATURES"));
+            for (const feature of EXPERIMENTAL_FEATURES) {
+                const on = experimental.isEnabled(feature.id);
+                const key = `experimental-${feature.id}`;
+                const toggle = actionButton(key, feature.title, () => { experimental.setEnabled(feature.id, !on); render({ zone: "settings-rows", key }); });
+                toggle.element.setAttribute("role", "switch"); toggle.element.setAttribute("aria-label", feature.title); toggle.element.setAttribute("aria-checked", String(on));
+                toggle.element.appendChild(el("span", "settings-row-value", on ? "On" : "Off"));
+                rows.push(toggle); body.appendChild(toggle.element);
             }
         }
         const retries = retryButton();
@@ -767,6 +849,15 @@ function subtitleOverride(state: SettingsState): string | undefined {
     if (scopes.size > 1) return MIXED_SUBTITLE_OVERRIDE;
     const [scope] = [...scopes];
     return scope === undefined ? undefined : SUBTITLE_OVERRIDE[scope] ?? "A more specific subtitle setting overrides this profile default. Changes here are saved for the profile, but the override still applies.";
+}
+
+/** Inserts nodes above the STREAMING header, or at the end when the pane has none. */
+function beforeStreaming(body: HTMLElement, nodes: readonly HTMLElement[]): void {
+    const streaming = [...body.children].find(node => node.classList.contains("settings-section-header") && node.textContent === "STREAMING");
+    for (const node of nodes) {
+        if (streaming !== undefined) body.insertBefore(node, streaming);
+        else body.appendChild(node);
+    }
 }
 
 function valueLabel(value: SettingValue, key: SettingsKey = AUDIO_KEY): string {

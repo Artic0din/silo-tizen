@@ -34,6 +34,8 @@ Each `Zone` has:
 - Optional `up`, `down`, `left`, `right`: the id of the zone to jump to when a key runs past the zone's edge.
 - Optional `entry`: the item key to land on when another zone is entered by Up/Down (the nav zone uses the selected root).
 - Optional `onLeft`: replaces Left entirely for that zone (used for panels that close on Left).
+- Optional `reading`: a single reading stop taller than the page (audiobook About).
+  Entering it shows its leading edge; Up and Down scroll the page 360 px at a time until that edge is visible, and only then leave the zone.
 
 A key press resolves in this order (`FocusHost.onKey`, `moveWithin`):
 
@@ -87,7 +89,8 @@ Focus is always restored by zone id plus item key, never by list position.
 - `FocusHost` keeps a per-view "visit" snapshot: remembered item per zone, last zone, vertical scroll and each shelf's horizontal scroll.
   `show` saves it for the view being left and applies it when the view is entered again.
   Library views key their visit by library, type and mode (`visitKey`).
-  Details routes supply a distinct `View.visitKey` per presentation, retained through loading and repainting and when returning from children.
+  Details and audiobook routes supply a distinct `View.visitKey` per presentation, retained through loading and repainting and when returning from children.
+  A route that leaves the stack for good (popped, replaced by a tab switch or Settings exit) drops those snapshots with `forgetPresentation`; a covered route keeps them for Back.
   Two presentations of the same title therefore retain independent focus and scroll.
 - `holdVisit()` saves the visit before chrome is hidden for Settings or playback, because hiding chrome can resize and clamp the viewport.
 - `focusDefault()` is for deliberate entry into content (for example leaving the nav bar).
@@ -123,13 +126,15 @@ They intercept it first, in an earlier phase of the DOM event path.
 
 | Order | Listener | Phase | Behaviour |
 | --- | --- | --- | --- |
-| 1 | Exit dialog (`exitDialog.ts`) | `window`, capture | Handles every remote key, then `preventDefault` and `stopImmediatePropagation`. A `focusin` trap pulls focus back inside. |
+| 0 | Select release (`selectRelease.ts`) | `window`, capture | Draws the focused button pressed on a fresh Enter and ends the press on any other key or on Enter's release. It never stops a key. |
+| 1 | Exit dialog (`exitDialog.ts`) | `window`, capture | Handles every remote key, then `preventDefault` and `stopImmediatePropagation`. Enter runs the focused button on its `keyup`. A `focusin` trap pulls focus back inside. |
 | 2 | `FocusHost.onPress` | `document`, capture | Enter only, for cards with a quick action (hold). Registered when browse starts, so it runs before card actions. |
-| 3 | Card actions (`cardActions.ts`) | `document`, capture | Registered when its menu opens. Handles remote keys and Tab, then `stopImmediatePropagation`. |
+| 3 | Card actions (`cardActions.ts`) | `document`, capture | Registered while its menu or failure alert is open. Up and Down move through the single column, Left and Right stay put, a fresh Enter chooses on its release, Back closes; then `stopImmediatePropagation`. |
 | 4 | `Skyline.onKey` | container, capture | Menus, dwell panels, Down into a panel, Back inside the shell. |
 | 4 | Settings (`settings.ts`) | container, capture | Left to the categories and the credits scroll. |
 | 6 | `FocusHost.onKey`, `ScreenHost.onKey`, player `onKey` | `document`, bubble | Ordinary movement. `FocusHost` returns at once if `event.defaultPrevented`. |
 | 7 | App `onBack` (`src/app.ts`) | `window`, bubble | Opens the Exit dialog on an unhandled Back. |
+| 8 | Select release (`selectRelease.ts`) | `window`, bubble | Takes the browser's click from an Enter no earlier listener prevented, and clicks the same button on Enter's `keyup`. |
 
 `app.test.ts` asserts the result: with the Exit dialog open, Down and Right send no requests and do not move browse focus.
 
@@ -153,7 +158,8 @@ For browse roots the chain is (`Skyline.back`, `Skyline.onKey`):
    Focus returns to the anchoring bar item, and the menu stays dismissed until focus leaves that anchor or the viewer presses Down again.
 2. Focus inside content moves to the selected tab in the navigation bar.
 3. Focus on the bar, on any root other than Home, switches to Home.
-4. Focus on the bar at Home: `back()` returns `false`, nothing prevents the event, and `app.ts` opens the Exit dialog.
+4. Focus on the bar at Home, on Search, another tab or the avatar, moves to the Home tab (`handleExitPress`).
+5. Focus on the Home tab at Home: `back()` returns `false`, nothing prevents the event, and `app.ts` opens the Exit dialog.
 
 Other layers:
 
@@ -163,7 +169,7 @@ Other layers:
 - A modal view in browse mode replaces `back` with its own dismiss handler.
 - A `ScreenHost` screen with `back: undefined` lets Back reach the app's handler, so sign-in's first screen opens the Exit dialog.
 - A no-op handler (`back: () => undefined` while a probe runs in `signIn.ts`) swallows Back deliberately.
-- The Exit dialog defaults to Cancel; Back cancels, Enter on Exit calls `options.exit` (`tizen.application` exit in `src/platform.ts`).
+- The Exit dialog defaults to Cancel; Back cancels, Select released on Exit calls `options.exit` (`tizen.application` exit in `src/platform.ts`).
 
 ## Samsung Remote Specifics
 
@@ -174,9 +180,23 @@ Other layers:
   Do not rely on browser tab order or spatial navigation.
   The browser's own movement can fire a second move in grids, which is why hosts call `preventDefault` on every arrow they handle.
   Every control must be reachable by arrows alone.
-- Enter is delivered on every remote without registration.
-  `ScreenHost` leaves Enter to the browser: a focused `<button>` gets its `click`, and a text field opens the TV keyboard.
-  `FocusHost` also leaves Enter alone, except for cards with a `quickAction` (see below).
+- Enter is delivered on every remote without registration, as `keydown` and `keyup`.
+- Select acts on release, as on tvOS: the focused control runs when Enter is released.
+  `selectRelease.ts` marks the held control `data-pressed`. Only controls with a matched Apple pressed look style it: cards, For You and profile menu rows, rail letters, Details pill and circle actions, and PIN keys. Every other control looks unchanged while held until its Apple pressed look is matched.
+  `selectRelease.ts` takes Chromium's keydown click from a focused `<button>` or link and clicks it on `keyup` instead, only when focus has not moved.
+  Until Enter's keyup, every Enter keydown belongs to the press already down, flagged as a repeat or not (`isFreshSelect`); after a window blur or hidden page the keyup may be lost, so the next Enter starts a new press.
+  Auto-repeat never clicks again, and any other key, focus leaving the button, a window blur or a hidden page cancels the press.
+  A browse repaint that replaces the held button with the same item's new one keeps the press (`FocusHost.show`).
+  A press on a control marked `aria-disabled` never arms, so it never runs, even if a redraw enables that control before release.
+  A press whose control is disabled by release time, or repainted as a disabled control, runs nothing either.
+  The player checks the same rule for every button it presses, and cancels a held press when a prompt, mode or skip target changes before release.
+  An overlay that closes while Select is down (card menu, request menu, Exit dialog, player) calls `swallowSelect()`, so the rest of that press, its repeats and its release, cannot reach what takes focus next; a new press goes through.
+  `FocusHost` starts a hold only on a fresh press on an enabled card, and a card disabled before its hold completes or before release runs nothing.
+  `ScreenHost` and `FocusHost` leave Enter to it, except for cards with a `quickAction` (see below).
+  Menus, the Exit dialog and the player own Enter themselves and also act on its release.
+  The Exit dialog, the request menu and the card menu run a button only when `releasedSelect()` names it: the button the press was made on, still focused and enabled, with the press never cancelled.
+  A card menu redraw hands a held press to the redrawn row with `moveSelect`.
+  A text field keeps the TV keyboard's own Enter.
 - Media keys are registered at startup in `registerMediaKeys` (`src/platform.ts`).
   It registers Play/Pause, Play, Pause, Stop, Rewind and Fast Forward one at a time, only if the TV lists them as supported, and a refusal does not stop the others.
   Add any new remote key to `BY_CODE`/`BY_NAME` in `keys.ts` and, if it needs registration, to that list.
@@ -224,13 +244,13 @@ Translation polls publish the selected season without restarting neighbour reads
 Person's grid also loads another page when scrolling reveals a cell within the final eight rows, matching Apple's tvOS grid; card focus handlers do not fetch.
 Featured cards are another exception. In the server's auto mode, the marquee starts a description translation only after that card has held the preview for 1500 ms, matching Apple TV's featured-card dwell. Moving on before then starts nothing. Details translation starts with the page. Focusing another episode does not.
 
-The marquee rest is another exception. After focus has stayed on one card for 150 ms, Home, For You and library Recommended read that card's item detail once. The 150 ms value is `SiloTheme.Skyline.marqueeRestDebounceMilliseconds` in silo-apple `2ef3a171`, applied by `TVFocusMarquee.waitForEnrichmentRest` (`TVFocusMarquee.swift:966-971` and `:1028-1049`). A cached answer fills the marquee immediately and does not read again. Moving to another card before the delay, or before the answer lands, cancels the wait and the read, and the late answer cannot change the marquee. Apple starts this read immediately when the focused row changes (`restForRowChange`, `deferNetwork: false`) so an episode hero can warm; Tizen already has that backdrop on the card, and the same 150 ms wait covers a row change so a run of keys does not send a request per key. Continue Watching reads those saved files when its row loads, four at a time. Apple starts one read when `EpisodeThumbCard` mounts (`EpisodeThumbCard.swift:108-110`) inside the row's `LazyHStack` (`MediaRow.swift:413-416`). This row draws every card, so the same reads stay on a queue of four. For You additionally warms at most two rows of eight cards that omit a content rating, three at a time (`RecommendationsView.swift:159-182`). Home does not warm item detail for the other rows; Apple's Home prefetch warms image bytes already in the section payload, at most 40 URLs.
+The marquee rest is another exception. After focus has stayed on one card for 150 ms, Home, For You and library Recommended read that card's item detail once. The 150 ms value is `SiloTheme.Skyline.marqueeRestDebounceMilliseconds` in silo-apple `2ef3a171`, applied by `TVFocusMarquee.waitForEnrichmentRest` (`TVFocusMarquee.swift:966-971` and `:1028-1049`). A cached answer fills the marquee immediately and does not read again. Moving to another card before the delay, or before the answer lands, cancels the wait and the read, and the late answer cannot change the marquee. A row change is the one case without the wait: when the row band starts scrolling, the new card's read starts at once, as Apple's `restForRowChange` does with `deferNetwork: false` (silo-apple `85679e7` `TVFocusMarquee.swift:818-826`, `:898-904`). A newer focus still cancels it. Continue Watching reads those saved files when its row loads, four at a time. Apple starts one read when `EpisodeThumbCard` mounts (`EpisodeThumbCard.swift:108-110`) inside the row's `LazyHStack` (`MediaRow.swift:413-416`). This row draws every card, so the same reads stay on a queue of four. For You additionally warms at most two rows of eight cards that omit a content rating, three at a time (`RecommendationsView.swift:159-182`). Home does not warm item detail for the other rows; Apple's Home prefetch warms image bytes already in the section payload, at most 40 URLs.
 
 Outside the named filter, season-pill, episode-detail, outer-edge, featured-card and marquee-rest exceptions, moving focus never starts a request, activates a route or writes data.
 Fetching belongs to explicit activation (Enter), to a view loading, or to a one-off prefetch.
 
 - Card focus calls `context.preview`, which redraws the marquee from data already in memory (`Skyline.preview`).
-  The first preview is immediate, later ones wait 150 ms and crossfade for 240 ms.
+  The text follows focus at once; the backdrop waits for focus to rest 150 ms, or after a row change until Apple's 320 ms hold cap, then crossfades for 240 ms.
   The marquee-rest exception above is the only read that preview starts.
 - The aired-date and cast line fills in when that rested read lands (`docs/features/skyline-browse-shell.md`, Home section).
 - Bar items open a dropdown after a 250 ms dwell on focus.
@@ -270,7 +290,9 @@ Playback has these differences from browse:
 - Playback resuming outside the scrubber cancels its timeline preview without seeking and restores auto-hide.
   A hold that paused a pending resume returns that resume on cancellation only if no newer Play or Pause superseded it.
 - The track menu opens on the active tab.
-  Down enters its pane, Up at the top returns to its tab, Left/Right switches panes, Enter chooses and Back closes.
+  Panes change only on the tab rail, as on Apple TV (`TVPlayerInfoHUD.swift:9-16`): Left/Right on a tab switches panes, Down enters the pane at its top row (Off in Subtitles), Up from a pane's top row returns to its tab, Enter chooses and Back closes.
+  Subtitles (TRACKS, OPTIONS) and Video (PLAYBACK, SYNC) have two columns, as Apple's `focusSection` columns: Up and Down stay in the focused column, Left/Right cross to the row level with focus in the other column, and Left/Right past the outer column, or in a one-column pane, do nothing.
+  A picker floats over its pane and keeps focus until Back closes it onto the row that opened it; Up at its top does not reach the rail.
 - Play/Pause, Play, Pause, Stop, Rewind and Fast Forward act directly.
   Stop leaves playback.
 - Back from the overlay leaves playback (`controls.back()`), which restores the originating browse view and focus.

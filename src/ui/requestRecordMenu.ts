@@ -2,6 +2,7 @@ import { actionButton, zoneNode } from "./browseViews.ts";
 import type { FocusItem } from "./browseFocus.ts";
 import { remoteKey } from "./keys.ts";
 import { el } from "./screen.ts";
+import { listenSelectRelease, releasedSelect, swallowSelect } from "./selectRelease.ts";
 
 export interface RequestRecordMenuOptions {
     readonly container: HTMLElement;
@@ -18,7 +19,6 @@ export interface RequestRecordMenuOptions {
 export class RequestRecordMenu {
     private panel: HTMLElement | undefined;
     private items: FocusItem[] = [];
-    private pressed = false;
     private options: RequestRecordMenuOptions | undefined;
     private readonly onKey = (event: KeyboardEvent): void => {
         if (!this.active) return;
@@ -31,17 +31,16 @@ export class RequestRecordMenu {
             const index = this.items.findIndex(item => item.element === document.activeElement);
             const step = key === "up" || key === "left" || event.shiftKey ? -1 : 1;
             this.items[Math.max(0, Math.min(this.items.length - 1, index + step))]?.element.focus({ preventScroll: true });
-        } else if (key === "enter") {
-            if (this.pressed) return;
-            this.pressed = true;
-            this.items.find(item => item.element === document.activeElement)?.element.click();
         }
+        // Enter waits for its release (onRelease).
     };
     private readonly onRelease = (event: KeyboardEvent): void => {
         if (remoteKey(event) !== "enter") return;
-        this.pressed = false;
         event.preventDefault();
         event.stopImmediatePropagation();
+        // tvOS chooses on Select's release, only the button the press was made on and still focused.
+        const pressed = releasedSelect();
+        if (pressed !== undefined && pressed === document.activeElement) this.items.find(item => item.element === pressed)?.element.click();
     };
 
     get active(): boolean { return this.panel !== undefined; }
@@ -49,7 +48,7 @@ export class RequestRecordMenu {
     open(options: RequestRecordMenuOptions): void {
         if (this.active) return;
         this.options = options;
-        this.pressed = false;
+        listenSelectRelease();
         this.panel = el("div", "card-actions-scrim");
         options.container.appendChild(this.panel);
         document.addEventListener("keydown", this.onKey, true);
@@ -94,7 +93,6 @@ export class RequestRecordMenu {
         const panel = this.panel;
         if (panel === undefined) return;
         this.items = items;
-        // Keep the Enter latch across Remove Request → confirmation so a held Select cannot activate Keep request.
         const content = el("div", "card-actions-panel");
         content.setAttribute("role", "alertdialog");
         content.setAttribute("aria-modal", "true");
@@ -115,10 +113,11 @@ export class RequestRecordMenu {
     }
 
     private dismiss(): void {
+        // Select may still be down; the rest of that press must not reach the card underneath.
+        if (this.panel !== undefined) swallowSelect();
         this.panel?.remove();
         this.panel = undefined;
         this.items = [];
-        this.pressed = false;
         this.options = undefined;
         document.removeEventListener("keydown", this.onKey, true);
         document.removeEventListener("keyup", this.onRelease, true);

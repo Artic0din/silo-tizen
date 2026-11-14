@@ -94,7 +94,7 @@ test("the structural snapshot retains viewport and shelf scroll without per-card
         assert.ok(snapshot.expected.top > 0 && snapshot.expected.left > 0);
         assert.equal(snapshot.cards, 126, "120 media cards and six Explore all cards survive the snapshot");
         assert.equal(snapshot.reads, 0);
-        assert.equal(snapshot.focus, "movies", "the root owns focus until its sections arrive");
+        assert.equal(snapshot.focus, "library-page", "the loading page takes focus from the bar (TVLibraryBrowseView.swift:46-53)");
         held.release();
         await ready(tv, "library:12");
     } finally { await tv.page.context().close(); }
@@ -178,7 +178,8 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
             await tv.jump(200);
             const held = tv.fake.hold("/library/12/collections", true);
             await selectLibraryMode(tv, "Collections");
-            assert.equal(await tv.focused(), "movies");
+            // TVLibraryCollectionsView.swift:151-157: the loading area takes page focus.
+            assert.equal(await tv.focused(), "library-page");
             const layers = reducedMotion === "reduce" ? 0 : 1;
             assert.equal(await tv.page.locator(".skyline-route-outgoing").count(), layers, "same-name library mode must animate its deliberate switch");
             assert.equal(await tv.page.locator(".skyline-content-drift").count() > 0, reducedMotion !== "reduce");
@@ -267,7 +268,7 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
             await tv.jump(200);
             await selectLibraryMode(tv, "Collections");
             await ready(tv, "library:12");
-            for (const mode of ["Collections", "Genres", "A–Z"] as const) await selectLibraryMode(tv, mode);
+            for (const mode of ["Collections", "Browse", "Recommended"] as const) await selectLibraryMode(tv, mode);
             const state = await tv.page.evaluate(() => {
                 const snapshots = document.querySelectorAll(".skyline-route-outgoing");
                 return { layers: snapshots.length, nested: document.querySelectorAll(".skyline-route-outgoing .skyline-route-outgoing").length, metadata: document.querySelectorAll(".skyline-route-outgoing [id], .skyline-route-outgoing [data-focus], .skyline-route-outgoing [data-section], .skyline-route-outgoing .browse-nav").length, tabbable: Array.from(document.querySelectorAll<HTMLElement>(".skyline-route-outgoing button, .skyline-route-outgoing input")).filter(node => node.tabIndex !== -1).length };

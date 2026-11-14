@@ -4,7 +4,7 @@ import type { Browser } from "playwright";
 import { mkdir } from "node:fs/promises";
 import { FakeRequests } from "../native/support/fakeRequests.ts";
 import { problem } from "../native/support/fakeSilo.ts";
-import { launchBrowser, openTv, type Tv } from "./support/tv.ts";
+import { launchBrowser, openTv, pauseTvClock, type Tv } from "./support/tv.ts";
 
 let browser: Browser;
 before(async () => { browser = await launchBrowser(); });
@@ -27,7 +27,7 @@ test("profile Requests is gated by the server and its row disappears when reques
         const fake = await start(tv, new FakeRequests(), true);
         assert.equal(await tv.page.locator('.browse-nav [data-focus="requests"]').count(), 0);
         await button(tv, "profiles").click();
-        assert.deepEqual(await tv.page.locator('.skyline-selector [role="menuitem"]').allTextContents(), ["Switch Profile", "History", "Requests", "Settings", "Sign Out"]);
+        assert.deepEqual(await tv.page.locator('.skyline-selector [role="menuitem"]').allTextContents(), ["History", "Requests", "Settings", "Switch Profile", "Sign Out"]);
         await openRequests(tv);
         await button(tv, "movie:949").waitFor();
         fake.enabled = false;
@@ -139,6 +139,9 @@ for (const [first, second] of [["watchlist", "requests"], ["requests", "watchlis
             else await openPersonal(tv, source as "watchlist" | "favorites");
         };
         await open(first); await open(second);
+        // Resting on the Movies tab opens its menu after 250 ms, which the second Back would close instead; a slow run
+        // can take that long between presses. Hold the clock so the two Backs are back to back, as the test means.
+        await pauseTvClock(tv);
         await tv.remote(10009); assert.equal(await tv.focused(), "movies", "the first Back reaches the bar");
         await tv.remote(10009);
         await tv.page.locator(MOVIES_VIEW).waitFor();
@@ -1647,7 +1650,7 @@ test("hub marquee uses Apple's title width, synopsis rhythm, rating row and focu
         const synopsis = await tv.page.locator(".requests-preview .requests-synopsis").evaluate(node => { const style = getComputedStyle(node), rect = node.getBoundingClientRect(); return [style.lineHeight, rect.width]; });
         assert.deepEqual(synopsis, ["32px", 780]);
         const row = await tv.page.locator(".requests-preview .requests-metadata").evaluate(node => { const text = node.querySelector("span")?.getBoundingClientRect(), logo = node.querySelector("img")?.getBoundingClientRect(), value = node.querySelector(".requests-tmdb span") as HTMLElement; return { dot: Math.round((logo?.left ?? 0) - (text?.right ?? 0)), gap: Math.round(value.getBoundingClientRect().left - (logo?.right ?? 0)), color: getComputedStyle(value).color, weight: getComputedStyle(value).fontWeight }; });
-        assert.deepEqual(row, { dot: 15, gap: 7, color: "rgb(160, 160, 160)", weight: "700" });
+        assert.deepEqual(row, { dot: 15, gap: 7, color: "rgba(237, 237, 237, 0.6)", weight: "700" });
         await tv.page.locator(".requests-card:focus .browse-art").evaluate(node => { for (const animation of node.getAnimations()) animation.finish(); });
         assert.equal(await tv.page.locator(".requests-card:focus .browse-art").evaluate(node => getComputedStyle(node).outline), "rgba(255, 255, 255, 0.7) solid 4px", "the focused card carries Apple's shared white outline");
         assert.equal(await tv.page.locator(".requests-card:focus .browse-art").evaluate(node => getComputedStyle(node, "::after").backgroundImage), "none", "the outlined focus treatment removes the system glass sheen");
@@ -1769,12 +1772,32 @@ test("a held Select on Remove Request cannot dismiss the confirmation", async ()
         await button(tv, "remove-request").waitFor();
         await button(tv, "remove-request").focus();
         await tv.down(13);
+        await tv.page.evaluate(() => window.dispatchEvent(new Event("blur")));
+        await tv.up(13);
+        assert.equal(await tv.focused(), "remove-request", "a press that lost the window runs nothing");
+        await tv.down(13);
+        await tv.page.evaluate(hidden => { Object.defineProperty(document, "hidden", { configurable: true, value: hidden }); document.dispatchEvent(new Event("visibilitychange")); }, true);
+        await tv.up(13);
+        await tv.page.evaluate(hidden => { Object.defineProperty(document, "hidden", { configurable: true, value: hidden }); document.dispatchEvent(new Event("visibilitychange")); }, false);
+        assert.equal(await tv.focused(), "remove-request", "a press the hidden page lost runs nothing");
+        await tv.down(13);
+        await tv.down(13, true);
+        assert.equal(await tv.focused(), "remove-request", "a held Remove Request waits for release");
+        await tv.up(13);
         assert.equal(await tv.page.locator(".card-actions-panel h1").textContent(), "Remove this request?");
         assert.equal(await tv.focused(), "keep-request");
-        await tv.down(13, true);
-        assert.equal(await tv.page.locator(".card-actions-scrim").count(), 1, "a repeated Enter while Select is held must not activate Keep request");
-        assert.equal(await tv.focused(), "keep-request");
+        assert.equal(await tv.page.locator(".card-actions-scrim").count(), 1, "the release that opened the confirmation must not activate Keep request");
+        await tv.down(13);
+        await button(tv, "confirm-remove").focus();
         await tv.up(13);
+        assert.equal(removals(tv).length, 0, "a press made on Keep request never runs Remove request");
+        assert.equal(await tv.page.locator(".card-actions-scrim").count(), 1);
+        await button(tv, "keep-request").focus();
+        await tv.down(13);
+        await tv.page.keyboard.press("Tab");
+        assert.equal(await tv.focused(), "keep-request", "Tab on the last button leaves focus in place");
+        await tv.up(13);
+        assert.equal(await tv.page.locator(".card-actions-scrim").count(), 1, "Tab ended the held press, so its release runs nothing");
         await button(tv, "keep-request").click();
         assert.equal(await tv.focused(), "failed-a");
         assert.equal(removals(tv).length, 0);
@@ -2009,7 +2032,7 @@ test("capability loss while a request menu is open paints Home after dismiss", a
     } finally { await tv.page.context().close(); }
 });
 
-test("Requests closing over Search restores the pinned Search title class like Back", async () => {
+test("Requests closing over Search returns to Search without a Search title", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {
         const fake = await start(tv);
@@ -2018,11 +2041,10 @@ test("Requests closing over Search restores the pinned Search title class like B
         await input.fill("Heat"); await input.press("Enter");
         await button(tv, "movie:949").waitFor();
         await button(tv, "movie:949").click(); await view(tv, "media");
-        assert.equal(await tv.page.locator(".browse.search-restored").count(), 0);
         fake.enabled = false;
         await tv.page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
         await tv.page.locator(".browse.search-scene").waitFor();
-        assert.equal(await tv.page.locator(".browse.search-restored").count(), 1);
+        assert.equal(await tv.page.locator(".search-navigation-title").count(), 0, "SearchView hides the navigation bar (SearchView.swift:65-69)");
     } finally { await tv.page.context().close(); }
 });
 test("a list cancel that settles after Requests was reopened refreshes the visible hub", async () => {

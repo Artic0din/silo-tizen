@@ -107,11 +107,30 @@ function episodeLine(card: Card): string | undefined {
     return parts.length === 0 ? undefined : parts.join(" · ");
 }
 
-/** Home card caption: episodes are captioned with their series and an `S01E02 · Pilot` line. */
-export function homeCaption(card: Card, continuing: boolean): { title: string; line: string | undefined } {
+/**
+ * Home card caption: episodes are captioned with their series and an `S01E02 · Pilot` line.
+ * Every thumbnail row titles a card `seriesTitle ?? title`, its second line the item title when a series title
+ * exists (EpisodeThumbCard.swift:269-285 at silo-apple 85679e7).
+ */
+/**
+ * Apple CardYears.caption (Components/CardYears.swift:19-35): a series shows the years it ran, "2019 – 2023" once it
+ * has ended and "2021 – Present" while it is returning; everything else, or a series that doesn't say, shows its year.
+ */
+export function cardYears(card: Card): string | undefined {
+    if (card.year === undefined) return undefined;
+    const first = String(card.year);
+    if (card.type !== "series") return first;
+    if (card.showStatus === "returning") return `${first} – Present`;
+    if (card.showStatus !== "ended" && card.showStatus !== "cancelled") return first;
+    const last = Number.parseInt(card.lastAirDate?.slice(0, 4) ?? "", 10);
+    return Number.isInteger(last) && last > card.year ? `${first} – ${last}` : first;
+}
+
+/** `years` uses the series range (CardYears) instead of the bare year, as Apple's catalog grids do. */
+export function homeCaption(card: Card, thumbnail: boolean, years = false): { title: string; line: string | undefined } {
     const series = nonEmpty(card.seriesTitle);
-    const title = card.type === "episode" && series !== undefined ? series : continuing ? card.seriesTitle ?? card.title : card.title;
-    const year = card.year === undefined ? undefined : String(card.year);
-    const line = episodeLine(card) ?? (continuing && card.seriesTitle !== undefined ? card.title : year);
+    const title = card.type === "episode" && series !== undefined ? series : thumbnail ? card.seriesTitle ?? card.title : card.title;
+    const year = years ? cardYears(card) : card.year === undefined ? undefined : String(card.year);
+    const line = episodeLine(card) ?? (thumbnail && card.seriesTitle !== undefined ? card.title : year);
     return { title, line };
 }

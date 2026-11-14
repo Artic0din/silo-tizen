@@ -6,7 +6,7 @@ import { fixture, problem, type CatalogRoutes, type Reply } from "./fakeSilo.ts"
 
 export interface FakeTitle {
     readonly id: string;
-    readonly type: "movie" | "series" | "episode" | "ebook";
+    readonly type: "movie" | "series" | "episode" | "ebook" | "audiobook";
     readonly title: string;
     readonly libraryId: string;
     readonly year?: number;
@@ -21,6 +21,9 @@ export interface FakeTitle {
     readonly overview?: string;
     readonly runtime?: number;
     readonly duration?: number;
+    /** The server's `show_status` and `last_air_date`, which a series card's years line reads. */
+    readonly showStatus?: string;
+    readonly lastAirDate?: string;
 }
 
 interface LibraryRow { id: string; sectionType?: string; title: string; items: string[] }
@@ -44,6 +47,8 @@ export class FakeCatalog implements CatalogRoutes {
     readonly progress = new Map<string, number>();
     readonly fileIds = new Map<string, string>();
     readonly removed = new Set<string>();
+    /** Cards dismissed from Continue Watching and Next Up; other rows keep them. */
+    readonly homeDismissed = new Set<string>();
     readonly playbackWatched = new Set<string>();
     readonly watchOverrides = new Map<string, Record<string, unknown>>();
     /** Episode-row files that replace the single default file. */
@@ -159,7 +164,8 @@ export class FakeCatalog implements CatalogRoutes {
         if (pathname === "/home/sections") {
             const template = toRecord(arrayOf(fixture("list_home_sections_ok").sections)[0]);
             const sections = household.sections.map((section) => {
-                const items = section.items.filter((id) => this.visible(household, id)).map((id) => this.card(id));
+                const dismissible = ["continue_watching", "in_progress", "next_up"].includes(section.sectionType ?? section.id);
+                const items = section.items.filter((id) => this.visible(household, id) && !(dismissible && this.homeDismissed.has(id))).map((id) => this.card(id));
                 return { ...template, id: section.id, section_type: section.sectionType ?? section.id, title: section.title, total_count: items.length, items };
             });
             return { status: 200, body: { sections } };
@@ -179,7 +185,7 @@ export class FakeCatalog implements CatalogRoutes {
         const id = library?.[1] ?? (typeof body?.library_id === "string" ? body.library_id : collectionLibrary ?? (collection ? household.libraries[0]?.id : undefined));
         if (id === undefined) return undefined;
         if (!household.libraries.some(item => item.id === id)) return problem(404, "not_found", "Not found");
-        const titles = [...this.titles.values()].filter(title => title.libraryId === id && this.visible(household, title.id) && (title.type === "movie" || title.type === "series"));
+        const titles = [...this.titles.values()].filter(title => title.libraryId === id && this.visible(household, title.id) && (title.type === "movie" || title.type === "series" || title.type === "audiobook"));
         if (library?.[2] === "sections" && method === "GET") {
             const rows = household.librarySections ?? (titles.length === 0 ? [] : [{ id: "library-picks", sectionType: "recently_added", title: "Library Picks", items: titles.slice(0, 24).map(title => title.id) }]);
             const sectionBody = (row: LibraryRow): Record<string, unknown> => {
@@ -320,7 +326,7 @@ export class FakeCatalog implements CatalogRoutes {
             .filter((title) => this.visible(household, title.id) && (libraryId === null || title.libraryId === libraryId))
             .filter((title) => (type === "video" || type === "video_with_episodes"
                 ? title.type === "movie" || title.type === "series" || (type === "video_with_episodes" && q.trim() !== "" && title.type === "episode")
-                : title.type === type))
+                : type === null || title.type === type))
             .filter((title) => q === "" || title.title.toLowerCase().indexOf(q) !== -1)
             .sort((a, b) => (a.title < b.title ? -1 : a.title > b.title ? 1 : 0));
         const cursor = params.get("cursor");
@@ -339,12 +345,12 @@ export class FakeCatalog implements CatalogRoutes {
         return { status: 200, body: { window_cursor: "window", items, page, total: matches.length, total_exact: true } };
     }
 
-    private card(id: string): Record<string, unknown> {
+    protected card(id: string): Record<string, unknown> {
         const title = this.mustTitle(id);
         const template = toRecord(arrayOf(fixture("list_catalog_items_ok").items)[0]);
         const series = title.seriesId === undefined ? undefined : this.titles.get(title.seriesId);
         const card: Record<string, unknown> = { ...template, content_id: id, type: title.type, title: title.title, year: title.year };
-        Object.assign(card, { backdrop_url: title.backdrop, overview: title.overview, runtime: title.runtime, duration_seconds: title.duration });
+        Object.assign(card, { backdrop_url: title.backdrop, overview: title.overview, runtime: title.runtime, duration_seconds: title.duration, show_status: title.showStatus, last_air_date: title.lastAirDate });
         const poster = title.poster === undefined ? `/art/${encodeURIComponent(id)}.svg` : title.poster;
         if (poster !== null) {
             card.poster_url = poster;

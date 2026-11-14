@@ -359,18 +359,20 @@ test("library modes keep separate scroll and focus visits", async () => {
         assert.equal(await tv.page.locator(".browse").getAttribute("data-view"), "library:12", "mode changes keep the public library view id");
         assert.notEqual(await tv.focused(), committed.key);
         assert.equal((await scrollOf(tv, committed.section)).top, 0);
-        await selectLibraryMode(tv, "Genres");
-        await tv.page.locator('[data-focus="genre:Drama"]').waitFor();
+        await selectLibraryMode(tv, "Browse");
+        await tv.page.locator(".catalog-grid .browse-card").first().waitFor();
+        await tv.eventually(async () => await tv.focused() === "sort", "Browse opens on Sort");
         await tv.remote(39);
-        assert.equal(await tv.focused(), "genre:Comedy");
+        assert.equal(await tv.focused(), "filter");
         await selectLibraryMode(tv, "Recommended");
         await tv.page.locator(`[data-focus="${committed.key}"]`).waitFor();
         await tv.jump(300);
         assert.equal(await tv.focused(), committed.key, "Browse visit focus");
         assert.deepEqual(await scrollOf(tv, committed.section), { top: committed.top, left: committed.left });
         assert.equal(await tv.page.locator(".browse").getAttribute("data-view"), "library:12");
-        await selectLibraryMode(tv, "Genres");
-        await tv.eventually(async () => await tv.focused() === "genre:Comedy", "Genres visit focus");
+        await selectLibraryMode(tv, "Browse");
+        // TVLibraryGridView.swift:240-245, TVBrowseFilterUI.swift:84-88: entering Browse always focuses Sort.
+        await tv.eventually(async () => await tv.focused() === "sort", "Browse entry focus");
         assert.equal(await tv.page.locator(".browse").getAttribute("data-view"), "library:12");
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }
@@ -434,7 +436,7 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
             await tv.page.emulateMedia({ reducedMotion });
             await signedIn(tv);
             await openLibrary(tv);
-            await selectLibraryMode(tv, "Recently Added");
+            await selectLibraryMode(tv, "Browse");
             const card = tv.page.locator(".browse-grid .browse-card[data-focus]").last();
             await card.waitFor();
             await tv.jump(300);
@@ -477,8 +479,8 @@ for (const destination of ["mode", "settings"] as const) test(`pending library r
         await selectLibraryMode(tv, "Recommended");
         await tv.eventually(async () => tv.fake.requests.filter(request => request.path.startsWith("/library/12/sections")).length === before + 1, "Browse restore read dispatched");
         if (destination === "mode") {
-            await selectLibraryMode(tv, "Genres");
-            await tv.page.locator('[data-focus="genre:Drama"]').waitFor();
+            await selectLibraryMode(tv, "Browse");
+            await tv.page.locator(".catalog-grid .browse-card").first().waitFor();
             held.release();
             await selectLibraryMode(tv, "Recommended");
         } else {
@@ -498,8 +500,8 @@ for (const destination of ["mode", "settings"] as const) test(`pending library r
         await tv.jump(300);
         assert.equal(await tv.focused(), committed.key, "loading controls do not replace the saved card");
         assert.deepEqual(await scrollOf(tv, committed.section), { top: committed.top, left: committed.left });
-        await selectLibraryMode(tv, "Genres");
-        await tv.page.locator('[data-focus="genre:Drama"]').waitFor();
+        await selectLibraryMode(tv, "Browse");
+        await tv.page.locator(".catalog-grid .browse-card").first().waitFor();
         await selectLibraryMode(tv, "Recommended");
         await tv.eventually(async () => await tv.focused() === committed.key, "restored visit remains usable");
         assert.deepEqual(tv.console, []);
@@ -646,7 +648,7 @@ test("settings, audio, calendar, filmography, personal and card actions keep vis
         await tv.down(ENTER);
         await tv.jump(650);
         await tv.up(ENTER);
-        await tv.page.getByRole("dialog", { name: "Card actions" }).waitFor();
+        await tv.page.getByRole("menu").waitFor();
         await tv.remote(BACK);
         assert.equal(await tv.focused(), "movie:m0001");
         assert.equal(await visibleFocus(tv), true, "card actions return focus to the visible card");

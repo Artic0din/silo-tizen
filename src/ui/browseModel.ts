@@ -1,7 +1,7 @@
 // Decisions the browse screens make about server data, kept free of the DOM so Node can test them.
 
 import type { Route } from "./browseRoutes.ts";
-import type { BrowseScope } from "../api/operations.ts";
+import type { BrowseScope, TextSearchScope } from "../api/operations.ts";
 import { isPermittedUrl } from "../api/serverUrl.ts";
 import type { Card, ItemDetail, PlayableFile, UserLibrary } from "../contracts/v2/catalog.ts";
 import type { CatalogSubtitleTrack, SubtitleIntent, SubtitlePreferences } from "../contracts/v2/preplaySubtitles.ts";
@@ -35,8 +35,45 @@ export type EpisodeSelection = Partial<Pick<PlayRequest, "fileId" | "audioTrackI
 /** A place a card or row opens. Items open their detail page; seasons open their episode list. */
 export type Destination =
     | { readonly kind: "person"; readonly id: string; readonly title: string }
-    | { readonly kind: "item"; readonly id: string; readonly title: string; readonly seriesContext?: SeriesContext }
+    | { readonly kind: "audiobook"; readonly id: string; readonly title: string }
+    | { readonly kind: "item"; readonly id: string; readonly title: string; readonly seriesContext?: SeriesContext; readonly seed?: DetailSeed; readonly fromRelated?: boolean }
     | { readonly kind: "season"; readonly seriesId: string; readonly seasonNumber: number; readonly title: string; readonly id?: string; readonly episodeId?: string };
+
+/** Apple TVItemDetailRouteSeed: what the opening card already knows, painted in the loading frame. */
+export interface DetailSeed {
+    readonly type: string;
+    readonly title: string;
+    readonly year?: number | undefined;
+    readonly overview?: string | undefined;
+    readonly runtimeMinutes?: number | undefined;
+    readonly contentRating?: string | undefined;
+    readonly genre?: string | undefined;
+    /** silo-apple 3651342 Navigation/Route.swift:137,155,209: the card's logo for the loading frame. */
+    readonly logoUrl?: string | undefined;
+    readonly backdropUrl?: string | undefined;
+    readonly backdropThumbhash?: string | undefined;
+    readonly backdropIsEpisodeStill?: boolean | undefined;
+    /** Set only for episode seeds. */
+    readonly episodeWatch?: { readonly played: boolean; readonly isInProgress: boolean; readonly positionSeconds?: number };
+}
+
+/** TVItemDetailRouteSeed(SectionItem): an episode card shows its series backdrop when it carries one (Apple's episodeSeriesBackdrop). */
+export function detailSeed(card: Card): DetailSeed {
+    const series = card.type === "episode" && card.seriesBackdropUrl !== undefined && card.seriesBackdropUrl !== "";
+    return {
+        type: card.type, title: card.title, year: card.year, overview: card.overview, runtimeMinutes: card.runtimeMinutes,
+        contentRating: card.contentRating, genre: card.genres?.[0], logoUrl: card.logoUrl,
+        backdropUrl: series ? card.seriesBackdropUrl : card.backdropUrl, backdropThumbhash: series ? undefined : card.backdropThumbhash,
+        backdropIsEpisodeStill: series ? false : card.backdropIsEpisodeStill,
+        ...(card.type === "episode" ? { episodeWatch: { played: card.played === true, isInProgress: card.played !== true && (card.positionSeconds ?? 0) > 0, ...(card.positionSeconds === undefined ? {} : { positionSeconds: card.positionSeconds }) } } : {}),
+    };
+}
+
+/** TVItemDetailRouteSeed(parentSeriesFrom:): the series title and backdrop only, never the episode's metadata. */
+function parentSeriesSeed(card: Card): DetailSeed {
+    const backdrop = card.seriesBackdropUrl !== undefined && card.seriesBackdropUrl !== "" ? card.seriesBackdropUrl : undefined;
+    return { type: "series", title: seriesCardTitle(card), logoUrl: card.logoUrl, backdropUrl: backdrop, ...(backdrop === undefined ? {} : { backdropIsEpisodeStill: false }) };
+}
 
 export interface SeriesContext {
     readonly seasonNumber: number | undefined;
@@ -45,14 +82,18 @@ export interface SeriesContext {
 
 /** Within this many seconds of the end, a stored position is treated as finished. */
 export const RESUME_END_MARGIN_SECONDS = 5;
+/** PlaybackResumePoint.position: a position of 30 s or less plays from the start. */
+export const RESUME_MIN_SECONDS = 30;
 
-/** Movies, series, seasons and episodes; other media on Home (books, podcasts, anything new) is left out. */
+/** Movies, series, seasons, episodes and audiobooks; other media on Home (podcasts, anything new) is left out. */
 export function destinationOf(card: Card): Destination | undefined {
     switch (card.type) {
         case "movie":
         case "series":
         case "episode":
-            return { kind: "item", id: card.id, title: card.title };
+            return { kind: "item", id: card.id, title: card.title, seed: detailSeed(card) };
+        case "audiobook":
+            return { kind: "audiobook", id: card.id, title: card.title };
         case "season":
             return card.seriesId === undefined || card.seasonNumber === undefined
                 ? undefined
@@ -82,17 +123,18 @@ function seriesCardTitle(card: Card): string {
 export function browseCardDestination(card: Card): Destination | undefined {
     const seriesId = parentSeriesId(card);
     // Unknown media stays omitted. An episode number on a season still names the parent series.
-    if (card.type !== "unknown" && seriesId !== undefined && (card.type === "episode" || card.episodeNumber !== undefined)) {
-        return { kind: "item", id: seriesId, title: seriesCardTitle(card), seriesContext: { seasonNumber: card.seasonNumber, episodeId: card.id } };
+    if (card.type !== "unknown" && card.type !== "audiobook" && seriesId !== undefined && (card.type === "episode" || card.episodeNumber !== undefined)) {
+        return { kind: "item", id: seriesId, title: seriesCardTitle(card), seriesContext: { seasonNumber: card.seasonNumber, episodeId: card.id }, seed: parentSeriesSeed(card) };
     }
     if (card.type === "season" && seriesId !== undefined && card.seasonNumber !== undefined) {
-        return { kind: "item", id: seriesId, title: seriesCardTitle(card), seriesContext: { seasonNumber: card.seasonNumber, episodeId: undefined } };
+        return { kind: "item", id: seriesId, title: seriesCardTitle(card), seriesContext: { seasonNumber: card.seasonNumber, episodeId: undefined }, seed: parentSeriesSeed(card) };
     }
     return destinationOf(card);
 }
 
 /**
- * Video libraries in the server's order, without those the profile hid itself. Access limits are
+ * Libraries in the server's order, without those the profile hid itself. Audiobook libraries are kept; the bar
+ * lists them only while Show Audiobooks is on. Access limits are
  * the server's: it lists only libraries the profile may see. The hidden list is a preference.
  */
 export function visibleLibraries(libraries: readonly UserLibrary[], hiddenIds: readonly string[]): UserLibrary[] {
@@ -103,6 +145,18 @@ export function visibleLibraries(libraries: readonly UserLibrary[], hiddenIds: r
 
 export function scopeOf(library: UserLibrary): BrowseScope {
     return library.type === "movies" ? "movie" : library.type === "series" ? "series" : "video";
+}
+
+export type SearchFilter = "movie" | "series" | "audiobook";
+
+/**
+ * Apple SearchMediaType.queryValue. All names no scope while audiobooks take part. Without them it names a
+ * video scope so a hidden audiobook library never leaks into unfiltered results.
+ */
+export function searchScope(filter: SearchFilter | undefined, audiobooksEnabled: boolean, includesEpisodes: boolean): TextSearchScope | SearchFilter | undefined {
+    if (filter !== undefined) return filter;
+    if (audiobooksEnabled) return undefined;
+    return includesEpisodes ? "video_with_episodes" : "video";
 }
 
 /**
@@ -131,7 +185,7 @@ export function requestPosterUrl(path: string | undefined): string | undefined {
 }
 
 export function resumeSeconds(positionSeconds: number | undefined, durationSeconds: number | undefined): number | undefined {
-    if (positionSeconds === undefined || positionSeconds <= 0) {
+    if (positionSeconds === undefined || positionSeconds <= RESUME_MIN_SECONDS) {
         return undefined;
     }
     if (durationSeconds !== undefined && durationSeconds > 0 && positionSeconds >= durationSeconds - RESUME_END_MARGIN_SECONDS) {

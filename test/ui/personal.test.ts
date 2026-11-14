@@ -56,13 +56,18 @@ class PersonalCatalog extends FakeDetails {
             const selected = remaining.slice(0, limit);
             const last = selected[selected.length - 1];
             const next = last === undefined ? offset : scoped.indexOf(last) + 1;
-            const cards = selected.map(t => {
-                const reply = super.route("GET", `/catalog/items/${encodeURIComponent(t.id)}`, profile);
-                return reply?.body;
-            });
+            const cards = selected.map(t => this.withMembership(super.route("GET", `/catalog/items/${encodeURIComponent(t.id)}`, profile)?.body, profile));
             return { status: 200, body: { window_cursor: scope, items: cards, total: ids.length, total_exact: true, page: remaining.length > limit ? { has_more: true, next_cursor: `${scope}:${next}` } : { has_more: false } } };
         }
-        return super.route(method, path, profile, body);
+        const reply = super.route(method, path, profile, body);
+        if (method === "GET" && path.startsWith("/catalog/items/") && reply?.status === 200) return { ...reply, body: this.withMembership(reply.body, profile) };
+        return reply;
+    }
+    /** This catalog keeps list membership itself; cards and items report it in `user_state`, as the server does. */
+    private withMembership(value: unknown, profile: string | undefined): unknown {
+        if (typeof value !== "object" || value === null || !("content_id" in value) || !("user_state" in value)) return value;
+        const id = String(value.content_id);
+        return { ...value, user_state: { ...(value.user_state as Record<string, unknown>), is_favorite: this.members(profile, "favorites").has(id), in_watchlist: this.members(profile, "watchlist").has(id) } };
     }
     private members(profile: string | undefined, source: string): Set<string> {
         const key = JSON.stringify([profile, source]);
@@ -143,6 +148,33 @@ test("native comparison: History uses the safe-area grid and preserves tied serv
         assert.equal(frame.countX, 128);
         assert.equal(frame.pitch, 284);
         assert.deepEqual(frame.ids, ["movie:m0004", "movie:m0003", "movie:m0006", "movie:m0005"]);
+    } finally { await tv.page.context().close(); }
+});
+// History's CatalogGrid captions with CardYears (Screens/Personal/HistoryView.swift:49, Screens/Browse/CatalogGrid.swift:263-264);
+// tvOS Favorites' MediaCard gets only the year (Screens/Personal/FavoritesView.swift:452-460).
+test("History captions a series with the years it ran and Favorites keeps its year", async () => {
+    const { tv, catalog } = await setup();
+    try {
+        const s1 = catalog.titles.get("series:s1");
+        const s2 = catalog.titles.get("series:s2");
+        assert.ok(s1 !== undefined && s2 !== undefined);
+        catalog.add({ ...s1, showStatus: "returning" });
+        catalog.add({ ...s2, showStatus: "ended", lastAirDate: "2024-03-17" });
+        const reply = catalog.route("POST", "/catalog/query", "p-owner", { source: "history", limit: 60 });
+        const body = reply?.body as Record<string, unknown>;
+        const series = ["series:s1", "series:s2"].map(id => catalog.route("GET", `/catalog/items/${encodeURIComponent(id)}`, "p-owner")?.body);
+        catalog.pageReplies.push({ status: 200, body: { ...body, items: [...series, ...(body.items as unknown[]).slice(0, 4)] } });
+        const line = (id: string) => tv.page.locator(`[data-view^="personal:"] [data-focus="${id}"] .browse-card-subtitle`).textContent();
+        await openList(tv, "history");
+        assert.equal(await line("series:s1"), "2020 – Present");
+        assert.equal(await line("series:s2"), "2021 – 2024");
+        await tv.remote(10009);
+        await tv.page.locator('[data-view="home"]').waitFor();
+        await openList(tv, "favorites");
+        await tv.page.locator('[data-focus="filter:series"]').click();
+        await tv.page.locator('[data-view="personal:favorites"] [data-focus="series:s2"]').waitFor();
+        assert.equal(await line("series:s1"), "2020");
+        assert.equal(await line("series:s2"), "2021");
     } finally { await tv.page.context().close(); }
 });
 test("native comparison: History title matches the captured system title", async () => {
@@ -500,7 +532,7 @@ test("review: dismissing card actions resumes a cancelled one-row Favorites cont
         await tv.page.locator(".personal-page .browse-card").first().focus();
         const identity = await tv.focused();
         await tv.down(13); await tv.jump(650); await tv.up(13);
-        await tv.page.getByRole("dialog", { name: "Card actions" }).waitFor();
+        await tv.page.getByRole("menu").waitFor();
         await tv.remote(10009);
         await tv.eventually(async () => await tv.page.locator(".personal-page .browse-card").count() > 8, "dismissal restarts the cancelled continuation");
         assert.equal(await tv.focused(), identity);
@@ -683,11 +715,8 @@ for (const source of ["watchlist", "favorites"]) test(`card quick-actions remove
         const card = tv.page.locator('[data-focus="movie:m0050"]');
         await card.focus();
         await tv.down(13); await tv.jump(650); await tv.up(13);
-        const panel = tv.page.getByRole("dialog", { name: "Card actions" });
-        const remove = source === "watchlist" ? "Remove from watchlist" : "Remove favorite";
-        await panel.getByRole("button", { name: remove, exact: true }).click();
-        await panel.getByRole("button", { name: source === "watchlist" ? "Add to watchlist" : "Add favorite", exact: true }).waitFor();
-        await tv.remote(10009);
+        const remove = source === "watchlist" ? "Remove from Watchlist" : "Remove from Favorites";
+        await tv.page.getByRole("menu").getByRole("menuitem", { name: remove, exact: true }).click();
         await tv.eventually(async () => await card.count() === 0 && await tv.focused() === "movie:m0051", "nearby removal focus");
         const last = listReads(tv).slice(-1)[0];
         assert.equal(last?.body?.cursor, `p-owner:${source}:video:48`);
@@ -798,7 +827,9 @@ for (const source of ["watchlist", "favorites"]) test(`integrated Details remove
         await remove.click();
         if (source === "favorites") await tv.page.locator('[data-focus="more"]').click();
         await tv.eventually(async () => catalog.mutations.length === 1, "Details removal committed");
-        assert.equal(await tv.page.locator(`[data-focus="${source}"]`).getAttribute("aria-disabled"), "true");
+        // Apple's Watchlist circle never disables; its icon shows the requested state while the change is in flight.
+        if (source === "watchlist") assert.equal(await tv.page.locator('[data-focus="watchlist"]').getAttribute("aria-pressed"), "false");
+        else assert.equal(await tv.page.locator('[data-focus="favorites"]').getAttribute("aria-disabled"), "true");
         held.release();
         await tv.page.getByRole("button", { name: source === "favorites" ? "Add to Favorites" : "Add to watchlist", exact: true }).waitFor();
         if (source === "favorites") await tv.remote(10009);

@@ -16,10 +16,13 @@ const EVENTUALLY_TIMEOUT_MS = 10000;
 export type TvApp = "signIn" | "browse" | "application";
 const ENTRY: Record<TvApp, string> = { signIn: "../harness.ts", browse: "../browseHarness.ts", application: "../appHarness.ts" };
 const THEME = readFileSync(new URL("../../../src/theme.css", import.meta.url), "utf8");
+const css = (names: readonly string[]): string => names.map((name) => readFileSync(new URL(`../../../src/${name}`, import.meta.url), "utf8")).join("\n");
+// confirmationDialog.css styles a component every screen can show, so each harness loads it as main.ts does.
+// signIn.css holds that component's alert style, which Details' failure alerts use.
 const CSS: Record<TvApp, string> = {
-    signIn: readFileSync(new URL("../../../src/ui/signIn.css", import.meta.url), "utf8"),
-    browse: readFileSync(new URL("../../../src/ui/browse.css", import.meta.url), "utf8"),
-    application: ["ui/signIn.css", "ui/browse.css", "ui/accounts.css", "player/player.css", "app.css"].map((name) => readFileSync(new URL(`../../../src/${name}`, import.meta.url), "utf8")).join("\n"),
+    signIn: css(["ui/signIn.css", "ui/confirmationDialog.css"]),
+    browse: css(["ui/signIn.css", "ui/browse.css", "ui/confirmationDialog.css"]),
+    application: css(["ui/signIn.css", "ui/browse.css", "ui/confirmationDialog.css", "ui/accounts.css", "player/player.css", "app.css"]),
 };
 const HTML = `<!DOCTYPE html>
 <html lang="en">
@@ -37,7 +40,9 @@ function svgArt(name: string): string {
         hue = (hue * 31 + name.charCodeAt(i)) % 360;
     }
     const label = name.replace(/[^A-Za-z0-9:.-]/g, " ").slice(0, 24);
-    return `<svg xmlns="http://www.w3.org/2000/svg" width="500" height="750" viewBox="0 0 500 750"><rect width="500" height="750" fill="hsl(${hue},45%,32%)"/><text x="250" y="400" font-family="sans-serif" font-size="40" fill="#fff" text-anchor="middle">${label}</text></svg>`;
+    // An audiobook cover is square (Apple MediaCardAspect.square).
+    const height = name.startsWith("audiobook") ? 500 : 750;
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="500" height="${height}" viewBox="0 0 500 ${height}"><rect width="500" height="${height}" fill="hsl(${hue},45%,32%)"/><text x="250" y="${height / 2 + 25}" font-family="sans-serif" font-size="40" fill="#fff" text-anchor="middle">${label}</text></svg>`;
 }
 
 /** The harness as the TV build bundles it: one classic script lowered to Chrome 108. */
@@ -67,6 +72,8 @@ export function harnessBundle(app: TvApp = "signIn"): Promise<string> {
     bundles.set(app, bundle);
     return bundle;
 }
+
+const PACKAGED_FONTS: Readonly<Record<string, string>> = { "/fonts/InterVariable.woff2": "font/woff2", "/fonts/RobotoMono-Variable.ttf": "font/ttf" };
 
 export function launchBrowser(): Promise<Browser> {
     // Hinted glyph advances differ on Linux and shift text by a few pixels; geometry tests compare against Apple's values.
@@ -184,9 +191,10 @@ export async function openTv(
             await route.fulfill({ status: 200, contentType: "text/css", body: THEME + CSS[app] });
             return;
         }
-        if (url.pathname === "/fonts/InterVariable.woff2") {
-            // The stylesheet's ../fonts/ URL from /tv/app.css: the same file the WGT packages.
-            await route.fulfill({ status: 200, contentType: "font/woff2", body: readFileSync(new URL("../../../app/fonts/InterVariable.woff2", import.meta.url)) });
+        const font = PACKAGED_FONTS[url.pathname];
+        if (font !== undefined) {
+            // The stylesheet's ../fonts/ URLs from /tv/app.css: the same files the WGT packages.
+            await route.fulfill({ status: 200, contentType: font, body: readFileSync(new URL(`../../../app${url.pathname}`, import.meta.url)) });
             return;
         }
         if (url.pathname.startsWith("/tv/img/")) {

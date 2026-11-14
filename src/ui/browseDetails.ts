@@ -3,6 +3,7 @@
 import type { Episode, ItemDetail, Season } from "../contracts/v2/catalog.ts";
 import type { Credit, Person } from "../contracts/v2/details.ts";
 import type { Card } from "../contracts/v2/catalog.ts";
+import type { Destination } from "./browseModel.ts";
 import type { DetailsState } from "./detailsState.ts";
 import { TRANSLATE_DESCRIPTION_LABEL, type DescriptionTranslationStatus } from "./descriptionTranslation.ts";
 import type { FocusItem, View, Zone } from "./browseFocus.ts";
@@ -15,6 +16,7 @@ import { personMetadataBadges, personPortrait } from "./personHero.ts";
 import { el } from "./screen.ts";
 import { detailAction, detailPanel } from "./detailsActions.ts";
 import { initialSubtitle, matchesSubtitle } from "../player/preplaySubtitles.ts";
+import { audioTitle as trackAudioTitle } from "../player/trackLabels.ts";
 import type { SubtitleSignature } from "../contracts/v2/preplaySubtitles.ts";
 import { seriesEpisodesView } from "./seriesEpisodesView.ts";
 import { languageName } from "./cardOverlays.ts";
@@ -23,8 +25,12 @@ import { episodeAirDate, episodeRuntime } from "./episodeCaption.ts";
 import { TMDB_LOGO_PATH } from "./acknowledgements.ts";
 import { spinner } from "./marquee.ts";
 import { defaultArtwork } from "./defaultArtwork.ts";
+import { centredDialog } from "./confirmationDialog.ts";
+import { choiceFromDetail } from "./watchPartyChoice.ts";
 
-const detailPalette = new Map<string, Tints>();
+export const detailPalette = new Map<string, Tints>();
+/** TVDecodedLogoTitle's easeInOut(duration: 0.2). */
+const LOGO_CROSSFADE_MS = 200;
 /** Logo URLs that have decoded on a visible Details page. Later paints of the same visit seed that image, as TVDecodedLogoTitle does from the pipeline cache (silo-apple e28300c61f044a9322f588203c8819d6f06e6197, TVDetailHero.swift). */
 const decodedTitleLogos = new Set<string>();
 
@@ -57,7 +63,7 @@ function factTokens(detail: ItemDetail, state: DetailsState | undefined, episode
         const minutes = file?.durationSeconds ? Math.round(file.durationSeconds / 60) : detail.runtimeMinutes;
         tokens.push(runtimeToken(minutes));
     }
-    const count = state?.series?.seasons.filter(season => !season.isSpecials).length;
+    const count = state?.series?.seasons.filter(season => !season.isSpecials && season.seasonNumber !== 0).length;
     if (detail.type === "series" && count) tokens.push(`${count} Season${count === 1 ? "" : "s"}`);
     return tokens;
 }
@@ -83,7 +89,7 @@ function metadataRow(detail: ItemDetail, state: DetailsState | undefined, episod
         if (advisory !== undefined) chips.push({ text: advisory, advisory: true });
     }
     const facts = factTokens(detail, state, episode);
-    const ratings = (episode === undefined ? detail.extra?.ratings : state?.nextEpisodeState?.detail.extra?.ratings ?? episode.ratings) ?? [];
+    const ratings = (episode === undefined ? detail.extra?.ratings : state?.nextEpisodeState?.detail.extra?.ratings) ?? [];
     const sources = sourceTokens(detail, episode);
     if (chips.length === 0 && facts.length === 0 && ratings.length === 0 && sources.length === 0) return undefined;
     const row = el("p", "browse-meta");
@@ -100,6 +106,8 @@ function metadataRow(detail: ItemDetail, state: DetailsState | undefined, episod
             const logo = el("img", "skyline-rating-logo");
             logo.src = TMDB_LOGO_PATH;
             logo.alt = "TMDB";
+            // The logo has no width until it loads, so the row is measured again then.
+            logo.addEventListener("load", () => fitRatings(row));
             badge.append(logo);
         } else badge.append(el("span", "", rating.name));
         badge.append(el("span", "details-rating-score", rating.display));
@@ -118,12 +126,82 @@ function overviewText(overview: string, status: DescriptionTranslationStatus | u
 }
 
 function translationStatus(status: DescriptionTranslationStatus): HTMLElement {
-    const line = el("p", "description-translation-status", status.text);
+    const line = el("p", "description-translation-status");
     line.dataset.translationStatus = status.kind;
+    // SF Symbol "translate", drawn as the More menu's Translate Description icon.
+    line.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M2 5H14M8 2V5M5 5C5 11 10 14 14 15M12 5C12 11 7 14 3 15M13 22 18 10 23 22M15 18H21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    line.append(el("span", "", status.text));
     return line;
 }
 
-function detailHeader(detail: ItemDetail, context: ViewContext, actions: readonly FocusItem[], state?: DetailsState, summary?: string): HTMLElement[] {
+/** TVHeroTitle.split: the first of ": ", " — ", " – " or " - " whose trimmed halves are both non-empty. */
+export function titleParts(raw: string): { primary: string; subtitle: string | undefined } {
+    for (const separator of [": ", " \u2014 ", " \u2013 ", " - "]) {
+        const at = raw.indexOf(separator);
+        if (at < 0) continue;
+        const head = raw.slice(0, at).trim(), tail = raw.slice(at + separator.length).trim();
+        if (head !== "" && tail !== "") return { primary: head, subtitle: tail };
+    }
+    return { primary: raw, subtitle: undefined };
+}
+
+/**
+ * TVDecodedLogoTitle: the text title stays until the logo has decoded, then the logo cross-fades in over 0.2 s.
+ * A logo already decoded this visit, or Reduce Motion, swaps at once.
+ */
+export function decodedLogoTitle(holder: HTMLElement, logo: string | undefined, alt: string, allowed: () => boolean, showText: () => void, logoClass: string): void {
+    showText();
+    if (logo === undefined || !allowed()) return;
+    const image = el("img", logoClass);
+    image.alt = alt;
+    image.referrerPolicy = "no-referrer";
+    const cached = decodedTitleLogos.has(logo);
+    image.addEventListener("load", () => {
+        if (!allowed() || !holder.isConnected || holder.closest("[hidden]") !== null) return;
+        decodedTitleLogos.add(logo);
+        if (image.parentElement === holder) return;
+        const outgoing = Array.from(holder.childNodes);
+        holder.replaceChildren(image);
+        if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+        image.classList.add("details-logo-enter");
+        const exit = el("span", "details-title-exit");
+        exit.setAttribute("aria-hidden", "true");
+        exit.append(...outgoing);
+        holder.append(exit);
+        setTimeout(() => exit.remove(), LOGO_CROSSFADE_MS);
+    });
+    image.addEventListener("error", () => {
+        if (image.parentElement !== holder) return;
+        decodedTitleLogos.delete(logo);
+        showText();
+    });
+    image.src = logo;
+    // A logo that already decoded this visit is in the title before the repaint connects, so the text fallback does not paint again.
+    if (cached) holder.replaceChildren(image);
+}
+
+/** TVPlaybackSelectionSummaryView: a long value tightens, then shrinks to 0.75 of its size before it truncates. */
+const READOUT_MIN_SCALE = 0.75;
+function fitReadout(readout: HTMLElement): void {
+    for (const value of Array.from(readout.querySelectorAll<HTMLElement>("span"))) {
+        if (value.textContent === "" || value.scrollWidth <= value.clientWidth) continue;
+        const size = parseFloat(getComputedStyle(value).fontSize);
+        value.style.letterSpacing = "-0.5px";
+        if (value.scrollWidth <= value.clientWidth) continue;
+        value.style.fontSize = `${size * Math.max(READOUT_MIN_SCALE, value.clientWidth / value.scrollWidth)}px`;
+    }
+}
+
+/** TVDetailHero factsRow's ViewThatFits: whole ratings drop from the end once genres have given way. */
+function fitRatings(row: HTMLElement): void {
+    while (row.scrollWidth > row.clientWidth + 0.5) {
+        const last = Array.from(row.querySelectorAll(".details-external-rating")).at(-1);
+        if (last === undefined) return;
+        last.remove();
+    }
+}
+
+function detailHeader(detail: ItemDetail, context: ViewContext, actions: readonly FocusItem[], state?: DetailsState, summary?: string, showsSummary = true): HTMLElement[] {
     const nodes: HTMLElement[] = [];
     const label = episodeLabel(detail.seasonNumber, detail.episodeNumber);
     if (detail.type === "episode" && (detail.seriesTitle !== undefined || label !== undefined)) {
@@ -131,36 +209,15 @@ function detailHeader(detail: ItemDetail, context: ViewContext, actions: readonl
     }
     const title = heading(detail.title);
     title.classList.add("requests-detail-title");
-    const split = detail.title.indexOf(": ");
-    const primary = el("span", "requests-title-primary", split < 0 ? detail.title : detail.title.slice(0, split));
-    const secondary = split >= 0 ? el("span", "requests-title-secondary", detail.title.slice(split + 2)) : undefined;
+    const parts = titleParts(detail.title);
+    const primary = el("span", "requests-title-primary", parts.primary);
+    const secondary = parts.subtitle === undefined ? undefined : el("span", "requests-title-secondary", parts.subtitle);
     const showText = (): void => {
         title.replaceChildren(primary);
         if (secondary !== undefined) title.appendChild(secondary);
     };
-    showText();
-    const logo = artworkUrl(detail.extra?.logoUrl, context.baseUrl);
-    const allowed = state?.titleArtGuard();
-    if (logo !== undefined && allowed?.()) {
-        const image = el("img", "details-logo");
-        image.alt = detail.title;
-        image.referrerPolicy = "no-referrer";
-        const showLogo = (): void => {
-            if (!allowed() || !title.isConnected || title.closest("[hidden]") !== null) return;
-            decodedTitleLogos.add(logo);
-            if (image.parentElement === title) return;
-            title.replaceChildren(image);
-        };
-        image.addEventListener("load", showLogo);
-        image.addEventListener("error", () => {
-            if (image.parentElement !== title) return;
-            decodedTitleLogos.delete(logo);
-            showText();
-        });
-        image.src = logo;
-        // A logo that already decoded this visit is in the title before the repaint connects, so the 110px fallback does not paint again.
-        if (decodedTitleLogos.has(logo)) title.replaceChildren(image);
-    }
+    const live = state?.generationGuard();
+    decodedLogoTitle(title, artworkUrl(detail.extra?.logoUrl, context.baseUrl), detail.title, () => (live?.() ?? false) && (context.titleArt?.() ?? false), showText, "details-logo");
     nodes.push(title);
     const episode = state?.series?.episodes?.find(item => item.id === state.heroEpisodeId);
     const playback = state?.nextEpisodeState;
@@ -170,28 +227,36 @@ function detailHeader(detail: ItemDetail, context: ViewContext, actions: readonl
     const episodeOverview = episode === undefined ? undefined : episodeDetailPresentation({ type: "episode", overview: episode.overview || playback?.detail.overview, watch: { played: episode.played, isInProgress: episode.isInProgress, positionSeconds: episode.positionSeconds } }, context.spoilers?.() ?? { hidesImages: false, hidesOverviews: false }).overview;
     const overview = episode === undefined ? presentation.overview : [playback?.detail.title ?? episode.title, episodeOverview].filter(Boolean).join(" · ");
     const translation = state?.descriptions?.status(episode, playback?.detail);
-    if ((overview !== undefined && overview !== "") || translation !== undefined) {
-        if (overview !== undefined && overview !== "") nodes.push(overviewText(overview, translation));
+    if (overview !== undefined && overview !== "") {
+        nodes.push(overviewText(overview, translation));
         if (translation !== undefined) nodes.push(translationStatus(translation));
     }
     const directors = detail.extra?.crew.filter(credit => credit.role.toLowerCase() === "director").map(credit => credit.name);
     const credit = detail.type === "movie" ? directors?.length ? `Directed by ${directors.slice(0, 2).join(", ")}` : undefined : detail.extra?.cast.length ? `Starring ${detail.extra.cast.slice(0, 3).map(person => person.name).join(", ")}` : undefined;
     if (credit !== undefined) nodes.push(el("p", "details-director", credit));
-    if (summary !== undefined) {
-        const readout = el("div", "details-playback-summary");
-        for (const part of summary.split(" | ")) {
-            const at = part.indexOf(": ");
-            const field = el("div", ""); field.dataset.trackSummary = part.slice(0, at).toLowerCase();
-            field.append(el("strong", "", part.slice(0, at).toUpperCase()), el("span", "", part.slice(at + 2)));
-            readout.appendChild(field);
-        }
-        nodes.push(readout);
+    // TVPlaybackSelectionSummaryView always keeps its labels; a value it does not know yet is a quiet bar.
+    const readout = el("div", "details-playback-summary");
+    const values = new Map((summary?.split(" | ") ?? []).map(part => [part.slice(0, part.indexOf(": ")), part.slice(part.indexOf(": ") + 2)] as const));
+    for (const label of ["Version", "Audio", "Subtitles"]) {
+        const field = el("div", ""); field.dataset.trackSummary = label.toLowerCase();
+        field.append(el("strong", "", label.toUpperCase()), el("span", "", values.get(label) ?? ""));
+        readout.appendChild(field);
     }
+    if (!showsSummary) { readout.style.opacity = "0"; readout.setAttribute("aria-hidden", "true"); }
+    nodes.push(readout);
+    // FocusHost places the view synchronously, so both are laid out by the next microtask.
+    queueMicrotask(() => {
+        if (row !== undefined) fitRatings(row);
+        fitReadout(readout);
+    });
     const layout = el("div", "details-hero");
     layout.dataset.mediaType = detail.type;
-    const backdrop = artworkUrl(detail.backdropUrl ?? detail.posterUrl, context.baseUrl);
-    const background = heroBackdrop(backdrop ?? "", undefined, detailPalette, true);
-    if (presentation.hideBackdrop) blurEpisodeStill(background.querySelector<HTMLElement>(".skyline-art-frame")!);
+    // TVDetailHero draws only the backdrop. Without one the page keeps TVDetailPageSurface's fallback tint.
+    const backdrop = artworkUrl(detail.backdropUrl, context.baseUrl);
+    const background = heroBackdrop(backdrop ?? "", detail.backdropThumbhash, detailPalette, true, true);
+    // Without a backdrop there is no frame, and nothing to blur.
+    const frame = background.querySelector<HTMLElement>(".skyline-art-frame");
+    if (presentation.hideBackdrop && frame !== null) blurEpisodeStill(frame);
     const wash = background.querySelector<HTMLElement>(".skyline-tint-wash")!;
     wash.classList.add("details-page-wash");
     wash.remove();
@@ -205,22 +270,27 @@ function detailHeader(detail: ItemDetail, context: ViewContext, actions: readonl
         const primary = el("div", "details-series-primary");
         const disclosure = el("div", "details-series-disclosure");
         primary.append(...nodes.filter(node => !node.matches(".details-director, .details-playback-summary")));
-        disclosure.append(nodes.find(node => node.matches(".details-director")) ?? el("div", "details-director"), nodes.find(node => node.matches(".details-playback-summary")) ?? el("div", "details-playback-summary"));
+        disclosure.append(nodes.find(node => node.matches(".details-director")) ?? el("div", "details-director"), readout);
         editorial.append(primary, disclosure);
         info.appendChild(editorial);
     } else info.append(...nodes);
     info.appendChild(zoneNode("browse-actions", actions));
-    if (state?.trailers.message !== undefined) {
-        const status = el("p", "details-trailer-status", state.trailers.message);
-        status.setAttribute("role", "status");
-        status.setAttribute("aria-busy", String(state.trailers.fetching));
-        const indicator = state.trailers.fetching ? spinner() : el("span", "", "ⓘ");
-        indicator.setAttribute("aria-hidden", "true");
-        status.prepend(indicator);
-        info.append(status);
-    }
+    // TVMovieDetailView.actionColumn: a movie's pill sits under the action row. A series draws it in the episode block.
+    const status = detail.type === "series" ? undefined : trailerStatus(state);
+    if (status !== undefined) info.append(status);
     layout.appendChild(info);
     return [wash, layout];
+}
+
+function trailerStatus(state: DetailsState | undefined): HTMLElement | undefined {
+    if (state?.trailers.message === undefined) return undefined;
+    const status = el("p", "details-trailer-status", state.trailers.message);
+    status.setAttribute("role", "status");
+    status.setAttribute("aria-busy", String(state.trailers.fetching));
+    const indicator = state.trailers.fetching ? spinner() : el("span", "", "ⓘ");
+    indicator.setAttribute("aria-hidden", "true");
+    status.prepend(indicator);
+    return status;
 }
 
 export function itemView(detail: ItemDetail, seasons: readonly Season[], context: ViewContext, play: (request: PlayRequest) => void, back: () => void, state?: DetailsState, boxSet?: BoxSetRowState): View {
@@ -233,27 +303,36 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
     const notes: string[] = [];
     if (preferences?.audioPreference.pending) notes.push("Saving audio preference…");
     if (preferences?.subtitlePreference.pending) notes.push("Saving subtitle preference…");
-    if (preferences?.subtitlePreference.failed) {
-        notes.push("Subtitle preference could not be confirmed.");
-        actions.push(actionButton("retry-subtitle-preference", "Check subtitle preference", () => state?.retryPreference("subtitles", preferences)));
-    }
-    if (preferences?.audioPreference.failed) {
-        notes.push("Could not confirm the audio preference. Check before playing.");
-        actions.push(actionButton("retry-audio-preference", "Check audio preference", () => state?.retryPreference("audio", preferences)));
-    }
+    if (preferences?.subtitlePreference.failed) notes.push("Subtitle preference could not be confirmed.");
+    if (preferences?.audioPreference.failed) notes.push("Could not confirm the audio preference. Check before playing.");
+    // Apple's row has no preference-check buttons, so Play re-sends an unconfirmed save before it plays.
+    const retriedPreference = (): boolean => {
+        if (state === undefined || preferences === undefined) return false;
+        const failed = (["subtitles", "audio"] as const).filter(kind => (kind === "audio" ? preferences.audioPreference : preferences.subtitlePreference).failed);
+        for (const kind of failed) state.retryPreference(kind, preferences);
+        return failed.length > 0;
+    };
+    const savePending = [preferences, tracks].some(owner => owner?.audioPreference.pending === true || owner?.subtitlePreference.pending === true);
+    // deferPlay keeps a press that raced a shared preference save; Play starts it once the save confirms.
+    if (tracks?.failedPlay !== undefined && !savePending) notes.push("Press Play again to start playback.");
     const choices = playChoices(detail, state?.selectedFileId, state?.preferredQuality);
     const choose = (request: PlayRequest): void => {
+        if (retriedPreference()) return;
         const audioTrackId = state?.audioTrackId(true);
         const next = { ...request, ...(audioTrackId === undefined ? {} : { audioTrackId }), ...(state === undefined ? {} : { subtitle: state.subtitleIntent() }) };
         play(withStartAudioLanguage(next, detail.versions.find(file => file.fileId === next.fileId)));
     };
     if (choices?.resume !== undefined) {
         const resume = choices.resume;
-        actions.push(actionButton("resume", `Resume from ${clockTime(resume.startSeconds ?? 0)}`, () => choose(resume)));
-        actions.push(actionButton("play", "Play from start", () => choose(choices.fromStart)));
+        actions.push(actionButton("resume", `Resume ${clockTime(resume.startSeconds ?? 0)}`, () => choose(resume)));
+        actions.push(actionButton("play", "Start Over", () => choose(choices.fromStart)));
     } else if (choices !== undefined) {
         actions.push(actionButton("play", "Play", () => choose(choices.fromStart)));
     } else if (detail.type === "movie" || detail.type === "episode") {
+        // Apple keeps Play in the row; with no file to hand AVPlay it stays disabled beside this note.
+        const play = actionButton("play", "Play", () => undefined);
+        play.element.setAttribute("aria-disabled", "true");
+        actions.push(play);
         notes.push("This title has no file this TV can play.");
     }
     const next = state?.series === undefined ? state?.playbackTargetId ?? detail.playContentId : state.playbackTargetId;
@@ -262,7 +341,7 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
         const targetChoices = playbackChoices;
         const summary = state?.series?.railEpisodes?.find(episode => episode.id === next);
         const playNext = (startOver = false): void => {
-            if (state?.episodePreferencesBlocked) return;
+            if (retriedPreference() || state?.episodePreferencesBlocked) return;
             if (target === undefined) { context.playEpisode?.(next, summary?.title ?? detail.title, startOver); return; }
             if (targetChoices === undefined) return;
             const audioTrackId = tracks?.audioTrackId(true);
@@ -271,14 +350,14 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
         };
         const labelTarget = summary ?? target;
         const canResume = targetChoices?.resume !== undefined || target === undefined && summary?.inProgress === true;
-        const label = labelTarget === undefined ? "Loading episode…" : `${canResume ? "Resume" : "Play"} ${episodeLabel(labelTarget.seasonNumber, labelTarget.episodeNumber) ?? labelTarget.title}`;
-        const primary = actionButton("next-episode", state?.nextEpisodeFailed === true ? (state.offline ? "Episode unavailable" : "Retry episode") : target !== undefined && targetChoices === undefined ? "Episode unavailable" : label, () => {
-            if (state?.nextEpisodeFailed === true) state.loadNextEpisode();
-            else playNext();
-        });
         const failed = state?.nextEpisodeFailed === true;
-        const awaitingFile = targetChoices === undefined && (state?.offline === true || labelTarget === undefined && !failed || target !== undefined && !failed);
-        primary.element.setAttribute("aria-disabled", String(state?.episodePreferencesBlocked || awaitingFile));
+        // TVDetailActionRow: "Loading episodes…" while the list loads, else "Play" with no episode to name.
+        const label = labelTarget === undefined ? failed ? "Play" : "Loading episodes…" : `${canResume ? "Resume" : "Play"} ${episodeLabel(labelTarget.seasonNumber, labelTarget.episodeNumber) ?? labelTarget.title}`;
+        // A failed episode read still plays through the episode route, which loads its own detail.
+        const primary = actionButton("next-episode", label, () => { if (primary.element.getAttribute("aria-disabled") !== "true") playNext(); });
+        // After a failed read, Play still knows the episode id, so it plays through the episode route.
+        const unplayable = labelTarget === undefined && !failed || targetChoices === undefined && (state?.offline === true || target !== undefined);
+        primary.element.setAttribute("aria-disabled", String(savePending || unplayable));
         actions.push(primary);
         if (canResume) actions.push(actionButton("start-over-episode", "Start Over", () => playNext(true)));
         if (target !== undefined && targetChoices === undefined) notes.push("This episode has no file this TV can play.");
@@ -323,70 +402,68 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
         const meaningful = embedded && !/^(?:ATSC|AC-?3|E-?AC-?3|AAC|DTS|FLAC|PCM|OPUS|MP3|VORBIS)(?:\b|$)/i.test(embedded) ? embedded : undefined;
         return meaningful ?? languageName(track?.language) ?? `Track ${index + 1}`;
     };
+    // TrackLabels.name: the language leads the popover row; a track's own title moves to its detail line.
+    const audioRowTitle = (index: number): string => languageName(audio[index]?.language) ?? trackAudioTitle(audio[index]?.title, audio[index]?.language) ?? `Track ${index + 1}`;
     const audioLabel = (index: number): string => [languageName(audio[index]?.language), audioDetails(index)].filter(Boolean).join(' · ') || audioTitle(index);
-    const seriesSelectors = detail.type === "series";
-    if ((playbackChoices !== undefined || seriesSelectors) && state !== undefined) {
+    // TVPlaybackActionSelectors stay mounted and disable until a version is known.
+    if (state !== undefined) {
         const ordinal = audio.findIndex((_track, index) => selectedAudio === `file:${file?.fileId}:audio:${index}`);
+        const version = actionButton("version", `Version: ${versionValue}`, () => state.showPanel("version"));
+        version.element.setAttribute("aria-disabled", String(playbackChoices === undefined || playbackDetail.versions.length === 0));
+        version.element.setAttribute("aria-haspopup", "dialog");
+        actions.push(version);
         const trigger = actionButton("audio", `Audio: ${ordinal === -1 ? "Auto" : audioLabel(ordinal)}`, () => state.showPanel("audio"));
-        trigger.element.setAttribute("aria-disabled", String(playbackChoices === undefined && (!seriesSelectors || state.nextEpisode !== undefined || state.nextEpisodeFailed)));
+        trigger.element.setAttribute("aria-disabled", String(playbackChoices === undefined || audio.length === 0));
         trigger.element.setAttribute("aria-haspopup", "dialog");
         trigger.element.setAttribute("aria-expanded", String(state.audioOpen));
         actions.push(trigger);
         const subtitles = actionButton("subtitles", `Subtitles: ${selectedSubtitleLabel}`, () => state.showPanel("subtitles"));
-        subtitles.element.setAttribute("aria-disabled", String(playbackChoices === undefined && (!seriesSelectors || state.nextEpisode !== undefined || state.nextEpisodeFailed)));
+        subtitles.element.setAttribute("aria-disabled", String(playbackChoices === undefined));
         subtitles.element.setAttribute("aria-haspopup", "dialog");
         subtitles.element.setAttribute("aria-expanded", String(state.panel === "subtitles"));
         actions.push(subtitles);
     }
-    if (detail.type === "series" && seasonItems.length === 0) {
-        notes.push("This series has no seasons yet.");
-    }
     if (actions.length === 0 && seasonItems.length === 0) {
         actions.push(actionButton("back", "Back", back));
     }
-    if (state?.titleArtPolicy === "failed" && !state.offline) actions.push(actionButton("retry-title-art", "Retry title art", () => state.loadTitleArt()));
-    if (tracks?.failedPlay !== undefined) {
-        const request = tracks.failedPlay;
-        actions.push(actionButton("retry-play", "Try again", () => play(request)));
-    }
-    const personal = state === undefined ? undefined : personalControls(state);
-    const watchlist = personal?.items.find(item => item.key === "watchlist");
-    if (watchlist !== undefined) actions.push(watchlist);
+    const personal = state === undefined ? undefined : personalControls(state, true);
     if (state !== undefined) {
-        if (playbackDetail.versions.length > 0 || seriesSelectors) {
-            const version = actionButton("version", `Version: ${versionValue}`, () => state.showPanel("version"));
-            version.element.setAttribute("aria-disabled", String(playbackChoices === undefined && (!seriesSelectors || state.nextEpisode !== undefined || state.nextEpisodeFailed)));
-            version.element.setAttribute("aria-haspopup", "dialog");
-            actions.splice(actions.findIndex(item => item.key === "audio"), 0, version);
-        }
+        // Watchlist shows while membership loads or fails; only a server or item that has no lists drops it.
+        if (state.personalSupported !== false) actions.push(watchlistButton(state));
         const more = actionButton("more", "More", () => state.showPanel("more"));
         more.element.setAttribute("aria-haspopup", "dialog");
         actions.push(more);
     }
     const ordinal = audio.findIndex((_track, index) => selectedAudio === `file:${file?.fileId}:audio:${index}`);
     const resolvedAudio = audio[effectiveAudio] === undefined ? audio.length ? audioLabel(0) : "Unknown" : audioLabel(effectiveAudio);
-    // Keep the summary absent until the focused episode's full versions arrive.
+    // Values stay empty until the focused episode's full versions arrive.
     const summary = playbackChoices === undefined ? undefined : `Version: ${versionValue} | Audio: ${ordinal === -1 ? "Auto · " : ""}${resolvedAudio} | Subtitles: ${subtitleSummary}`;
-    const content = [...detailHeader(detail, context, actions.map(detailAction), state, summary), ...lines(notes), ...personal?.notes ?? []];
-    if (tracks?.preparingPlay) {
-        const status = el("p", "browse-text", "Checking resume position…");
-        status.setAttribute("role", "status");
-        content.push(status);
+    // TVSeriesDetailView shows the readout while episodes load or while it has a target episode. Tizen reads a target's
+    // playback detail only for the next-up episode, so the readout also hides once nothing is loading and no values came.
+    const showsSummary = (detail.type !== "series" && detail.type !== "season") || state?.series === undefined || state.series.loading || state.nextEpisodeLoading || summary !== undefined;
+    const content = [...detailHeader(detail, context, actions.map(detailAction), state, summary, showsSummary), ...lines(notes), ...personal?.notes ?? []];
+    // A save in flight holds Play; a failed one leaves Play live so pressing it re-sends the save.
+    for (const action of actions.filter(action => ["play", "resume", "next-episode", "start-over-episode"].includes(action.key))) {
+        if (playbackChoices !== undefined) action.element.setAttribute("aria-disabled", String(savePending));
     }
-    for (const action of actions.filter(action => ["play", "resume", "next-episode", "start-over-episode", "retry-play"].includes(action.key))) {
-        if (playbackChoices !== undefined) action.element.setAttribute("aria-disabled", String(state?.episodePreferencesBlocked || tracks?.preparingPlay || tracks?.audioPreference.pending || tracks?.audioPreference.failed || tracks?.subtitlePreference.pending || tracks?.subtitlePreference.failed));
-    }
-    if (tracks?.failedPlay !== undefined) {
-        content.push(...lines(["Could not prepare playback."], "error"));
+    // Disabled controls stay in the row but take no focus (TVDisabledDetailActionsKey). One that disables under
+    // focus keeps it until the viewer moves, so a repaint never moves focus by itself.
+    const held = document.activeElement?.closest(".details-editorial .browse-actions") ? document.activeElement.getAttribute("data-focus") : null;
+    const focusable = actions.filter(action => action.element.getAttribute("aria-disabled") !== "true" || action.key === held);
+    for (const action of focusable) {
+        if (action.element.getAttribute("aria-disabled") !== "true") continue;
+        action.element.addEventListener("focusout", () => { const index = focusable.indexOf(action); if (index >= 0) focusable.splice(index, 1); }, { once: true });
     }
     if (state?.nextEpisodeFailed === true && !state.offline) content.push(...lines(["Could not load the next episode."], "error"));
-    if (state?.titleArtPolicy === "failed" && !state.offline) content.push(...lines(["Could not load title-art settings."], "error"));
+    // TVSeriesDetailView.episodeExperience: the trailer pill is the episode block's last line, under the rail.
+    const seriesStatus = detail.type === "series" ? trailerStatus(state) : undefined;
     if (series !== undefined) content.push(...series.content);
     else if (seasonItems.length > 0) {
         content.push(el("h2", "browse-section-title", "Seasons"), zoneNode("browse-row", seasonItems));
     }
+    if (seriesStatus !== undefined) { seriesStatus.classList.add("details-trailer-status-series"); content.push(seriesStatus); }
     const zones: Zone[] = [
-        { id: "actions", layout: "row", items: actions, restoreEntry: actions.find(action => ["resume", "play", "next-episode"].includes(action.key))?.key ?? "watchlist" },
+        { id: "actions", layout: "row", items: focusable, restoreEntry: focusable.find(action => ["resume", "play", "next-episode"].includes(action.key))?.key ?? "watchlist" },
         ...series?.zones ?? [{ id: "seasons", layout: "row" as const, items: seasonItems }],
     ];
     const credits = detail.extra?.cast ?? [];
@@ -409,12 +486,8 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
             return { ...item, key };
         });
         content.push(el("h2", "browse-section-title", "Cast & Crew"), zoneNode("browse-row details-people", people));
-        zones.push({ id: "people", layout: "row", items: people });
-    }
-    const movieRow = boxSet === undefined ? undefined : boxSetMovieRow(boxSet, detail.id, context);
-    if (movieRow !== undefined) {
-        content.push(...movieRow.content);
-        zones.push(movieRow.zone);
+        // TVDetailCastRail.swift:37-38: tvDefaultFocus lands every entry on the first person.
+        zones.push({ id: "people", layout: "row", items: people, entry: people[0]?.key });
     }
     if (state !== undefined && (detail.type === "movie" || detail.type === "series")) {
         // Show YouTube cards the way tvOS does when the YouTube app can open.
@@ -423,24 +496,31 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
         if (extras.length > 0) {
             content.push(el("h2", "browse-section-title", "Trailers & More"), zoneNode("browse-row details-extras", extras));
             // TVTrailersRail is a focus section with user-initiated default focus
-            // on the first card, so every entry lands there. Other rails keep
-            // the last visited item.
+            // on the first card, so every entry lands there, as in Cast and Related.
             zones.push({ id: "extras", layout: "row", items: extras, entry: extras[0]?.key });
             if (state.extraPending !== undefined) content.push(...lines(["Loading extra…"]));
             if (state.extraFailed !== undefined) content.push(...lines(["Could not load extra. Select its card to retry."], "error"));
         }
     }
+    // TVMovieDetailView.swift:107-119: Cast, Trailers & More, then the box set.
+    const movieRow = boxSet === undefined ? undefined : boxSetMovieRow(boxSet, detail.id, context);
+    if (movieRow !== undefined) {
+        content.push(...movieRow.content);
+        zones.push(movieRow.zone);
+    }
     if (state !== undefined) {
         // TVSimilarRail passes neither overlayData nor userState to TVMediaCard.
-        const related = titleCards((state.related ?? []).map(card => ({ ...card, played: undefined })), { ...context, overlays: undefined, cardOverlays: () => undefined });
+        // AppRouter.openRelatedTitle: a related pick replaces a page that a related pick opened.
+        const openRelated = (destination: Destination): void => context.open(destination.kind === "item" ? { ...destination, fromRelated: true } : destination);
+        const related = titleCards((state.related ?? []).map(card => ({ ...card, played: undefined, episodesLeft: undefined })), { ...context, open: openRelated, overlays: undefined, cardOverlays: () => undefined });
         if (!(state.offline && state.related === undefined) && !state.relatedFailed && (state.related === undefined || related.length > 0)) {
             const section = zoneNode("browse-row", related);
             section.setAttribute("data-detail-section", "related");
             content.push(el("h2", "browse-section-title", detail.type === "movie" ? "Related Movies" : "Recommended Series"));
+            // TVSimilarRail.swift:96-111: four untitled 220x330 cards while it loads; every entry lands on the first card.
             if (state.related === undefined) {
-                content.push(...lines(["Loading related titles."]));
-                for (let index = 0; index < 6; index++) { const placeholder = el("div", "details-related-placeholder"); placeholder.setAttribute("aria-hidden", "true"); section.append(placeholder); }
-            } else zones.push({ id: "related", layout: "row", items: related });
+                for (let index = 0; index < 4; index++) { const placeholder = el("div", "details-related-placeholder"); placeholder.setAttribute("aria-hidden", "true"); section.append(placeholder); }
+            } else zones.push({ id: "related", layout: "row", items: related, entry: related[0]?.key });
             content.push(section);
         }
     }
@@ -451,26 +531,31 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
     const writers = creditLine(crew, ["writer", "screenplay", "story"]);
     if (writers !== undefined) facts.push({ label: writerFactLabel(crew), value: writers });
     facts.push(...detail.extra?.facts ?? []);
+    // TVDetailFactsSection: the "Details" header always shows; only the facts grid hides when empty.
+    const factsPanel = el("div", "details-facts");
+    factsPanel.setAttribute("aria-label", "Details");
+    factsPanel.appendChild(el("h2", "browse-section-title", "Details"));
+    content.push(factsPanel);
     if (facts.length > 0) {
-        const panel = el("div", "details-facts");
-        panel.setAttribute("aria-label", "Details");
-        panel.appendChild(el("h2", "browse-section-title", "Details"));
         const table = el("dl", "details-facts-table");
         for (const fact of facts) { const row = el("div", "details-fact-row"); row.append(el("dt", "", fact.label.toUpperCase()), el("dd", "", fact.value)); table.append(row); }
-        table.tabIndex = -1; table.dataset.focus = "fact:0"; panel.append(table);
+        table.tabIndex = -1; table.dataset.focus = "fact:0"; factsPanel.append(table);
         const items = [{ key: "fact:0", element: table }];
-        content.push(panel);
         zones.push({ id: "facts", layout: "column", items });
     }
-    const first = actions[0] ?? seasonItems[0];
-    const view: View = { name: `item:${detail.id}`, content, zones, focus: first === undefined ? undefined : { zone: actions[0] === undefined ? "seasons" : "actions", key: first.key }, back };
+    const first = focusable[0] ?? seasonItems[0];
+    const view: View = { name: `item:${detail.id}`, content, zones, focus: first === undefined ? undefined : { zone: focusable[0] === undefined ? "seasons" : "actions", key: first.key }, back };
     if (state?.panel === "audio") {
         const options = [undefined, ...audio.map((_track, index) => index)].map(ordinal => {
-            const item = actionButton(`audio:${ordinal ?? "auto"}`, ordinal === undefined ? "Auto" : audioTitle(ordinal), () => { if (tracks !== undefined) state.noteEpisodePreference(tracks.detail.id); tracks?.selectAudio(ordinal); if (tracks !== state) state.closePanel(); });
+            const item = actionButton(`audio:${ordinal ?? "auto"}`, ordinal === undefined ? "Auto" : audioRowTitle(ordinal), () => { if (tracks !== undefined) state.noteEpisodePreference(tracks.detail.id); tracks?.selectAudio(ordinal); if (tracks !== state) state.closePanel(); });
             item.element.setAttribute("role", "radio");
             item.element.setAttribute("aria-checked", String(ordinal === undefined ? selectedAudio === undefined : ordinal === (effectiveAudio >= 0 ? effectiveAudio : 0)));
             if (ordinal !== undefined) {
-                const flags = [audioDetails(ordinal), audio[ordinal]?.isDefault ? "Default" : undefined, ordinal === file?.effectiveAudioTrackIndex ? "Preferred" : undefined].filter(Boolean).join(" · ");
+                // DetailPlaybackFormatting.audioDetail: the track's own title leads unless it only repeats the name or layout.
+                const qualifier = trackAudioTitle(audio[ordinal]?.title, audio[ordinal]?.language);
+                const layout = audioDetails(ordinal).split(" · ").at(-1);
+                const shownTitle = qualifier !== undefined && ![audioRowTitle(ordinal), layout].some(value => value?.toLowerCase() === qualifier.toLowerCase()) ? qualifier : undefined;
+                const flags = [shownTitle, audioDetails(ordinal), audio[ordinal]?.isDefault ? "Default" : undefined, ordinal === file?.effectiveAudioTrackIndex ? "Preferred" : undefined].filter(Boolean).join(" · ");
                 if (flags) item.element.append(el("small", "details-option-subtext", flags));
             }
             return item;
@@ -500,12 +585,18 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
         const choices = [undefined, "off" as const, ...ordered.map(item => item.index)];
         const options = choices.map(choice => {
             const track = typeof choice === "number" ? file?.subtitles?.[choice] : undefined;
-            const item = actionButton(`subtitle:${choice ?? "auto"}`, track === undefined ? choice === "off" ? "Off" : "Auto" : languageName(track.language) ?? track.label ?? `Track ${Number(choice) + 1}`, () => { if (tracks !== undefined) state.noteEpisodePreference(tracks.detail.id); tracks?.selectSubtitle(choice); if (tracks !== state) state.closePanel(); });
+            // DetailPlaybackFormatting.subtitleOptions: an embedded track with no codec is a format the server cannot deliver,
+            // and a sidecar with no stream index cannot be chosen here; both stay listed, dimmed and unfocusable.
+            const unsupported = track !== undefined && track.source !== "external" && (track.codec?.trim() ?? "") === "";
+            const selectable = track === undefined || track.selectionIndex !== undefined && !unsupported;
+            const item = actionButton(`subtitle:${choice ?? "auto"}`, track === undefined ? choice === "off" ? "Off" : "Auto" : languageName(track.language) ?? track.label ?? `Track ${Number(choice) + 1}`, () => { if (!selectable) return; if (tracks !== undefined) state.noteEpisodePreference(tracks.detail.id); tracks?.selectSubtitle(choice); if (tracks !== state) state.closePanel(); });
             if (track !== undefined) {
                 const codec = /subrip|srt/i.test(track.codec ?? '') ? 'SRT' : track.codec?.toUpperCase();
                 const label = track.label && ![track.codec?.toUpperCase(), codec, languageName(track.language)?.toUpperCase(), 'SDH', 'CC'].includes(track.label.toUpperCase()) ? track.label : undefined;
-                const variant = /\bCC\b/i.test(track.label ?? '') ? 'CC' : track.hearingImpaired || /\bSDH\b/i.test(track.label ?? '') ? 'SDH' : undefined;
-                item.element.append(el('small', 'details-option-subtext', [label, codec, track.forced ? 'Forced' : undefined, variant, track.source === 'external' ? 'External' : undefined].filter(Boolean).join(' · ')));
+                const hearingImpaired = track.hearingImpaired || /\b(SDH|CC)\b/i.test(track.label ?? '');
+                const availability = unsupported ? 'Unsupported format' : !selectable ? 'Available in player' : undefined;
+                item.element.append(el('small', 'details-option-subtext', [label, codec, track.forced ? 'Forced' : undefined, hearingImpaired ? 'SDH' : undefined, track.isDefault ? 'Default' : undefined, track.source === 'external' ? 'External' : undefined, availability].filter(Boolean).join(' · ')));
+                if (!selectable) item.element.setAttribute('aria-disabled', 'true');
             }
             item.element.setAttribute("role", "radio");
             item.element.setAttribute("aria-checked", String(track === undefined ? subtitle?.kind === (choice === "off" ? "off" : "auto") : subtitle?.kind === "track" && matchesSubtitle(track, subtitle.signature)));
@@ -521,41 +612,81 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
         for (const item of items) {
             const value = state.values.get(item.key as "favorites" | "watched");
             const change = state.changes.get(item.key as "favorites" | "watched");
-            if (value !== undefined && !change?.pending && !change?.failed) {
+            if (value !== undefined && !change?.pending) {
                 item.element.textContent = item.key === "favorites" ? value ? "Remove from Favorites" : "Add to Favorites"
                     : detail.type === "series" ? value ? "Mark Series Unwatched" : "Mark Series Watched"
                     : detail.type === "season" ? value ? "Mark Season Unwatched" : "Mark Season Watched"
                     : value ? "Mark as Unwatched" : "Mark as Watched";
             }
-            item.element.addEventListener("click", () => { if (!state.busy) state.closePanel(); }, { capture: true });
+            item.element.addEventListener("click", () => { if (!state.busy && (item.key !== "favorites" || value !== undefined)) state.closePanel(); }, { capture: true });
         }
         const seasonState = state.series?.seasonNumber === undefined ? undefined : state.seasonStates.get(state.series.seasonNumber);
         if (seasonState !== undefined) {
             const value = seasonState.values.get("watched");
             const change = seasonState.changes.get("watched");
             if (value !== undefined) {
-                const item = actionButton("season-watched", change?.pending ? "Updating season…" : change?.failed ? "Retry season watched" : value ? "Mark Season Unwatched" : "Mark Season Watched", () => {
+                const item = actionButton("season-watched", change?.pending ? "Updating season…" : value ? "Mark Season Unwatched" : "Mark Season Watched", () => {
                     if (state.busy) return;
                     state.closePanel();
                     seasonState.change("watched", change?.failed ? change.target : !value, change?.failed);
                 });
                 item.element.setAttribute("aria-disabled", String(state.busy));
                 items.push(item);
-                if (change?.failed) menuNotes.push(...lines(["Could not update season watched."], "error"));
             }
         }
         if (detail.type === "series" && state.focusedEpisodeId !== undefined) items.unshift(actionButton("series-overview", "Show Series Info", () => state.showSeriesOverview()));
+        // TVSeriesDetailView.moreMenu: shuffle leads, the season on screen before the series. Each keeps its label and is only
+        // disabled while a shuffle starts.
         if (detail.type === "series" && state.shuffleSupported && seasons.reduce((count, season) => count + season.episodeCount, 0) >= 2) {
-            const shuffle = actionButton("shuffle-series", state.shuffleStarting ? "Starting shuffle…" : "Shuffle Series", () => state.startShuffle(play));
+            const shuffle = actionButton("shuffle-series", "Shuffle Series", () => state.startShuffle(play));
             shuffle.element.setAttribute("aria-disabled", String(state.shuffleStarting));
             items.unshift(shuffle);
-            if (state.shuffleFailed) menuNotes.push(...lines(["Couldn't start the shuffle. Try again."], "error"));
+        }
+        const shuffleSeason = detail.type === "series" ? seasonToShuffle(state) : undefined;
+        if (shuffleSeason !== undefined) {
+            const name = shuffleSeason.isSpecials === true || shuffleSeason.seasonNumber === 0 ? shuffleSeason.title || "Specials" : `Season ${shuffleSeason.seasonNumber}`;
+            const shuffle = actionButton("shuffle-season", `Shuffle ${name}`, () => state.startShuffle(play, shuffleSeason));
+            shuffle.element.setAttribute("aria-disabled", String(state.shuffleStarting));
+            items.unshift(shuffle);
         }
         if (detail.type === "movie" || detail.type === "series") items.push(actionButton("find-trailers", "Find Trailers", () => { state.trailers.start(state.detail); state.closePanel(); }));
         if (state.descriptions?.offers() === true) items.push(actionButton("translate-description", TRANSLATE_DESCRIPTION_LABEL, () => { state.descriptions?.translate(); state.closePanel(); }));
+        // WatchPartyEntry.isAvailable: last, and only while the experimental switch is on and the server can host a party.
+        // A series offers the episode its hero shows.
+        const partyTitle = detail.type === "series" ? state.nextEpisode : detail.type === "movie" || detail.type === "episode" ? state.detail : undefined;
+        if (context.watchParty?.offered() === true && partyTitle !== undefined) {
+            items.push(actionButton("watch-party", "Watch Party", () => { state.closePanel(); context.watchParty?.open(choiceFromDetail(partyTitle)); }));
+        }
         return detailPanel(view, state, "More", items.length ? items : [actionButton("close-more", "Close", () => state.closePanel())], menuNotes);
     }
     return view;
+}
+
+/** A failure Details shows as Apple's system alert: centred over the page, one OK, and Back dismisses it. */
+export function withDetailsAlert(view: View, state: DetailsState | undefined): View {
+    // Any season's owner can fail, including one the viewer moved away from while its write was in flight.
+    const seasonOwner = state?.alert === undefined ? [...state?.seasonStates.values() ?? []].find(owner => owner.alert !== undefined) : undefined;
+    const alert = state?.alert ?? seasonOwner?.alert;
+    if (state === undefined || alert === undefined) return view;
+    const dismiss = (): void => { seasonOwner?.dismissAlert(); state.dismissAlert(); };
+    const ok = actionButton("alert-ok", "OK", dismiss);
+    // PersonalStateNoticeAlert: a held change adds the destructive Discard Held Change before OK.
+    const discard = alert.held === undefined ? undefined : actionButton("alert-discard", "Discard Held Change", () => state.discardHeld());
+    const buttons = discard === undefined ? [ok] : [discard, ok];
+    // The page behind may hold cached nodes (the episode rail) that later renders reuse, so it is only made inert and
+    // covered by a dim layer; centredDialog's own treatment strips focus keys and disables buttons for good.
+    for (const node of view.content) { node.inert = true; node.setAttribute("aria-hidden", "true"); }
+    const dialog = centredDialog({ style: "alert", id: alert.id, title: alert.title, message: alert.message, buttons: buttons.map(item => item.element), ...(discard === undefined ? {} : { destructive: discard.element }), behind: [] });
+    return { name: `${view.name}:alert`, content: [...view.content, el("div", "details-alert-dim"), ...dialog], zones: [{ id: "alert", layout: buttons.length > 1 ? "column" : "row", items: buttons }], focus: { zone: "alert", key: ok.key }, back: dismiss };
+}
+
+/** TVSeriesDetailView.shuffleSeason: the season on screen, outside the series overview, once it has two episodes with files. */
+function seasonToShuffle(state: DetailsState): Season | undefined {
+    const series = state.series;
+    if (!state.shuffleSeasonSupported || series === undefined || series.loading || series.seasonNumber === undefined) return undefined;
+    if (state.focusedEpisodeId === undefined && !series.selectionOwnsHero) return undefined;
+    const playable = (series.episodes ?? []).filter(episode => episode.seasonNumber === series.seasonNumber && (episode.files?.length ?? 0) > 0);
+    return playable.length >= 2 ? series.seasons.find(season => season.seasonNumber === series.seasonNumber) : undefined;
 }
 
 function trailerCard(card: TrailerCard, context: ViewContext, state: DetailsState, play: (request: PlayRequest) => void): FocusItem {
@@ -625,23 +756,43 @@ function playMark(): HTMLElement {
     return badge;
 }
 
-export function personalControls(state: DetailsState): { items: FocusItem[]; notes: HTMLElement[] } {
+/** TVCircleActionButton for Watchlist: always "Watchlist"; the icon fill and spoken label carry the state. */
+function watchlistButton(state: DetailsState): FocusItem {
+    const value = state.values.get("watchlist");
+    const change = state.changes.get("watchlist");
+    const item = actionButton("watchlist", value ? "Remove from watchlist" : "Add to watchlist", () => {
+        if (value === undefined) { if (state.personalFailed && !state.busy) state.loadPersonal(); return; }
+        state.change("watchlist", change?.failed ? change.target : !value, change?.failed);
+    });
+    // aria-pressed stays off until membership is known.
+    const pressed = change?.pending ? change.target : value;
+    if (pressed !== undefined) item.element.setAttribute("aria-pressed", String(pressed));
+    return item;
+}
+
+/** `alerts`: Details presents a failed change as Apple's alert, so the control keeps its label and adds no note. */
+export function personalControls(state: DetailsState, alerts = false): { items: FocusItem[]; notes: HTMLElement[] } {
     const items: FocusItem[] = [];
     const notes: HTMLElement[] = [];
     for (const kind of ["watched", "favorites", "watchlist"] as const) {
         if (kind !== "watched" && state.personalSupported === false) continue;
         const value = state.values.get(kind);
-        if (value === undefined) continue;
+        if (value === undefined) {
+            // TVMovieDetailView.swift:213-236: Apple's More lists Favorite before membership loads. Like Watchlist, the press waits for it.
+            if (kind === "favorites" && state.personalSupported === undefined && !state.personalFailed) items.push(actionButton(kind, "Add to Favorites", () => undefined));
+            continue;
+        }
         const change = state.changes.get(kind);
         const label = kind === "watched" ? `${state.detail.type === "series" || state.detail.type === "season" ? "Mark all" : "Mark"} ${value ? "unwatched" : "watched"}` : kind === "watchlist" ? value ? "Remove from watchlist" : "Add to watchlist" : value ? "Remove favorite" : "Add favorite";
-        const item = actionButton(kind, change?.pending ? `Updating ${kind}…` : change?.failed ? `Retry ${kind}` : label, () => state.change(kind, change?.failed ? change.target : !value, change?.failed));
+        const item = actionButton(kind, change?.pending ? `Updating ${kind}…` : change?.failed && !alerts ? `Retry ${kind}` : label, () => state.change(kind, change?.failed ? change.target : !value, change?.failed));
         item.element.setAttribute("aria-pressed", String(value));
         item.element.setAttribute("aria-disabled", String(state.busy));
         items.push(item);
-        if (change?.failed) notes.push(...lines([`Could not update ${kind}.`], "error"));
+        if (change?.failed && !alerts) notes.push(...lines([`Could not update ${kind}.`], "error"));
     }
     if (state.personalFailed) items.push(actionButton("retry-personal", "Retry personal actions", () => { if (!state.busy) state.loadPersonal(); }));
-    if (state.personalSupported === undefined && !state.offline) notes.push(...lines([state.personalFailed ? "Could not load personal actions." : "Loading personal actions."], state.personalFailed ? "error" : "info"));
+    // Apple shows no loading text in the action row or More (TVDetailActions.swift:485-545, TVMovieDetailView.swift:213-236).
+    if (state.personalFailed && state.personalSupported === undefined && !state.offline) notes.push(...lines(["Could not load personal actions."], "error"));
     return { items, notes };
 }
 
@@ -655,13 +806,14 @@ function creditCard(credit: Credit, context: ViewContext): FocusItem {
     if (id) element.addEventListener("click", () => context.open({ kind: "person", id, title: credit.name }));
     element.appendChild(artwork("browse-art details-photo", credit.photoUrl, context.baseUrl, credit.name));
     element.appendChild(el("span", "browse-card-title", credit.name));
-    element.appendChild(el("span", "browse-card-subtitle", credit.role));
+    // TVDetailCastRail.swift:96: no character, no role line.
+    if (credit.role.trim() !== "") element.appendChild(el("span", "browse-card-subtitle", credit.role));
     return { key, element };
 }
 
 function titleCards(cards: readonly Card[], context: ViewContext): FocusItem[] {
     const items: FocusItem[] = [];
-    for (const card of cards.slice(0, 24)) {
+    for (const card of cards) {
         const { preview: _preview, ...titlesContext } = context;
         const item = cardItem(card, titlesContext);
         if (item !== undefined) items.push(item);
@@ -739,7 +891,7 @@ export function seasonView(name: string, title: string, episodes: readonly Episo
         }
         element.appendChild(info);
         element.addEventListener("click", () => context.playEpisode === undefined ? context.open({ kind: "item", id: episode.id, title: episode.title }) : context.playEpisode(episode.id, episode.title));
-        return mediaItem({ key: episode.id, element }, { id: episode.id, title: episode.title, type: "episode" }, context);
+        return mediaItem({ key: episode.id, element }, { id: episode.id, title: episode.title, type: "episode", played: episode.played }, context);
     });
     const header = detail === undefined ? undefined : itemView(detail, [], context, play, back, state);
     const heroEnd = (header?.content.findIndex(node => node.classList.contains("details-hero")) ?? -1) + 1;

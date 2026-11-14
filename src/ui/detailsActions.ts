@@ -16,13 +16,16 @@ const ICONS: Readonly<Record<string, string>> = {
     more: "M4 12H5M11 12H12M18 12H19",
 };
 
+/** TVActionPopoverMenu.maxRows. */
+const POPOVER_MAX_ROWS = 7;
+
 export function detailAction(item: FocusItem): FocusItem {
-    const startOver = item.key === "start-over-episode" || item.key === "play" && item.element.textContent === "Play from start";
+    const startOver = item.key === "start-over-episode" || item.key === "play" && item.element.textContent === "Start Over";
     const path = startOver ? "M5 4V20M19 4 7 12 19 20Z" : ICONS[item.key];
     if (path === undefined) return item;
     const button = item.element;
     const accessibleLabel = startOver ? "Start Over" : button.textContent ?? "";
-    const label = item.key === "version" ? "Versions" : item.key === "audio" ? "Audio Tracks" : item.key === "subtitles" ? "Subtitles" : accessibleLabel;
+    const label = item.key === "version" ? "Versions" : item.key === "audio" ? "Audio Tracks" : item.key === "subtitles" ? "Subtitles" : item.key === "watchlist" ? "Watchlist" : accessibleLabel;
     button.textContent = "";
     button.setAttribute("aria-label", accessibleLabel);
     button.classList.add("details-action", !startOver && (item.key === "play" || item.key === "resume" || item.key === "next-episode") ? "details-play" : "details-circle");
@@ -67,14 +70,26 @@ export function detailPanel(view: View, state: DetailsState, title: string, item
     panel.setAttribute("aria-modal", "true");
     panel.setAttribute("aria-label", title);
     const popover = ["audio", "subtitles", "version", "more"].includes(name);
-    panel.append(el("h2", "browse-section-title", popover ? title.toUpperCase() : title), ...notes, zoneNode("details-audio-options", items));
+    const options = zoneNode("details-audio-options", items);
+    panel.append(el("h2", "browse-section-title", popover ? title.toUpperCase() : title), ...notes, options);
+    // TVActionPopoverMenu.initialOptionId: the selected row when it is enabled, otherwise the first enabled row.
+    // A disabled row stays drawn but is left out of the zone, so it never takes focus.
+    // A popover whose rows are all disabled (every personal row busy) keeps them focusable so focus is never lost.
+    const live = items.filter(item => item.element.getAttribute("aria-disabled") !== "true");
+    const enabled = live.length > 0 ? live : items;
+    const initial = popover
+        ? enabled.find(item => item.element.getAttribute("aria-checked") === "true") ?? enabled[0]
+        : items.find(item => item.element.getAttribute("aria-checked") === "true") ?? items[0];
     if (popover) {
         panel.classList.add("details-track-popover");
         if (name === "more") panel.classList.add("details-more-popover");
+        // More than maxRows (7) rows scroll inside a 7 × 72 cap, opened with the initial row in the centre.
+        if (items.length > POPOVER_MAX_ROWS) options.classList.add("details-popover-scroll");
         for (const item of items) {
             const title = item.element.firstChild;
             if (title?.nodeType === Node.TEXT_NODE) title.replaceWith(el("span", "details-option-title", title.textContent ?? ""));
-            if (name === "more" && ["shuffle-series", "favorites", "watched", "season-watched", "series-overview", "find-trailers", "translate-description"].includes(item.key)) {
+            if (item.element.getAttribute("aria-checked") === "true") item.element.prepend(checkmark());
+            if (name === "more" && ["shuffle-season", "shuffle-series", "favorites", "watched", "season-watched", "series-overview", "find-trailers", "translate-description", "watch-party"].includes(item.key)) {
                 const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
                 icon.setAttribute("viewBox", "0 0 24 24");
                 icon.setAttribute("aria-hidden", "true");
@@ -93,7 +108,11 @@ export function detailPanel(view: View, state: DetailsState, title: string, item
                     path.setAttribute("d", "M7 12 10 15 17 8");
                     path.setAttribute("stroke", "var(--icon-ink, #000)");
                 }
-                if (item.key === "shuffle-series") {
+                if (item.key === "watch-party") {
+                    icon.dataset.symbol = "person.3";
+                    path.setAttribute("d", "M12 4A3 3 0 1 1 12 10 3 3 0 0 1 12 4ZM5 7A2.3 2.3 0 1 1 5 11.6 2.3 2.3 0 0 1 5 7ZM19 7A2.3 2.3 0 1 1 19 11.6 2.3 2.3 0 0 1 19 7ZM6.5 19C6.5 15 9 13 12 13S17.5 15 17.5 19ZM1 18C1 15.5 2.5 14 4.5 14M23 18C23 15.5 21.5 14 19.5 14");
+                }
+                if (item.key === "shuffle-series" || item.key === "shuffle-season") {
                     icon.dataset.symbol = "shuffle";
                     icon.replaceChildren(...Array.from(libraryIcon("shuffle").querySelector("svg")?.childNodes ?? []));
                 }
@@ -105,7 +124,7 @@ export function detailPanel(view: View, state: DetailsState, title: string, item
                     icon.dataset.symbol = "translate";
                     path.setAttribute("d", "M2 5H14M8 2V5M5 5C5 11 10 14 14 15M12 5C12 11 7 14 3 15M13 22 18 10 23 22M15 18H21");
                 }
-                if (item.key !== "shuffle-series") icon.append(path);
+                if (item.key !== "shuffle-series" && item.key !== "shuffle-season") icon.append(path);
                 item.element.prepend(icon);
                 icon.classList.add("details-more-icon");
             }
@@ -124,8 +143,11 @@ export function detailPanel(view: View, state: DetailsState, title: string, item
                 const height = panel.offsetHeight;
                 const below = anchor.bottom + anchorGap;
                 const above = anchor.top - anchorGap - height;
-                const top = below + height <= 1080 - screenInset ? below : above >= screenInset ? above : Math.max(screenInset, 1080 - screenInset - height);
+                const opensUpward = below + height > 1080 - screenInset && above >= screenInset;
+                const top = below + height <= 1080 - screenInset ? below : opensUpward ? above : Math.max(screenInset, 1080 - screenInset - height);
                 panel.style.top = `${top}px`;
+                // The open scale is anchored at the edge nearest the trigger.
+                panel.style.transformOrigin = opensUpward ? "bottom" : "top";
             });
         }
         const auto = items[0];
@@ -137,12 +159,30 @@ export function detailPanel(view: View, state: DetailsState, title: string, item
         trigger?.setAttribute("aria-expanded", "true");
     }
     scrim.addEventListener("click", () => state.closePanel());
-    if (name === "more") panel.addEventListener("keydown", event => {
+    // TVActionPopoverMenu.onMoveCommand: Left or Right closes any popover and focus returns to its trigger.
+    if (popover) panel.addEventListener("keydown", event => {
         if (remoteKey(event) === "left" || remoteKey(event) === "right") {
             event.preventDefault(); event.stopPropagation(); state.closePanel();
         }
     });
     for (const node of underlying) { node.inert = true; node.setAttribute("aria-hidden", "true"); }
-    const selected = popover ? items[0] : items.find(item => item.element.getAttribute("aria-checked") === "true") ?? items[0];
-    return { name: `${view.name}:${name}`, content: [...underlying, ...popover ? [] : [scrim], panel], zones: [{ id: name, layout: "column", items }], focus: selected === undefined ? undefined : { zone: name, key: selected.key }, back: () => state.closePanel() };
+    return { name: `${view.name}:${name}`, content: [...underlying, ...popover ? [] : [scrim], panel], zones: [{ id: name, layout: "column", items: popover ? enabled : items }], focus: initial === undefined ? undefined : { zone: name, key: initial.key }, back: () => state.closePanel() };
+}
+
+/** SF Symbol checkmark at 20pt bold, in the row's 26pt leading slot. */
+function checkmark(): SVGSVGElement {
+    const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    icon.setAttribute("viewBox", "0 0 26 20");
+    icon.setAttribute("aria-hidden", "true");
+    icon.dataset.symbol = "checkmark";
+    icon.classList.add("details-option-check");
+    const path = document.createElementNS(icon.namespaceURI, "path");
+    path.setAttribute("d", "M4 10.5 10 16.5 22 3.5");
+    path.setAttribute("fill", "none");
+    path.setAttribute("stroke", "currentColor");
+    path.setAttribute("stroke-width", "3");
+    path.setAttribute("stroke-linecap", "round");
+    path.setAttribute("stroke-linejoin", "round");
+    icon.append(path);
+    return icon;
 }

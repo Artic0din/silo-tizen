@@ -88,6 +88,11 @@ trailerTest("discovered trailers survive a late watched season readback", async 
     holdEpisodes = false;
     releaseEpisodes?.();
     await tv.jump(0);
+    // This fixture's series readback never confirms the watched write; its Couldn't Update Item alert covers the rail.
+    const alert = tv.page.getByRole("alertdialog", { name: "Couldn't Update Item", exact: true });
+    await alert.waitFor();
+    await alert.getByRole("button", { name: "OK", exact: true }).click();
+    await alert.waitFor({ state: "detached" });
     assert.equal(await tv.page.locator('[data-focus="remote:YouTube:abc_def-1"]').count(), 1, "late watched assignment must not wipe discovered trailers");
 });
 
@@ -191,7 +196,7 @@ trailerTest("a movie with only a YouTube video shows Trailers & More and leaves 
             captionText: caption.textContent,
             badge: badge.getBoundingClientRect().width,
         };
-    }, null, value => value.titleText === "Official Trailer" && value.captionText === "YouTube" && Math.abs(value.gap - 76) < 1 && Math.abs(value.stillWidth - 470) < 1 && Math.abs(value.stillHeight - 264) < 1 && value.radius === "18px" && Math.abs(value.titleGap - 14) < 1 && Math.abs(value.captionGap - 5) < 1 && value.titleSize === "21px" && value.titleWeight === "600" && value.titleColor === "rgba(237, 237, 237, 0.92)" && value.captionSize === "17px" && value.captionWeight === "500" && value.captionColor === "rgba(237, 237, 237, 0.6)" && value.badge === 60, "trailer card geometry");
+    }, null, value => value.titleText === "Official Trailer" && value.captionText === "YouTube" && Math.abs(value.gap - 76) < 1 && Math.abs(value.stillWidth - 470) < 1 && Math.abs(value.stillHeight - 264) < 1 && value.radius === "18px" && Math.abs(value.titleGap - 14) < 1 && Math.abs(value.captionGap - 5) < 1 && value.titleSize === "20.3385px" && value.titleWeight === "600" && value.titleColor === "rgba(237, 237, 237, 0.92)" && value.captionSize === "16.4645px" && value.captionWeight === "500" && value.captionColor === "rgba(237, 237, 237, 0.6)" && value.badge === 60, "trailer card geometry");
     assert.equal(metrics.titleText, "Official Trailer");
     assert.equal(metrics.captionText, "YouTube");
     assert.ok(Math.abs(metrics.gap - 76) < 1, JSON.stringify(metrics));
@@ -200,10 +205,10 @@ trailerTest("a movie with only a YouTube video shows Trailers & More and leaves 
     assert.equal(metrics.radius, "18px");
     assert.ok(Math.abs(metrics.titleGap - 14) < 1, JSON.stringify(metrics));
     assert.ok(Math.abs(metrics.captionGap - 5) < 1, JSON.stringify(metrics));
-    assert.equal(metrics.titleSize, "21px");
+    assert.equal(metrics.titleSize, "20.3385px");
     assert.equal(metrics.titleWeight, "600");
     assert.equal(metrics.titleColor, "rgba(237, 237, 237, 0.92)");
-    assert.equal(metrics.captionSize, "17px");
+    assert.equal(metrics.captionSize, "16.4645px");
     assert.equal(metrics.captionWeight, "500");
     assert.equal(metrics.captionColor, "rgba(237, 237, 237, 0.6)");
     assert.equal(metrics.badge, 60);
@@ -267,7 +272,7 @@ trailerTest("down from cast always enters Trailers & More on the first card", as
     catalog.videos = [YOUTUBE];
     await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().click();
     await tv.page.locator(".details-extras").waitFor();
-    await tv.page.getByText("Loading related titles.", { exact: true }).waitFor({ state: "hidden" });
+    await tv.page.locator(".details-related-placeholder").first().waitFor({ state: "hidden" });
     const firstCast = await tv.page.locator(".details-people [data-focus]").first().getAttribute("data-focus");
     await tv.page.locator(".details-people [data-focus]").first().focus();
     await tv.remote(40);

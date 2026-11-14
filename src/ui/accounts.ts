@@ -10,6 +10,7 @@ import { spinner } from "./marquee.ts";
 import { cachedBranding } from "./brandingCache.ts";
 import { navigationIcon } from "./navigationIcon.ts";
 import { signOutConfirmationCopy, signOutRemovesServer } from "./signOutConfirmation.ts";
+import { centredDialog } from "./confirmationDialog.ts";
 
 export interface AccountsScreen { destroy(): void }
 export function mountAccounts(root: HTMLElement, core: SessionCoreDeps, current: ConnectedServer | undefined,
@@ -59,7 +60,7 @@ export function mountAccounts(root: HTMLElement, core: SessionCoreDeps, current:
     };
     const confirm = (targets: readonly SavedAccount[], removeServer: boolean): void => {
         const dismiss = (): void => { render(false, false, removeServer); };
-        const panel = el("div", removeServer ? "skyline-selector" : "accounts-dialog");
+        let panel: HTMLElement = el("div", "skyline-selector");
         const cancel = actionButton("cancel", "Cancel", dismiss);
         const accept = actionButton("confirm", removeServer ? "Remove" : "Sign Out", () => {
             if (removalPending) return;
@@ -121,10 +122,12 @@ export function mountAccounts(root: HTMLElement, core: SessionCoreDeps, current:
         }
         const removesServer = signOutRemovesServer(() => directory.list(), address, targets.length);
         const copy = signOutConfirmationCopy(targets[0]?.username, serverName, removesServer);
-        panel.setAttribute("role", "dialog");
-        panel.setAttribute("aria-modal", "true");
-        panel.append(el("h1", "signin-title", copy.title), el("p", "signin-text", copy.message), cancel.element, accept.element);
-        host.show({ ...view, content: [panel] });
+        // AccountRemovalConfirmation on tvOS: the same centred confirmation as Who's watching and Settings, over the accounts pane.
+        const behind = container.querySelector<HTMLElement>(".accounts-settings");
+        const content = centredDialog({ style: "confirmation", id: "accounts-signout", title: copy.title, message: copy.message,
+            buttons: [cancel.element, accept.element], destructive: accept.element, behind: behind === null ? [] : [behind] });
+        panel = content[content.length - 1] ?? panel;
+        host.show({ ...view, content });
     };
     function render(railFocus = false, enterPane = false, focusFirst = false): void {
         if (removalPending) return;

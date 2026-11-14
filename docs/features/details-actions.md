@@ -6,9 +6,9 @@ All paths below are relative to `iosApp/iosApp/`.
 More reuses the Versions, Audio and Subtitles popover.
 Movies offer Add to Favorites / Remove from Favorites, then Mark as Watched / Mark as Unwatched (`tvOS/Screens/Detail/TVMovieDetailView.swift:210-265`).
 Series add Show Series Info only while an episode is active, then Favorites, Mark Series Watched / Unwatched and the selected season's Mark Season Watched / Unwatched (`TVSeriesDetailView.swift:942-1037` in the same directory).
-Actions retain confirmed-state loading, failure and explicit reconciliation before retry.
+Actions retain confirmed-state loading and explicit reconciliation before retry; a failure is an alert, not a relabelled button (see below).
 The season Watched action stays hidden if the season response omits watch state.
-Selection closes More and restores its trigger; Back, Left and Right also dismiss.
+Selection closes a popover and restores its trigger; Back, Left and Right also dismiss Version, Audio, Subtitles and More.
 Apple's popover width is 560, and its initial target is the first selected enabled option or the first enabled option (`TVActionPopoverMenu.swift:33-76`).
 
 Find Trailers queues discovery and polls refreshed item detail; it does not play an existing trailer (`Screens/Detail/ItemDetailViewModel.swift:753-815`).
@@ -22,10 +22,10 @@ Only new supported-video identities or local extra IDs finish discovery; existin
 Cooldown, disabled, exhausted, transport failure and rate limit use Apple's status copy, dismissed after three seconds.
 Leaving Details cancels observation; returning resumes an interrupted run without another POST, while an authority change discards it.
 The found payload updates the rail without resetting the selected season or overwriting newer watch state.
-Watch Party stays hidden pending #54's capability, opt-in and device gates (`Screens/WatchParty/WatchPartyEntry.swift:7-24`).
+Watch Party ends More while the experimental switch is on and the server can host a party, as `WatchPartyEntry.isAvailable` requires; it pushes the lobby over Details and creates a host-pick room holding the title ([Watch Party](watch-party.md)).
 Shuffle Series leads More when the capability supports series and the hierarchy has at least two episodes.
 It creates a series-scoped shuffle and uses the existing shuffle pick and player continuation owners (`TVSeriesDetailView.swift:923-928,954-966,1016-1021`).
-Season Shuffle remains outside this change.
+Shuffle Season leads More when the capability supports seasons, an episode or the season pill owns the hero, and that season has two episodes with files (`TVSeriesDetailView.swift:944-951`).
 Translate Description follows the existing server and language gates.
 The trailers rail and episode row are unchanged here.
 
@@ -110,6 +110,9 @@ The #247 scroll audit at the Apple SHA above found these distinct owners, all un
 The settled running Apple app at `7baff3e` on 6 November 2026 supplies Down heading targets Cast 546, Trailers 501 and Series posters 547, and Up heading 111.
 Apple's trailer image starts 69px below its heading, matching Samsung's 69.2px; its focused frame includes about 44px of padding above the image and is not comparable to Samsung's card frame.
 Movie Related uses heading 321 and Series Cast uses 367 in both directions because the local complete section heights differ from Swift's centered anchors.
+The poster headings were measured at Compact Poster Size; Apple scales poster art by Poster Size (`MediaCard.swift:149-158`, `UICustomizationPreferences.swift:24-30`).
+Each point of extra poster height raises the Series Related Down heading by one point, because the native reveal keeps the card's bottom edge, and the Movie Related heading by half a point, because `scrollTo(id, anchor: .center)` (`TVDetailFocusScroll.swift:81,94-103`) centres the whole section.
+At Standard the headings are 500.8 and 297.9; at Large 434.8 and 264.9.
 Up resets to zero when the heading and focused artwork are fully visible there, including Movie Cast at heading 690.
 Horizontal moves preserve the section's vertical position; hero actions, season pills and episode rows stay at scroll zero.
 Details scrolls to `scrollHeight - clientHeight`, with 140px of total bottom padding from `TVDetailLayout.pageBottomPadding` and no duplicate facts margin.
@@ -140,3 +143,40 @@ Samsung removes its inherited caption inset and medium-weight override rather th
 Samsung uses that translucent tint as the substitute; it does not reproduce Apple's Liquid Glass sampling and refraction.
 Desktop Chromium fake-server checks establish CSS values and ordering only.
 Signed Samsung and same-state Apple TV acceptance remain outstanding on the other Mac.
+
+## Popovers and failure alerts (#397)
+
+Source: silo-apple `7e478b2`, `tvOS/Screens/Detail/TVActionPopoverMenu.swift`, `DetailPlaybackFormatting.swift`, `Components/MediaActionFeedback.swift` and `Screens/Shuffle/ShuffleLauncher.swift`.
+Version, Audio, Subtitles and More share one surface: black 45% glass, a 1px white 10% inner lip, a black 45% shadow at y18 r32, radius 22 and a monospaced 14px header with 3.64px tracking.
+Rows have radius 14, 13px vertical padding, 22pt semibold titles, a 70% detail line and a 26px checkmark slot at 18, with text starting at 58.
+A popover opens on the selected enabled row, otherwise the first enabled row, and scales from 0.96 at the edge nearest its trigger over 180ms.
+More than seven rows scroll inside a 504px list that opens with the initial row centred.
+Audio rows lead with the language; a track's own title moves to the detail line before codec, layout, Default and Preferred.
+Embedded subtitles without a codec read "Unsupported format" and sidecars without a stream index read "Available in player"; both stay dimmed at 40% and take no focus.
+A failed favourite, watched or watchlist change is the "Couldn't Update Item" alert; a write with no answer (timeout or network failure) is "Change Not Confirmed" with Discard Held Change, which reloads that state and never re-sends.
+Tizen cannot tell an unsent request from a lost answer, so every network failure on a write is held.
+A failed season watched change is "Couldn't Update Watched Status"; a failed shuffle is "Couldn't Shuffle" with Apple's 409, 404 and default messages.
+Find Trailers keeps Apple's movie-and-series gate; Samsung's rail already displays remote cards, which is the tvOS YouTube-app condition.
+The pill sits 24 under a movie's action row and 14 under a series' episode rail.
+Apple's "Update Required" alert is not built: Tizen has no update-requirement classification.
+Validation is fake-server and desktop Chromium only; signed Samsung and same-state Apple TV captures are pending.
+
+## Hero, meta lines and screen states (#395)
+
+Source: silo-apple `5780c84`, tvOS.
+The audited hero, loading, error, synopsis and rating views are unchanged from the audit's `85679e7`.
+#405 fixed 15 of the 18 items, and #388 had already fixed the 401, 403 and 404 error pages.
+Three Apple behaviours stay different on purpose.
+
+- **Movie hero height.**
+  Apple fixes the movie hero at 690 and clips it ([`TVDetailHero.swift:11, 149-152, 166`](https://github.com/Silo-Server/silo-apple/blob/5780c84f4a9c1e2bff006e653dd787e01ca24480/iosApp/iosApp/tvOS/Screens/Detail/TVDetailHero.swift#L149-L166)).
+  The title, subtitle and synopsis all keep their full height ([`TVDetailHero.swift:491-501`](https://github.com/Silo-Server/silo-apple/blob/5780c84f4a9c1e2bff006e653dd787e01ca24480/iosApp/iosApp/tvOS/Screens/Detail/TVDetailHero.swift#L491-L501), [`TVHeroSynopsis.swift:22-23`](https://github.com/Silo-Server/silo-apple/blob/5780c84f4a9c1e2bff006e653dd787e01ca24480/iosApp/iosApp/tvOS/Screens/Detail/TVHeroSynopsis.swift#L22-L23)), and the stack is top-aligned ([`TVDetailHero.swift:216-221`](https://github.com/Silo-Server/silo-apple/blob/5780c84f4a9c1e2bff006e653dd787e01ca24480/iosApp/iosApp/tvOS/Screens/Detail/TVDetailHero.swift#L216-L221)).
+  When a long text title makes the stack taller than 690, the clip cuts off the action row, including the focused Play button.
+  Samsung's movie hero is also 690 whenever the stack fits, but grows instead of clipping, so Play stays visible.
+  An invisible focused button would break the [TV focus](../tv-focus.md) rule.
+- **Series readout without values.**
+  Apple keeps the Version, Audio and Subtitles bars whenever the hero has an episode ([`TVSeriesDetailView.swift:396`](https://github.com/Silo-Server/silo-apple/blob/5780c84f4a9c1e2bff006e653dd787e01ca24480/iosApp/iosApp/tvOS/Screens/Detail/TVSeriesDetailView.swift#L396)), because it reads playback detail for that episode.
+  Samsung reads it only for the next-up episode, so it hides the readout, keeping its space, once nothing is loading and no value is known.
+- **Scroll back to the hero.**
+  Samsung uses Apple's 450 ms ease-in-out on a movie and 550 ms cubic-bezier(0.4, 0, 0.2, 1) on a series ([`TVDetailFocusScroll.swift:57`](https://github.com/Silo-Server/silo-apple/blob/5780c84f4a9c1e2bff006e653dd787e01ca24480/iosApp/iosApp/tvOS/Screens/Detail/TVDetailFocusScroll.swift#L57)).
+  Apple's repeated focus checks and scroll lock correct the tvOS focus engine's own scrolling, which Samsung does not have.

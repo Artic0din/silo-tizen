@@ -1,5 +1,5 @@
 .accounts-screen { position: fixed; inset: 0; z-index: 10; padding: 60px 90px 44px; color: var(--silo-text); background: #000; overflow: hidden; font-family: var(--silo-font); }
-.accounts-screen > :not(.marquee-backdrop) { position: relative; }
+.accounts-screen > :not(.marquee-backdrop, .confirm-dialog, .confirm-dialog-scrim) { position: relative; }
 .accounts-wordmark { width: 150px; height: 64px; object-fit: contain; object-position: left; margin-bottom: 30px; }
 .accounts-title { font-size: 88px; font-weight: 900; line-height: 1.1; margin: 0 0 22px; }
 .accounts-columns { display: flex; gap: 40px; margin-top: 48px; height: 650px; }

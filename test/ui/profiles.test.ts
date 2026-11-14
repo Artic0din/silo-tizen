@@ -6,6 +6,7 @@ import { after, before, test } from "node:test";
 import type { Browser } from "playwright";
 import { fixture } from "../native/support/fakeSilo.ts";
 import { pressPin } from "./support/pin.ts";
+import { assertSignOutDialog } from "./support/signOutDialog.ts";
 import { launchBrowser, openTv, readLive, type Tv } from "./support/tv.ts";
 
 const BACK = 10009;
@@ -67,7 +68,40 @@ tvTest("the profile picker uses source-sized circular avatars and centered accou
     assert.equal(geometry.footerGap, 20);
     assert.equal(await tv.page.getByText(/^Signed in as /).isVisible(), true);
     assert.equal(await tv.page.getByRole("button", { name: "Change account", exact: true }).isVisible(), true);
-    assert.equal(await tv.page.getByRole("button", { name: "Add profile", exact: true }).isVisible(), true);
+    assert.equal(await tv.page.getByRole("button", { name: "Add", exact: true }).isVisible(), true);
+});
+
+tvTest("the Change account footer button draws Apple's two-person person.2 glyph", async tv => {
+    const footerIcons = (): Promise<(string | null | undefined)[]> => tv.page.evaluate(() => [...document.querySelectorAll(".profile-footer button")].map(button => button.querySelector("svg path")?.getAttribute("d")));
+    // The path alone could be hidden or unpainted: the icon must have a box inside its button and a visible stroke in the label's ink.
+    const footerIconPaint = (): Promise<unknown[]> => tv.page.evaluate(() => [...document.querySelectorAll(".profile-footer button")].map(button => {
+        const icon = button.querySelector("svg");
+        if (icon === null) return "no icon";
+        const box = icon.getBoundingClientRect();
+        const frame = button.getBoundingClientRect();
+        const style = getComputedStyle(icon);
+        return {
+            sized: box.width > 0 && box.height > 0,
+            inside: box.left >= frame.left && box.right <= frame.right && box.top >= frame.top && box.bottom <= frame.bottom,
+            shown: style.display !== "none" && style.visibility === "visible" && style.opacity === "1",
+            inked: style.stroke === getComputedStyle(button).color && !/^(none|transparent|rgba\(.*, 0\))$/.test(style.stroke),
+        };
+    }));
+    const painted = { sized: true, inside: true, shown: true, inked: true };
+    const expected = [
+        "M8 3A4 4 0 1 1 8 11 4 4 0 0 1 8 3ZM1 22V18C1 12 15 12 15 18V22M18 4A4 4 0 0 1 18 12M19 15C23 15 23 19 23 22",
+        "M10 3H3V21H10M8 12H22M17 7 22 12 17 17",
+    ];
+    await picker(tv);
+    assert.deepEqual(await footerIcons(), expected, "Change account shows two people, not a server stack; Sign out keeps its arrow");
+    assert.deepEqual(await footerIconPaint(), [painted, painted], "both footer icons are drawn inside their buttons");
+    tv.fake.passwordChangeRequired = true;
+    tv.fake.expireAccessTokens();
+    await tv.page.evaluate(() => window.harness.mount());
+    await screenIs(tv, "profiles-error");
+    assert.deepEqual(await footerIcons(), expected, "the reset refusal reuses the picker's footer");
+    assert.deepEqual(await footerIconPaint(), [painted, painted], "the reset refusal draws both footer icons");
+    assert.equal(await tv.focused(), "change-account");
 });
 
 tvTest("profile rows stay still when focus moves on Who's watching", async tv => {
@@ -93,6 +127,63 @@ tvTest("profile rows stay still when focus moves on Who's watching", async tv =>
     assert.ok(Math.abs(after.first - before.first) < 0.5, `the first row moved ${after.first - before.first}`);
     assert.ok(Math.abs(after.add - before.add) < 0.5, `the second row moved ${after.add - before.add}`);
     assert.ok(Math.abs(after.firstHeight - after.addHeight) < 1, `focused tile ${after.addHeight}px, other tile ${after.firstHeight}px`);
+});
+
+tvTest("a focused profile tile follows ProfileTile: the name drops by an offset and the ring sits behind the badges", async tv => {
+    await picker(tv);
+    const read = (): Promise<{ readonly titleY: number; readonly gridHeight: number }> => tv.page.evaluate(() => ({
+        titleY: document.querySelector(".profile-picker-title")!.getBoundingClientRect().y,
+        gridHeight: document.querySelector<HTMLElement>(".profile-grid")!.offsetHeight,
+    }));
+    await tv.page.locator('[data-focus="change-server"]').focus();
+    const unfocused = await read();
+    await tv.page.locator('[data-focus="profile:p-owner"]').focus();
+    await tv.page.keyboard.press("ArrowRight");
+    assert.equal(await tv.focused(), "profile:p-kid", "focus moves to the next profile");
+    const focused = await read();
+    assert.equal(focused.gridHeight, unfocused.gridHeight, "a focused tile does not grow the grid");
+    assert.ok(Math.abs(focused.titleY - unfocused.titleY) < 0.5, `the picker moved ${focused.titleY - unfocused.titleY}px`);
+    const tile = await tv.page.locator('[data-focus="profile:p-kid"]').evaluate(node => {
+        if (!(node instanceof HTMLElement)) throw new Error("tile missing");
+        const face = node.querySelector(".profile-face")!;
+        const name = node.querySelector<HTMLElement>(".profile-name")!;
+        const kids = node.querySelector(".profile-child")!;
+        const lock = node.querySelector(".profile-lock")!;
+        // The frozen test clock holds transitions at their start. Settle the name, then read it.
+        name.style.transition = "none";
+        node.blur();
+        node.focus();
+        const ring = getComputedStyle(face, "::after");
+        // Hit testing follows paint order: 9 px left of the face lies inside the ring at either scale, and lands on the
+        // face (its ::after) only while the ring paints above the picker's background.
+        const box = face.getBoundingClientRect();
+        const ringHit = document.elementFromPoint(box.left - 9, box.top + box.height / 2) === face;
+        const glyph = getComputedStyle(lock, "::before");
+        return {
+            label: node.getAttribute("aria-label"),
+            drop: getComputedStyle(name).transform,
+            nameColor: getComputedStyle(name).color,
+            ring: [ring.zIndex, ring.borderTopColor, ring.opacity, ringHit],
+            kids: [getComputedStyle(kids).height, getComputedStyle(kids).fontWeight, getComputedStyle(kids).borderRadius],
+            lock: [getComputedStyle(lock).backgroundColor, glyph.left, glyph.top, glyph.width, glyph.height, glyph.backgroundColor],
+        };
+    });
+    assert.equal(tile.label, "Kid, PIN protected, Kids profile");
+    assert.equal(tile.drop, "matrix(1, 0, 0, 1, 0, 18)");
+    assert.equal(tile.nameColor, "rgb(237, 237, 237)");
+    assert.deepEqual(tile.ring, ["-1", "rgb(237, 237, 237)", "1", true]);
+    assert.deepEqual(tile.kids, ["36px", "800", "18px"]);
+    assert.deepEqual(tile.lock, ["rgb(28, 28, 30)", "19px", "27px", "18px", "13px", "rgba(237, 237, 237, 0.75)"]);
+    assert.equal(await tv.page.locator('[data-focus="add-profile"] .profile-name').textContent(), "Add");
+    // Reduced motion drops the focus transform, so only the face's own stacking context keeps the ring painted.
+    await tv.page.emulateMedia({ reducedMotion: "reduce" });
+    const reducedRingHit = await tv.page.locator('[data-focus="profile:p-kid"] .profile-face').evaluate(face => {
+        const box = face.getBoundingClientRect();
+        const ring = getComputedStyle(face, "::after");
+        // Hit testing ignores opacity, so the ring's paint is read as well.
+        return [getComputedStyle(face).transform, ring.opacity, ring.borderTopColor, ring.borderTopWidth, document.elementFromPoint(box.left - 9, box.top + box.height / 2) === face];
+    });
+    assert.deepEqual(reducedRingHit, ["none", "1", "rgb(237, 237, 237)", "6px", true], "the ring stays visible without the focus scale");
 });
 
 let browser: Browser;
@@ -446,6 +537,12 @@ tvTest("Sign out on Who's watching asks with Apple's copy, and Cancel or Back re
     await tv.page.getByRole("heading", { name: SIGN_OUT_TITLE }).waitFor();
     await tv.page.getByText(SIGN_OUT_REMOVES_SERVER, { exact: true }).waitFor();
     assert.equal(await tv.focused(), "cancel-signout");
+    await assertSignOutDialog(tv.page, SIGN_OUT_TITLE);
+    assert.equal(await tv.page.locator('[data-screen="profiles:signout"] .profile-picker-title').textContent(), "Who's watching?", "the picker stays under the dialog");
+    await tv.page.keyboard.press("ArrowRight");
+    assert.equal(await tv.focused(), "confirm-signout");
+    await tv.page.keyboard.press("ArrowLeft");
+    assert.equal(await tv.focused(), "cancel-signout", "focus stays inside the dialog");
     assert.equal(tv.fake.revokedSessions.size, 0, "opening the confirmation does not sign out");
 
     await tv.page.keyboard.press("Enter");
@@ -852,7 +949,7 @@ tvTest("late library choices preserve the form inputs and selected child restric
         return undefined;
     } };
     await picker(tv);
-    await tv.page.getByRole("button", { name: "Add profile", exact: true }).click();
+    await tv.page.getByRole("button", { name: "Add", exact: true }).click();
     await screenIs(tv, "profile-create");
     assert.equal(await tv.page.locator('.profile-preset').first().evaluate(node => node.getBoundingClientRect().height), 96);
     await tv.page.getByRole("button", { name: "Initials", exact: true }).click();
@@ -879,7 +976,7 @@ tvTest("late library choices preserve the form inputs and selected child restric
 tvTest("a delayed creation reply cannot replace cancellation or issue a second write", async tv => {
     tv.fake.catalog = { route: (method, path) => method === "POST" && path === "/profiles" ? { status: 201, body: profile("late", "Late") } : undefined };
     await picker(tv);
-    await tv.page.getByRole("button", { name: "Add profile", exact: true }).click();
+    await tv.page.getByRole("button", { name: "Add", exact: true }).click();
     await screenIs(tv, "profile-create");
     await tv.page.locator("#create-profile-name").fill("Late");
     const held = tv.fake.hold("/profiles", true);
@@ -907,7 +1004,7 @@ tvTest("creation borrows the primary, sends one explicit request and returns to 
         return { status: 201, body: created };
     } };
     await picker(tv);
-    await tv.page.getByRole("button", { name: "Add profile", exact: true }).click();
+    await tv.page.getByRole("button", { name: "Add", exact: true }).click();
     await screenIs(tv, "profile-create");
     await tv.page.getByRole("button", { name: "Initials", exact: true }).click();
     await tv.page.getByRole("textbox", { name: "Profile name", exact: true }).fill("  Guest  ");
@@ -929,7 +1026,7 @@ tvTest("creation borrows the primary, sends one explicit request and returns to 
 
 tvTest("creation validates locally and cancellation restores Add without launching a profile", async tv => {
     await picker(tv);
-    await tv.page.getByRole("button", { name: "Add profile", exact: true }).click();
+    await tv.page.getByRole("button", { name: "Add", exact: true }).click();
     await screenIs(tv, "profile-create");
     await tv.page.getByRole("button", { name: "Create Profile", exact: true }).click();
     assert.equal(await tv.focused(), "create-name");
@@ -995,7 +1092,7 @@ tvTest("creation cannot repaint or retain borrowed authority when selection sync
             successor.appendChild(control); root.replaceChildren(successor); control.focus();
         });
     });
-    await tv.page.getByRole("button", { name: "Add profile", exact: true }).click();
+    await tv.page.getByRole("button", { name: "Add", exact: true }).click();
     const result = await tv.page.evaluate(() => ({ screen: document.querySelector('[data-screen]')?.getAttribute('data-screen'),
         focus: document.activeElement?.getAttribute('data-focus'), acting: window.harness.server?.session.activeProfile?.id }));
     assert.deepEqual(result, { screen: "successor", focus: "successor", acting: undefined });
@@ -1004,7 +1101,7 @@ tvTest("creation cannot repaint or retain borrowed authority when selection sync
 
 tvTest("a structured creation rejection keeps the editable draft instead of treating the write as uncertain", async tv => {
     await picker(tv);
-    await tv.page.getByRole("button", { name: "Add profile", exact: true }).click();
+    await tv.page.getByRole("button", { name: "Add", exact: true }).click();
     await screenIs(tv, "profile-create");
     await tv.page.locator("#create-profile-name").fill("Guest");
     await tv.page.locator("#create-profile-pin").fill("1234");
@@ -1023,7 +1120,7 @@ tvTest("a structured creation rejection keeps the editable draft instead of trea
 
 tvTest("an uncertain creation requires list reconciliation instead of replaying the write", async tv => {
     await picker(tv);
-    await tv.page.getByRole("button", { name: "Add profile", exact: true }).click();
+    await tv.page.getByRole("button", { name: "Add", exact: true }).click();
     await screenIs(tv, "profile-create");
     await tv.page.locator("#create-profile-name").fill("Guest");
     tv.fake.script("/profiles", { status: 503 });
@@ -1044,7 +1141,7 @@ tvTest("a PIN-protected primary verifies for creation and cancellation never lau
     const child = items.find((item: Record<string, unknown>) => item.id === "p-kid") as Record<string, unknown>;
     tv.fake.profiles = { ...tv.fake.profiles, items: [{ ...child, is_primary: true }] };
     await picker(tv);
-    await tv.page.getByRole("button", { name: "Add profile", exact: true }).click();
+    await tv.page.getByRole("button", { name: "Add", exact: true }).click();
     await screenIs(tv, "pin");
     await enterPin(tv, "1111");
     await shows(tv, "Wrong PIN. Try again.");

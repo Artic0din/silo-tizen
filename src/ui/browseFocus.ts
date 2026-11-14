@@ -9,9 +9,15 @@
 // The sign-in ScreenHost moves through one list; grids and stacked rows need two dimensions.
 
 import { remoteKey } from "./keys.ts";
+import { heldSelect, isFreshSelect, listenSelectRelease, moveSelect } from "./selectRelease.ts";
 import { SkylineScroll } from "./skylineScroll.ts";
 
 const SELECT_HOLD_MS = 650;
+
+/** A press runs only on a control that was enabled when pressed and still is (aria-disabled controls stay focusable). */
+function enabled(element: HTMLElement): boolean {
+    return !element.matches(':disabled, [aria-disabled="true"]');
+}
 /** Scrolling panels whose position survives a repaint of their screen, keyed by data-scroll-key. */
 const SCROLL_PANELS = ".browse-panel-list[data-scroll-key], .settings-modal-options[data-scroll-key], .settings-pane[data-scroll-key], .accounts-rail[data-scroll-key], .accounts-pane[data-scroll-key]";
 
@@ -43,6 +49,8 @@ export interface Zone {
     /** An explicit entry target; clearing it returns the zone to remembered-item restoration. */
     readonly entry?: string | undefined;
     readonly onLeft?: () => void;
+    /** A reading stop taller than the page: Up/Down scroll it a step at a time until that edge is visible, then leave. */
+    readonly reading?: boolean;
     readonly id: string;
     readonly up?: string;
     readonly down?: string;
@@ -79,6 +87,11 @@ export interface View {
     readonly back: (() => boolean | void) | undefined;
 }
 
+/** Page scroll per Up/Down inside a reading stop: about a third of the 1080 px page, so no line is skipped. */
+const READING_STEP = 360;
+/** Gap kept between a reading stop's revealed edge and the page edge. */
+const READING_INSET = 32;
+
 export class FocusHost {
     private readonly container: HTMLElement;
     private view: View | undefined;
@@ -104,6 +117,7 @@ export class FocusHost {
 
     constructor(container: HTMLElement) {
         this.container = container;
+        listenSelectRelease();
     }
 
     get name(): string | undefined {
@@ -133,6 +147,11 @@ export class FocusHost {
         this.visits.delete(name);
     }
 
+    /** Drops every snapshot of one route presentation: its `View.visitKey` prefixes each of its view names. */
+    forgetPresentation(visitKey: string): void {
+        for (const name of [...this.visits.keys()]) if (name.startsWith(`${visitKey}:`)) this.visits.delete(name);
+    }
+
     /** Save before hiding library chrome can resize and clamp the viewport. */
     holdVisit(): void {
         if (this.view === undefined || this.view.ready === false) return;
@@ -150,6 +169,8 @@ export class FocusHost {
         const sameVisit = previousView !== undefined && visitKey(previousView) === visitKey(view);
         const press = this.press?.cancelled === false && sameVisit ? this.press : undefined;
         const pressed = press === undefined ? undefined : this.focused();
+        const held = heldSelect();
+        const holding = sameVisit && held !== undefined && held.element === document.activeElement ? this.focused() : undefined;
         this.cancelPress();
         const changed = (this.view?.transition?.key ?? this.view?.name) !== (view.transition?.key ?? view.name);
         const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -185,6 +206,10 @@ export class FocusHost {
             this.outgoing = outgoing;
             this.transitionTimer = window.setTimeout(() => this.clearTransition(), 200);
         }
+        // A Details focus scroll already on its way when this repaint starts. The repaint's own reveal cannot
+        // stand in for it: the old focused node is gone by then, so it cannot tell an Up move from a Down one.
+        const revealViewport = this.viewport();
+        const revealing = sameVisit && view.name.startsWith("item:") ? this.scroll.motion(revealViewport) : undefined;
         const previous = sameVisit ? this.locate(document.activeElement) : undefined;
         const kept = previous === undefined ? undefined : { zone: previous.zone.id, key: previous.item.key };
         const unchanged = sameVisit ? kept ?? focus ?? this.memoryTarget() : undefined;
@@ -222,13 +247,25 @@ export class FocusHost {
         else this.focusFirst(offscreenShelf ? [view.focus] : [focus, nearby === undefined ? kept : { zone: previous?.zone.id ?? "", key: nearby.key }, restoring ? this.memoryTarget() : undefined, view.focus]);
         this.settlePrimaryFocus(view);
         const focused = this.focused();
+        // A repaint while Select is held keeps the press on the same item, so its release still runs it.
+        const repainted = this.locate(document.activeElement)?.item.element;
+        if (held !== undefined && holding !== undefined && focused?.zone === holding.zone && focused.key === holding.key && repainted !== undefined && heldSelect()?.element !== repainted) moveSelect(held, repainted);
         const sameIdentity = unchanged !== undefined && focused?.zone === unchanged.zone && focused.key === unchanged.key;
         if ((sameIdentity || returnSnap) && visit !== undefined && !retainedPerson) {
-            // Repainting the same identity (including a dismissed modal) must keep its viewport.
+            // Repainting the same identity (including a dismissed modal) must keep its viewport, and a
+            // Details focus scroll already on its way carries on along its own curve.
             this.scroll.stop();
             this.applyVisit(visit);
+            if (revealing !== undefined) {
+                // Rows the repaint added or removed above the focused one move its anchor: aim there, shifting the whole
+                // curve so the move keeps its remaining time. The reveal's own focus direction wins over the scroll's:
+                // an Up move that interrupted a move down can still scroll down.
+                const element = this.locate(document.activeElement)?.item.element;
+                const aim = element === undefined ? undefined : this.scroll.revealTarget(element, this.container, revealViewport, revealing.up ?? revealing.top < revealing.fromTop);
+                this.scroll.resume(revealViewport, aim === undefined ? revealing : { ...revealing, fromLeft: revealing.fromLeft + aim.left - revealing.left, fromTop: revealing.fromTop + aim.top - revealing.top, left: aim.left, top: aim.top });
+            }
             const element = this.locate(document.activeElement)?.item.element;
-            if ((this.container.dataset.view === "search" || this.container.dataset.view?.startsWith("person:") || this.container.classList.contains("section-catalog") || this.container.classList.contains("library-browse") || this.container.classList.contains("requests-hub") || this.container.classList.contains("details-series-scene") || this.container.classList.contains("accounts-screen") || element?.closest(".settings-modal-options") != null) && element !== undefined) {
+            if ((this.container.dataset.view === "search" || this.container.dataset.view?.startsWith("person:") || this.container.classList.contains("section-catalog") || this.container.classList.contains("library-browse") || this.container.classList.contains("requests-hub") || this.container.classList.contains("details-series-scene") || this.container.classList.contains("accounts-screen") || this.container.dataset.view === "watchParty:lobby" || element?.closest(".settings-modal-options") != null) && element !== undefined) {
                 const viewport = element.closest<HTMLElement>(".browse-panel-list, .settings-modal-options, .settings-pane, .skyline-content, .accounts-rail, .accounts-pane, .accounts-settings") ?? this.container;
                 const card = element.getBoundingClientRect(), bounds = viewport.getBoundingClientRect();
                 if (card.top < bounds.top + 12 || card.bottom > bounds.bottom - 32 || !this.insideRow(element)) this.scroll.reveal(element, this.container);
@@ -242,7 +279,7 @@ export class FocusHost {
             for (const node of this.incoming) node.classList.add(drift && !node.classList.contains("skyline-marquee") ? "skyline-content-drift" : "skyline-content-enter");
         }
         const current = this.locate(document.activeElement);
-        if (press !== undefined && this.press === press && !changed && !document.hidden && current?.zone.id === pressed?.zone && current?.item.key === pressed?.key && current?.item.quickAction !== undefined) {
+        if (press !== undefined && this.press === press && !changed && !document.hidden && current?.zone.id === pressed?.zone && current?.item.key === pressed?.key && current?.item.quickAction !== undefined && enabled(current.item.element)) {
             press.item = current.item;
             press.cancelled = false;
             this.armPress(press);
@@ -528,7 +565,10 @@ export class FocusHost {
             return;
         }
         const visit = visitKey(view);
-        if (this.playClaim === undefined || this.playClaim.visit !== visit) {
+        // A Details popover (`item:<id>:<panel>`) is part of its page's visit, so opening and closing one keeps the claim.
+        const sameVisit = this.playClaim !== undefined && (this.playClaim.visit === visit || visit.startsWith(`${this.playClaim.visit}:`) || this.playClaim.visit.startsWith(`${visit}:`));
+        if (this.playClaim !== undefined && sameVisit) this.playClaim.visit = visit;
+        if (this.playClaim === undefined || !sameVisit) {
             this.cancelPlayClaim();
             this.playClaim = { visit, attempts: 0, waits: 0, finished: false, timer: undefined, moved: false, awaitingPrimary: false };
         }
@@ -550,7 +590,8 @@ export class FocusHost {
             this.clearPlayClaimTimer();
             return;
         }
-        if (!claim.awaitingPrimary && active !== undefined && active.item.key !== primary.item.key) {
+        // A late Play replaces only its row's stand-in, never an opening focus outside the row (a season context).
+        if (active !== undefined && active.item.key !== primary.item.key && (!claim.awaitingPrimary || active.zone.id !== primary.zone.id)) {
             claim.finished = true;
             this.clearPlayClaimTimer();
             return;
@@ -631,6 +672,34 @@ export class FocusHost {
         const previous = document.activeElement;
         item.element.focus({ preventScroll: true });
         this.scroll.reveal(item.element, this.container, previous);
+        if (zone.reading === true) this.alignReading(item.element, previous);
+    }
+
+    /** Apple's focus engine shows the leading edge of a tall reading stop: the top coming from above, the bottom from below. */
+    private alignReading(element: HTMLElement, previous: Element | null): void {
+        const rect = element.getBoundingClientRect();
+        const bounds = this.container.getBoundingClientRect();
+        if (rect.height <= bounds.height - 2 * READING_INSET || previous === null) return;
+        const fromAbove = previous.getBoundingClientRect().top < rect.top;
+        const delta = fromAbove ? rect.top - (bounds.top + READING_INSET) : rect.bottom - (bounds.bottom - READING_INSET);
+        this.scroll.move(this.container, 0, this.clampScroll(this.container.scrollTop + delta));
+    }
+
+    /** Scrolls one step toward the hidden edge; false once that edge is visible, so the move leaves the zone. */
+    private readOn(element: HTMLElement, key: "up" | "down"): boolean {
+        const rect = element.getBoundingClientRect();
+        const bounds = this.container.getBoundingClientRect();
+        if (key === "down" ? rect.bottom <= bounds.bottom + 1 : rect.top >= bounds.top - 1) return false;
+        const remaining = key === "down" ? rect.bottom - (bounds.bottom - READING_INSET) : (bounds.top + READING_INSET) - rect.top;
+        const from = this.container.scrollTop;
+        const to = this.clampScroll(from + (key === "down" ? 1 : -1) * Math.min(READING_STEP, remaining));
+        if (Math.abs(to - from) < 1) return false;
+        this.scroll.move(this.container, 0, to);
+        return true;
+    }
+
+    private clampScroll(top: number): number {
+        return Math.max(0, Math.min(top, this.container.scrollHeight - this.container.clientHeight));
     }
 
     /** Chrome zones are not a page's content return target. */
@@ -655,11 +724,15 @@ export class FocusHost {
     private readonly onPress = (event: KeyboardEvent): void => {
         const key = remoteKey(event);
         if (key !== "enter") { if (key !== undefined) this.cancelPress(); return; }
+        // A fresh press while a hold is still recorded means that hold's release was lost or swallowed: drop it.
+        if (this.press !== undefined && isFreshSelect()) { this.cancelPress(); this.press = undefined; }
         if (this.press !== undefined) { event.preventDefault(); event.stopImmediatePropagation(); return; }
-        if (event.defaultPrevented) return;
+        // Only a fresh press can start a hold: a repeat belongs to a press made before focus arrived here.
+        if (event.defaultPrevented || !isFreshSelect()) return;
         const item = this.locate(document.activeElement)?.item;
-        if (item?.quickAction === undefined) return;
-        // Enter's default click runs on keydown, before a hold can be distinguished.
+        // A disabled card takes no press; selectRelease takes Chromium's click from it.
+        if (item?.quickAction === undefined || !enabled(item.element)) return;
+        // This press is the card's own: a hold opens its menu, a release clicks it.
         event.preventDefault();
         const press = { item, started: performance.now(), timer: undefined as number | undefined, cancelled: false };
         this.press = press;
@@ -670,6 +743,8 @@ export class FocusHost {
         // A fixed 650 ms separates deliberate holds from ordinary Select presses; tune on TV.
         press.timer = window.setTimeout(() => {
             press.timer = undefined;
+            // A card disabled when its hold completes ends the press, so a later release cannot run it either.
+            if (!press.cancelled && !enabled(press.item.element)) { press.cancelled = true; return; }
             if (!press.cancelled && press.item.element.isConnected && document.activeElement === press.item.element && !document.hidden) {
                 press.cancelled = true;
                 press.item.quickAction?.();
@@ -685,7 +760,7 @@ export class FocusHost {
         const activate = !press.cancelled;
         this.cancelPress();
         this.press = undefined;
-        if (activate && press.item.element.isConnected && document.activeElement === press.item.element && !document.hidden) {
+        if (activate && press.item.element.isConnected && document.activeElement === press.item.element && enabled(press.item.element) && !document.hidden) {
             if (performance.now() - press.started >= SELECT_HOLD_MS) press.item.quickAction?.();
             else press.item.element.click();
         }
@@ -718,7 +793,7 @@ export class FocusHost {
             return;
         }
         if (key !== "up" && key !== "down" && key !== "left" && key !== "right") {
-            // Enter is left to the browser: it presses a button and opens the TV keyboard on a field.
+            // Enter is left to the browser: selectRelease clicks a button on release, and a field opens the TV keyboard.
             return;
         }
         const inText = document.activeElement instanceof HTMLInputElement;
@@ -734,6 +809,7 @@ export class FocusHost {
             this.navigationX ??= rect.left + rect.width / 2;
         }
         if (key === "left" && zone.onLeft !== undefined) { zone.onLeft(); return; }
+        if (zone.reading === true && (key === "up" || key === "down") && this.readOn(found.item.element, key)) return;
         const target = moveWithin(zone, zone.items.length, index, key);
         if (target !== undefined) {
             this.focusItem(zone, zone.items[target]);

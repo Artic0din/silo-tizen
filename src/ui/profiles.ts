@@ -16,6 +16,7 @@ import { logoutCollectedAccount } from "./signIn.ts";
 import { PASSWORD_CHANGE_REQUIRED_MESSAGE } from "./signInText.ts";
 import { MarqueeBackdrop, marqueeScene } from "./marqueeBackdrop.ts";
 import { profilePickerScreen } from "./profilePicker.ts";
+import { centredDialog } from "./confirmationDialog.ts";
 import { createProfileFlow, type ProfileCreateFlow } from "./profileCreate.ts";
 import { signOutConfirmationCopy, signOutRemovesServer } from "./signOutConfirmation.ts";
 
@@ -57,6 +58,8 @@ export interface ProfileOptions {
 export interface ProfileScreens {
     /** Shows the profiles over the caller's content; the current profile acts until another is chosen. */
     switchProfile(): void;
+    /** Opens profile creation over the caller's content, from a fresh list; it ends on the profiles. */
+    addProfile(): void;
     signOut(): void;
     destroy(): void;
 }
@@ -93,7 +96,8 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
             backdrop.setStage(marqueeScene.stage);
             host = new ScreenHost(root, undefined, backdrop.element);
         }
-        root.classList.toggle("profile-picker", screen.name === "profiles");
+        // The sign-out dialog covers whichever screen opened it, so that screen's layout stays.
+        if (screen.name !== "profiles:signout") root.classList.toggle("profile-picker", screen.name === "profiles" || screen.name === "remember-profile");
         root.classList.toggle("profile-editor", screen.name === "profile-create");
         root.classList.toggle("profile-pin", screen.name === "pin");
         host.show(screen, focus);
@@ -124,7 +128,8 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
     };
 
     const message = (name: string, title: string, lines: readonly string[], controls: readonly Control[], back?: () => void, tone: Note["tone"] = "info", focus?: string): void => {
-        const body = lines.map((line) => el("p", tone === "error" ? "signin-text signin-error" : "signin-text", line));
+        // Only the first line is the error; any later line is ordinary copy.
+        const body = lines.map((line, index) => el("p", tone === "error" && index === 0 ? "signin-text signin-error" : "signin-text", line));
         if (tone === "error") {
             body[0]?.setAttribute("role", "alert");
         }
@@ -189,10 +194,12 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
             heldProfileLoad = undefined;
             signOut();
         });
+        // AccountRemovalConfirmation on tvOS: TVSettingsConfirmationOverlay over the screen, Cancel then Sign Out, Cancel focused.
         show({
             name: "profiles:signout",
-            content: [el("h1", "signin-title", copy.title), el("p", "signin-text", copy.message), actions([cancel, accept])],
-            controls: [cancel, accept],
+            content: centredDialog({ style: "confirmation", id: "profiles-signout", title: copy.title, message: copy.message,
+                buttons: [cancel.element, accept.element], destructive: accept.element, behind: screenBehind() }),
+            controls: [{ ...cancel, row: 0, column: 0 }, { ...accept, row: 0, column: 1 }],
             focus: "cancel-signout",
             back: dismiss,
         });
@@ -247,28 +254,63 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
         );
     };
 
+    /** The picker's last list, drawn dimmed and inert behind an alert, as tvOS keeps Who's watching under `.alert`. */
+    let shownList: readonly ProfileSummary[] | undefined;
+    const pickerBehind = (): readonly HTMLElement[] => {
+        if (shownList === undefined) return [];
+        const inert = (): void => undefined;
+        return profilePickerScreen({ profiles: shownList, baseUrl: server.server.http.base.baseUrl, accountName: session.account?.username,
+            rememberedId: options.launch?.rememberedProfileId, focus: "", choose: inert, add: inert, changeServer: inert, signOut: inert, back: undefined }).content;
+    };
+    /** A copy of the screen on display, for a dialog to cover. */
+    const screenBehind = (): HTMLElement[] => {
+        const screen = Array.from(root.querySelectorAll<HTMLElement>("[data-screen]")).pop();
+        return screen === undefined ? [] : Array.from(screen.children).filter((node): node is HTMLElement => node instanceof HTMLElement).map(node => node.cloneNode(true) as HTMLElement);
+    };
+
     const showList = (focus?: string): void => load((list) => picker(list, focus), () => showList(focus));
 
     const showPicker = (list: readonly ProfileSummary[], focus?: string): void => {
+        shownList = list;
         const preferred = focus ?? current?.id ?? options.launch?.rememberedProfileId ?? list[0]?.id;
         const focusKey = preferred === "signout" || preferred === "add-profile" || preferred === undefined ? (preferred ?? "add-profile") : `profile:${preferred}`;
         show(profilePickerScreen({ profiles: list, baseUrl: server.server.http.base.baseUrl,
             accountName: session.account?.username, rememberedId: options.launch?.rememberedProfileId,
             focus: focusKey,
-            choose, changeServer: options.onChangeServer, signOut: () => askSignOut(() => showPicker(list, "signout")), back: resume(), add: () => {
-                const token = begin();
-                const flow = createProfileFlow({ server, profiles: list,
-                    show: (screen, focus) => { if (!destroyed && token === view) show(screen, focus); }, finished: (id, uncertain) => {
-                    if (destroyed || token !== view) return;
-                    creation = undefined;
-                    if (uncertain) message("profile-create-uncertain", "Check profiles", ["A creation request was sent. Check the profile list before trying again."], [button("retry", "Check profiles", () => showList("add-profile"))], () => showList("add-profile"));
-                    else showList(id ?? "add-profile");
-                } });
-                if (!destroyed && token === view) creation = flow;
-                else flow.destroy();
-            },
+            choose, changeServer: options.onChangeServer, signOut: () => askSignOut(() => showPicker(list, "signout")), back: resume(), add: () => createProfile(list),
         }));
     };
+
+    /** `cancelled` runs when the flow ends with nothing sent; the picker's Add returns to the picker. */
+    const createProfile = (list: readonly ProfileSummary[], cancelled = (): void => showList("add-profile")): void => {
+        const token = begin();
+        const flow = createProfileFlow({ server, profiles: list,
+            show: (screen, focus) => { if (!destroyed && token === view) show(screen, focus); }, finished: (id, uncertain) => {
+            if (destroyed || token !== view) return;
+            creation = undefined;
+            if (uncertain) message("profile-create-uncertain", "Check profiles", ["A creation request was sent. Check the profile list before trying again."], [button("retry", "Check profiles", () => showList("add-profile"))], () => showList("add-profile"));
+            else if (id === undefined) cancelled();
+            else showList(id);
+        } });
+        if (!destroyed && token === view) creation = flow;
+        else flow.destroy();
+    };
+
+    // AppRouter.beginAddProfile (silo-apple 5780c84 `Navigation/AppRouter+Accounts.swift:220-245`): a fresh list, so a PIN
+    // set on another device is asked for. AddProfileRequest.start (:87-91) routes by it: a household that has grown
+    // since the menu's count opens the picker, and the form never opens for a profile that is not the open one.
+    const addProfile = (): void => load(list => {
+        if (list.length > 1) { picker(list, current?.id); return; }
+        if (list[0] === undefined || list[0].id !== session.activeProfile?.id) {
+            const back = resume() ?? (() => showList());
+            message("profile-create-unavailable", "Add Profile", ["Couldn't find the primary profile needed to create another profile."], [button("ok", "OK", back)], back, "error");
+            return;
+        }
+        shownList = list;
+        // AddProfileFromMenuModifier (AddProfileFromMenu.swift:3-7): closing without creating returns to the open profile.
+        const back = resume();
+        createProfile(list, back ?? (() => showList("add-profile")));
+    }, addProfile);
 
     const picker = (list: readonly ProfileSummary[], focus?: string): void => {
         begin();
@@ -314,13 +356,24 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
     const selected = (profile: ProfileSummary): void => {
         const launch = options.launch;
         if (launch === undefined || (!launch.needsOffer && !launch.remembered)) { handOff(profile); return; }
+        // ProfileSelectionView's tvOS remember offer (`.alert`), over the dimmed picker, with "this Apple TV" read as "this TV".
+        // Ask Every Time is the cancel button, drawn first; focus starts on Remember. While the offer is pending, Back answers
+        // Ask Every Time, as Menu runs the cancel button. Saving can fail on the TV, so the offer then also says why and can
+        // continue unsaved; a failed silent re-save for an existing choice keeps that choice when Back leaves.
+        const pendingOffer = launch.needsOffer;
         const offer = (error = false): void => {
             begin();
-            message("remember-profile", `Remember ${profile.name} on this TV?`, error ? ["Could not save the launch choice. Try again or choose Ask who's watching."] : [], [
-                button("remember", error ? "Retry remember profile" : "Remember this profile", () => save(true)),
-                button("ask-every-launch", "Ask who's watching at launch", () => save(false)),
-                ...(error ? [button("continue-session", "Continue without saving", () => { launch.continueWithoutSaving(); handOff(profile); })] : []),
-            ], () => showList(profile.id), error ? "error" : "info");
+            const name = profile.name.trim();
+            const ask = button("ask-every-launch", "Ask Every Time", () => save(false));
+            const remember = button("remember", "Remember", () => save(true));
+            const controls: Control[] = [{ ...ask, row: 0, column: 0 }, { ...remember, row: 0, column: 1 }];
+            if (error) controls.push({ ...button("continue-session", "Continue without saving", () => { launch.continueWithoutSaving(); handOff(profile); }), row: 1, column: 0 });
+            const content = centredDialog({ style: "alert", id: "remember-offer", title: name === "" ? "Open this profile automatically?" : `Open ${name} automatically?`,
+                ...(error ? { problem: "Silo couldn't securely remember this profile. Please try again." } : {}),
+                message: "Silo can skip Who's Watching and open this profile when it starts on this TV. You can change this later in Settings > General > Profile Selection.",
+                buttons: controls.map(control => control.element), behind: pickerBehind() });
+            show({ name: "remember-profile", content, controls, focus: "remember",
+                back: pendingOffer ? () => save(false) : () => showList(profile.id) });
         };
         const save = (remember: boolean): void => {
             const token = begin();
@@ -329,7 +382,7 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
             message("remember-saving", "Saving launch choice", [], [button("back", "Back", () => showList(profile.id))], () => showList(profile.id));
             launch.setRemember(remember, controller.signal, profile).then(() => { if (token === view) handOff(profile); }, () => { if (token === view) offer(true); });
         };
-        if (launch.needsOffer) offer();
+        if (pendingOffer) offer();
         else save(true);
     };
 
@@ -380,7 +433,7 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
             const retry = button("retry", "Try Again", () => showList());
             const change = button("change-account", "Change account", options.onChangeServer);
             const out = signOutButton(() => showReset("signout"));
-            change.element.prepend(navigationIcon("switch-server"));
+            change.element.prepend(navigationIcon("switch-profile"));
             out.element.prepend(navigationIcon("signout"));
             const retryRow = actions([retry]);
             const footer = el("div", "profile-footer");
@@ -544,6 +597,9 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
                 if (session.activeProfile === undefined) current = undefined;
                 showList(current?.id);
             }
+        },
+        addProfile() {
+            if (!destroyed && host === undefined && session.activeProfile !== undefined) addProfile();
         },
         destroy,
     };

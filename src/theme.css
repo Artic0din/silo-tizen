@@ -8,21 +8,37 @@
     font-display: block;
 }
 
+/* Roboto Mono (SIL Open Font License 1.1, app/fonts/RobotoMono-LICENSE.txt): the TV has no monospaced system
+   face, so a generic monospace draws proportional. It stands in for SF Mono, which may not be embedded. */
+@font-face {
+    font-family: "Roboto Mono";
+    src: url("../fonts/RobotoMono-Variable.ttf") format("truetype");
+    font-weight: 100 700;
+    font-style: normal;
+    font-display: block;
+}
+
 :root {
     --silo-background: #000000;
     --silo-surface: #0a0a0a;
     --silo-surface-variant: #0e0f12;
     --silo-elevated: #15171c;
     --silo-text: #ededed;
-    /* Small metadata needs more contrast than the mockup's 38% white. */
-    --silo-secondary: #a0a0a0;
+    /* Apple's siloSecondaryText: primary text at 60%, about 6:1 on black. */
+    --silo-secondary: rgba(237, 237, 237, 0.6);
+    /* Apple's siloSecondaryText.opacity(0.7) and (0.5). Chromium 108 has no color-mix(), so keep these in step with --silo-secondary by hand. */
+    --silo-secondary-muted: rgba(237, 237, 237, 0.42);
+    --silo-secondary-faint: rgba(237, 237, 237, 0.3);
     --silo-boundary: #767676;
     --silo-hairline: rgba(255, 255, 255, 0.12);
     --silo-selected: rgba(255, 255, 255, 0.14);
     --silo-error: #ffb4ab;
     --silo-font: "Inter", system-ui, sans-serif;
+    --silo-mono: "Roboto Mono", ui-monospace, monospace;
     /* Inter's advances run wider than SF Pro. em resolves on each element, so a 24px title and a 28px title both tighten. A later letter-spacing rule still wins. */
     --silo-tracking: -0.015em;
+    /* SF Pro's cap height is 0.7046em and Inter's 0.7275em, so Inter at Apple's point size draws 3% taller capitals. The Home hero text scales by this to match the Apple TV capture. */
+    --silo-sf-cap-scale: 0.9685;
     --silo-fast: 120ms;
     --silo-page: 200ms;
 }

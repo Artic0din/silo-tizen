@@ -6,7 +6,7 @@ import type { Person } from "../contracts/v2/details.ts";
 import { graphemeSegments } from "unicode-segmenter/grapheme";
 import { artworkUrl } from "./browseModel.ts";
 import { el } from "./screen.ts";
-import { decodeThumbhash } from "./thumbhash.ts";
+import { thumbhashCanvas } from "./heroBackdrop.ts";
 import { episodeAirDate } from "./episodeCaption.ts";
 
 const PERSON_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
@@ -91,7 +91,7 @@ export function personPortrait(person: Person, baseUrl: string): HTMLElement {
         return box;
     }
     box.dataset.personPortrait = "loading";
-    const preview = thumbhashLayer(person.photoThumbhash);
+    const preview = thumbhashCanvas(person.photoThumbhash, "person-portrait-thumbhash");
     if (preview !== undefined) box.appendChild(preview);
     const image = el("img", "person-portrait-photo browse-art-image");
     image.alt = "";
@@ -150,15 +150,3 @@ function photoSource(reference: string | undefined, baseUrl: string): string | u
     return trimmed === undefined || trimmed === "" ? undefined : artworkUrl(trimmed, baseUrl);
 }
 
-function thumbhashLayer(encoded: string | undefined): HTMLCanvasElement | undefined {
-    const decoded = decodeThumbhash(encoded);
-    if (decoded === undefined) return undefined;
-    const canvas = el("canvas", "person-portrait-thumbhash");
-    canvas.width = decoded.width;
-    canvas.height = decoded.height;
-    canvas.setAttribute("aria-hidden", "true");
-    const context = canvas.getContext("2d");
-    if (context === null) return undefined;
-    context.putImageData(new ImageData(new Uint8ClampedArray(decoded.rgba), decoded.width, decoded.height), 0, 0);
-    return canvas;
-}

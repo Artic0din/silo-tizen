@@ -1414,7 +1414,9 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     };
 
     /** Where a fresh Select press was made, waiting for its release; another key or a focus change ends it. */
-    let selectHeld: { readonly element: Element | null; readonly key: string | null } | undefined;
+    let selectHeld: { readonly element: Element | null; readonly key: string | null; readonly context: string } | undefined;
+    /** What Select would act on beyond the focused control: a prompt or mode that appears mid-press replaces the press's action. */
+    const selectContext = (): string => [view.phase, view.phase === "playing" || view.phase === "paused" ? view.upNext !== undefined : false, menuOpen, timeline, seekPreview !== undefined, autoRate, overlay.classList.contains("player-overlay-hidden"), skipUsable(), bufferingButtons().length, bufferingTarget].join("|");
     const onKey = (event: KeyboardEvent, released = false): void => {
         const key = remoteKey(event);
         if (key === undefined || view.phase === "closed") {
@@ -1423,7 +1425,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         event.preventDefault();
         // tvOS runs Select on release: a fresh press waits for onKeyUp, and its repeats change nothing.
         if (key === "enter" && !released) {
-            if (!event.repeat) selectHeld = { element: document.activeElement, key: document.activeElement?.getAttribute("data-focus") ?? null };
+            if (!event.repeat) selectHeld = { element: document.activeElement, key: document.activeElement?.getAttribute("data-focus") ?? null, context: selectContext() };
             return;
         }
         if (key !== "enter") selectHeld = undefined;
@@ -1585,7 +1587,12 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         if (held === undefined || event.target !== held.element) return;
         const next = event.relatedTarget;
         if (held.key !== null && next instanceof Element && next.getAttribute("data-focus") === held.key) return;
-        selectHeld = undefined;
+        // A repaint removes the focused row before focusing its replacement, so decide once the repaint has run.
+        queueMicrotask(() => {
+            if (selectHeld !== held) return;
+            if (held.key !== null && held.element?.isConnected === false && document.activeElement?.getAttribute("data-focus") === held.key) return;
+            selectHeld = undefined;
+        });
     };
 
     const onKeyUp = (event: KeyboardEvent): void => {
@@ -1595,7 +1602,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             selectHeld = undefined;
             // Release runs the press only where it was made; a repaint may replace that control with the same one.
             const active = document.activeElement;
-            if (held !== undefined && (active === held.element || (held.key !== null && held.element?.isConnected === false && active?.getAttribute("data-focus") === held.key))) onKey(event, true);
+            if (held !== undefined && held.context === selectContext() && (active === held.element || (held.key !== null && held.element?.isConnected === false && active?.getAttribute("data-focus") === held.key))) onKey(event, true);
             return;
         }
         if ((key !== "left" && key !== "right") || pendingTap !== key) return;

@@ -308,6 +308,39 @@ test("a Select whose focus leaves its control and returns runs nothing on releas
     } finally { await page.close(); }
 });
 
+const keyEvent = (page: Page, type: "keydown" | "keyup", code: number): Promise<void> => page.evaluate(({ type, code }) => { document.activeElement?.dispatchEvent(new KeyboardEvent(type, { keyCode: code, bubbles: true, cancelable: true })); }, { type, code });
+
+test("a Select held on a menu row through a HUD repaint runs that row on release", async () => {
+    const { page } = await open();
+    try {
+        const hud = { chapters: [{ title: "Opening", seconds: 0 }, { title: "Second", seconds: 800 }], chapterState: "ready" as const, stats: [["Engine", "AVPlay"]] as const, speeds: [1, 2], aspects: ["Fit", "Stretch"] as const, speed: 1, aspect: "Fit" as const, autoNext: false, busy: false };
+        await show(page, { ...playing(TRACKS), hud });
+        await openPanel(page);
+        await nextTab(page, 5);
+        await remote(page, DOWN);
+        const before = await page.evaluate(() => document.activeElement);
+        await keyEvent(page, "keydown", ENTER);
+        await show(page, { ...playing(TRACKS), hud: { ...hud, stats: [["Engine", "AVPlay"], ["Dropped", "0"]] } });
+        assert.equal(await focused(page), "chapter:1");
+        assert.equal(await page.evaluate(node => node !== document.activeElement, before), true, "the repaint replaced the focused row");
+        await keyEvent(page, "keyup", ENTER);
+        assert.deepEqual(await commands(page), ["seekToSeconds 800"]);
+    } finally { await page.close(); }
+});
+
+test("a prompt that appears while Select is held does not take the release", async () => {
+    const { page } = await open();
+    try {
+        await show(page, playing(TRACKS));
+        await page.clock.runFor(5000);
+        assert.equal(await page.locator(".player-overlay-hidden").count(), 1);
+        await keyEvent(page, "keydown", ENTER);
+        await show(page, inMarker(INTRO, 25));
+        await keyEvent(page, "keyup", ENTER);
+        assert.deepEqual(await commands(page), [], "the Skip Intro that appeared mid-press did not run");
+    } finally { await page.close(); }
+});
+
 test("a Select held while the controls hide does not run on the scrubber it lands on", async () => {
     const { page } = await open();
     try {

@@ -321,8 +321,14 @@ test("Select on a disabled row leaves the menu answering later presses once it r
         await row(tv, "Add to Watchlist").focus();
         await tv.page.keyboard.press("Enter");
         assert.equal(await menu(tv).count(), 1, "a disabled row does not close the menu");
+        // A press made on the disabled row stays inert even when the row re-enables before its release.
+        await tv.page.keyboard.down("Enter");
         answer.release();
         await row(tv, "Remove from Favorites").waitFor();
+        assert.equal(await row(tv, "Add to Watchlist").getAttribute("aria-disabled"), null);
+        await tv.page.keyboard.up("Enter");
+        assert.equal(await menu(tv).count(), 1, "the release of a press made while disabled chooses nothing");
+        assert.equal(catalog.watchlist, false);
         await row(tv, "Add to Watchlist").focus();
         await tv.page.keyboard.press("Enter");
         assert.equal(await menu(tv).count(), 0, "a fresh Select chooses the re-enabled row");

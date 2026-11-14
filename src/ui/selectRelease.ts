@@ -22,17 +22,26 @@ function release(): void {
     owned = false;
 }
 
-/** The control Select is holding down, drawn pressed until release. */
-export function heldSelect(): HTMLElement | undefined {
-    return held;
+/** A Select press in progress: the control drawn pressed, and whether its release clicks it. */
+export interface SelectPress { readonly element: HTMLElement; readonly owned: boolean }
+
+/** The press Select is holding down, drawn pressed until release. */
+export function heldSelect(): SelectPress | undefined {
+    return held === undefined ? undefined : { element: held, owned };
 }
 
-/** A repaint replaced the held control with this one for the same item: it keeps the press. */
-export function moveSelect(element: HTMLElement): void {
+/** A repaint replaced the held control with this one for the same item: it keeps the press, even if the repaint's focus change ended it. */
+export function moveSelect(press: SelectPress, element: HTMLElement): void {
     held?.removeAttribute("data-pressed");
     held = element;
+    owned = press.owned;
     element.setAttribute("data-pressed", "");
 }
+
+// Focus leaving the held control ends the press, so focus returning to it cannot run it on release.
+const onFocusOut = (event: FocusEvent): void => {
+    if (event.target === held) release();
+};
 
 const onPress = (event: KeyboardEvent): void => {
     const key = remoteKey(event);
@@ -81,5 +90,6 @@ export function listenSelectRelease(): void {
     window.addEventListener("keyup", onReleaseStart, true);
     window.addEventListener("keyup", onRelease);
     window.addEventListener("blur", release);
+    document.addEventListener("focusout", onFocusOut, true);
     document.addEventListener("visibilitychange", release);
 }

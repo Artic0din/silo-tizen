@@ -1577,6 +1577,9 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         render();
     };
 
+    // A lost window loses Select's release, so the next press is a fresh one.
+    const endSelect = (): void => { selectHeld = undefined; };
+
     const onKeyUp = (event: KeyboardEvent): void => {
         const key = remoteKey(event);
         if (key === "enter") {
@@ -1621,6 +1624,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     document.addEventListener("keydown", onKey);
     document.addEventListener("keyup", onKeyUp);
     document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("blur", endSelect);
     const unsubscribe = controls.subscribe((next) => {
         if ((next.phase !== "playing" && next.phase !== "paused") || next.previewKey !== undefined) pendingSkipTarget = undefined;
         const starting = next.phase === "playing" && view.phase !== "playing" && view.phase !== "paused";
@@ -1659,6 +1663,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             document.removeEventListener("keydown", onKey);
             document.removeEventListener("keyup", onKeyUp);
             document.removeEventListener("visibilitychange", onVisibility);
+            window.removeEventListener("blur", endSelect);
             if (section.parentNode === root) {
                 root.removeChild(section);
             }

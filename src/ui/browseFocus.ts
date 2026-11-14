@@ -165,7 +165,7 @@ export class FocusHost {
         const press = this.press?.cancelled === false && sameVisit ? this.press : undefined;
         const pressed = press === undefined ? undefined : this.focused();
         const held = heldSelect();
-        const holding = sameVisit && held !== undefined && held === document.activeElement ? this.focused() : undefined;
+        const holding = sameVisit && held !== undefined && held.element === document.activeElement ? this.focused() : undefined;
         this.cancelPress();
         const changed = (this.view?.transition?.key ?? this.view?.name) !== (view.transition?.key ?? view.name);
         const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -244,7 +244,7 @@ export class FocusHost {
         const focused = this.focused();
         // A repaint while Select is held keeps the press on the same item, so its release still runs it.
         const repainted = this.locate(document.activeElement)?.item.element;
-        if (holding !== undefined && focused?.zone === holding.zone && focused.key === holding.key && repainted !== undefined && repainted !== held) moveSelect(repainted);
+        if (held !== undefined && holding !== undefined && focused?.zone === holding.zone && focused.key === holding.key && repainted !== undefined && heldSelect()?.element !== repainted) moveSelect(held, repainted);
         const sameIdentity = unchanged !== undefined && focused?.zone === unchanged.zone && focused.key === unchanged.key;
         if ((sameIdentity || returnSnap) && visit !== undefined && !retainedPerson) {
             // Repainting the same identity (including a dismissed modal) must keep its viewport, and a

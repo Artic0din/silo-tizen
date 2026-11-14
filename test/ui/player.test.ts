@@ -272,6 +272,22 @@ test("transport focus re-arms five seconds then hides and hidden Up reveals the 
     } finally { await page.close(); }
 });
 
+test("a Select held while the window loses focus runs nothing on release", async () => {
+    const { page } = await open();
+    try {
+        await show(page, { ...playing(TRACKS), hud: { chapters: [{ title: "Opening", seconds: 0 }, { title: "Second", seconds: 800 }], chapterState: "ready", stats: [["Engine", "AVPlay"]], speeds: [1, 2], aspects: ["Fit", "Stretch"], speed: 1, aspect: "Fit", autoNext: false, busy: false } });
+        await openPanel(page);
+        await nextTab(page, 5);
+        await remote(page, DOWN);
+        await page.evaluate((code) => document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { keyCode: code, bubbles: true, cancelable: true })), ENTER);
+        await page.evaluate(() => window.dispatchEvent(new Event("blur")));
+        await page.evaluate((code) => document.activeElement?.dispatchEvent(new KeyboardEvent("keyup", { keyCode: code, bubbles: true, cancelable: true })), ENTER);
+        assert.deepEqual(await commands(page), [], "the release after a lost window ran nothing");
+        await remote(page, ENTER);
+        assert.deepEqual(await commands(page), ["seekToSeconds 800"], "the next fresh Select runs");
+    } finally { await page.close(); }
+});
+
 test("a Select held while the controls hide does not run on the scrubber it lands on", async () => {
     const { page } = await open();
     try {

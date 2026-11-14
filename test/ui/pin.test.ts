@@ -314,6 +314,14 @@ tvTest("holding OK on a key draws it pressed and adds one digit on release, as a
     await tv.page.keyboard.press("ArrowRight");
     await enter("keyUp", false);
     assert.equal(await filled(tv), 1, "moving off a held key cancels its press");
+    await enter("keyDown", false);
+    await tv.page.evaluate(() => {
+        const held = document.activeElement;
+        document.querySelector<HTMLElement>('.pin-key:not(:focus)')?.focus();
+        if (held instanceof HTMLElement) held.focus();
+    });
+    await enter("keyUp", false);
+    assert.equal(await filled(tv), 1, "focus leaving and returning to a held key cancels its press");
     assert.equal(tv.fake.paths().includes("POST /profiles/p-kid/verify-pin"), false);
 });
 

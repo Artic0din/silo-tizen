@@ -99,6 +99,30 @@ calendarTest("Calendar loading focus stays on Apple's blank owner", async (tv) =
     held.release();
 });
 
+calendarTest("Calendar Select held on Next week through the week's repaint runs once on release", async (tv) => {
+    await activate(tv, "calendar");
+    await ready(tv, 3);
+    await activate(tv, "next-week");
+    await ready(tv, 0);
+    const held = tv.fake.hold("/calendar", true);
+    await activate(tv, "today");
+    await tv.page.locator(".calendar-loading").waitFor();
+    const next = tv.page.locator('.browse [data-focus="next-week"]');
+    await next.focus();
+    const before = await next.elementHandle();
+    assert.ok(before);
+    await tv.page.keyboard.down("Enter");
+    held.release();
+    await tv.eventually(() => before.evaluate(node => !node.isConnected), "the week's arrival repaints Next week");
+    await ready(tv, 3);
+    assert.equal(await tv.focused(), "next-week");
+    assert.equal(await next.getAttribute("data-pressed"), "", "the repainted button keeps the press");
+    const reads0 = reads(tv).length;
+    await tv.page.keyboard.up("Enter");
+    await ready(tv, 0);
+    assert.equal(reads(tv).length, reads0 + 1, "release runs Next week once");
+});
+
 calendarTest("Calendar Today keeps a move made while the week is loading", async (tv) => {
     await activate(tv, "calendar");
     await ready(tv, 3);

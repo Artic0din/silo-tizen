@@ -82,6 +82,8 @@ export class CardActions {
     private panel: HTMLElement | undefined;
     private rows: HTMLButtonElement[] = [];
     private pressed = false;
+    /** The row a fresh Select pressed while it was enabled; only that row runs on release. */
+    private pressedRow: string | undefined;
     private listening = false;
     /** The card drawn lifted while its menu is open, and its art's rest box measured before the lift. */
     private lifted: { readonly card: HTMLElement; readonly rest: Box } | undefined;
@@ -354,11 +356,13 @@ export class CardActions {
         if (remoteKey(event) !== "enter") return;
         event.preventDefault();
         event.stopImmediatePropagation();
+        const pressedRow = this.pressedRow;
+        this.pressedRow = undefined;
         if (!this.pressed) return;
         this.pressed = false;
         const chosen = this.rows.find(row => row === document.activeElement);
-        // A disabled row stays open; the next fresh press chooses it once it re-enables.
-        if (chosen === undefined || chosen.getAttribute("aria-disabled") === "true") return;
+        // A press made on a disabled row stays inert, even if a redraw enables the row before release.
+        if (chosen === undefined || pressedRow === undefined || chosen.getAttribute("data-focus") !== pressedRow || chosen.getAttribute("aria-disabled") === "true") return;
         chosen.click();
     };
 
@@ -368,7 +372,7 @@ export class CardActions {
         event.stopImmediatePropagation();
         event.preventDefault();
         // Any other key ends a held Select, so its release cannot choose a row it did not press.
-        if (key !== "enter") this.pressed = false;
+        if (key !== "enter") { this.pressed = false; this.pressedRow = undefined; }
         if (key === "back") { this.close(); return; }
         if (this.panel === undefined) return;
         // The tvOS menu is a single column: Left and Right stay put.
@@ -379,7 +383,10 @@ export class CardActions {
         } else if (key === "enter") {
             // tvOS chooses a row on Select's release. The long press that opened the menu is still held:
             // only a fresh press arms a row, and its repeats change nothing.
-            if (!event.repeat) this.pressed = true;
+            if (event.repeat) return;
+            this.pressed = true;
+            const row = this.rows.find(candidate => candidate === document.activeElement);
+            this.pressedRow = row === undefined || row.getAttribute("aria-disabled") === "true" ? undefined : row.getAttribute("data-focus") ?? undefined;
         }
     };
 }

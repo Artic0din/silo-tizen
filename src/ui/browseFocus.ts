@@ -13,6 +13,11 @@ import { heldSelect, listenSelectRelease, moveSelect } from "./selectRelease.ts"
 import { SkylineScroll } from "./skylineScroll.ts";
 
 const SELECT_HOLD_MS = 650;
+
+/** A press runs only on a control that was enabled when pressed and still is (aria-disabled controls stay focusable). */
+function enabled(element: HTMLElement): boolean {
+    return !element.matches(':disabled, [aria-disabled="true"]');
+}
 /** Scrolling panels whose position survives a repaint of their screen, keyed by data-scroll-key. */
 const SCROLL_PANELS = ".browse-panel-list[data-scroll-key], .settings-modal-options[data-scroll-key], .settings-pane[data-scroll-key], .accounts-rail[data-scroll-key], .accounts-pane[data-scroll-key]";
 
@@ -274,7 +279,7 @@ export class FocusHost {
             for (const node of this.incoming) node.classList.add(drift && !node.classList.contains("skyline-marquee") ? "skyline-content-drift" : "skyline-content-enter");
         }
         const current = this.locate(document.activeElement);
-        if (press !== undefined && this.press === press && !changed && !document.hidden && current?.zone.id === pressed?.zone && current?.item.key === pressed?.key && current?.item.quickAction !== undefined) {
+        if (press !== undefined && this.press === press && !changed && !document.hidden && current?.zone.id === pressed?.zone && current?.item.key === pressed?.key && current?.item.quickAction !== undefined && enabled(current.item.element)) {
             press.item = current.item;
             press.cancelled = false;
             this.armPress(press);
@@ -720,9 +725,11 @@ export class FocusHost {
         const key = remoteKey(event);
         if (key !== "enter") { if (key !== undefined) this.cancelPress(); return; }
         if (this.press !== undefined) { event.preventDefault(); event.stopImmediatePropagation(); return; }
-        if (event.defaultPrevented) return;
+        // Only a fresh press can start a hold: a repeat belongs to a press made before focus arrived here.
+        if (event.defaultPrevented || event.repeat) return;
         const item = this.locate(document.activeElement)?.item;
-        if (item?.quickAction === undefined) return;
+        // A disabled card takes no press; selectRelease takes Chromium's click from it.
+        if (item?.quickAction === undefined || !enabled(item.element)) return;
         // This press is the card's own: a hold opens its menu, a release clicks it.
         event.preventDefault();
         const press = { item, started: performance.now(), timer: undefined as number | undefined, cancelled: false };
@@ -734,6 +741,8 @@ export class FocusHost {
         // A fixed 650 ms separates deliberate holds from ordinary Select presses; tune on TV.
         press.timer = window.setTimeout(() => {
             press.timer = undefined;
+            // A card disabled when its hold completes ends the press, so a later release cannot run it either.
+            if (!press.cancelled && !enabled(press.item.element)) { press.cancelled = true; return; }
             if (!press.cancelled && press.item.element.isConnected && document.activeElement === press.item.element && !document.hidden) {
                 press.cancelled = true;
                 press.item.quickAction?.();
@@ -749,7 +758,7 @@ export class FocusHost {
         const activate = !press.cancelled;
         this.cancelPress();
         this.press = undefined;
-        if (activate && press.item.element.isConnected && document.activeElement === press.item.element && !document.hidden) {
+        if (activate && press.item.element.isConnected && document.activeElement === press.item.element && enabled(press.item.element) && !document.hidden) {
             if (performance.now() - press.started >= SELECT_HOLD_MS) press.item.quickAction?.();
             else press.item.element.click();
         }

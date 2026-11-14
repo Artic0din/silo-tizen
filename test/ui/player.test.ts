@@ -885,6 +885,24 @@ test("the skip pill says what Apple TV says for an intro, a recap and credits, w
     } finally { await page.close(); }
 });
 
+test("a Select pressed on a disabled Skip stays inert once it enables, and a changed skip prompt cancels a held press", async () => {
+    const { page } = await open();
+    try {
+        await show(page, inMarker(INTRO, 25));
+        assert.equal(await focused(page), "skip");
+        await page.evaluate(() => document.activeElement?.setAttribute("aria-disabled", "true"));
+        await keyEvent(page, "keydown", ENTER);
+        await page.evaluate(() => document.activeElement?.removeAttribute("aria-disabled"));
+        await keyEvent(page, "keyup", ENTER);
+        assert.deepEqual(await commands(page), [], "a press made on a disabled Skip runs nothing");
+        await keyEvent(page, "keydown", ENTER);
+        await show(page, inMarker(CREDITS, 7010));
+        assert.equal(await pill(page), "Skip Credits");
+        await keyEvent(page, "keyup", ENTER);
+        assert.deepEqual(await commands(page), [], "Skip Intro held into Skip Credits runs neither");
+    } finally { await page.close(); }
+});
+
 test("the Skip Intro offer lasts five seconds, does not return inside the same intro and comes back after leaving it", async () => {
     const { page } = await open();
     try {

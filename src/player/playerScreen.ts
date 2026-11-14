@@ -15,6 +15,7 @@ import type { ConnectedServer } from "../session/core.ts";
 import type { PublicStorage, RandomBytes } from "../session/deviceIdentity.ts";
 import { blurEpisodeStill, type EpisodeSpoilerSettings } from "../ui/episodeSpoilers.ts";
 import { remoteKey } from "../ui/keys.ts";
+import { swallowSelect } from "../ui/selectRelease.ts";
 import { el } from "../ui/screen.ts";
 import { artworkUrl } from "../ui/browseModel.ts";
 import type { AVPlay } from "./avplay.ts";
@@ -1416,7 +1417,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     /** Where a fresh Select press was made, waiting for its release; another key or a focus change ends it. */
     let selectHeld: { readonly element: Element | null; readonly key: string | null; readonly context: string } | undefined;
     /** What Select would act on beyond the focused control: a prompt or mode that appears mid-press replaces the press's action. */
-    const selectContext = (): string => [view.phase, view.phase === "playing" || view.phase === "paused" ? view.upNext !== undefined : false, menuOpen, timeline, seekPreview !== undefined, autoRate, overlay.classList.contains("player-overlay-hidden"), skipUsable(), bufferingButtons().length, bufferingTarget].join("|");
+    const selectContext = (): string => [skipKind, skipTarget, view.phase, view.phase === "playing" || view.phase === "paused" ? view.upNext !== undefined : false, menuOpen, timeline, seekPreview !== undefined, autoRate, overlay.classList.contains("player-overlay-hidden"), skipUsable(), bufferingButtons().length, bufferingTarget].join("|");
     const onKey = (event: KeyboardEvent, released = false): void => {
         const key = remoteKey(event);
         // Any other key, remote or not, ends a held Select.
@@ -1427,8 +1428,11 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         event.preventDefault();
         // tvOS runs Select on release: a fresh press waits for onKeyUp, and its repeats change nothing.
         if (key === "enter" && !released) {
-            // A press on a disabled menu row stays inert, even if a redraw enables that row before release.
-            if (!event.repeat) selectHeld = menuOpen && document.activeElement?.getAttribute("aria-disabled") === "true" ? undefined : { element: document.activeElement, key: document.activeElement?.getAttribute("data-focus") ?? null, context: selectContext() };
+            // A press on a disabled button stays inert, even if a redraw enables it before release. The scrubber is
+            // not a button: while it is inactive, Select acts on a prompt, which the held context covers.
+            const target = document.activeElement;
+            const disabled = target instanceof HTMLButtonElement && (target.disabled || target.getAttribute("aria-disabled") === "true");
+            if (!event.repeat) selectHeld = disabled ? undefined : { element: target, key: target?.getAttribute("data-focus") ?? null, context: selectContext() };
             return;
         }
         if ((view.phase === "playing" || view.phase === "paused") && view.upNext !== undefined) {
@@ -1680,6 +1684,8 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             skipPrompt.reset();
             unsubscribe();
             cancelHide?.();
+            // A Select still down when the player closes must not reach the screen underneath.
+            swallowSelect();
             document.removeEventListener("keydown", onKey);
             document.removeEventListener("keyup", onKeyUp);
             document.removeEventListener("visibilitychange", onVisibility);

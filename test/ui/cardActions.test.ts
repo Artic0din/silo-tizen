@@ -421,6 +421,65 @@ for (const where of ["chosen row", "open menu"] as const) test(`losing window fo
     } finally { await tv.page.context().close(); }
 });
 
+for (const blurred of [false, true]) test(`a menu Back closes while Select is held${blurred ? " after a window blur" : ""}, and the rest of that press cannot reach the card`, async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const catalog = await start(tv);
+        await hold(tv);
+        await row(tv, "Mark as Watched").waitFor();
+        await tv.down(13);
+        if (blurred) await tv.page.evaluate(() => window.dispatchEvent(new Event("blur")));
+        await tv.remote(10009);
+        assert.equal(await menu(tv).count(), 0, "Back closed the menu");
+        assert.equal(await tv.focused(), "movie:m0001");
+        for (let repeat = 0; repeat < 4; repeat++) { await tv.jump(200); await tv.down(13, true); }
+        await tv.up(13);
+        await tv.jump(700);
+        assert.equal(await menu(tv).count(), 0, "the held repeats did not reopen a menu");
+        assert.equal(await tv.page.locator(".browse").getAttribute("data-view"), "home", "the release did not open Details");
+        assert.equal(catalog.mutations.length, 0);
+        await tv.page.keyboard.press("Enter");
+        await tv.eventually(async () => await tv.page.locator(".browse").getAttribute("data-view") === "item:movie:m0001", "the next fresh Select opens Details");
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
+
+test("a card hold made while the card is disabled opens no menu and runs nothing, even once it enables", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const catalog = await start(tv);
+        await origin(tv).focus();
+        await origin(tv).evaluate(node => node.setAttribute("aria-disabled", "true"));
+        await tv.page.keyboard.down("Enter");
+        await tv.jump(300);
+        await origin(tv).evaluate(node => node.removeAttribute("aria-disabled"));
+        await tv.jump(700);
+        assert.equal(await menu(tv).count(), 0, "a hold that began disabled opens no menu");
+        await tv.page.keyboard.up("Enter");
+        await tv.jump(300);
+        assert.equal(await tv.page.locator(".browse").getAttribute("data-view"), "home", "its release opens nothing");
+        await tv.page.keyboard.down("Enter");
+        await origin(tv).evaluate(node => node.setAttribute("aria-disabled", "true"));
+        await tv.page.keyboard.up("Enter");
+        await origin(tv).evaluate(node => node.removeAttribute("aria-disabled"));
+        await tv.jump(300);
+        assert.equal(await tv.page.locator(".browse").getAttribute("data-view"), "home", "a card disabled before release opens nothing");
+        await tv.page.keyboard.down("Enter");
+        await origin(tv).evaluate(node => node.setAttribute("aria-disabled", "true"));
+        await tv.jump(700);
+        assert.equal(await menu(tv).count(), 0, "a card disabled during its hold opens no menu");
+        await origin(tv).evaluate(node => node.removeAttribute("aria-disabled"));
+        await tv.page.keyboard.up("Enter");
+        await tv.jump(300);
+        assert.equal(await menu(tv).count(), 0, "a hold that completed while disabled stays ended once the card enables");
+        assert.equal(await tv.page.locator(".browse").getAttribute("data-view"), "home");
+        assert.equal(catalog.mutations.length, 0);
+        await tv.page.keyboard.press("Enter");
+        await tv.eventually(async () => await tv.page.locator(".browse").getAttribute("data-view") === "item:movie:m0001", "a fresh press on the enabled card opens Details");
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
+
 test("a row is chosen on Select's release, and that release cannot reach the card", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {

@@ -2,7 +2,7 @@ import { actionButton, zoneNode } from "./browseViews.ts";
 import type { FocusItem } from "./browseFocus.ts";
 import { remoteKey } from "./keys.ts";
 import { el } from "./screen.ts";
-import { listenSelectRelease, releasedSelect } from "./selectRelease.ts";
+import { listenSelectRelease, releasedSelect, swallowSelect } from "./selectRelease.ts";
 
 export interface RequestRecordMenuOptions {
     readonly container: HTMLElement;
@@ -113,6 +113,8 @@ export class RequestRecordMenu {
     }
 
     private dismiss(): void {
+        // Select may still be down; the rest of that press must not reach the card underneath.
+        if (this.panel !== undefined) swallowSelect();
         this.panel?.remove();
         this.panel = undefined;
         this.items = [];

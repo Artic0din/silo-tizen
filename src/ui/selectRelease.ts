@@ -13,6 +13,8 @@ let releasing: HTMLElement | undefined;
 /** The control whose press this Enter keyup completes intact, for screens that own Enter themselves. */
 let released: HTMLElement | undefined;
 let listening = false;
+/** Enter is physically down: set by any Enter keydown, cleared only by its keyup, so a window blur does not clear it. */
+let enterDown = false;
 
 /** A control Chromium would click on Enter keydown. */
 function clickable(element: Element | null): element is HTMLElement {
@@ -56,6 +58,7 @@ const onFocusOut = (event: FocusEvent): void => {
 const onPress = (event: KeyboardEvent): void => {
     // Any other key, Tab included, ends the press, as moving focus off a held tvOS control does.
     if (remoteKey(event) !== "enter") { release(); return; }
+    enterDown = true;
     if (event.repeat) return;
     release();
     const target = document.activeElement;
@@ -74,6 +77,7 @@ const onUnhandled = (event: KeyboardEvent): void => {
 // A screen may stop a keyup it owns, so the press ends at capture; only a release no screen took clicks.
 const onReleaseStart = (event: KeyboardEvent): void => {
     if (remoteKey(event) !== "enter") return;
+    enterDown = false;
     // The press runs only on the control it was made on, still focused and still enabled.
     released = document.hidden || held === undefined || !activatable(held) ? undefined : held;
     releasing = owned ? released : undefined;
@@ -96,6 +100,27 @@ const onRelease = (event: KeyboardEvent): void => {
  */
 export function releasedSelect(): HTMLElement | undefined {
     return released;
+}
+
+/**
+ * An overlay that closes while Select is down consumes the rest of that press, its repeats and its release, so it cannot
+ * reach what takes focus next. A fresh, non-repeat Select is a new press and goes through.
+ */
+export function swallowSelect(): void {
+    if (!enterDown) return;
+    const consume = (event: KeyboardEvent): void => {
+        if (remoteKey(event) !== "enter") return;
+        if (event.type === "keydown" && !event.repeat) { stop(); return; }
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        if (event.type === "keyup") stop();
+    };
+    const stop = (): void => {
+        window.removeEventListener("keydown", consume, true);
+        window.removeEventListener("keyup", consume, true);
+    };
+    window.addEventListener("keydown", consume, true);
+    window.addEventListener("keyup", consume, true);
 }
 
 /** Starts the app-wide Select release; later calls are no-ops. */

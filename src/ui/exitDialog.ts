@@ -1,5 +1,5 @@
 import { remoteKey } from "./keys.ts";
-import { listenSelectRelease, releasedSelect } from "./selectRelease.ts";
+import { listenSelectRelease, releasedSelect, swallowSelect } from "./selectRelease.ts";
 import { actions, button, el } from "./screen.ts";
 
 export interface ExitDialog { destroy(): void; }
@@ -19,6 +19,8 @@ export function mountExitDialog(root: HTMLElement, exit: () => void, closed: () 
     const destroy = (): void => {
         if (!destroyed) {
             destroyed = true;
+            // Select may still be down; the rest of that press must not reach the screen underneath.
+            swallowSelect();
             window.removeEventListener("keydown", onKey, true);
             window.removeEventListener("keyup", onRelease, true);
             document.removeEventListener("focusin", onFocus, true);

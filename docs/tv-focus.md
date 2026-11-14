@@ -187,7 +187,9 @@ Other layers:
   A browse repaint that replaces the held button with the same item's new one keeps the press (`FocusHost.show`).
   A press on a control marked `aria-disabled` never arms, so it never runs, even if a redraw enables that control before release.
   A press whose control is disabled by release time, or repainted as a disabled control, runs nothing either.
-  Player menu rows follow the same rule in the player's own handler.
+  The player checks the same rule for every button it presses, and cancels a held press when a prompt, mode or skip target changes before release.
+  An overlay that closes while Select is down (card menu, request menu, Exit dialog, player) calls `swallowSelect()`, so the rest of that press, its repeats and its release, cannot reach what takes focus next; a fresh, non-repeat Select goes through.
+  `FocusHost` starts a hold only on a fresh press on an enabled card, and a card disabled before its hold completes or before release runs nothing.
   `ScreenHost` and `FocusHost` leave Enter to it, except for cards with a `quickAction` (see below).
   Menus, the Exit dialog and the player own Enter themselves and also act on its release.
   The Exit dialog, the request menu and the card menu run a button only when `releasedSelect()` names it: the button the press was made on, still focused and enabled, with the press never cancelled.

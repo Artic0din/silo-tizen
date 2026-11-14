@@ -26,22 +26,25 @@ export class RequestRecordMenu {
         if (key === undefined && event.key !== "Tab") return;
         event.preventDefault();
         event.stopImmediatePropagation();
+        // Any other key ends a held Select, so its release cannot choose a button it did not press.
+        if (key !== "enter") this.pressed = false;
         if (key === "back") this.close();
         else if (key === "up" || key === "down" || key === "left" || key === "right" || event.key === "Tab") {
             const index = this.items.findIndex(item => item.element === document.activeElement);
             const step = key === "up" || key === "left" || event.shiftKey ? -1 : 1;
             this.items[Math.max(0, Math.min(this.items.length - 1, index + step))]?.element.focus({ preventScroll: true });
         } else if (key === "enter") {
-            if (this.pressed) return;
-            this.pressed = true;
-            this.items.find(item => item.element === document.activeElement)?.element.click();
+            // tvOS chooses on Select's release; repeats belong to the press already down.
+            if (!event.repeat) this.pressed = true;
         }
     };
     private readonly onRelease = (event: KeyboardEvent): void => {
         if (remoteKey(event) !== "enter") return;
-        this.pressed = false;
         event.preventDefault();
         event.stopImmediatePropagation();
+        if (!this.pressed) return;
+        this.pressed = false;
+        this.items.find(item => item.element === document.activeElement)?.element.click();
     };
 
     get active(): boolean { return this.panel !== undefined; }
@@ -94,7 +97,6 @@ export class RequestRecordMenu {
         const panel = this.panel;
         if (panel === undefined) return;
         this.items = items;
-        // Keep the Enter latch across Remove Request → confirmation so a held Select cannot activate Keep request.
         const content = el("div", "card-actions-panel");
         content.setAttribute("role", "alertdialog");
         content.setAttribute("aria-modal", "true");

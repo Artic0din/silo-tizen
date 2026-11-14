@@ -2027,7 +2027,9 @@ appTest("root Back opens an isolated exit dialog; Cancel restores focus and Exit
     await tv.remote(10009);
     await tv.remote(10009);
     await tv.page.keyboard.press("ArrowLeft");
-    await tv.page.keyboard.press("Enter");
+    await tv.page.keyboard.down("Enter");
+    assert.equal(await tv.page.evaluate(() => window.appHarness.exits), 0, "Exit waits for Select's release");
+    await tv.page.keyboard.up("Enter");
     assert.equal(await tv.page.evaluate(() => window.appHarness.exits), 1);
     assert.equal(await tv.page.locator("#root").evaluate((root) => root.childElementCount), 0);
     await tv.remote(10009);

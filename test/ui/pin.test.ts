@@ -293,17 +293,27 @@ tvTest("a lockout with no Retry-After says to try later", async (tv) => {
     assert.equal(await tv.page.locator(".pin-dots-error").count(), 1);
 });
 
-/** Chromium clicks a focused button on every Enter keydown, auto-repeats included. */
-tvTest("holding OK on a key adds one digit, as a single tvOS press does", async (tv) => {
+/** Chromium clicks a focused button on every Enter keydown, auto-repeats included; tvOS runs a press once, on release. */
+tvTest("holding OK on a key draws it pressed and adds one digit on release, as a single tvOS press does", async (tv) => {
     await openPin(tv);
     const cdp = await tv.page.context().newCDPSession(tv.page);
     const enter = (type: "keyDown" | "keyUp", autoRepeat: boolean): Promise<unknown> =>
         cdp.send("Input.dispatchKeyEvent", { type, key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13, ...(type === "keyDown" ? { text: "\r" } : {}), autoRepeat });
+    const focused = tv.page.locator(":focus");
     await enter("keyDown", false);
     await enter("keyDown", true);
     await enter("keyDown", true);
+    assert.equal(await filled(tv), 0, "a held key waits for its release");
+    assert.equal(await focused.getAttribute("data-pressed"), "");
+    // PINEntryView.swift:355: a held key drops to 0.75 opacity.
+    assert.equal(await focused.evaluate(node => getComputedStyle(node).opacity), "0.75");
     await enter("keyUp", false);
     assert.equal(await filled(tv), 1, "one press and two repeats enter one digit");
+    assert.equal(await focused.getAttribute("data-pressed"), null, "release ends the pressed look");
+    await enter("keyDown", false);
+    await tv.page.keyboard.press("ArrowRight");
+    await enter("keyUp", false);
+    assert.equal(await filled(tv), 1, "moving off a held key cancels its press");
     assert.equal(tv.fake.paths().includes("POST /profiles/p-kid/verify-pin"), false);
 });
 

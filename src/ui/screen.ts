@@ -4,6 +4,7 @@
 // move Left/Right within a row and Up/Down between rows.
 
 import { remoteKey } from "./keys.ts";
+import { listenSelectRelease } from "./selectRelease.ts";
 
 export interface Control {
     /** Stable identity within a screen, e.g. "connect"; restores focus across re-renders. */
@@ -42,6 +43,7 @@ export class ScreenHost {
         this.root = root;
         this.wordmark = wordmark;
         this.behind = behind;
+        listenSelectRelease();
         document.addEventListener("keydown", this.onKey);
     }
 
@@ -115,7 +117,7 @@ export class ScreenHost {
         const arrow = key === "up" || key === "down" || key === "left" || key === "right";
         const inText = active instanceof HTMLInputElement;
         if (screen.controls.every((control) => control.row !== undefined)) {
-            // Enter is left to the browser here too. The TV keyboard's Done moves down a row.
+            // Enter is left to the browser and selectRelease here too. The TV keyboard's Done moves down a row.
             const done = key === "ime_done" && inText ? screen.controls[index]?.done : undefined;
             const target = done !== undefined
                 ? screen.controls.findIndex((control) => control.key === done)
@@ -134,7 +136,7 @@ export class ScreenHost {
         } else if (key === "down" || (key === "right" && !inText) || (key === "ime_done" && inText)) {
             step = 1;
         }
-        // Enter is left to the browser: it activates a button and opens the TV keyboard on a field.
+        // Enter is left to the browser: selectRelease clicks a button on release, and a field opens the TV keyboard.
         if (step === 0) {
             return;
         }

@@ -101,7 +101,10 @@ test("chapters seek in source time, close options and retain a remote focus targ
         await nextTab(page, 5);
         assert.equal(await focused(page), "chapter:0");
         await remote(page, DOWN);
-        await remote(page, ENTER);
+        await page.evaluate((code) => document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { keyCode: code, bubbles: true, cancelable: true })), ENTER);
+        await page.evaluate((code) => document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { keyCode: code, repeat: true, bubbles: true, cancelable: true })), ENTER);
+        assert.deepEqual(await commands(page), [], "a chapter waits for Select's release");
+        await page.evaluate((code) => document.activeElement?.dispatchEvent(new KeyboardEvent("keyup", { keyCode: code, bubbles: true, cancelable: true })), ENTER);
         assert.deepEqual(await commands(page), ["seekToSeconds 800"]);
         assert.equal(await page.locator(".player-hud").isVisible(), false);
         assert.equal(await focused(page), "position");

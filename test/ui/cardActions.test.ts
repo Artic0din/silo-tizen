@@ -364,18 +364,13 @@ for (const where of ["chosen row", "open menu"] as const) test(`losing window fo
         if (where === "chosen row") {
             await row(tv, "Mark as Watched").focus();
             await tv.down(13);
-            assert.equal(await menu(tv).count(), 0, "the row was chosen");
-            await tv.eventually(async () => catalog.mutations.length === 1, "watched sent");
             await tv.page.evaluate(() => window.dispatchEvent(new Event("blur")));
-            await origin(tv).focus();
-            // Focus came back while Select is still held: its repeats and release stay with the old press.
-            for (let repeat = 0; repeat < 4; repeat++) { await tv.jump(200); await tv.down(13, true); }
             await tv.up(13);
-            await tv.jump(700);
-            assert.equal(await tv.page.locator(".browse").getAttribute("data-view"), "home", "held repeats after focus returns did not open Details");
-            assert.equal(await menu(tv).count(), 0, "held repeats after focus returns did not reopen the menu");
+            assert.equal(await menu(tv).count(), 1, "a press that lost window focus chooses nothing on release");
+            assert.equal(catalog.mutations.length, 0);
             await tv.page.keyboard.press("Enter");
-            await tv.eventually(async () => await tv.page.locator(".browse").getAttribute("data-view") === "item:movie:m0001", "the first Select after return opens Details");
+            assert.equal(await menu(tv).count(), 0, "the first Select after return chooses the row");
+            await tv.eventually(async () => catalog.mutations.length === 1, "watched sent");
         } else {
             const answer = tv.fake.hold("/favorites/movie%3Am0001", true);
             await row(tv, "Add to Favorites").click();
@@ -395,16 +390,18 @@ for (const where of ["chosen row", "open menu"] as const) test(`losing window fo
     } finally { await tv.page.context().close(); }
 });
 
-test("a held Select that chooses a row cannot reach the card once the menu closes", async () => {
+test("a row is chosen on Select's release, and that release cannot reach the card", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {
         const catalog = await start(tv);
         await hold(tv);
         await row(tv, "Mark as Watched").waitFor();
         await tv.down(13);
-        assert.equal(await menu(tv).count(), 0, "the row was chosen");
         for (let repeat = 0; repeat < 4; repeat++) { await tv.jump(200); await tv.down(13, true); }
+        assert.equal(await menu(tv).count(), 1, "a held row waits for release");
+        assert.equal(catalog.mutations.length, 0);
         await tv.up(13);
+        assert.equal(await menu(tv).count(), 0, "release chose the row");
         await tv.jump(700);
         assert.equal(await tv.page.locator(".browse").getAttribute("data-view"), "home", "the release did not open Details");
         assert.equal(await menu(tv).count(), 0, "the held repeats did not reopen the menu");

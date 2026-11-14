@@ -351,7 +351,15 @@ export class CardActions {
     private readonly onBlur = (): void => { this.pressed = false; };
 
     private readonly onRelease = (event: KeyboardEvent): void => {
-        if (remoteKey(event) === "enter") { this.pressed = false; event.preventDefault(); event.stopImmediatePropagation(); }
+        if (remoteKey(event) !== "enter") return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        if (!this.pressed) return;
+        this.pressed = false;
+        const chosen = this.rows.find(row => row === document.activeElement);
+        // A disabled row stays open; the next fresh press chooses it once it re-enables.
+        if (chosen === undefined || chosen.getAttribute("aria-disabled") === "true") return;
+        chosen.click();
     };
 
     private readonly onKey = (event: KeyboardEvent): void => {
@@ -359,6 +367,8 @@ export class CardActions {
         if (key === undefined && event.key !== "Tab") return;
         event.stopImmediatePropagation();
         event.preventDefault();
+        // Any other key ends a held Select, so its release cannot choose a row it did not press.
+        if (key !== "enter") this.pressed = false;
         if (key === "back") { this.close(); return; }
         if (this.panel === undefined) return;
         // The tvOS menu is a single column: Left and Right stay put.
@@ -367,15 +377,9 @@ export class CardActions {
             const step = key === "up" || event.shiftKey ? -1 : 1;
             this.rows[Math.max(0, Math.min(this.rows.length - 1, index + step))]?.focus({ preventScroll: true });
         } else if (key === "enter") {
-            // Select is still held from the long press that opened the menu; only a fresh press chooses a row.
-            if (this.pressed || event.repeat) return;
-            this.pressed = true;
-            const chosen = this.rows.find(row => row === document.activeElement);
-            // A disabled row stays open and keeps its own release handling.
-            if (chosen === undefined || chosen.getAttribute("aria-disabled") === "true") return;
-            // Choosing closes the menu while Select is still down; its repeats and release must not reach the card.
-            swallowSelect();
-            chosen.click();
+            // tvOS chooses a row on Select's release. The long press that opened the menu is still held:
+            // only a fresh press arms a row, and its repeats change nothing.
+            if (!event.repeat) this.pressed = true;
         }
     };
 }

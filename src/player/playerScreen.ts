@@ -1413,12 +1413,20 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         tabs[column]?.focus();
     };
 
-    const onKey = (event: KeyboardEvent): void => {
+    /** A fresh Select press waiting for its release; another key ends it. */
+    let selectHeld = false;
+    const onKey = (event: KeyboardEvent, released = false): void => {
         const key = remoteKey(event);
         if (key === undefined || view.phase === "closed") {
             return;
         }
         event.preventDefault();
+        // tvOS runs Select on release: a fresh press waits for onKeyUp, and its repeats change nothing.
+        if (key === "enter" && !released) {
+            if (!event.repeat) selectHeld = true;
+            return;
+        }
+        if (key !== "enter") selectHeld = false;
         if ((view.phase === "playing" || view.phase === "paused") && view.upNext !== undefined) {
             if (key === "play_pause") { controls.togglePause(); return; }
             if (key === "play" || key === "pause") { controls.setPaused(key === "pause"); return; }
@@ -1571,6 +1579,13 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
 
     const onKeyUp = (event: KeyboardEvent): void => {
         const key = remoteKey(event);
+        if (key === "enter") {
+            if (selectHeld) {
+                selectHeld = false;
+                onKey(event, true);
+            }
+            return;
+        }
         if ((key !== "left" && key !== "right") || pendingTap !== key) return;
         cancelHold?.();
         cancelHold = undefined;
@@ -1589,6 +1604,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
 
     const onVisibility = (): void => {
         if (document.hidden) {
+            selectHeld = false;
             cancelScrub();
             cancelHide?.();
             cancelHide = undefined;

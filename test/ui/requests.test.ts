@@ -1769,12 +1769,12 @@ test("a held Select on Remove Request cannot dismiss the confirmation", async ()
         await button(tv, "remove-request").waitFor();
         await button(tv, "remove-request").focus();
         await tv.down(13);
+        await tv.down(13, true);
+        assert.equal(await tv.focused(), "remove-request", "a held Remove Request waits for release");
+        await tv.up(13);
         assert.equal(await tv.page.locator(".card-actions-panel h1").textContent(), "Remove this request?");
         assert.equal(await tv.focused(), "keep-request");
-        await tv.down(13, true);
-        assert.equal(await tv.page.locator(".card-actions-scrim").count(), 1, "a repeated Enter while Select is held must not activate Keep request");
-        assert.equal(await tv.focused(), "keep-request");
-        await tv.up(13);
+        assert.equal(await tv.page.locator(".card-actions-scrim").count(), 1, "the release that opened the confirmation must not activate Keep request");
         await button(tv, "keep-request").click();
         assert.equal(await tv.focused(), "failed-a");
         assert.equal(removals(tv).length, 0);

@@ -15,10 +15,12 @@ export function mountExitDialog(root: HTMLElement, exit: () => void, closed: () 
     const status = el("p", "signin-text signin-error");
     status.setAttribute("role", "alert");
     let destroyed = false;
+    let pressed = false;
     const destroy = (): void => {
         if (!destroyed) {
             destroyed = true;
             window.removeEventListener("keydown", onKey, true);
+            window.removeEventListener("keyup", onRelease, true);
             document.removeEventListener("focusin", onFocus, true);
             overlay.remove();
             closed();
@@ -59,6 +61,10 @@ export function mountExitDialog(root: HTMLElement, exit: () => void, closed: () 
         // The dialog is modal; the underlying screen must not also navigate on this key.
         event.preventDefault();
         event.stopImmediatePropagation();
+        // Any other key ends a held Select, so its release cannot run a button it did not press.
+        if (key !== "enter") {
+            pressed = false;
+        }
         if (key === "back") {
             cancel();
         } else if (key === "left" || key === "up") {
@@ -66,11 +72,26 @@ export function mountExitDialog(root: HTMLElement, exit: () => void, closed: () 
         } else if (key === "right" || key === "down") {
             no.element.focus();
         } else if (key === "enter") {
-            if (document.activeElement === yes.element) {
-                confirm();
-            } else {
-                cancel();
+            // tvOS runs the focused button when Select is released; a repeat is the same press.
+            if (!event.repeat) {
+                pressed = true;
             }
+        }
+    };
+    const onRelease = (event: KeyboardEvent): void => {
+        if (remoteKey(event) !== "enter") {
+            return;
+        }
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        if (!pressed) {
+            return;
+        }
+        pressed = false;
+        if (document.activeElement === yes.element) {
+            confirm();
+        } else {
+            cancel();
         }
     };
     for (const node of [title, status, actions([yes, no])]) {
@@ -80,6 +101,7 @@ export function mountExitDialog(root: HTMLElement, exit: () => void, closed: () 
     // Screen owners replace the app root while asynchronous requests settle.
     root.ownerDocument.body.appendChild(overlay);
     window.addEventListener("keydown", onKey, true);
+    window.addEventListener("keyup", onRelease, true);
     document.addEventListener("focusin", onFocus, true);
     no.element.focus();
     return { destroy };

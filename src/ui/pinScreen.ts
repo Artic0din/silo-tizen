@@ -127,12 +127,6 @@ export function pinScreen(profile: ProfileSummary, baseUrl: string, notes: reado
 
     const root = el("div", "pin-screen");
     root.append(header, dotRow, status, pad, cancelButton.element);
-    // Chromium clicks a focused button on every auto-repeated Enter; tvOS presses once per press.
-    root.addEventListener("keydown", (event) => {
-        if (event.key === "Enter" && event.repeat) {
-            event.preventDefault();
-        }
-    });
     render();
 
     return {

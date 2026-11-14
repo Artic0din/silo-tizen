@@ -481,6 +481,16 @@ test("a held Select dims a For You row to 0.75 over 0.12 s until release", async
         await row.evaluate(node => node.setAttribute("data-pressed", ""));
         await tv.page.emulateMedia({ reducedMotion: "reduce" });
         assert.equal(await row.evaluate(node => getComputedStyle(node).opacity), "0.75");
+        await row.evaluate(node => node.removeAttribute("data-pressed"));
+        // tvOS opens the row on Select's release, never on the press or its auto-repeats.
+        const view = await tv.page.locator(".browse").getAttribute("data-view");
+        await tv.page.keyboard.down("Enter");
+        await tv.page.keyboard.down("Enter");
+        await tv.jump(250);
+        assert.equal(await row.getAttribute("data-pressed"), "");
+        assert.equal(await tv.page.locator(".browse").getAttribute("data-view"), view, "a held row waits for release");
+        await tv.page.keyboard.up("Enter");
+        await tv.eventually(async () => await tv.page.locator(".browse").getAttribute("data-view") === "personal:watchlist", "release opens Watchlist");
     } finally { await tv.page.context().close(); }
 });
 

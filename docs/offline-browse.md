@@ -28,7 +28,14 @@ Changing any scope component closes the previous cache owner.
 Optional storage failures leave the memory cache usable.
 Persistent snapshots strip URL and credential fields recursively.
 In-memory responses retain full artwork URLs, including signed backdrops, title art and cast portraits, for the active session.
-Persistent snapshots still omit every URL; a cold reload cannot restore signed artwork from those snapshots.
+Artwork URLs are signed capabilities (`/api/v2/artwork/{key}?exp=…&sig=…`, or presigned storage URLs), and the client cannot sign one itself.
+So the Home, For You and library-list snapshot artwork (`poster_url`, `backdrop_url`, `series_backdrop_url`, `still_url`, `logo_url`, `photo_url`) is kept in protected storage (Tizen KeyManager, alias `silo.browseArtwork.v1`), never in `localStorage`.
+That record holds only those fields, the snapshot scope and an FNV-1a hash of each public snapshot response it belongs to; no titles, tokens or other metadata.
+A cold start puts the artwork back only when the scope and the hash match, so a changed or foreign snapshot shows placeholders instead of wrong art.
+Removing the snapshot removes the record; an authority that ends during a save removes it when the save finishes.
+Without KeyManager, nothing is persisted, as for credentials.
+The record is capped at 256 KiB UTF-16 and is skipped, not trimmed, when larger.
+Signed URLs expire (4 hours by default, longer for revisioned artwork), so a cold start after that shows placeholders until the live read succeeds.
 The remembered profile stores only its display name and primary/child flags alongside its existing identity and protected-proof reference, without avatar URLs.
 Older remembered choices without those display fields use the profile ID until an online selection saves them.
 Images are not downloaded, so reuse also depends on the image being available in the browser cache or still reachable.
@@ -43,11 +50,11 @@ Personal-write reconciliation and confirmation always require fresh reads.
 Metadata writes and returning from playback invalidate snapshots, with a generation fence against older reads.
 While a cached page is unreachable, the visible route retries its normal reads after 15 seconds.
 Cached metadata stays on screen without an unreachable notice, matching Apple TV.
-Optional personal, next-episode, title-art and related reads retain prior display values on transport failure.
+Optional personal, next-episode and related reads retain prior display values on transport failure; title art keeps its remembered answer ([Title art](features/title-art.md)).
 Series Play retains the cached episode owner and its normal launch behavior when its fresh read fails.
 Season Details also retries offline supporting reads automatically.
 Episode refusals survive cached revisits and recovery until a fresh episode read succeeds.
-Card menus reuse visited Details and personal display state on transport failure; server refusals, writes and confirmation reads still require normal authority checks.
+Card menus open from the row's own state; a card without list state reads its item once, and a failed read or change shows Apple's Couldn’t Update Item alert.
 Apple's active episode selection overrides the overview suggestion; Show Series Info restores the selected season's suggestion independently of rail focus memory.
 Uncached optional failures omit the corresponding unavailable content rather than adding red notices.
 Failed episode hierarchy reads still show the episode Retry alongside retained episodes, as Apple TV does.

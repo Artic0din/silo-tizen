@@ -132,7 +132,8 @@ function continuousGrid(route: PersonalRoute, handlers: RouteHandlers, columns: 
     if (page === undefined) return { content: [], zones: [] };
     const { preview, ...context } = handlers.context;
     void preview;
-    const grid = feedGrid(route.pages, page, context, LOAD_LEAD, handlers.busy, () => handlers.morePersonal(route), columns, posterWidth, gridWidth);
+    // HistoryView's CatalogGrid captions with CardYears; tvOS Watchlist and Favorites pass MediaCard the year alone.
+    const grid = feedGrid(route.pages, page, { ...context, seriesYears: route.source === "history" }, LOAD_LEAD, handlers.busy, () => handlers.morePersonal(route), columns, posterWidth, gridWidth);
     if (posterWidth === DENSE_POSTER) grid.content[0]?.classList.add("personal-grid");
     if (route.failure !== undefined) {
         const retry = actionButton("retry", "Try Again", () => handlers.retry(route));

@@ -99,6 +99,7 @@ Tokens live only in protected storage (`src/session/secretStore.ts`).
 On a TV that is Tizen KeyManager (`tizen.keymanager`), through `keyManagerStore`.
 Without KeyManager the app uses `memoryStore`, which keeps credentials for the current run only.
 The code states it never falls back to `localStorage`.
+The same protected storage keeps the signed artwork URLs of the Home and For You snapshots ([cached browse content](offline-browse.md)).
 `NativeSession.persistence` reports `persistent` or `session_only`, and the sign-in result passes that to the screens.
 
 `CredentialVault` (`src/session/credentialVault.ts`) stores one record per server, keyed by a hash of `baseUrl`, in two alternating slots.
@@ -255,7 +256,6 @@ Defined in `src/api/operations.ts` unless noted.
 | --- | --- | --- |
 | listUserLibraries | `GET /user/libraries[?include_hidden=true]` | safe |
 | listHomeSections | `GET /home/sections?image_size=small[&slot widths]` | safe |
-| dismissHomeItem | `PUT /home/dismissals/{continue_watching\|next_up}/{id}`, body `progress_updated_at` (Continue Watching) or `series_id` (Next Up); the Home card menu's Remove row | safe |
 | listCatalogItems | `GET /catalog?library_id&q&type&limit&cursor&image_size` | safe |
 | getCatalogItem | `GET /catalog/items/{id}?image_size=large` (Details overrides with the negotiated hero slots when known) | safe |
 | listCatalogItemVersions | `GET /catalog/items/{id}/versions` | safe |
@@ -269,7 +269,8 @@ Defined in `src/api/operations.ts` unless noted.
 | similar | `GET /recommendations/similar/{id}?limit=12&image_size=small` (`src/api/detailOperations.ts`) | safe |
 | library sections | `GET /library/{id}/sections?image_size=small` (`src/api/discoveryOperations.ts`) | safe |
 | section items | `GET /library/{id}/sections/{sectionId}/items?image_size=small` (`src/api/discoveryOperations.ts`) | safe |
-| library collections | `GET /library/{id}/collections` (`src/api/discoveryOperations.ts`) | safe |
+| mixed-library shelf refill | `POST /catalog/query` with `source: section`, `scope: library`, `library_id`, `section_id`, `limit: 100` and cursor, at the library sections read's artwork sizes (`src/ui/libraryDiscovery.ts`). Only on a Movies or Series tab showing a mixed library; up to eight pages per row and three rows at a time. A failed read keeps the row's own titles | safe |
+| library collections | `GET /library/{id}/collections` (`src/api/discoveryOperations.ts`); a failed read shows no collections, as Apple TV does | safe |
 | collection items | `POST /catalog/query` with `source: library_collection` or `user_collection`, `collection_id`, `limit: 60`, `match: all` and cursor; library/media scope only when narrowing a mixed library, no sort override (`src/api/discoveryOperations.ts`); includes profile viewer state | safe |
 | catalog filters | `GET /catalog/filters?...` (`src/api/discoveryOperations.ts`) | safe |
 | search capabilities | `GET /catalog/search/capabilities` (`src/api/discoveryOperations.ts`) | safe |
@@ -277,8 +278,7 @@ Defined in `src/api/operations.ts` unless noted.
 | searchCatalogBoxSets | `GET /catalog/box-sets?q&limit=5` (`src/api/boxSetOperations.ts`), All and Movies only, gated by `box_sets: true` | safe |
 | getCatalogBoxSet | `GET /catalog/box-sets/{id}?library_id&image_size=medium` (`src/api/boxSetOperations.ts`) | safe |
 | getCatalogItemBoxSet | `GET /catalog/items/{id}/box-set?image_size=medium` (`src/api/boxSetOperations.ts`), movie pages only, gated by `box_sets: true`. `box_set` absent means no row. Library browse does not group box sets | safe |
-| queryCatalogItems | `POST /catalog/query?image_size=small` (`src/api/discoveryOperations.ts`) | safe |
-| queryCatalogLetters | `POST /catalog/letters` (`src/api/discoveryOperations.ts`) | safe |
+| queryCatalogItems | `POST /catalog/query?image_size=small[&slot widths]` (`src/api/discoveryOperations.ts`) | safe |
 
 Notes:
 
@@ -292,7 +292,7 @@ Notes:
 - Person works use that same POST through `personQuery`: `source: "person"`, `person_id`, `type` (`video`, `movie` or `series`), `sort: "year"`, `order: "desc"`, `limit: 24` and an optional opaque `cursor`. `detailOperations.filmography` (`GET /catalog?source=person...`) is not called.
 - The detail view reads the same `GET /catalog/items/{id}` for Home marquee fields (`marqueeDetail`).
 - Item detail carries `themes`: `owner_id` and ordered `items` (`id`, `title`, `duration_seconds`). A season or episode answers with the set it inherits. A malformed set reads as none, because the server treats the theme lookup as optional.
-- Library search capabilities are probed with `GET /catalog/search/capabilities` (`src/ui/libraryDiscovery.ts`). Text Search sends the episode-inclusive request only after an allowed, available `video_with_episodes_scope: true` answer (`src/contracts/v2/README.md`, Text Search).
+- Text Search probes `GET /catalog/search/capabilities` and sends the episode-inclusive request only after an allowed, available `video_with_episodes_scope: true` answer (`src/contracts/v2/README.md`, Text Search).
 
 ### Personal state and lists
 
@@ -307,9 +307,11 @@ All are Bearer plus Profile.
 | remove from watchlist or favorites | `DELETE /watchlist/{id}`, `DELETE /favorites/{id}` | never |
 | mark watched | `POST /watched/{id}` | never |
 | mark unwatched | `DELETE /watched/{id}` | never |
+| remove from Continue Watching or Next Up | `PUT /home/dismissals/continue_watching/{id}` with the card's `progress_updated_at`, or `PUT /home/dismissals/next_up/{id}` with its `series_id` (`dismissHomeItem`) | never |
 
 Gating: `decodePersonalCapability` is true only when `state === "available"`, `allowed` and `membership_supported` are all true (`src/contracts/v2/details.ts`).
 Mutations are sent once, with refresh replay off, and repeat only when the person presses again (comment in `detailOperations.ts`).
+The card menu reads watched, Favorites and Watchlist from the card's own `user_state` (`is_favorite`, `in_watchlist`), as Apple's MediaCard does; it reads the item only for a card that carries none.
 The list screens decode the same capability with a second decoder in `src/ui/personalLists.ts`, which requires a `revision` string.
 
 ### Recommendations
@@ -320,7 +322,6 @@ Bearer plus Profile, both safe.
 | Operation | Method and path |
 | --- | --- |
 | discover | `GET /recommendations/discover?image_size=small` (or the artwork query passed in) |
-| section | `GET /recommendations/section/{kind}?limit=60&image_size=small[&key=]` |
 
 ### Calendar
 
@@ -405,6 +406,7 @@ Bearer plus Profile.
 Shuffle is offered only when `allowed` is true, `state === "available"`, and `scope_kinds` includes `library` (`canShuffle`, `src/ui/browse.ts`).
 Creation is sent once with refresh replay off.
 A 404 on create shows "This is no longer available to shuffle."
+Details' More sends `series` and `season` scopes when `scope_kinds` lists them; a failure there is the "Couldn't Shuffle" alert, which reads a Problem Details 409 as "Nothing here can be played.", a 404 as above, and anything else as "Couldn't start the shuffle. Try again."
 `advance` runs when the current item finishes (`src/player/nextShuffle.ts`).
 
 ### Watch Together (hub, lobby, ballot and room socket)

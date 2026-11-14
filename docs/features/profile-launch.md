@@ -55,6 +55,7 @@ It currently opens manual server entry; the saved-server-list destination remain
 
 Add uses the server's explicit `POST /profiles` operation without automatic retry.
 For a nonempty household it temporarily selects the primary profile, verifies its PIN when required and restores management ownership without changing the remembered launch choice.
+When the primary is already open and the fresh list shows it has a PIN, the PIN is asked for again before the form, as Apple's `AddProfileFromMenu` does, because the profile may have been opened before the PIN was set; the open profile stays open.
 Cleanup matches the exact account, profile and authority generation so it cannot clear a successor.
 An existing primary selection is retained rather than cleared.
 The form provides the pinned preset styles, initials, name, optional four-digit PIN and child content-rating/library restrictions.

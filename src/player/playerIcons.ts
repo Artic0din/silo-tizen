@@ -66,3 +66,22 @@ export function skipIcon(direction: "backward" | "forward", seconds: number): st
     const number = NUMBERED_SECONDS.has(seconds) ? `<text x="12" y="15.2" text-anchor="middle" font-size="8.88" font-weight="600" fill="currentColor">${seconds}</text>` : "";
     return svg(`${arc}${number}`);
 }
+
+/** `chevron.forward` at `HUDSettingRowLabel`'s 15pt bold: an 11x15 frame around 8x13 of ink, as in Apple's capture. */
+export function chevronForwardIcon(): string {
+    return `<svg viewBox="0 0 11 15" focusable="false" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" d="M2.7 2.2 8.3 7.5 2.7 12.8"/></svg>`;
+}
+
+/** `magnifyingglass`: the Search Subtitles row's symbol. */
+export function magnifyingGlassIcon(): string {
+    return svg(`<g fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="10.2" cy="10.2" r="6.6"/><path d="M15.2 15.2 21 21"/></g>`);
+}
+
+/** `sparkles`: the AI subtitle rows' symbol. One large and two small four-point stars. */
+export function sparklesIcon(): string {
+    const star = (x: number, y: number, r: number): string => {
+        const k = r * 0.22;
+        return `M${x} ${y - r}C${x + k} ${y - k} ${x + k} ${y - k} ${x + r} ${y}C${x + k} ${y + k} ${x + k} ${y + k} ${x} ${y + r}C${x - k} ${y + k} ${x - k} ${y + k} ${x - r} ${y}C${x - k} ${y - k} ${x - k} ${y - k} ${x} ${y - r}Z`;
+    };
+    return svg(`<path fill="currentColor" d="${star(9.5, 13.5, 8)}${star(18.5, 5.5, 3.6)}${star(19, 18, 2.6)}"/>`);
+}

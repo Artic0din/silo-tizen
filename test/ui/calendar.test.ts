@@ -75,11 +75,11 @@ async function ready(tv: Tv, count?: number): Promise<void> {
         throw new Error(`${String(error)}: ${JSON.stringify(state)}; recent requests: ${JSON.stringify(tv.fake.requests.slice(-8).map(request => ({ method: request.method, path: request.path })))}`);
     }
 }
-function calendarTest(name: string, body: (tv: Tv, catalog: FakeCalendar) => Promise<void>, startTime?: string): void {
+function calendarTest(name: string, body: (tv: Tv, catalog: FakeCalendar) => Promise<void>, startTime?: string, catalog = new FakeCalendar()): void {
     test(name, async () => {
         const tv = await openTv(browser, { app: "browse", ...(startTime === undefined ? {} : { time: Date.parse(startTime) }), ...(process.env.CALENDAR_VIDEO && name.startsWith("Calendar complete") ? { video: process.env.CALENDAR_VIDEO } : {}) });
         try {
-            const catalog = await start(tv);
+            await start(tv, catalog);
             await body(tv, catalog);
             assert.deepEqual(tv.console, []);
         } finally { await tv.page.context().close(); }
@@ -339,39 +339,40 @@ calendarTest("card quick-actions target Calendar episode and season content IDs,
     await activate(tv, "filter:everything"); await ready(tv, 32);
     const episode = tv.page.locator('.calendar-event[data-content-id="episode:s1e22"]');
     await episode.focus(); await tv.down(13); await tv.jump(650); await tv.up(13);
-    const panel = tv.page.getByRole("dialog", { name: "Card actions" });
-    await panel.getByRole("button", { name: "Mark watched", exact: true }).click();
-    await panel.getByRole("button", { name: "Mark unwatched", exact: true }).waitFor();
-    assert.ok(tv.fake.requests.some(r => r.method === "POST" && r.path === "/watched/episode%3As1e22"));
-    assert.equal(tv.fake.requests.filter(r => r.path === "/watched/series%3As1").length, 0);
+    const panel = tv.page.getByRole("menu");
     const count = reads(tv).length;
-    await tv.remote(10009);
+    await panel.getByRole("menuitem", { name: "Mark as Watched", exact: true }).click();
+    await tv.eventually(async () => tv.fake.requests.some(r => r.method === "POST" && r.path === "/watched/episode%3As1e22"), "episode watched sent");
+    assert.equal(tv.fake.requests.filter(r => r.path === "/watched/series%3As1").length, 0);
     await tv.eventually(async () => reads(tv).length === count + 1 && (await episode.getAttribute("aria-label"))?.includes("Watched") === true, "refreshed Calendar decoration");
     const own = "season:s1:2";
     tv.fake.script(`/catalog/items/${encodeURIComponent(own)}?image_size=large`, { status: 200, body: { ...fixture("get_catalog_item_ok"), content_id: own, type: "season", series_id: "series:s1", season_number: 2, user_state: { played: false }, versions: [] } });
     const before = tv.fake.requests.length;
     await tv.page.locator(`.calendar-event[data-content-id="${own}"]`).focus();
     await tv.down(13); await tv.jump(650); await tv.up(13);
-    await panel.getByRole("button", { name: "Mark all watched", exact: true }).waitFor();
-    assert.equal(await panel.getByRole("button").count(), 2, "season exposes watched and Close only");
+    await panel.getByRole("menuitem", { name: "Mark as Watched", exact: true }).waitFor();
+    assert.equal(await panel.getByRole("menuitem").count(), 1, "season exposes watched only");
     assert.deepEqual(tv.fake.requests.slice(before).filter(r => /membership|catalog\/items/.test(r.path)).map(r => r.path.split("?")[0]), ["/catalog/items/season%3As1%3A2"]);
 });
 
-// Home cards here carry no user_state, so Apple's menu offers only the watched row; every Home change marks routes stale alike.
-calendarTest("card watched invalidates retained Calendar Following through a Home origin", async tv => {
-    await activate(tv, "calendar"); await ready(tv, 3);
-    const count = reads(tv).length;
-    await activate(tv, "home");
-    await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').focus();
-    await tv.down(13); await tv.jump(650); await tv.up(13);
-    const before = tv.fake.requests.length;
-    await tv.page.getByRole("menu").getByRole("menuitem", { name: "Mark as Watched", exact: true }).click();
-    await tv.eventually(async () => tv.fake.requests.slice(before).some(r => r.path.startsWith("/home/sections")), "Home read after the change");
-    await activate(tv, "calendar");
-    await tv.eventually(async () => reads(tv).length === count + 1, "stale retained Calendar read");
-    await ready(tv);
-    assert.equal(new URL(reads(tv).slice(-1)[0]?.path ?? "", "https://fake.invalid").searchParams.get("filter"), "following");
-});
+for (const [kind, label] of [["watched", "Mark as Watched"], ["favorites", "Add to Favorites"], ["watchlist", "Add to Watchlist"]] as const) {
+    const rows = new FakeCalendar();
+    rows.cardUserState = true;
+    calendarTest(`card ${kind} invalidates retained Calendar Following through a Home origin`, async (tv, catalog) => {
+        await activate(tv, "calendar"); await ready(tv, 3);
+        const count = reads(tv).length;
+        await activate(tv, "home");
+        await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').focus();
+        await tv.down(13); await tv.jump(650); await tv.up(13);
+        const mutations = catalog.mutations.length;
+        await tv.page.getByRole("menu").getByRole("menuitem", { name: label, exact: true }).click();
+        await tv.eventually(async () => catalog.mutations.length === mutations + 1, `${kind} sent`);
+        await activate(tv, "calendar");
+        await tv.eventually(async () => reads(tv).length === count + 1, "stale retained Calendar read");
+        await ready(tv);
+        assert.equal(new URL(reads(tv).slice(-1)[0]?.path ?? "", "https://fake.invalid").searchParams.get("filter"), "following");
+    }, undefined, rows);
+}
 
 calendarTest("Calendar complete remote journey retains every event and restores exact scroll and context", async (tv) => {
     if (process.env.CALENDAR_CAPTURE) await tv.page.screenshot({ path: `${process.env.CALENDAR_CAPTURE}/after-home.png` });

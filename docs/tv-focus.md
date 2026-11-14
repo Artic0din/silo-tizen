@@ -128,8 +128,7 @@ They intercept it first, in an earlier phase of the DOM event path.
 | --- | --- | --- | --- |
 | 1 | Exit dialog (`exitDialog.ts`) | `window`, capture | Handles every remote key, then `preventDefault` and `stopImmediatePropagation`. A `focusin` trap pulls focus back inside. |
 | 2 | `FocusHost.onPress` | `document`, capture | Enter only, for cards with a quick action (hold). Registered when browse starts, so it runs before card actions. |
-| 3 | Card actions (`cardActions.ts`) | `document`, capture | Registered when its menu opens. Handles remote keys and Tab, then `stopImmediatePropagation`. |
-| 3 | Home card menu (`homeCardMenu.ts`) | `document`, capture | Registered while its menu or failure alert is open. Up and Down move, Left and Right do nothing, Back closes; then `stopImmediatePropagation`. |
+| 3 | Card actions (`cardActions.ts`) | `document`, capture | Registered while its menu or failure alert is open. Up and Down move through the single column, Left and Right stay put, Enter chooses only on a fresh press, Back closes; then `stopImmediatePropagation`. |
 | 4 | `Skyline.onKey` | container, capture | Menus, dwell panels, Down into a panel, Back inside the shell. |
 | 4 | Settings (`settings.ts`) | container, capture | Left to the categories and the credits scroll. |
 | 6 | `FocusHost.onKey`, `ScreenHost.onKey`, player `onKey` | `document`, bubble | Ordinary movement. `FocusHost` returns at once if `event.defaultPrevented`. |
@@ -157,7 +156,8 @@ For browse roots the chain is (`Skyline.back`, `Skyline.onKey`):
    Focus returns to the anchoring bar item, and the menu stays dismissed until focus leaves that anchor or the viewer presses Down again.
 2. Focus inside content moves to the selected tab in the navigation bar.
 3. Focus on the bar, on any root other than Home, switches to Home.
-4. Focus on the bar at Home: `back()` returns `false`, nothing prevents the event, and `app.ts` opens the Exit dialog.
+4. Focus on the bar at Home, on Search, another tab or the avatar, moves to the Home tab (`handleExitPress`).
+5. Focus on the Home tab at Home: `back()` returns `false`, nothing prevents the event, and `app.ts` opens the Exit dialog.
 
 Other layers:
 
@@ -228,13 +228,13 @@ Translation polls publish the selected season without restarting neighbour reads
 Person's grid also loads another page when scrolling reveals a cell within the final eight rows, matching Apple's tvOS grid; card focus handlers do not fetch.
 Featured cards are another exception. In the server's auto mode, the marquee starts a description translation only after that card has held the preview for 1500 ms, matching Apple TV's featured-card dwell. Moving on before then starts nothing. Details translation starts with the page. Focusing another episode does not.
 
-The marquee rest is another exception. After focus has stayed on one card for 150 ms, Home, For You and library Recommended read that card's item detail once. The 150 ms value is `SiloTheme.Skyline.marqueeRestDebounceMilliseconds` in silo-apple `2ef3a171`, applied by `TVFocusMarquee.waitForEnrichmentRest` (`TVFocusMarquee.swift:966-971` and `:1028-1049`). A cached answer fills the marquee immediately and does not read again. Moving to another card before the delay, or before the answer lands, cancels the wait and the read, and the late answer cannot change the marquee. Apple starts this read immediately when the focused row changes (`restForRowChange`, `deferNetwork: false`) so an episode hero can warm; Tizen already has that backdrop on the card, and the same 150 ms wait covers a row change so a run of keys does not send a request per key. Continue Watching reads those saved files when its row loads, four at a time. Apple starts one read when `EpisodeThumbCard` mounts (`EpisodeThumbCard.swift:108-110`) inside the row's `LazyHStack` (`MediaRow.swift:413-416`). This row draws every card, so the same reads stay on a queue of four. For You additionally warms at most two rows of eight cards that omit a content rating, three at a time (`RecommendationsView.swift:159-182`). Home does not warm item detail for the other rows; Apple's Home prefetch warms image bytes already in the section payload, at most 40 URLs.
+The marquee rest is another exception. After focus has stayed on one card for 150 ms, Home, For You and library Recommended read that card's item detail once. The 150 ms value is `SiloTheme.Skyline.marqueeRestDebounceMilliseconds` in silo-apple `2ef3a171`, applied by `TVFocusMarquee.waitForEnrichmentRest` (`TVFocusMarquee.swift:966-971` and `:1028-1049`). A cached answer fills the marquee immediately and does not read again. Moving to another card before the delay, or before the answer lands, cancels the wait and the read, and the late answer cannot change the marquee. A row change is the one case without the wait: when the row band starts scrolling, the new card's read starts at once, as Apple's `restForRowChange` does with `deferNetwork: false` (silo-apple `85679e7` `TVFocusMarquee.swift:818-826`, `:898-904`). A newer focus still cancels it. Continue Watching reads those saved files when its row loads, four at a time. Apple starts one read when `EpisodeThumbCard` mounts (`EpisodeThumbCard.swift:108-110`) inside the row's `LazyHStack` (`MediaRow.swift:413-416`). This row draws every card, so the same reads stay on a queue of four. For You additionally warms at most two rows of eight cards that omit a content rating, three at a time (`RecommendationsView.swift:159-182`). Home does not warm item detail for the other rows; Apple's Home prefetch warms image bytes already in the section payload, at most 40 URLs.
 
 Outside the named filter, season-pill, episode-detail, outer-edge, featured-card and marquee-rest exceptions, moving focus never starts a request, activates a route or writes data.
 Fetching belongs to explicit activation (Enter), to a view loading, or to a one-off prefetch.
 
 - Card focus calls `context.preview`, which redraws the marquee from data already in memory (`Skyline.preview`).
-  The first preview is immediate, later ones wait 150 ms and crossfade for 240 ms.
+  The text follows focus at once; the backdrop waits for focus to rest 150 ms, or after a row change until Apple's 320 ms hold cap, then crossfades for 240 ms.
   The marquee-rest exception above is the only read that preview starts.
 - The aired-date and cast line fills in when that rested read lands (`docs/features/skyline-browse-shell.md`, Home section).
 - Bar items open a dropdown after a 250 ms dwell on focus.
@@ -274,7 +274,9 @@ Playback has these differences from browse:
 - Playback resuming outside the scrubber cancels its timeline preview without seeking and restores auto-hide.
   A hold that paused a pending resume returns that resume on cancellation only if no newer Play or Pause superseded it.
 - The track menu opens on the active tab.
-  Down enters its pane, Up at the top returns to its tab, Left/Right switches panes, Enter chooses and Back closes.
+  Panes change only on the tab rail, as on Apple TV (`TVPlayerInfoHUD.swift:9-16`): Left/Right on a tab switches panes, Down enters the pane at its top row (Off in Subtitles), Up from a pane's top row returns to its tab, Enter chooses and Back closes.
+  Subtitles (TRACKS, OPTIONS) and Video (PLAYBACK, SYNC) have two columns, as Apple's `focusSection` columns: Up and Down stay in the focused column, Left/Right cross to the row level with focus in the other column, and Left/Right past the outer column, or in a one-column pane, do nothing.
+  A picker floats over its pane and keeps focus until Back closes it onto the row that opened it; Up at its top does not reach the rail.
 - Play/Pause, Play, Pause, Stop, Rewind and Fast Forward act directly.
   Stop leaves playback.
 - Back from the overlay leaves playback (`controls.back()`), which restores the originating browse view and focus.

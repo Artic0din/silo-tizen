@@ -4,6 +4,7 @@ import type { Browser } from "playwright";
 import { FakeCatalog } from "../native/support/fakeCatalog.ts";
 import { FakePlayback } from "../native/support/fakePlayback.ts";
 import { FakeSettings } from "../native/support/fakeSettings.ts";
+import { problem } from "../native/support/fakeSilo.ts";
 import { SEEK_BACK_KEY, SEEK_FORWARD_KEY } from "../../src/contracts/v2/settings.ts";
 import { pressPin } from "./support/pin.ts";
 import { homeDetailsRead, launchBrowser, openTv, pauseTvClock, readLive, type Tv } from "./support/tv.ts";
@@ -209,6 +210,26 @@ for (const cached of [true, false]) appTest(`cold offline saved session opens Ho
     await tv.page.locator('[data-view="home"] .browse-card').first().waitFor();
 });
 
+appTest("cold start whose first Home read fails keeps snapshot artwork out of public storage", async tv => {
+    await signIn(tv, true);
+    const posters = '[data-view="home"] .browse-card img[src*="/art/"]';
+    await tv.page.locator(posters).first().waitFor();
+    await tv.eventually(async () => (await tv.page.evaluate(() => window.appHarness.keyManager.items.has("silo.browseArtwork.v1"))), "artwork saved");
+    const [snapshot, artwork] = await tv.page.evaluate(() => [window.appHarness.storage.getItem("silo.browseSnapshots.v1") ?? "", window.appHarness.keyManager.items.get("silo.browseArtwork.v1") ?? ""] as const);
+    assert.match(snapshot, /Recently Added/);
+    assert.doesNotMatch(snapshot, /_url|\/art\/|https?:|token/);
+    assert.match(artwork, /\/art\//);
+    assert.doesNotMatch(artwork, /Recently Added|token|"title"/);
+    const homeReads = (): string[] => tv.fake.requests.filter(r => r.path.startsWith("/home/sections")).map(r => r.path);
+    const failing = new Set(homeReads());
+    for (const path of failing) tv.fake.script(path, ...Array.from({ length: 5 }, () => problem(500, "internal", "Internal error")));
+    const before = homeReads().length;
+    await tv.page.evaluate(() => window.appHarness.mount());
+    await tv.eventually(async () => homeReads().length > before, "first Home read");
+    await tv.page.locator(posters).first().waitFor();
+    assert.ok(homeReads().slice(before).every(path => failing.has(path)), "every Home read after the cold start answered 500");
+});
+
 /** `landing` is where the sign-in ends; a test that expects it not to be the picker widens it. */
 async function approveSignIn(tv: Tv, code: string, landing = '[data-screen="profiles"]'): Promise<void> {
     tv.fake.approve(code);
@@ -383,6 +404,68 @@ appTest("Switch Profile still shows one PIN-less profile", async tv => {
     await tv.page.locator('[data-focus="switch-profile"]').click();
     await tv.page.locator('[data-screen="profiles"]').waitFor();
     assert.equal(await tv.page.locator(".profile-avatar").count(), 1);
+});
+
+// ProfileMenuRow.row (silo-apple 5780c84 `Components/ProfileMenuRow.swift:22-28`): an account whose cached list holds one
+// profile has nothing to switch to, so the menu offers Add Profile, which opens profile creation.
+/** Signs in to an account whose only profile is the PIN-less owner, which skips the picker. */
+async function signInWithOneProfile(tv: Tv): Promise<Record<string, unknown>[]> {
+    const household = profileItems(tv);
+    const owner = household.find(item => item.id === "p-owner");
+    assert.ok(owner);
+    tv.fake.profiles = { ...tv.fake.profiles, items: [owner] };
+    await tv.page.fill("#signin-address", "silo.example.test");
+    await tv.page.getByRole("button", { name: "Connect", exact: true }).click();
+    await tv.page.locator('[data-screen="code"]').waitFor();
+    await approveSignIn(tv, [...tv.fake.devices.keys()].pop()!, '[data-view="home"], [data-screen="remember-profile"]');
+    if (await tv.screen() === "remember-profile") await tv.page.locator('[data-focus="ask-every-launch"]').click();
+    await tv.page.locator('[data-view="home"] [data-focus="movie:m0001"]').first().waitFor();
+    return household;
+}
+
+appTest("an account with one profile offers Add Profile in Switch Profile's place, and it opens profile creation", async tv => {
+    await signInWithOneProfile(tv);
+    await tv.page.locator('[data-focus="profiles"]').click();
+    assert.deepEqual(await tv.page.locator('.skyline-selector [role="menuitem"]').allTextContents(), ["History", "Settings", "Add Profile", "Change Account", "Sign Out"]);
+    await tv.page.locator('[data-focus="add-profile"]').click();
+    await tv.page.locator('[data-screen="profile-create"]').waitFor();
+    assert.equal(await tv.page.locator(".browse").count(), 0, "Browse has left the screen");
+});
+
+// AddProfileFromMenuModifier (silo-apple 5780c84 `Screens/Profiles/AddProfileFromMenu.swift:3-7`): closing it without
+// creating a profile leaves the screen it was opened from as it was.
+appTest("Back from Add Profile's form returns to Home with the open profile", async tv => {
+    await signInWithOneProfile(tv);
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.locator('[data-focus="add-profile"]').click();
+    await tv.page.locator('[data-screen="profile-create"]').waitFor();
+    await tv.remote(10009);
+    await tv.page.locator('[data-view="home"] [data-focus="movie:m0001"]').first().waitFor();
+    assert.equal(await tv.page.locator('[data-screen="profiles"]').count(), 0, "the picker does not open");
+});
+
+// AddProfileRequest.start (silo-apple 5780c84 `Navigation/AppRouter+Accounts.swift:87-91`): the fresh list decides. A
+// profile added elsewhere since the count was cached opens the picker, as Switch Profile does.
+appTest("Add Profile opens the picker when the fresh list holds more than one profile", async tv => {
+    const household = await signInWithOneProfile(tv);
+    tv.fake.profiles = { ...tv.fake.profiles, items: household };
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.locator('[data-focus="add-profile"]').click();
+    await tv.page.locator('[data-screen="profiles"]').waitFor();
+    assert.equal(await tv.page.locator('[data-screen="profiles"] .profile-avatar').count(), household.length);
+    assert.equal(await tv.page.locator('[data-screen="profile-create"]').count(), 0);
+});
+
+// `.unavailable` (:78-81, :241-242): the form never opens for a profile that is not the open one.
+appTest("Add Profile refuses when the fresh list's only profile is not the open one", async tv => {
+    const household = await signInWithOneProfile(tv);
+    const kid = household.find(item => item.id === "p-kid");
+    assert.ok(kid);
+    tv.fake.profiles = { ...tv.fake.profiles, items: [{ ...kid, is_primary: true }] };
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.locator('[data-focus="add-profile"]').click();
+    await tv.page.getByText("Couldn't find the primary profile needed to create another profile.", { exact: true }).waitFor();
+    assert.equal(await tv.page.locator('[data-screen="profile-create"], [data-screen="pin"]').count(), 0, "neither the form nor the kid's PIN opens");
 });
 
 appTest("an expired session opens Change Account while another account is signed in", async tv => {
@@ -737,7 +820,7 @@ appTest("an emoji avatar shows in the top bar, the profile menu and Settings ins
     assert.equal(await avatar.locator(".navigation-avatar-fallback").evaluate(node => getComputedStyle(node).fontSize), "26.1px", "ProfileAvatarView draws text at 45% of the 58 px avatar");
     await tv.page.locator('[data-focus="profiles"]').click();
     assert.equal(await tv.page.locator(".skyline-profile-header .navigation-avatar-fallback").textContent(), "\u{1F98A}");
-    assert.equal(await tv.focused(), "switch-profile", "opening the menu keeps focus on its first row");
+    assert.equal(await tv.focused(), "history", "opening the menu moves focus to its first row");
 });
 
 appTest("a 200-character server name keeps every sign-out dialog's buttons on screen and focusable", async tv => {
@@ -801,7 +884,7 @@ appTest("Sign Out confirmation traps focus and cancellation preserves the sessio
     const writes = tv.fake.requests.filter(request => request.method !== "GET").length;
     await tv.page.locator('[data-focus="profiles"]').click();
     assert.equal(await tv.page.locator(".skyline-profile-server").textContent(), "LIVING ROOM LIBRARY");
-    assert.equal(await tv.focused(), "switch-profile");
+    assert.equal(await tv.focused(), "history");
     await tv.page.locator('[data-focus="signout"]').focus();
     const focusColors = await tv.page.locator('[data-focus="signout"]').evaluate(node => [getComputedStyle(node).backgroundColor, getComputedStyle(node).color]);
     assert.deepEqual(focusColors, ["rgb(255, 255, 255)", "rgb(0, 0, 0)"], "Apple uses the common white focus platter for destructive menu rows");
@@ -865,14 +948,14 @@ appTest("saved-server Select enters its pane and Back returns to its rail", asyn
 
 appTest("Add server Back returns to saved servers without changing credentials", async tv => {
     await signIn(tv);
-    const saved = await tv.page.evaluate(() => [...window.appHarness.keyManager.items]);
+    const saved = await tv.page.evaluate(() => [...window.appHarness.keyManager.items].filter(([alias]) => alias !== "silo.browseArtwork.v1"));
     await tv.page.locator('[data-focus="profiles"]').click();
     await tv.page.getByRole("menuitem", { name: "Change Account", exact: true }).click();
     await tv.page.getByRole("button", { name: "Add server", exact: true }).click();
     await tv.page.locator('[data-screen="entry"]').waitFor();
     await tv.remote(10009);
     assert.equal(await tv.page.locator('[data-view="change-account"]').count(), 1);
-    assert.deepEqual(await tv.page.evaluate(() => [...window.appHarness.keyManager.items]), saved);
+    assert.deepEqual(await tv.page.evaluate(() => [...window.appHarness.keyManager.items].filter(([alias]) => alias !== "silo.browseArtwork.v1")), saved);
     assert.equal(tv.fake.revokedSessions.size, 0);
 });
 
@@ -1016,7 +1099,7 @@ appTest("an offline saved server reports failure and Back preserves both servers
         directory.accounts.push({ ...directory.accounts[0]!, id: "offline-account", baseUrl: "https://offline.example.test" });
         storage.setItem("silo.native.accounts.v1", JSON.stringify(directory));
     });
-    const saved = await tv.page.evaluate(() => [...window.appHarness.keyManager.items]);
+    const saved = await tv.page.evaluate(() => [...window.appHarness.keyManager.items].filter(([alias]) => alias !== "silo.browseArtwork.v1"));
     await tv.page.locator('[data-focus="profiles"]').click();
     await tv.page.getByRole("menuitem", { name: "Change Account", exact: true }).click();
     const reads = tv.fake.requests.length;
@@ -1031,7 +1114,7 @@ appTest("an offline saved server reports failure and Back preserves both servers
     assert.equal(await tv.focused(), "connect");
     await tv.remote(10009);
     assert.equal(await tv.page.locator('.accounts-rail button').count(), 3);
-    assert.deepEqual(await tv.page.evaluate(() => [...window.appHarness.keyManager.items]), saved);
+    assert.deepEqual(await tv.page.evaluate(() => [...window.appHarness.keyManager.items].filter(([alias]) => alias !== "silo.browseArtwork.v1")), saved);
     assert.equal(tv.fake.revokedSessions.size, 0);
 });
 
@@ -1058,7 +1141,7 @@ for (const origin of ["home", "movies"] as const) appTest(`Change Account return
     const writes = tv.fake.requests.filter(request => request.method !== "GET").length;
     const sessions = tv.fake.devices.size;
     await tv.page.locator('[data-focus="profiles"]').click();
-    assert.deepEqual(await tv.page.locator('.skyline-selector [role="menuitem"]').allTextContents(), ["Switch Profile", "History", "Settings", "Change Account", "Sign Out"]);
+    assert.deepEqual(await tv.page.locator('.skyline-selector [role="menuitem"]').allTextContents(), ["History", "Settings", "Switch Profile", "Change Account", "Sign Out"]);
     assert.equal(await tv.page.getByRole("menuitem", { name: "Switch Server", exact: true }).count(), 0);
     await tv.page.getByRole("menuitem", { name: "Change Account", exact: true }).click();
     await tv.page.locator('[data-view="change-account"]').waitFor();
@@ -1982,14 +2065,14 @@ appTest("the profile menu opens without changing content, stays dismissed after 
     assert.equal(await tv.focused(), "profiles");
     assert.equal(tv.fake.requests.length, requests);
     await tv.page.keyboard.press("ArrowDown");
-    assert.equal(await tv.focused(), "switch-profile");
+    assert.equal(await tv.focused(), "history");
     await tv.remote(10009);
     await tv.jump(500);
     assert.equal(await tv.page.locator(".skyline-selector").first().isVisible(), false);
     assert.equal(await tv.focused(), "profiles");
     await tv.page.keyboard.press("Enter");
-    assert.equal(await tv.focused(), "switch-profile", "Select enters the menu immediately");
-    for (const destination of ["history", "settings", "switch-server"]) {
+    assert.equal(await tv.focused(), "history", "Select enters the menu immediately");
+    for (const destination of ["settings", "switch-profile", "switch-server"]) {
         await tv.page.keyboard.press("ArrowDown");
         assert.equal(await tv.focused(), destination);
     }

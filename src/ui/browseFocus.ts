@@ -103,6 +103,10 @@ export class FocusHost {
     private incoming: HTMLElement[] = [];
     private transitionTimer: number | undefined;
     private press: { item: FocusItem; started: number; timer: number | undefined; cancelled: boolean } | undefined;
+    /** The rail letter Select is holding down (TVAlphabetRail.swift:148-151); its choice re-renders the page before release. */
+    private heldLetter: HTMLElement | undefined;
+    /** The card or For You and profile menu row Select is holding down, drawn pressed (TVCardFocusStyle.swift:150-153, TVTopMenuBar.swift:1323) until release. */
+    private pressedCard: HTMLElement | undefined;
     /** One Play claim per Details visit. tvOS retries it; a failed claim used to leave body focused until the next key. */
     private playClaim: { visit: string; attempts: number; waits: number; finished: boolean; timer: number | undefined; moved: boolean; awaitingPrimary: boolean } | undefined;
     private readonly detach = new MutationObserver(() => {
@@ -197,6 +201,10 @@ export class FocusHost {
             this.outgoing = outgoing;
             this.transitionTimer = window.setTimeout(() => this.clearTransition(), 200);
         }
+        // A Details focus scroll already on its way when this repaint starts. The repaint's own reveal cannot
+        // stand in for it: the old focused node is gone by then, so it cannot tell an Up move from a Down one.
+        const revealViewport = this.viewport();
+        const revealing = sameVisit && view.name.startsWith("item:") ? this.scroll.motion(revealViewport) : undefined;
         const previous = sameVisit ? this.locate(document.activeElement) : undefined;
         const kept = previous === undefined ? undefined : { zone: previous.zone.id, key: previous.item.key };
         const unchanged = sameVisit ? kept ?? focus ?? this.memoryTarget() : undefined;
@@ -233,14 +241,29 @@ export class FocusHost {
         }
         else this.focusFirst(offscreenShelf ? [view.focus] : [focus, nearby === undefined ? kept : { zone: previous?.zone.id ?? "", key: nearby.key }, restoring ? this.memoryTarget() : undefined, view.focus]);
         this.settlePrimaryFocus(view);
+        // A rail letter's choice re-renders the page while Select is still held; the retained letter stays drawn pressed until release.
+        const held = this.heldLetter;
+        if (held !== undefined && held.isConnected && document.activeElement === held) {
+            this.pressedCard = held;
+            held.setAttribute("data-pressed", "");
+        }
         const focused = this.focused();
         const sameIdentity = unchanged !== undefined && focused?.zone === unchanged.zone && focused.key === unchanged.key;
         if ((sameIdentity || returnSnap) && visit !== undefined && !retainedPerson) {
-            // Repainting the same identity (including a dismissed modal) must keep its viewport.
+            // Repainting the same identity (including a dismissed modal) must keep its viewport, and a
+            // Details focus scroll already on its way carries on along its own curve.
             this.scroll.stop();
             this.applyVisit(visit);
+            if (revealing !== undefined) {
+                // Rows the repaint added or removed above the focused one move its anchor: aim there, shifting the whole
+                // curve so the move keeps its remaining time. The reveal's own focus direction wins over the scroll's:
+                // an Up move that interrupted a move down can still scroll down.
+                const element = this.locate(document.activeElement)?.item.element;
+                const aim = element === undefined ? undefined : this.scroll.revealTarget(element, this.container, revealViewport, revealing.up ?? revealing.top < revealing.fromTop);
+                this.scroll.resume(revealViewport, aim === undefined ? revealing : { ...revealing, fromLeft: revealing.fromLeft + aim.left - revealing.left, fromTop: revealing.fromTop + aim.top - revealing.top, left: aim.left, top: aim.top });
+            }
             const element = this.locate(document.activeElement)?.item.element;
-            if ((this.container.dataset.view === "search" || this.container.dataset.view?.startsWith("person:") || this.container.classList.contains("section-catalog") || this.container.classList.contains("library-browse") || this.container.classList.contains("requests-hub") || this.container.classList.contains("details-series-scene") || this.container.classList.contains("accounts-screen") || element?.closest(".settings-modal-options") != null) && element !== undefined) {
+            if ((this.container.dataset.view === "search" || this.container.dataset.view?.startsWith("person:") || this.container.classList.contains("section-catalog") || this.container.classList.contains("library-browse") || this.container.classList.contains("requests-hub") || this.container.classList.contains("details-series-scene") || this.container.classList.contains("accounts-screen") || this.container.dataset.view === "watchParty:lobby" || element?.closest(".settings-modal-options") != null) && element !== undefined) {
                 const viewport = element.closest<HTMLElement>(".browse-panel-list, .settings-modal-options, .settings-pane, .skyline-content, .accounts-rail, .accounts-pane, .accounts-settings") ?? this.container;
                 const card = element.getBoundingClientRect(), bounds = viewport.getBoundingClientRect();
                 if (card.top < bounds.top + 12 || card.bottom > bounds.bottom - 32 || !this.insideRow(element)) this.scroll.reveal(element, this.container);
@@ -689,7 +712,13 @@ export class FocusHost {
         return zone === undefined || key === undefined ? undefined : { zone, key };
     }
 
+    private releaseCard(): void {
+        this.pressedCard?.removeAttribute("data-pressed");
+        this.pressedCard = undefined;
+    }
+
     private readonly cancelPress = (): void => {
+        this.releaseCard();
         if (this.press === undefined) return;
         if (this.press.timer !== undefined) window.clearTimeout(this.press.timer);
         this.press.timer = undefined;
@@ -699,6 +728,15 @@ export class FocusHost {
     private readonly onPress = (event: KeyboardEvent): void => {
         const key = remoteKey(event);
         if (key !== "enter") { if (key !== undefined) this.cancelPress(); return; }
+        const card = document.activeElement;
+        // Cards (TVCardFocusStyle.swift:150-153), For You and profile menu rows (TVTopMenuBar.swift:1323) and the rail's letters
+        // (TVAlphabetRail.swift:148-151) are drawn pressed while Select is held.
+        if (!event.repeat && card instanceof HTMLElement && (card.classList.contains("browse-card") || card.classList.contains("skyline-menu-item") || card.parentElement?.classList.contains("browse-letters") === true) && this.container.contains(card)) {
+            this.releaseCard();
+            this.pressedCard = card;
+            card.setAttribute("data-pressed", "");
+            if (card.parentElement?.classList.contains("browse-letters") === true) this.heldLetter = card;
+        }
         if (this.press !== undefined) { event.preventDefault(); event.stopImmediatePropagation(); return; }
         if (event.defaultPrevented) return;
         const item = this.locate(document.activeElement)?.item;
@@ -722,6 +760,7 @@ export class FocusHost {
     }
 
     private readonly onRelease = (event: KeyboardEvent): void => {
+        if (remoteKey(event) === "enter") { this.heldLetter = undefined; this.releaseCard(); }
         if (remoteKey(event) !== "enter" || this.press === undefined) return;
         event.preventDefault();
         event.stopImmediatePropagation();

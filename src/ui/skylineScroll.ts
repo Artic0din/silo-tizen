@@ -2,12 +2,18 @@ import { episodeRailOffset } from "./episodeRail.ts";
 
 /** Apple's focused History rows 2 and 3 put the unlifted poster top here. */
 const HISTORY_POSTER_TOP = 554;
+/** The open letter rail's chip and the gap above each after the first (browse.css .browse-letters). */
+const OPEN_LETTER = 38;
+const LETTER_GAP = 4;
 
 // Measured from the running Apple TV app at 7baff3e, 6 Nov 2026: tvOS focus reveal, not Swift offsets.
+// The poster headings were measured at Compact Poster Size.
 const DETAILS_DOWN_HEADING = { cast: 546, trailers: 501, posters: 547 };
 const DETAILS_UP_HEADING = 111;
 // The local section heights differ from Swift's complete centered anchors.
 const DETAILS_CENTER_HEADING = { moviePosters: 321, seriesCast: 367 };
+/** Compact poster art height: 330 x 0.86 (MediaCard.swift:149-158, UICustomizationPreferences.swift:24-30). */
+const DETAILS_MEASURED_POSTER_HEIGHT = 330 * 0.86;
 
 /**
  * A Settings caption is not focusable. Extend the focused row through the
@@ -55,10 +61,29 @@ export function cubicBezier(x1: number, y1: number, x2: number, y2: number): (t:
 }
 
 const easeOutCubic = (progress: number): number => 1 - Math.pow(1 - progress, 3);
+
+/**
+ * Fired, without bubbling, on a node when an animated move starts: SwiftUI's onScrollPhaseChange leaving .idle,
+ * which the Home marquee holds its backdrop on.
+ */
+export const SCROLL_START_EVENT = "skyline-scroll-start";
 /** TVDetailFocusScroll.scrollAnimation: easeInOut(duration: 0.45), SwiftUI's (0.42, 0, 0.58, 1). */
 const MOVIE_HERO_SCROLL = { duration: 450, ease: cubicBezier(0.42, 0, 0.58, 1) };
 /** TVSeriesDetailView animatePage: 0.55 s on UICubicTimingParameters (0.4, 0) (0.2, 1). */
 const SERIES_HERO_SCROLL = { duration: 550, ease: cubicBezier(0.4, 0, 0.2, 1) };
+
+/** One animated scroll: where it started, where it goes, and its curve. */
+export interface Motion {
+    readonly fromLeft: number;
+    readonly fromTop: number;
+    readonly left: number;
+    readonly top: number;
+    readonly start: number;
+    readonly duration: number;
+    readonly ease: (progress: number) => number;
+    /** Whether focus moved up, for a reveal that chose its anchor by that direction. */
+    readonly up?: boolean;
+}
 
 export class SkylineScroll {
     /** TVSeriesDetailView.swift:653-674 centers the selected mode. */
@@ -67,6 +92,11 @@ export class SkylineScroll {
     }
     private readonly frames = new Map<HTMLElement, number>();
     private readonly targets = new WeakMap<HTMLElement, { left: number; top: number }>();
+    private readonly motions = new WeakMap<HTMLElement, Motion>();
+    /** The focus direction of the reveal now calling `move`, when it chose its anchor by it. */
+    private revealUp: boolean | undefined;
+    /** While set, `move` records each target here instead of moving. */
+    private planned: Map<HTMLElement, { left: number; top: number }> | undefined;
     /** Shelf already bottom-aligned. Horizontal moves inside it do not scroll again. */
     private pinnedShelf: HTMLElement | null = null;
 
@@ -116,6 +146,7 @@ export class SkylineScroll {
     }
 
     move(node: HTMLElement, left: number, top: number, duration = 200, ease: (progress: number) => number = easeOutCubic): void {
+        if (this.planned !== undefined) { this.planned.set(node, { left, top }); return; }
         const previous = this.frames.get(node);
         const target = this.targets.get(node);
         const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -125,12 +156,33 @@ export class SkylineScroll {
         this.targets.set(node, { left, top });
         const fromLeft = node.scrollLeft;
         const fromTop = node.scrollTop;
-        if (reduced) {
+        // scrollTop clamps to whole device pixels, so a sub-pixel target is already in place.
+        const still = Math.abs(node.scrollLeft - left) < 1 && Math.abs(node.scrollTop - top) < 1;
+        if (reduced || still) {
             node.scrollLeft = left;
             node.scrollTop = top;
             return;
         }
-        const start = performance.now();
+        if (previous === undefined) node.dispatchEvent(new Event(SCROLL_START_EVENT));
+        this.run(node, { fromLeft, fromTop, left, top, start: performance.now(), duration, ease, ...(this.revealUp === undefined ? {} : { up: this.revealUp }) });
+    }
+
+    /** The move `node` is making now. */
+    motion(node: HTMLElement): Motion | undefined {
+        return this.frames.has(node) ? this.motions.get(node) : undefined;
+    }
+
+    /** Carries on `motion` on `node` from where its own curve is now, replacing any other move there. */
+    resume(node: HTMLElement, motion: Motion): void {
+        const previous = this.frames.get(node);
+        if (previous !== undefined) cancelAnimationFrame(previous);
+        this.targets.set(node, { left: motion.left, top: motion.top });
+        this.run(node, motion);
+    }
+
+    private run(node: HTMLElement, motion: Motion): void {
+        const { fromLeft, fromTop, left, top, start, duration, ease } = motion;
+        this.motions.set(node, motion);
         const frame = (now: number): void => {
             if (!node.isConnected) {
                 this.frames.delete(node);
@@ -146,10 +198,47 @@ export class SkylineScroll {
         this.frames.set(node, requestAnimationFrame(frame));
     }
 
-    reveal(element: HTMLElement, container: HTMLElement, previous?: Element | null): void {
+    /**
+     * Where `reveal` would move `viewport` for `element` now, without moving anything. `up` stands in for the
+     * previous focus, which a repaint has already removed.
+     */
+    revealTarget(element: HTMLElement, container: HTMLElement, viewport: HTMLElement, up: boolean): { left: number; top: number } | undefined {
+        const planned = new Map<HTMLElement, { left: number; top: number }>();
+        const pinned = this.pinnedShelf;
+        this.planned = planned;
+        try { this.reveal(element, container, undefined, up); } finally { this.planned = undefined; this.pinnedShelf = pinned; }
+        return planned.get(viewport);
+    }
+
+    reveal(element: HTMLElement, container: HTMLElement, previous?: Element | null, movingUp?: boolean): void {
         if (element.closest(".settings-categories") !== null) return;
         if (element.closest(".browse-nav, .skyline-selector:not(.details-audio-picker)") !== null) return;
-        const viewport = element.closest<HTMLElement>(".browse-panel-list, .details-audio-picker, .settings-modal-options, .settings-pane, .skyline-content, .accounts-rail, .accounts-pane, .accounts-settings") ?? container;
+        const viewport = element.closest<HTMLElement>(".browse-panel-list, .browse-letters, .details-popover-scroll, .details-audio-picker, .settings-modal-options, .settings-pane, .skyline-content, .accounts-rail, .accounts-pane, .accounts-settings") ?? container;
+        // TVAlphabetRail.swift:43-44: the open rail scrolls to the focused letter. Entering, its chips are still growing
+        // from 10 to 38, so measure the letter where it lands: each open chip is 38 tall, 4 below the one above. The rail draws
+        // into the bottom safe area like Apple's ScrollView but reveals within its frame, so its bottom padding stays clear.
+        if (viewport.matches(".browse-letters")) {
+            const top = Array.prototype.indexOf.call(viewport.children, element) * (OPEN_LETTER + LETTER_GAP);
+            const bottom = top + OPEN_LETTER;
+            const visible = viewport.clientHeight - parseFloat(getComputedStyle(viewport).paddingBottom);
+            const target = top < viewport.scrollTop ? top : bottom > viewport.scrollTop + visible ? bottom - visible : viewport.scrollTop;
+            viewport.scrollTop = target;
+            // A still-collapsed column is too short to scroll that far; finish once the chip has grown.
+            if (viewport.scrollTop < target) {
+                const grown = (event: TransitionEvent): void => {
+                    if (event.propertyName !== "height") return;
+                    element.removeEventListener("transitionend", grown);
+                    if (document.activeElement === element) viewport.scrollTop = target;
+                };
+                element.addEventListener("transitionend", grown);
+            }
+            return;
+        }
+        // TVActionPopoverMenu.onAppear: a long list opens with its initial row in the centre; later moves reveal normally.
+        if (viewport.matches(".details-popover-scroll") && (previous === undefined || previous === null || !viewport.contains(previous))) {
+            viewport.scrollTop = Math.max(0, element.offsetTop - (viewport.clientHeight - element.offsetHeight) / 2);
+            return;
+        }
         if (element.closest("[data-scroll-top]") !== null) {
             this.pinnedShelf = null;
             this.move(viewport, 0, 0);
@@ -186,7 +275,8 @@ export class SkylineScroll {
         const bounds = viewport.getBoundingClientRect();
         // tvOS pins the primary Series viewport; Large lifts the hero so its rail still fits.
         if (this.restoreDetailsAnchor(element, viewport)) return;
-        const section = element.closest<HTMLElement>('.details-people, .details-extras, [data-detail-section="related"], .details-facts');
+        // [data-detail-section] is Related and the box set row, the poster rails Movie centres alike.
+        const section = element.closest<HTMLElement>('.details-people, .details-extras, [data-detail-section], .details-facts');
         if (section !== null) {
             if (previous !== undefined && previous !== element && section.contains(previous)) return;
             if (section.classList.contains('details-facts')) {
@@ -196,16 +286,24 @@ export class SkylineScroll {
             const header = section.previousElementSibling?.getBoundingClientRect();
             if (header === undefined) return;
             const headingTop = viewport.scrollTop + header.top - bounds.top;
-            const up = previous?.isConnected === true && previous.getBoundingClientRect().top > rect.top;
+            const up = movingUp ?? (previous?.isConnected === true && previous.getBoundingClientRect().top > rect.top);
             const series = container.querySelector('.details-hero')?.getAttribute('data-media-type') === 'series';
             const cast = section.classList.contains('details-people');
             const posters = section.hasAttribute('data-detail-section');
-            const centered = series && cast ? DETAILS_CENTER_HEADING.seriesCast : !series && posters ? DETAILS_CENTER_HEADING.moviePosters : undefined;
-            const target = centered ?? (up ? DETAILS_UP_HEADING : cast ? DETAILS_DOWN_HEADING.cast : posters ? DETAILS_DOWN_HEADING.posters : DETAILS_DOWN_HEADING.trailers);
+            // Larger posters lift the heading: Series Down keeps the native reveal's card bottom, and
+            // Movie's centred section (TVDetailFocusScroll.swift:81, 94-103) grows half above its centre.
+            // The box set section matches Related's height (TVBoxSetRow.swift:20-27,67), so it shares the heading.
+            const art = posters ? element.querySelector<HTMLElement>('.browse-art') : null;
+            const growth = art === null ? 0 : parseFloat(getComputedStyle(art).height) - DETAILS_MEASURED_POSTER_HEIGHT;
+            const centered = series && cast ? DETAILS_CENTER_HEADING.seriesCast : !series && posters ? DETAILS_CENTER_HEADING.moviePosters - growth / 2 : undefined;
+            const target = centered ?? (up ? DETAILS_UP_HEADING : cast ? DETAILS_DOWN_HEADING.cast : posters ? DETAILS_DOWN_HEADING.posters - growth : DETAILS_DOWN_HEADING.trailers);
             // A section fully reachable on the unscrolled page needs no upward reveal.
             const artwork = element.querySelector('.browse-art');
             const visibleAtTop = headingTop >= 0 && viewport.scrollTop + (artwork ?? element).getBoundingClientRect().bottom - bounds.top <= viewport.clientHeight;
-            this.move(viewport, 0, up && visibleAtTop ? 0 : Math.max(0, headingTop - target));
+            this.revealUp = up;
+            // Movie's centring scrollTo runs in withAnimation(.easeInOut(duration: 0.45)) (TVDetailFocusScroll.swift:57, 102-104).
+            const motion = !series && posters ? MOVIE_HERO_SCROLL : undefined;
+            try { this.move(viewport, 0, up && visibleAtTop ? 0 : Math.max(0, headingTop - target), motion?.duration, motion?.ease); } finally { this.revealUp = undefined; }
             return;
         }
         const shelf = element.closest<HTMLElement>('[data-scroll-align="bottom"]');

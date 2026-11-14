@@ -111,17 +111,14 @@ detailTest("season Details automatically recovers an offline next episode", asyn
     await tv.page.locator('[data-focus="more"]').click();
     const panel = tv.page.getByRole("dialog", { name: "More", exact: true });
     await panel.locator('[data-focus="watched"]').click();
-    await tv.page.locator('[data-focus="more"]').click();
-    await panel.getByRole("button", { name: "Retry watched", exact: true }).waitFor();
-    await tv.remote(10009);
+    await dismissAlert(tv, "Couldn't Update Watched Status");
     const mutations = [...catalog.mutations];
     await tv.page.unroute("**/api/v2/catalog/items/episode%3A*");
     await tv.page.unroute("**/api/v2/catalog/series/series%3As1/seasons/1/episodes?**");
     await tv.jump(15000);
     await tv.eventually(async () => await primary.getAttribute("aria-disabled") === "false", "season next episode recovered automatically");
     assert.match(await primary.innerText(), /Play S1:E1/);
-    await tv.page.locator('[data-focus="more"]').click();
-    await panel.getByRole("button", { name: "Retry watched", exact: true }).waitFor({ timeout: 1500 });
+    assert.equal(await tv.page.getByRole("alertdialog").count(), 0, "recovery does not repeat the alert");
     assert.deepEqual(catalog.mutations, mutations, "automatic recovery never resends the failed write");
 });
 
@@ -136,9 +133,7 @@ detailTest("stale season return restarts its personal action owner", async tv =>
     const panel = tv.page.getByRole("dialog", { name: "More", exact: true });
     await tv.page.locator('[data-focus="more"]').click();
     await panel.locator('[data-focus="watched"]').click();
-    await tv.page.locator('[data-focus="more"]').click();
-    await panel.getByRole("button", { name: "Retry watched", exact: true }).waitFor();
-    await tv.remote(10009);
+    await dismissAlert(tv, "Couldn't Update Item");
     await tv.remote(10009);
     await tv.page.locator('.browse-episodes').waitFor();
     await tv.eventually(async () => /^Play S/.test(await tv.page.locator('[data-focus="next-episode"]').innerText()), "stale season refreshed");
@@ -147,6 +142,15 @@ detailTest("stale season return restarts its personal action owner", async tv =>
     await panel.locator('[data-focus="watched"]').click();
     await tv.eventually(async () => catalog.mutations.length > before, "returned season action dispatched");
 });
+
+/** Apple's system alert for a failed change: waits for it, then presses OK. */
+async function dismissAlert(tv: Tv, title: string, message?: string): Promise<void> {
+    const alert = tv.page.getByRole("alertdialog", { name: title, exact: true });
+    await alert.waitFor();
+    if (message !== undefined) assert.equal(await alert.locator(".signin-alert-text").textContent(), message);
+    await alert.getByRole("button", { name: "OK", exact: true }).click();
+    await alert.waitFor({ state: "detached" });
+}
 
 function liveScroll(_arg: null): number | null {
     const row = document.querySelector(".details-episodes");
@@ -477,7 +481,9 @@ for (const media of ['movie:m0001', 'series:s1']) detailTest(`${media} reveals s
     }
     await check('.details-people', series ? 367 : 546, 40);
     await check('.details-extras', 501, 40);
-    await check('[data-detail-section="related"]', series ? 547 : 321, 40);
+    // Standard posters are 46.2px taller than the Compact ones Apple was measured with.
+    const related = series ? 547 - 46.2 : 321 - 23.1;
+    await check('[data-detail-section="related"]', related, 40);
     await tv.remote(40); await tv.jump(500);
     const end = await sample('.details-facts');
     assert.equal(end.scroll, end.maximum);
@@ -485,7 +491,7 @@ for (const media of ['movie:m0001', 'series:s1']) detailTest(`${media} reveals s
     // Fake facts differ from the captured title: residuals +4.61 Movie / +5.41 Series.
     assert.ok(Math.abs(end.heading - (series ? 457.41 : 528.61)) <= 3, JSON.stringify(end));
     console.log(`${media} Details heading ${end.heading}, residual ${end.heading - (series ? 452 : 524)}, page height ${end.height}`);
-    await check('[data-detail-section="related"]', series ? 111 : 321, 38);
+    await check('[data-detail-section="related"]', series ? 111 : related, 38);
     await check('.details-extras', 111, 38);
     await check('.details-people', series ? 367 : 690, 38);
     if (!series) assert.equal((await sample('.details-people')).scroll, 0);
@@ -499,6 +505,23 @@ for (const media of ['movie:m0001', 'series:s1']) detailTest(`${media} reveals s
         return page === null ? null : page.scrollTop;
     }, null, value => value === 0, 'hero returns to scroll zero'), 0);
 });
+
+// Apple scales poster art by Poster Size (MediaCard.swift:149-158). Series Related keeps the native reveal's card bottom;
+// Movie Related centres its section (TVDetailFocusScroll.swift:81), so it moves by half the growth.
+for (const size of ['compact', 'standard', 'large'] as const) for (const media of ['movie:m0001', 'series:s1']) detailTest(`${media} ${size} Related lands at Apple's heading on Down`, async tv => {
+    const growth = 330 * ({ compact: 0.86, standard: 1, large: 1.2 })[size] - 330 * 0.86;
+    const target = media.startsWith('series') ? 547 - growth : 321 - growth / 2;
+    await tv.page.locator(`[data-section="recently_added"] [data-focus="${media}"]`).first().click();
+    await tv.page.locator('[data-detail-section="related"] [data-focus]').first().waitFor();
+    await tv.page.evaluate(() => document.fonts.ready);
+    await tv.jump(500);
+    for (let step = 0; step < 8 && await tv.page.locator('[data-detail-section="related"] :focus').count() === 0; step++) { await tv.remote(40); await tv.jump(500); }
+    const heading = await readLive(tv, () => {
+        const section = document.querySelector('[data-detail-section="related"]');
+        return section?.contains(document.activeElement) === true ? section.previousElementSibling?.getBoundingClientRect().top ?? null : null;
+    }, null, () => true, 'Related heading');
+    assert.ok(Math.abs(heading - target) <= 2, `heading ${heading} target ${target}`);
+}, size);
 
 
 // Related keeps the title on screen, as TVSimilarRail does, and picking it opens nothing (AppRouter.relatedTitleStep),
@@ -638,9 +661,9 @@ detailTest('275 More glass obscures the page with blur and pinned Swift tint str
     });
     assert.equal(glass.blur, 'blur(30px)');
     assert.equal(glass.tint, 'rgba(0, 0, 0, 0.45)');
-    assert.equal(glass.border, 'rgba(255, 255, 255, 0.1)');
-    assert.equal(glass.width, '1px');
-    assert.equal(glass.shadow, 'rgba(0, 0, 0, 0.45) 0px 18px 32px 0px');
+    // strokeBorder is an overlay that takes no layout: an inset 1px ring, not a CSS border.
+    assert.equal(glass.width, '0px');
+    assert.equal(glass.shadow, 'rgba(255, 255, 255, 0.1) 0px 0px 0px 1px inset, rgba(0, 0, 0, 0.45) 0px 18px 32px 0px');
 });
 
 detailTest('More is an anchored popover with Apple ordering and immediate Back focus', async tv => {
@@ -747,8 +770,12 @@ detailTest('Shuffle Series leads More, reports failure, and reuses shuffle playb
     await shuffle.waitFor();
     assert.equal(await tv.focused(), 'shuffle-series');
     await shuffle.click();
-    await tv.page.getByRole('alert').filter({ hasText: "Couldn't start the shuffle. Try again." }).waitFor();
+    // ShuffleLauncher: More closes at once and focus returns to it; the failure is the Couldn't Shuffle alert.
+    assert.equal(await tv.page.getByRole('dialog', { name: 'More', exact: true }).count(), 0);
+    await dismissAlert(tv, "Couldn't Shuffle", "Couldn't start the shuffle. Try again.");
+    assert.equal(await tv.focused(), 'more');
     fail = false;
+    await tv.page.locator('[data-focus="more"]').click();
     await shuffle.click();
     await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.plays.length === 1), 'shuffle playback dispatched');
     assert.equal(await tv.page.evaluate(() => window.browseHarness.plays[0]?.shuffleId), 'series-shuffle');
@@ -855,16 +882,18 @@ detailTest('Series More keeps series and season watched writes separate and reco
     catalog.mutationFailure = problem(422, 'validation_failed', 'Unavailable action');
     await panel.locator('[data-focus="season-watched"]').click();
     assert.equal(await panel.count(), 0);
+    await dismissAlert(tv, "Couldn't Update Watched Status", 'Please check your connection and try again.');
     assert.equal(await tv.focused(), 'more');
     await tv.page.locator('[data-focus="more"]').click();
-    await panel.getByRole('button', { name: 'Retry season watched', exact: true }).waitFor();
-    await panel.getByRole('alert').filter({ hasText: 'Could not update season watched.' }).waitFor();
+    // Apple keeps the toggle's own label after a failure; the next press reconciles before it writes.
+    await panel.getByRole('button', { name: 'Mark Season Watched', exact: true }).waitFor();
+    assert.equal(await panel.getByRole('alert').count(), 0);
     await tv.remote(10009);
     await tv.page.locator('.details-people [data-focus^="credit:7:"]').first().click();
     await tv.page.locator('[data-view="person:7"]').waitFor();
     await tv.remote(10009);
     await tv.page.locator('[data-focus="more"]').click();
-    await panel.getByRole('button', { name: 'Retry season watched', exact: true }).click();
+    await panel.getByRole('button', { name: 'Mark Season Watched', exact: true }).click();
     await tv.page.locator('[data-focus="more"]').click();
     await panel.getByRole('button', { name: 'Mark Season Unwatched', exact: true }).waitFor();
     await panel.getByRole('button', { name: 'Mark Series Unwatched', exact: true }).waitFor();
@@ -917,9 +946,7 @@ detailTest('Failed season episode reconciliation keeps the existing playback own
     await tv.page.route('**/api/v2/catalog/series/series%3As1/seasons/1/episodes?**', route => route.fulfill({ status: 400, json: problem(400, 'unavailable', 'Unavailable').body }));
     await tv.page.locator('[data-focus="more"]').click();
     await tv.page.locator('[data-focus="season-watched"]').click();
-    await tv.page.locator('[data-focus="more"]').click();
-    await tv.page.getByRole('button', { name: 'Retry season watched', exact: true }).waitFor();
-    await tv.remote(10009);
+    await dismissAlert(tv, "Couldn't Update Watched Status");
     await tv.page.locator('[data-focus="next-episode"]').click();
     await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.plays.length === 1), 'retained owner still dispatches playback after reconciliation fails');
 });
@@ -954,7 +981,7 @@ detailTest("episode boundary failure shows Apple's text-only error and retries w
     await card(3, 13).focus(); await tv.jump(100);
     const notice = tv.page.getByText("Couldn't load more episodes. Move away and back to retry.", { exact: true });
     await notice.waitFor();
-    assert.deepEqual(await notice.evaluate(node => { const style = getComputedStyle(node); return { size: style.fontSize, color: style.color, margin: style.margin }; }), { size: "18px", color: "rgba(237, 237, 237, 0.6)", margin: "14px 0px 0px" }, "TVSeriesDetailView.swift:590-592: 18pt siloSecondaryText below the rail at the stack's spacing 14");
+    assert.deepEqual(await notice.evaluate(node => { const style = getComputedStyle(node); return { size: style.fontSize, color: style.color, margin: style.margin }; }), { size: "17.433px", color: "rgba(237, 237, 237, 0.6)", margin: "14px 0px 0px" }, "TVSeriesDetailView.swift:590-592: 18pt times --silo-sf-cap-scale, siloSecondaryText below the rail at the stack's spacing 14");
     assert.equal(await tv.page.getByRole("button", { name: /Retry more episodes/ }).count(), 0, "Apple shows text only, with no Retry button");
     assert.deepEqual(reads.slice(3), [4]);
     await card(3, 12).focus(); await card(3, 13).focus(); await tv.jump(100);
@@ -1393,11 +1420,14 @@ detailTest('Details rail clearances and white focus styling follow the measured 
         const trigger = document.querySelector('[data-focus="version"]');
         const icon = trigger?.querySelector("svg");
         const label = trigger?.querySelector(".details-action-label");
-        if (!(trigger instanceof HTMLElement) || icon === null || icon === undefined || label === null || label === undefined || !trigger.isConnected) return null;
+        if (!(trigger instanceof HTMLElement) || !(label instanceof HTMLElement) || icon === null || icon === undefined || !trigger.isConnected) return null;
         const style = getComputedStyle(trigger);
-        const intrinsic = icon.getBoundingClientRect().width + label.getBoundingClientRect().width + parseFloat(style.columnGap) + parseFloat(style.paddingLeft) + parseFloat(style.paddingRight) + parseFloat(style.borderLeftWidth) + parseFloat(style.borderRightWidth);
-        return { color: style.backgroundColor, width: trigger.getBoundingClientRect().width, intrinsic };
-    }, null, value => value.color === "rgb(255, 255, 255)" && Math.abs(value.width - value.intrinsic) < 2, "focused Versions chip");
+        const labelStyle = getComputedStyle(label);
+        // The pill widens over 0.28 s of real time; only its end state, with the whole title shown, is the measured layout.
+        const settled = style.paddingLeft === "28px" && labelStyle.marginLeft === "14px" && labelStyle.opacity === "1" && label.scrollWidth <= label.clientWidth;
+        const intrinsic = icon.getBoundingClientRect().width + parseFloat(labelStyle.marginLeft) + label.getBoundingClientRect().width + parseFloat(style.columnGap) + parseFloat(style.paddingLeft) + parseFloat(style.paddingRight) + parseFloat(style.borderLeftWidth) + parseFloat(style.borderRightWidth);
+        return { color: style.backgroundColor, settled, width: trigger.getBoundingClientRect().width, intrinsic };
+    }, null, value => value.color === "rgb(255, 255, 255)" && value.settled && Math.abs(value.width - value.intrinsic) < 2, "focused Versions chip");
     assert.equal(versions.color, "rgb(255, 255, 255)");
     assert.ok(Math.abs(versions.width - versions.intrinsic) < 2, `Versions width ${versions.width}, intrinsic ${versions.intrinsic}`);
 });
@@ -1409,6 +1439,14 @@ detailTest('Related posters omit status overlays enabled in profile settings', a
     await tv.page.locator('[data-detail-section="related"] .browse-card').waitFor();
     assert.equal(await tv.page.locator('[data-detail-section="related"] .card-overlay-layer').count(), 0);
     assert.equal(await tv.page.locator('[data-detail-section="related"]').getByText('RETURNING', { exact: false }).count(), 0);
+});
+
+// TVSimilarRail's TVMediaCard gets only the year (tvOS/Screens/Detail/TVSimilarRail.swift:72-76), unlike Home and catalog cards.
+detailTest('More Like This keeps a series to its first year', async tv => {
+    await tv.page.route('**/api/v2/recommendations/similar/**', route => route.fulfill({ json: { items: [{ content_id: 'series:related', type: 'series', title: 'Related Series', year: 2019, show_status: 'ended', last_air_date: '2023-05-28' }] } }));
+    await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
+    await tv.page.locator('[data-detail-section="related"] .browse-card').waitFor();
+    assert.equal(await tv.page.locator('[data-detail-section="related"] .browse-card-subtitle').textContent(), '2019');
 });
 
 detailTest('Series episode captions leave the measured 79px heading clearance', async tv => {
@@ -1432,10 +1470,14 @@ detailTest('Details picker selection uses a check without a resting fill', async
     const selected = await readLive(tv, () => {
         const node = document.querySelector('[data-focus="audio:auto"]');
         if (node === null || !node.isConnected) return null;
-        return { fill: getComputedStyle(node).backgroundColor, mark: getComputedStyle(node, "::before").content };
-    }, null, value => value.fill === "rgba(0, 0, 0, 0)" && value.mark === '"✓"', "selected audio row");
-    assert.equal(selected.fill, "rgba(0, 0, 0, 0)");
-    assert.equal(selected.mark, '"✓"');
+        const check = node.querySelector(".details-option-check");
+        if (check === null) return { fill: getComputedStyle(node).backgroundColor, mark: "none", left: 0, width: 0 };
+        const row = node.getBoundingClientRect();
+        const box = check.getBoundingClientRect();
+        return { fill: getComputedStyle(node).backgroundColor, mark: check.getAttribute("data-symbol") ?? "none", left: box.left - row.left, width: box.width };
+    }, null, value => value.fill === "rgba(0, 0, 0, 0)" && value.mark === "checkmark" && value.width === 26, "selected audio row after the open scale");
+    // TVActionPopoverRow: the checkmark's 26pt slot starts at the 18pt row inset.
+    assert.deepEqual(selected, { fill: "rgba(0, 0, 0, 0)", mark: "checkmark", left: 18, width: 26 });
 });
 
 detailTest('Details More and Subtitles use white ellipsis and caption bubble glyphs', async tv => {
@@ -1900,7 +1942,7 @@ detailTest('Details samples the artwork tint and presents the rating badge, runt
         const node = document.querySelector(".details-rating-badge");
         if (node === null || !node.isConnected) return null;
         return getComputedStyle(node).fontSize;
-    }, null, value => value === "18px", "rating badge size"), "18px");
+    }, null, value => value === "17.433px", "rating badge size"), "17.433px");
     assert.match(await tv.page.locator('.details-editorial .browse-meta').textContent() ?? '', /1h 30m/);
     assert.equal(await tv.page.locator('.details-director').textContent(), 'Directed by River Vale');
     assert.deepEqual(await tv.page.locator('.details-playback-summary strong').allTextContents(), ['VERSION', 'AUDIO', 'SUBTITLES']);
@@ -1943,11 +1985,11 @@ detailTest('the metadata row leads with outlined rating and advisory chips, then
             factWeight: fact instanceof HTMLElement ? getComputedStyle(fact).fontWeight : '',
             genres: node.querySelector('.details-genres')?.textContent ?? '',
         };
-    }, null, value => value.order.startsWith('PG|Common Sense 13+|1991|1h 30m|TMDB|Drama, Thriller') && value.gap === '14px' && value.size === '18px' && value.rows === 1, 'outlined advisory chip in the one metadata row');
+    }, null, value => value.order.startsWith('PG|Common Sense 13+|1991|1h 30m|TMDB|Drama, Thriller') && value.gap === '14px' && value.size === '17.433px' && value.rows === 1, 'outlined advisory chip in the one metadata row');
     assert.equal(row.order, 'PG|Common Sense 13+|1991|1h 30m|TMDB|Drama, Thriller');
     assert.equal(row.rows, 1);
     assert.equal(row.gap, '14px');
-    assert.equal(row.size, '18px');
+    assert.equal(row.size, '17.433px');
     assert.equal(row.weight, '700');
     assert.equal(row.radius, '5px');
     // Swift's stroke is 1.5. Chromium's used width for that specified border is 1px.
@@ -2772,21 +2814,33 @@ detailTest("subtitle choices retain their language when stream titles repeat the
     assert.equal(await tv.page.locator('[data-focus="subtitle:2"] .details-option-subtext').textContent(), "Commentary · SRT");
 });
 
-detailTest("More owns accessible personal-action loading and failure announcements", async tv => {
+detailTest("More lists Favorites with no loading text while personal state loads, and owns failure announcements", async tv => {
     const held = tv.fake.hold("/capabilities/personal-lists", true);
     await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().click();
     await tv.page.locator('[data-focus="more"]').click();
     const panel = tv.page.getByRole("dialog", { name: "More", exact: true });
-    assert.equal(await panel.getByRole("status").filter({ hasText: "Loading personal actions." }).count(), 1);
+    // TVMovieDetailView.swift:213-236: Apple's More lists Favorite then Watched at once, with no loading text.
+    await panel.locator('[data-focus="watched"]').waitFor();
+    assert.equal(await panel.getByRole("button", { name: "Add to Favorites", exact: true }).count(), 1);
+    assert.deepEqual(await panel.locator('[data-focus="favorites"], [data-focus="watched"]').evaluateAll(nodes => nodes.map(node => node.getAttribute("data-focus"))), ["favorites", "watched"]);
+    assert.equal(await panel.getByText("Loading personal actions.", { exact: true }).count(), 0);
+    // Like Watchlist, the press waits for membership: nothing is sent and More stays open.
+    const writes = tv.fake.requests.length;
+    await panel.locator('[data-focus="favorites"]').click();
+    assert.equal(await panel.count(), 1);
+    assert.equal(tv.fake.requests.slice(writes).some(request => request.method !== "GET"), false);
     held.release();
-    await panel.locator('[data-focus="favorites"]').waitFor();
+    await panel.locator('[data-focus="favorites"][aria-pressed="false"]').waitFor();
     const catalog = tv.fake.catalog;
     assert.ok(catalog instanceof FakeDetails);
     catalog.mutationFailure = problem(422, "validation_failed", "Unavailable action");
     await panel.locator('[data-focus="watched"]').click();
+    // PersonalStateNotice.failed(nil) is a system alert; More itself carries no failure note.
+    await dismissAlert(tv, "Couldn't Update Item", "Your change wasn't saved. Please try again.");
+    assert.equal(await tv.focused(), "more");
     await tv.page.locator('[data-focus="more"]').click();
-    await panel.getByRole("alert").filter({ hasText: "Could not update watched." }).waitFor();
-    assert.equal(await panel.getByRole("alert").count(), 1);
+    await panel.getByRole("button", { name: "Mark as Watched", exact: true }).waitFor();
+    assert.equal(await panel.getByRole("alert").count(), 0);
 });
 
 for (const kind of ["favorites", "watchlist"] as const) detailTest(`online Details preserves unresolved ${kind} through automatic recovery`, async tv => {
@@ -2802,22 +2856,22 @@ for (const kind of ["favorites", "watchlist"] as const) detailTest(`online Detai
     await tv.jump(1000);
     await tv.eventually(async () => failures >= 2, "membership retry exhausted");
     await tv.jump(0);
-    if (kind === "favorites") await tv.page.locator('[data-focus="more"]').click();
-    // Apple's Watchlist circle keeps its label, so its failure note carries the unconfirmed write.
-    const retry = kind === "watchlist" ? tv.page.getByText("Could not update watchlist.") : tv.page.getByRole("button", { name: `Retry ${kind}`, exact: true });
-    const control = kind === "watchlist" ? tv.page.locator('[data-focus="watchlist"]') : retry;
-    await retry.waitFor();
+    // The unconfirmed write is Apple's Couldn't Update Item alert; the control keeps its own label.
+    await dismissAlert(tv, "Couldn't Update Item");
     const reads = () => tv.fake.requests.filter(request => request.path.startsWith("/catalog/items/movie%3Am0001")).length;
     const before = reads();
-    if (kind === "favorites") await tv.remote(10009);
     await tv.jump(15000);
     await tv.eventually(async () => reads() > before, "automatic recovery refreshed initially online Details");
     await tv.jump(1000);
-    if (kind === "favorites") await tv.page.locator('[data-focus="more"]').click();
-    assert.equal(await retry.count(), 1, "unconfirmed write retains its failure state");
+    assert.equal(await tv.page.getByRole("alertdialog").count(), 0, "recovery does not repeat the alert");
     await tv.page.unroute(`**/api/v2/${source}/movie%3Am0001/membership`);
-    await control.click();
-    await tv.eventually(async () => !await retry.count(), "fresh membership reconciles the accepted write");
+    const membershipReads = () => tv.fake.requests.filter(request => request.path.startsWith(`/${source}/movie%3Am0001/membership`)).length;
+    const readsBefore = membershipReads();
+    if (kind === "favorites") await tv.page.locator('[data-focus="more"]').click();
+    await tv.page.locator(`[data-focus="${kind}"]`).click();
+    await tv.eventually(async () => membershipReads() > readsBefore, "the next press reconciles the unconfirmed write first");
+    await tv.jump(1000);
+    assert.equal(await tv.page.getByRole("alertdialog").count(), 0, "fresh membership reconciles the accepted write");
 });
 
 detailTest("cached Details recovery restores failed personal controls", async tv => {
@@ -2895,7 +2949,7 @@ for (const reducedMotion of ["reduce", "no-preference"] as const) detailTest(`ca
     await retry.waitFor();
     const notice = tv.page.locator('.details-episode-error');
     assert.equal(await notice.innerText(), "Couldn't load episodes.\nRetry");
-    assert.equal(await notice.evaluate(node => getComputedStyle(node).fontSize), "18px");
+    assert.equal(await notice.evaluate(node => getComputedStyle(node).fontSize), "17.433px");
     assert.ok((await notice.boundingBox())!.y > (await tv.page.locator('.details-episodes').boundingBox())!.y);
     await tv.page.locator('[data-focus="season:1"]').focus();
     await tv.remote(40);

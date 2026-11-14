@@ -332,7 +332,7 @@ preplay("direct episode activation keeps information and selectors behind an exp
     catalog.fileIds.set("episode:s1e12", "42");
     await series(tv);
     await tv.page.locator('.details-episodes [data-focus="episode:s1e12"]').click({ button: "right" });
-    const panel = tv.page.getByRole("dialog", { name: "Card actions", exact: true });
+    const panel = tv.page.getByRole("menu");
     await panel.waitFor();
     assert.equal(starts(tv).length, 0);
     assert.equal(await panel.locator('[data-focus="episode-information"]').count(), 1, "episode information remains an explicit choice");
@@ -793,7 +793,8 @@ for (const reduced of [false, true]) {
         await tv.page.locator('[data-focus="audio"]').click();
         assert.equal(await tv.focused(), "audio:auto");
         const visible = (scrolled: boolean, what: string) => readLive(tv, () => {
-            const panel = document.querySelector(".details-audio-picker");
+            // More than seven rows scroll inside the popover's 504px list (TVActionPopoverMenu.maxRows).
+            const panel = document.querySelector(".details-audio-picker .details-popover-scroll");
             const option = document.activeElement;
             if (!(panel instanceof HTMLElement) || !(option instanceof HTMLElement) || !panel.isConnected || !option.isConnected) return null;
             const bounds = panel.getBoundingClientRect();

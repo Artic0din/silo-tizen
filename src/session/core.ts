@@ -124,7 +124,7 @@ async function openServerSession(server: ServerConnection, deps: SessionCoreDeps
     session = new NativeSession(server, vault, clock, deps.randomBytes, async accountId => {
         await deps.beforeAccountSignIn?.(server.http.base.baseUrl, accountId);
     });
-    watchBrowseCache(session, deps.publicStorage, server.serverId, vault.directory.list().find(row => row.id === vault.localAccountId)?.accountId);
+    watchBrowseCache(session, deps.publicStorage, deps.keyManager, server.serverId, vault.directory.list().find(row => row.id === vault.localAccountId)?.accountId);
     watchBandwidthReadings(session);
     const restore = await session.restore();
     if (offlineDiscovery && restore !== "signed_in") return { status: "unreachable" };
@@ -200,14 +200,14 @@ export async function connect(serverAddress: string, deps: SessionCoreDeps, sign
 /** Offline removal still clears local authority; reachable accounts also revoke their session. */
 export async function signOutSavedAccount(account: SavedAccount, deps: SessionCoreDeps): Promise<VaultClear> {
     await deps.beforeAccountSignOut?.(account.baseUrl, account.accountId);
-    clearBrowseCache(deps.publicStorage, [account.serverId, account.accountId]);
+    clearBrowseCache(deps.publicStorage, [account.serverId, account.accountId], deps.keyManager);
     try {
         const connected = await connect(account.baseUrl, { ...deps, addAccount: true });
         if (connected.status === "connected") {
             const transient = deps.keyManager === undefined ? deps.transientAccounts : undefined;
             const vault = new CredentialVault(transient?.secrets ?? openSecretStore(deps.keyManager), transient?.storage ?? deps.publicStorage, account.baseUrl, account.id);
             const session = new NativeSession(connected.server, vault, deps.clock ?? systemClock, deps.randomBytes);
-            watchBrowseCache(session, deps.publicStorage, account.serverId, account.accountId);
+            watchBrowseCache(session, deps.publicStorage, deps.keyManager, account.serverId, account.accountId);
             await session.restore();
             if (session.signedIn && (await session.logout()).storage === "failed") return "failed";
         }
@@ -230,7 +230,7 @@ export async function forgetStoredCredential(
     const store = openSecretStore(deps.keyManager);
     const vault = new AccountVault(store, deps.publicStorage, parsed.base.baseUrl, () => undefined, deps.localAccountId);
     const account = vault.directory.list().find(row => row.id === vault.localAccountId);
-    if (account) clearBrowseCache(deps.publicStorage, [account.serverId, account.accountId]);
+    if (account) clearBrowseCache(deps.publicStorage, [account.serverId, account.accountId], deps.keyManager);
     return vault.clear();
 }
 
@@ -243,9 +243,9 @@ function watchBandwidthReadings(session: NativeSession): void {
     });
 }
 
-function watchBrowseCache(session: NativeSession, storage: PublicStorage | undefined, serverId: string, accountId?: string): void {
+function watchBrowseCache(session: NativeSession, storage: PublicStorage | undefined, keyManager: TizenKeyManager | undefined, serverId: string, accountId?: string): void {
     session.onAuthorityChange(change => {
         accountId = session.account?.id ?? accountId;
-        if (accountId && (change.reason === "signed_out" || change.reason === "session_expired")) clearBrowseCache(storage, [serverId, accountId]);
+        if (accountId && (change.reason === "signed_out" || change.reason === "session_expired")) clearBrowseCache(storage, [serverId, accountId], keyManager);
     });
 }

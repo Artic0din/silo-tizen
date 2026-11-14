@@ -4,7 +4,7 @@ import type { Browser } from "playwright";
 import { mkdir } from "node:fs/promises";
 import { FakeRequests } from "../native/support/fakeRequests.ts";
 import { problem } from "../native/support/fakeSilo.ts";
-import { launchBrowser, openTv, type Tv } from "./support/tv.ts";
+import { launchBrowser, openTv, pauseTvClock, type Tv } from "./support/tv.ts";
 
 let browser: Browser;
 before(async () => { browser = await launchBrowser(); });
@@ -27,7 +27,7 @@ test("profile Requests is gated by the server and its row disappears when reques
         const fake = await start(tv, new FakeRequests(), true);
         assert.equal(await tv.page.locator('.browse-nav [data-focus="requests"]').count(), 0);
         await button(tv, "profiles").click();
-        assert.deepEqual(await tv.page.locator('.skyline-selector [role="menuitem"]').allTextContents(), ["Switch Profile", "History", "Requests", "Settings", "Sign Out"]);
+        assert.deepEqual(await tv.page.locator('.skyline-selector [role="menuitem"]').allTextContents(), ["History", "Requests", "Settings", "Switch Profile", "Sign Out"]);
         await openRequests(tv);
         await button(tv, "movie:949").waitFor();
         fake.enabled = false;
@@ -139,6 +139,9 @@ for (const [first, second] of [["watchlist", "requests"], ["requests", "watchlis
             else await openPersonal(tv, source as "watchlist" | "favorites");
         };
         await open(first); await open(second);
+        // Resting on the Movies tab opens its menu after 250 ms, which the second Back would close instead; a slow run
+        // can take that long between presses. Hold the clock so the two Backs are back to back, as the test means.
+        await pauseTvClock(tv);
         await tv.remote(10009); assert.equal(await tv.focused(), "movies", "the first Back reaches the bar");
         await tv.remote(10009);
         await tv.page.locator(MOVIES_VIEW).waitFor();
@@ -2009,7 +2012,7 @@ test("capability loss while a request menu is open paints Home after dismiss", a
     } finally { await tv.page.context().close(); }
 });
 
-test("Requests closing over Search restores the pinned Search title class like Back", async () => {
+test("Requests closing over Search returns to Search without a Search title", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {
         const fake = await start(tv);
@@ -2018,11 +2021,10 @@ test("Requests closing over Search restores the pinned Search title class like B
         await input.fill("Heat"); await input.press("Enter");
         await button(tv, "movie:949").waitFor();
         await button(tv, "movie:949").click(); await view(tv, "media");
-        assert.equal(await tv.page.locator(".browse.search-restored").count(), 0);
         fake.enabled = false;
         await tv.page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
         await tv.page.locator(".browse.search-scene").waitFor();
-        assert.equal(await tv.page.locator(".browse.search-restored").count(), 1);
+        assert.equal(await tv.page.locator(".search-navigation-title").count(), 0, "SearchView hides the navigation bar (SearchView.swift:65-69)");
     } finally { await tv.page.context().close(); }
 });
 test("a list cancel that settles after Requests was reopened refreshes the visible hub", async () => {

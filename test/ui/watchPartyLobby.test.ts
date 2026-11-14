@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import type { Browser } from "playwright";
-import { FakeWatchParty, ROOM_FILE_ID } from "../native/support/fakeWatchParty.ts";
+import { FakeWatchParty, ROOM_FILE_ID, ROOM_ID } from "../native/support/fakeWatchParty.ts";
 import { problem } from "../native/support/fakeSilo.ts";
-import { jumpUntil, launchBrowser, openTv, type Tv } from "./support/tv.ts";
+import { jumpUntil, launchBrowser, openTv, pauseTvClock, type Tv } from "./support/tv.ts";
 import { button, menuTitles, openHub, start } from "./support/watchParty.ts";
 
 let browser: Browser;
@@ -108,6 +108,25 @@ test("Choose a title opens the picker with the group's shelves, read once with t
         await tv.remote(10009);
         await view(tv, "watchParty:lobby").waitFor();
         assert.equal(await tv.focused(), "choose", "Back returns to the lobby's action");
+    } finally { await tv.page.context().close(); }
+});
+
+// WatchPartyMediaPicker's shelves are a TVSkylineSectionFeed (Screens/WatchParty/WatchPartyMediaPicker.swift:372), whose MediaRow captions with CardYears.
+test("the picker's shelves caption a series with the years it ran", async () => {
+    const { tv } = await inLobby("host", fake => {
+        for (const [id, fields] of [["series:s1", { showStatus: "returning" }], ["series:s2", { showStatus: "ended", lastAirDate: "2024-03-17" }]] as const) {
+            const title = fake.titles.get(id);
+            assert.ok(title);
+            fake.add({ ...title, ...fields });
+        }
+    });
+    try {
+        await button(tv, "choose").click();
+        await view(tv, "watchParty:picker:shelves").waitFor();
+        await tv.page.locator('.watch-party-shelf [data-focus="series:s2"]').waitFor();
+        const line = (id: string) => tv.page.locator(`.watch-party-shelf [data-focus="${id}"] .browse-card-subtitle`).textContent();
+        assert.equal(await line("series:s1"), "2020 – Present");
+        assert.equal(await line("series:s2"), "2021 – 2024");
     } finally { await tv.page.context().close(); }
 });
 
@@ -689,10 +708,18 @@ test("the ballot shows each tally and the leader; Select votes and takes it back
         assert.equal(await button(tv, "suggestion:heat").getAttribute("aria-label"), "Remove vote for Heat, 1 vote");
         assert.equal(await tv.focused(), "suggestion:heat", "focus stays on the card it voted for");
         assert.equal(await button(tv, "start").textContent(), "Start Dune", "a tie goes to the earlier suggestion");
+        // As on Apple, Start does nothing while a ballot change runs, and the server's broadcast can show the new tally before
+        // the change has read the ballot back. Hold the take-back's answer until that tally shows: the read-back then
+        // repaints the lobby once, in the same turn as the change ends, and Start waits for that repaint.
+        await pauseTvClock(tv);
+        const takeBack = tv.fake.hold(`/watch-together/rooms/${ROOM_ID}/suggestions/heat/vote`);
         await tv.page.keyboard.press("Enter");
         await tv.eventually(async () => JSON.stringify(await tallies(tv)) === JSON.stringify(["1", "0"]), "my vote taken back");
         assert.equal(fake.ballotChanges.at(-1)?.call, "DELETE /suggestions/heat/vote");
         assert.equal(await tv.focused(), "suggestion:heat");
+        const shown = await button(tv, "start").elementHandle();
+        takeBack.release();
+        await tv.eventually(async () => await shown?.evaluate(node => !node.isConnected) ?? false, "the take-back read the ballot back");
         await button(tv, "start").click();
         await tv.eventually(async () => (await tv.page.evaluate(() => window.browseHarness.plays.length)) === 1, "player opened");
         assert.equal(fake.ballotChanges.at(-1)?.call, "POST /suggestions/promote");
@@ -757,6 +784,8 @@ test("removing suggestions before the focused card keeps that card on screen", a
         await button(tv, "suggestion:s0").focus();
         for (let index = 0; index < 9; index++) await tv.remote(39);
         assert.equal(await tv.focused(), "suggestion:s9");
+        // Let the reveal scroll settle first: a removal that lands mid-scroll can leave the card on screen by chance.
+        await tv.jump(500);
         fake.suggestions.splice(0, 7);
         fake.voteAs("p-other", "s19", true);
         await tv.eventually(async () => (await cards(tv)).length === 13, "seven removed");

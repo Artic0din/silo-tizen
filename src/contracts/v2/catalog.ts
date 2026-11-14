@@ -138,9 +138,11 @@ export interface Card {
     readonly overlay?: CardOverlay | undefined;
     /** `user_state.played`; absent without a profile. */
     readonly played?: boolean | undefined;
-    /** `user_state.is_favorite` and `in_watchlist`; absent without a profile. */
+    /** The episodes a started, unfinished series or season has left (`user_state.unplayed_count`). */
+    readonly episodesLeft?: number | undefined;
+    /** `user_state.is_favorite` and `user_state.in_watchlist`; absent without a profile or on an older server. */
     readonly favorite?: boolean | undefined;
-    readonly inWatchlist?: boolean | undefined;
+    readonly watchlist?: boolean | undefined;
     /** Title logo art (`logo_url`); shown only where the profile's title-art setting allows. */
     readonly logoUrl?: string | undefined;
     /** True when the poster is an episode still. Absent means unknown. */
@@ -157,12 +159,15 @@ export interface Card {
     readonly studios?: readonly string[] | undefined;
     readonly networks?: readonly string[] | undefined;
     readonly showStatus?: string | undefined;
+    /** A calendar date, "2023-05-28": when an ended series last aired. */
+    readonly lastAirDate?: string | undefined;
     readonly id: string;
     readonly type: CardType;
     readonly title: string;
     readonly year: number | undefined;
     /** uri-reference: presigned or signed, short-lived; never needs a bearer. */
     readonly posterUrl: string | undefined;
+    readonly posterThumbhash?: string | undefined;
     readonly seriesId: string | undefined;
     readonly seriesTitle: string | undefined;
     readonly seasonNumber: number | undefined;
@@ -185,6 +190,27 @@ export interface CardOverlay {
     readonly edition?: string | undefined;
     readonly multiAudio?: boolean | undefined;
     readonly multiSub?: boolean | undefined;
+}
+
+/** The card's Favorites and Watchlist membership, which Apple's card menu reads from the row (MediaCardPersonalState). */
+function listMembership(obj: WireObject, path: string): { favorite?: boolean; watchlist?: boolean } {
+    if (obj.user_state === undefined) return {};
+    const state = object(obj.user_state, `${path}.user_state`);
+    const favorite = optionalBoolean(state, "is_favorite", `${path}.user_state`);
+    const watchlist = optionalBoolean(state, "in_watchlist", `${path}.user_state`);
+    return { ...(favorite === undefined ? {} : { favorite }), ...(watchlist === undefined ? {} : { watchlist }) };
+}
+
+/**
+ * MediaItemUserState.episodesLeft (silo-apple 5780c84 `Networking/Models.swift:108-114`): none on an untouched or
+ * finished title, so new shows carry no count. The counts are newer than `SOURCE` (see README).
+ */
+function episodesLeft(obj: WireObject, path: string): number | undefined {
+    if (obj.user_state === undefined) return undefined;
+    const state = object(obj.user_state, `${path}.user_state`);
+    const watched = optionalInteger(state, "watched_count", `${path}.user_state`) ?? 0;
+    const unplayed = optionalInteger(state, "unplayed_count", `${path}.user_state`);
+    return state.played === true || watched <= 0 || unplayed === undefined || unplayed <= 0 ? undefined : unplayed;
 }
 
 function optionalBoolean(obj: WireObject, key: string, path: string): boolean | undefined {
@@ -210,8 +236,8 @@ export function decodeCard(value: unknown, path: string): Card {
         genres: obj.genres === undefined ? undefined : stringArray(obj, "genres", path),
         overlay: decodeCardOverlay(obj.overlay_summary, `${path}.overlay_summary`),
         played: obj.user_state === undefined ? undefined : boolean(object(obj.user_state, `${path}.user_state`), "played", `${path}.user_state`),
-        favorite: obj.user_state === undefined ? undefined : optionalBoolean(object(obj.user_state, `${path}.user_state`), "is_favorite", `${path}.user_state`),
-        inWatchlist: obj.user_state === undefined ? undefined : optionalBoolean(object(obj.user_state, `${path}.user_state`), "in_watchlist", `${path}.user_state`),
+        episodesLeft: episodesLeft(obj, path),
+        ...listMembership(obj, path),
         logoUrl: optionalString(obj, "logo_url", path),
         ratingImdb: optionalNumber(obj, "rating_imdb", path),
         ratingTmdb: optionalNumber(obj, "rating_tmdb", path),
@@ -222,6 +248,7 @@ export function decodeCard(value: unknown, path: string): Card {
         studios: obj.studios === undefined ? undefined : stringArray(obj, "studios", path),
         networks: obj.networks === undefined ? undefined : stringArray(obj, "networks", path),
         showStatus: optionalString(obj, "show_status", path),
+        lastAirDate: optionalString(obj, "last_air_date", path),
         backdropUrl: optionalString(obj, "backdrop_url", path),
         backdropThumbhash: optionalString(obj, "backdrop_thumbhash", path),
         overview: optionalString(obj, "overview", path),
@@ -234,6 +261,7 @@ export function decodeCard(value: unknown, path: string): Card {
         title: string(obj, "title", path),
         year: optionalInteger(obj, "year", path),
         posterUrl: optionalString(obj, "poster_url", path),
+        posterThumbhash: optionalString(obj, "poster_thumbhash", path),
         ...(obj.poster_is_episode_still === undefined ? {} : { posterIsEpisodeStill: boolean(obj, "poster_is_episode_still", path) }),
         ...(obj.backdrop_is_episode_still === undefined ? {} : { backdropIsEpisodeStill: boolean(obj, "backdrop_is_episode_still", path) }),
         seriesId: optionalString(obj, "series_id", path),
@@ -264,6 +292,11 @@ export interface HomeSection {
     readonly id: string;
     readonly sectionType: string;
     readonly title: string;
+    /** Section fields LibraryVideoScope.refill reads; the Home fakes and older servers may omit them. */
+    readonly itemLimit?: number | undefined;
+    readonly totalCount?: number | undefined;
+    readonly isCustom?: boolean | undefined;
+    readonly customized?: boolean | undefined;
     readonly items: readonly Card[];
 }
 
@@ -278,6 +311,10 @@ export function decodeHomeSections(value: unknown): HomeSection[] {
             id: string(section, "id", sectionPath),
             sectionType: string(section, "section_type", sectionPath),
             title: string(section, "title", sectionPath),
+            itemLimit: section.item_limit == null ? undefined : integer(section, "item_limit", sectionPath),
+            totalCount: section.total_count == null ? undefined : integer(section, "total_count", sectionPath),
+            isCustom: section.is_custom == null ? undefined : boolean(section, "is_custom", sectionPath),
+            customized: section.customized == null ? undefined : boolean(section, "customized", sectionPath),
             items: array(section, "items", sectionPath).map((card, cardIndex) => decodeCard(card, `${sectionPath}.items[${cardIndex}]`)),
         };
     });
@@ -367,6 +404,8 @@ export interface ItemDetail {
     /** Remote provider videos. Absent on the wire decodes as an empty list. */
     readonly videos: readonly ItemVideo[];
     readonly played: boolean | undefined;
+    readonly favorite?: boolean | undefined;
+    readonly watchlist?: boolean | undefined;
     readonly extra?: DetailExtras;
     readonly id: string;
     readonly type: CardType;
@@ -465,6 +504,7 @@ export function decodeItemDetail(value: unknown): ItemDetail {
         advisoryAge: optionalInteger(obj, "advisory_age", path),
         advisorySource: optionalString(obj, "advisory_source", path),
         played: obj.user_state === undefined ? watch?.played : boolean(object(obj.user_state, `${path}.user_state`), "played", `${path}.user_state`),
+        ...listMembership(obj, path),
         extra: decodeDetailExtras(value),
         extras: decodeExtras(obj),
         videos: decodeVideos(obj),

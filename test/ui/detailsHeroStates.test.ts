@@ -124,7 +124,7 @@ detailTest("a held Details page paints the card's seed in Apple's loading frame 
     assert.ok(near(overview.size, px(26)), overview.size); assert.equal(overview.color, "rgba(255, 255, 255, 0.72)"); assert.equal(overview.line, "35.62px");
     assert.deepEqual(frame.labels, ["VERSION", "AUDIO", "SUBTITLES"]);
     const label = frame.labelStyle as { size: string; weight: string; tracking: string; color: string };
-    assert.ok(near(label.size, px(12)), label.size); assert.equal(label.weight, "700"); assert.equal(label.tracking, "1.1px"); assert.equal(label.color, "rgba(255, 255, 255, 0.42)");
+    assert.ok(near(label.size, px(12)), label.size); assert.equal(label.weight, "700"); assert.equal(label.tracking, "1.6px", "Apple's 1.1 plus the 0.5 Inter needs to run SF Pro's 12pt bold width"); assert.equal(label.color, "rgba(255, 255, 255, 0.42)");
     assert.deepEqual(frame.columns, [245, 285, 264]);
     assert.deepEqual((frame.readoutBars as { width: number; height: number }[]).map(bar => [bar.width, bar.height]), [[100, 14], [130, 14], [60, 14]]);
     assert.deepEqual((frame.actions as { width: number; height: number; radius: string; fill: string }[]).map(bar => [bar.width, bar.height, bar.radius, bar.fill]), [[340, 64, "14px", "rgba(255, 255, 255, 0.1)"], [190, 64, "14px", "rgba(255, 255, 255, 0.1)"], [64, 64, "14px", "rgba(255, 255, 255, 0.1)"]]);
@@ -231,7 +231,7 @@ detailTest("readout labels, values, credit and ratings use Apple's type, colour 
     await patchDetail(tv, "movie:m0001", { crew: [{ person_id: "7", name: "River Vale", job: "Director" }, { name: "A Director With A Name Long Enough To Run Past The Editorial Column Width Of The Hero", job: "Director" }] });
     await tv.page.locator(MOVIE).first().click();
     const shown = await readLive(tv, readout, null, value => value.values.every(item => item.text !== ""), "resolved readout");
-    for (const label of shown.labels) assert.deepEqual([near(label.size, px(23)), label.weight, label.tracking, label.color], [true, "700", "0.9px", "rgba(255, 255, 255, 0.48)"], label.text);
+    for (const label of shown.labels) assert.deepEqual([near(label.size, px(23)), label.weight, label.tracking, label.color], [true, "700", "1.15px", "rgba(255, 255, 255, 0.48)"], `${label.text}: Apple's 0.9 plus the 0.25 Inter needs to run SF Pro's 23pt bold width`);
     for (const value of shown.values) assert.deepEqual([value.weight, value.color], ["500", "rgba(255, 255, 255, 0.82)"], value.text);
     const credit = await readLive(tv, () => {
         const node = document.querySelector(".details-editorial .details-director");
@@ -325,7 +325,9 @@ for (const media of ["movie:m0001", "series:s1"] as const) detailTest(`returning
         return false;
     }, "a cast card takes focus");
     await tv.jump(1000);
-    await tv.eventually(async () => await scrollTop() > 100, "the cast row scrolled the page");
+    // The focus scroll runs on the TV clock; keep it moving, as a slow runner can start the scroll after the first jump.
+    await tv.eventually(async () => { if (await scrollTop() > 100) return true; await tv.jump(100); return false; }, "the cast row scrolled the page");
+    await tv.jump(1000);
     // A paused clock makes the sample below land exactly half-way through the move.
     await pauseTvClock(tv);
     const from = await scrollTop();
@@ -337,6 +339,89 @@ for (const media of ["movie:m0001", "series:s1"] as const) detailTest(`returning
     assert.ok(Math.abs(middle - from * (1 - half)) <= from * 0.05, JSON.stringify({ from, middle, expected: from * (1 - half) }));
     await tv.jump(duration);
     assert.equal(await scrollTop(), 0);
+});
+
+/** Where the Cast heading sits in the viewport. */
+const castHeading = (tv: Tv): Promise<number> => tv.page.evaluate(() => (document.querySelector(".details-people")?.previousElementSibling?.getBoundingClientRect().top ?? 0) - (document.querySelector(".browse")?.getBoundingClientRect().top ?? 0));
+
+for (const move of ["down", "up"] as const) detailTest(`a Details repaint during the move ${move} to Cast keeps that move going`, async tv => {
+    // A held answer repaints Details when it is released, which here lands while the focus scroll runs.
+    const catalog = tv.fake.catalog; assert.ok(catalog instanceof FakeDetails);
+    // From Trailers the Cast row is still on screen, so a reveal that lost the previous focus reads the move as Down.
+    if (move === "up") catalog.videos = [{ site_key: "trailer-key", site: "YouTube", kind: "trailer", name: "Trailer" }];
+    const late = tv.fake.hold(move === "down" ? "/recommendations/similar/movie%3Am0001" : "/favorites/movie%3Am0001/membership");
+    await tv.page.locator(MOVIE).first().click();
+    await tv.page.locator('[data-focus^="credit:"]').first().waitFor();
+    await tv.eventually(() => tv.page.evaluate(() => document.activeElement?.closest(".details-editorial") !== null), "the hero actions take focus");
+    if (move === "up") {
+        await tv.page.locator('.details-extras [data-focus]').first().waitFor();
+        await tv.remote(40); await tv.jump(500);
+        await tv.remote(40); await tv.jump(500);
+        assert.equal(await tv.page.evaluate(() => document.activeElement?.closest(".details-extras") !== null), true, "Trailers has focus");
+    }
+    // A paused clock keeps the scroll at its first frame until the repaint has landed.
+    await pauseTvClock(tv);
+    await tv.remote(move === "down" ? 40 : 38);
+    assert.match(await tv.focused() ?? "", /^credit:/);
+    late.release();
+    if (move === "down") await tv.page.locator('[data-detail-section="related"] [data-focus]').first().waitFor();
+    else await tv.eventually(async () => tv.fake.paths().some(path => path.startsWith("GET /favorites/movie%3Am0001/membership")) && tv.pendingReplies === 0, "the favorite answer");
+    await tv.jump(1000);
+    // Apple's Down anchor is 546 px; Up to Cast on a movie returns the page to its top.
+    const expected = move === "down" ? 546 : 690;
+    const heading = await castHeading(tv);
+    assert.ok(Math.abs(heading - expected) <= 3, `the Cast heading rests at ${expected} px, not ${heading}`);
+});
+
+detailTest("a Details repaint during an Up move to Trailers that interrupted a move down keeps Trailers at its Up anchor", async tv => {
+    const catalog = tv.fake.catalog; assert.ok(catalog instanceof FakeDetails);
+    catalog.videos = [{ site_key: "trailer-key", site: "YouTube", kind: "trailer", name: "Trailer" }];
+    // A held answer repaints Details when it is released, which here lands while the focus scroll runs.
+    const late = tv.fake.hold("/favorites/movie%3Am0001/membership");
+    await tv.page.locator(MOVIE).first().click();
+    await tv.page.locator('[data-detail-section="related"] [data-focus]').first().waitFor();
+    await tv.page.locator('.details-extras [data-focus]').first().waitFor();
+    await tv.eventually(() => tv.page.evaluate(() => document.activeElement?.closest(".details-editorial") !== null), "the hero actions take focus");
+    await tv.remote(40); await tv.jump(500);
+    assert.match(await tv.focused() ?? "", /^credit:/);
+    // Down to Trailers and Related, then Up to Trailers, before a frame runs: the page still has to scroll down to
+    // reach Trailers, although focus moved up.
+    await pauseTvClock(tv);
+    await tv.remote(40); await tv.remote(40); await tv.remote(38);
+    assert.equal(await tv.page.evaluate(() => document.activeElement?.closest(".details-extras") !== null), true, "Trailers has focus");
+    late.release();
+    await tv.eventually(async () => tv.fake.paths().some(path => path.startsWith("GET /favorites/movie%3Am0001/membership")) && tv.pendingReplies === 0, "the favorite answer");
+    await tv.jump(1000);
+    const heading = await tv.page.evaluate(() => (document.querySelector(".details-extras")?.previousElementSibling?.getBoundingClientRect().top ?? 0) - (document.querySelector(".browse")?.getBoundingClientRect().top ?? 0));
+    assert.ok(Math.abs(heading - 111) <= 3, `the Trailers heading rests at Apple's 111 px Up anchor, not ${heading}`);
+});
+
+detailTest("a box set row that lands above Related during the move down to it still leaves Related at its anchor", async tv => {
+    const catalog = tv.fake.catalog; assert.ok(catalog instanceof FakeDetails);
+    catalog.searchCapabilities = { ...catalog.searchCapabilities, box_sets: true };
+    const boxSet = { id: "1241", library_id: "12", title: "Signal Collection", overview: "Signals.", poster_url: "/art/signal.svg", movie_count: 2, played_count: 0, first_year: 2001, last_year: 2002,
+        items: [{ content_id: "movie:m0001", type: "movie", title: "The Last Signal", year: 2001, poster_url: "/art/s1.svg" }, { content_id: "movie:m0002", type: "movie", title: "Second Signal", year: 2002, poster_url: "/art/s2.svg" }] };
+    let answer: () => void = () => undefined;
+    const answered = new Promise<void>(resolve => { answer = resolve; });
+    await tv.page.route("**/api/v2/catalog/items/movie%3Am0001/box-set?**", async route => { await answered; await route.fulfill({ json: { box_set: boxSet } }); });
+    const related = (): Promise<number> => tv.page.evaluate(() => (document.querySelector('[data-detail-section="related"]')?.previousElementSibling?.getBoundingClientRect().top ?? 0) - (document.querySelector(".browse")?.getBoundingClientRect().top ?? 0));
+    await tv.page.locator(MOVIE).first().click();
+    await tv.page.locator('[data-detail-section="related"] [data-focus]').first().waitFor();
+    await tv.eventually(() => tv.page.evaluate(() => document.activeElement?.closest(".details-editorial") !== null), "the hero actions take focus");
+    await tv.remote(40); await tv.jump(500);
+    assert.match(await tv.focused() ?? "", /^credit:/);
+    // A paused clock keeps the scroll at its first frame until the box set row has landed above Related.
+    await pauseTvClock(tv);
+    await tv.remote(40);
+    assert.equal(await tv.page.evaluate(() => document.activeElement?.closest('[data-detail-section="related"]') !== null), true, "Related has focus");
+    answer();
+    await tv.page.locator('.box-set-row [data-focus="box-set-explore"]').waitFor();
+    await tv.jump(1000);
+    const moved = await related();
+    // The same move without a repaint: up through the box set and back down to Related.
+    await tv.remote(38); await tv.jump(1000);
+    await tv.remote(40); await tv.jump(1000);
+    assert.ok(Math.abs(moved - await related()) <= 1, `Related rests where an undisturbed move puts it (${await related()} px), not ${moved} px`);
 });
 
 detailTest("a focused episode shows only its own detail's ratings, never the list's copy", async tv => {

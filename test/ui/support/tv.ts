@@ -18,9 +18,10 @@ const ENTRY: Record<TvApp, string> = { signIn: "../harness.ts", browse: "../brow
 const THEME = readFileSync(new URL("../../../src/theme.css", import.meta.url), "utf8");
 const css = (names: readonly string[]): string => names.map((name) => readFileSync(new URL(`../../../src/${name}`, import.meta.url), "utf8")).join("\n");
 // confirmationDialog.css styles a component every screen can show, so each harness loads it as main.ts does.
+// signIn.css holds that component's alert style, which Details' failure alerts use.
 const CSS: Record<TvApp, string> = {
     signIn: css(["ui/signIn.css", "ui/confirmationDialog.css"]),
-    browse: css(["ui/browse.css", "ui/confirmationDialog.css"]),
+    browse: css(["ui/signIn.css", "ui/browse.css", "ui/confirmationDialog.css"]),
     application: css(["ui/signIn.css", "ui/browse.css", "ui/confirmationDialog.css", "ui/accounts.css", "player/player.css", "app.css"]),
 };
 const HTML = `<!DOCTYPE html>
@@ -71,6 +72,8 @@ export function harnessBundle(app: TvApp = "signIn"): Promise<string> {
     bundles.set(app, bundle);
     return bundle;
 }
+
+const PACKAGED_FONTS: Readonly<Record<string, string>> = { "/fonts/InterVariable.woff2": "font/woff2", "/fonts/RobotoMono-Variable.ttf": "font/ttf" };
 
 export function launchBrowser(): Promise<Browser> {
     // Hinted glyph advances differ on Linux and shift text by a few pixels; geometry tests compare against Apple's values.
@@ -188,9 +191,10 @@ export async function openTv(
             await route.fulfill({ status: 200, contentType: "text/css", body: THEME + CSS[app] });
             return;
         }
-        if (url.pathname === "/fonts/InterVariable.woff2") {
-            // The stylesheet's ../fonts/ URL from /tv/app.css: the same file the WGT packages.
-            await route.fulfill({ status: 200, contentType: "font/woff2", body: readFileSync(new URL("../../../app/fonts/InterVariable.woff2", import.meta.url)) });
+        const font = PACKAGED_FONTS[url.pathname];
+        if (font !== undefined) {
+            // The stylesheet's ../fonts/ URLs from /tv/app.css: the same files the WGT packages.
+            await route.fulfill({ status: 200, contentType: font, body: readFileSync(new URL(`../../../app${url.pathname}`, import.meta.url)) });
             return;
         }
         if (url.pathname.startsWith("/tv/img/")) {

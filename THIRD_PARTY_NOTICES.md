@@ -26,6 +26,7 @@ See [`app/third-party/README.md`](app/third-party/README.md).
 ## Fonts
 
 The app bundles [Inter](https://github.com/rsms/inter) 4.1 (`app/fonts/InterVariable.woff2`), distributed under the SIL Open Font License 1.1.
+It also bundles [Roboto Mono](https://github.com/googlefonts/robotomono) (`app/fonts/RobotoMono-Variable.ttf`), distributed under the SIL Open Font License 1.1.
 See [`app/fonts/README.md`](app/fonts/README.md).
 
 ## Samsung Platform Libraries

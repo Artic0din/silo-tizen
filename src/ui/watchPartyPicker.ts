@@ -42,7 +42,7 @@ export function pickerView({ hub, baseUrl }: PickerContext): View {
     for (const shelf of shelves) {
         // Each card opens its own shelf's entry: the same series can sit in both shelves, and only one has a next-up episode.
         const cards = shelf.entries.map(entry => cardItem(entry.card, {
-            baseUrl, posterWidth: 220,
+            baseUrl, posterWidth: 220, seriesYears: true,
             cardDestination: card => ({ kind: "item" as const, id: card.id, title: card.title }),
             open: () => { open(hub, entry.card, entry.nextUp); },
         })).filter((card): card is FocusItem => card !== undefined);

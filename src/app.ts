@@ -227,6 +227,7 @@ export function mountApp(root: HTMLElement, options: AppOptions): SiloApp {
             ...(avatar === undefined ? {} : { profileAvatarUrl: avatar }),
             ...(text === undefined ? {} : { profileAvatarText: text }),
             ...(activeCore.publicStorage === undefined ? {} : { publicStorage: activeCore.publicStorage }),
+            ...(activeCore.keyManager === undefined ? {} : { keyManager: activeCore.keyManager }),
             onSignOut: () => {
                 stopContent();
                 profiles?.signOut();
@@ -239,6 +240,10 @@ export function mountApp(root: HTMLElement, options: AppOptions): SiloApp {
             onChooseProfile: () => {
                 stopContent();
                 profiles?.switchProfile();
+            },
+            onAddProfile: () => {
+                stopContent();
+                profiles?.addProfile();
             },
             onPlay: (request) => play(server, active, content, request),
             ...(options.core.clock === undefined ? {} : { clock: options.core.clock }),

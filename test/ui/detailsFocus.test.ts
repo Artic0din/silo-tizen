@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
-import type { Browser } from "playwright";
+import type { Browser, Page } from "playwright";
 import { FakeDetails } from "../native/support/fakeDetails.ts";
 import { launchBrowser, openTv, pauseTvClock, type Tv } from "./support/tv.ts";
 
@@ -33,6 +33,25 @@ async function searchFor(tv: Tv, query: string, key: string): Promise<void> {
     const card = tv.page.locator(`.browse-grid [data-focus="${key}"]`);
     await card.waitFor();
     await card.focus();
+}
+
+declare global { interface Window { seasonAnswers: string[] } }
+
+/** Records each season whose episode list the app has read off the network, in the order it read them. */
+async function recordSeasonAnswers(page: Page): Promise<void> {
+    await page.addInitScript(() => {
+        window.seasonAnswers = [];
+        const fetch = window.fetch.bind(window);
+        window.fetch = async (input, init) => {
+            const response = await fetch(input, init);
+            const season = /\/seasons\/(\d+)\/episodes/.exec(String(input))?.[1];
+            if (season !== undefined) {
+                const text = response.text.bind(response);
+                response.text = async () => { const body = await text(); window.seasonAnswers.push(season); return body; };
+            }
+            return response;
+        };
+    });
 }
 
 let browser: Browser;
@@ -117,7 +136,7 @@ test("a card-actions dialog keeps focus while the Play claim is still retrying",
         const related = tv.page.locator('[data-detail-section="related"] [data-focus]').first();
         await related.waitFor();
         await related.click({ button: "right" });
-        await tv.page.locator(".card-actions-panel").waitFor();
+        await tv.page.locator(".card-menu").waitFor();
         const dialog = await owner(tv);
         await tv.jump(200);
         const settled = await owner(tv);
@@ -215,7 +234,7 @@ test("opening a series keeps its primary action when focus has moved", async () 
 });
 
 test("Left through a loaded previous season after a fast chip walk sends no season read", async () => {
-    const tv = await openTv(browser, { app: "browse" });
+    const tv = await openTv(browser, { app: "browse", prepare: recordSeasonAnswers });
     const catalog = new FakeDetails();
     for (let season = 3; season <= 25; season++) for (let episode = 1; episode <= (season === 25 ? 13 : 22); episode++) catalog.add({ id: `episode:s1e${season}x${episode}`, type: "episode", title: `Harbor chapter ${season}.${episode}`, libraryId: "13", seriesId: "series:s1", season, episode });
     tv.fake.catalog = catalog;
@@ -229,7 +248,17 @@ test("Left through a loaded previous season after a fast chip walk sends no seas
         await tv.page.locator('[data-focus="season:1"]').focus();
         // Each held read is aborted by the next chip, as in a fast walk.
         const holds = Array.from({ length: 22 }, (_, index) => tv.fake.hold(`/catalog/series/series%3As1/seasons/${index + 3}/episodes`));
-        for (let press = 0; press < 24; press++) { await tv.remote(39); await tv.jump(80); }
+        for (let press = 0; press < 24; press++) {
+            // Season 25 is the one read the walk does not hold. Selecting it once its page has loaded restarts the prefetch,
+            // which aborts season 24's read and reads it again; selecting it while its own read is in flight keeps the
+            // prefetch. On a slow runner the 70 ms dwell can fire before that answer, so wait for the page to load.
+            if (press === 23) await tv.eventually(() => tv.page.evaluate(() => window.seasonAnswers.includes("25")), "season 25's episodes loaded");
+            const reads = seasonReads().length;
+            await tv.remote(39); await tv.jump(80);
+            // Every chip after season 2 reads the season beside it. The fake records a read only once Playwright
+            // intercepts it, and on a slow runner the next chip can abort the read before that, so wait for it.
+            if (press > 0) await tv.eventually(async () => seasonReads().length > reads, `season ${press + 2}'s neighbour read reached the fake`);
+        }
         for (const hold of holds) hold.release();
         await tv.jump(300);
         await tv.remote(ENTER); await tv.jump(500);

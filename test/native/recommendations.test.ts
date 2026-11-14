@@ -17,16 +17,13 @@ test("recommendations share catalog cards, omit empty rows and stably put For Yo
     assert.ok(rows.every(row => row.id.startsWith("recommendation:")));
 });
 
-test("only supported complete recommendation locators offer expansion", () => {
+test("only supported complete recommendation locators are kept", () => {
     for (const extra of [{}, { kind: "future" }, { kind: "cluster" }, { kind: "genre", key: " " }]) {
         assert.equal(decodeRecommendationRow({ type: "cluster", title: "A row", items: [card], ...extra }).locator, undefined);
     }
     const row = decodeRecommendationRow({ type: "genre", title: "Drama", kind: "genre", key: "Drama & Crime/TV", items: [card] });
-    assert.ok(row.locator);
-    const spec = operations.recommendationSection(row.locator);
-    assert.equal(spec.path, "/recommendations/section/genre?limit=60&image_size=small&key=Drama%20%26%20Crime%2FTV");
-    assert.equal(spec.method, "GET");
-    assert.equal(spec.retry, "safe");
+    assert.deepEqual(row.locator, { kind: "genre", key: "Drama & Crime/TV" });
+    assert.equal("recommendationSection" in operations, false, "Apple's For You has no row page to read");
     assert.equal(operations.recommendations().path, "/recommendations/discover?image_size=small");
 });
 

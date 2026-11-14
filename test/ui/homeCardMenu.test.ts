@@ -71,7 +71,7 @@ async function start(tv: Tv, catalog = new HomeMenuFake()): Promise<HomeMenuFake
 
 const card = (tv: Tv, section: string, id: string) => tv.page.locator(`[data-section="${section}"] [data-focus="${id}"]`);
 const menu = (tv: Tv) => tv.page.getByRole("menu");
-const rows = (tv: Tv) => menu(tv).getByRole("menuitem").evaluateAll(nodes => nodes.map(node => `${node.textContent ?? ""} [${node.getAttribute("data-symbol") ?? ""}]`));
+const rows = (tv: Tv) => menu(tv).getByRole("menuitem").evaluateAll(nodes => nodes.map(node => node.textContent ?? ""));
 
 async function hold(tv: Tv, section: string, id: string): Promise<void> {
     await card(tv, section, id).focus();
@@ -88,25 +88,26 @@ test("Home card menus list Apple's rows, labels, icons and order for each card t
         const reads = tv.fake.requests.length;
         await hold(tv, "continue_watching", "movie:m0001");
         assert.deepEqual(await rows(tv), [
-            "Resume [play.fill]", "Mark as Watched [checkmark.circle]", "Add to Favorites [heart]", "Add to Watchlist [bookmark]", "Remove from Continue Watching [xmark.circle]",
+            "Resume", "Mark as Watched", "Add to Favorites", "Add to Watchlist", "Remove from Continue Watching",
         ]);
         assert.equal(await menu(tv).getAttribute("aria-label"), "Movie 0001");
         assert.equal(await menu(tv).locator("h1, h2").count(), 0, "the menu has no title");
-        assert.equal(await menu(tv).locator('[data-focus="remove"]').getAttribute("class").then(value => value?.includes("skyline-destructive")), true);
+        assert.equal(await menu(tv).locator(".card-menu-icon svg").count(), 5, "every action has its symbol");
+        assert.equal(await menu(tv).locator('[data-focus="remove"]').getAttribute("class").then(value => value?.includes("card-menu-destructive")), true);
         assert.equal(tv.fake.requests.slice(reads).filter(request => request.path.startsWith("/catalog/items/")).length, 0, "the menu opens from the row's data");
         await tv.remote(10009);
         // A Continue Watching card without a progress stamp is a merged Next Up card (HomeDismissal).
         await hold(tv, "continue_watching", "episode:s1e12");
-        assert.deepEqual(await rows(tv), ["Play [play.fill]", "Mark as Watched [checkmark.circle]", "Add to Favorites [heart]", "Add to Watchlist [bookmark]", "Remove from Next Up [xmark.circle]"]);
+        assert.deepEqual(await rows(tv), ["Play", "Mark as Watched", "Add to Favorites", "Add to Watchlist", "Remove from Next Up"]);
         await tv.remote(10009);
         await hold(tv, "next_up", "episode:s2e11");
-        assert.deepEqual(await rows(tv), ["Mark as Watched [checkmark.circle]", "Add to Favorites [heart]", "Add to Watchlist [bookmark]", "Remove from Next Up [xmark.circle]"]);
+        assert.deepEqual(await rows(tv), ["Mark as Watched", "Add to Favorites", "Add to Watchlist", "Remove from Next Up"]);
         await tv.remote(10009);
         await hold(tv, "recently_added", "movie:m0002");
-        assert.deepEqual(await rows(tv), ["Mark as Watched [checkmark.circle]", "Add to Favorites [heart]", "Add to Watchlist [bookmark]"]);
+        assert.deepEqual(await rows(tv), ["Mark as Watched", "Add to Favorites", "Add to Watchlist"]);
         await tv.remote(10009);
         await hold(tv, "audiobooks", "audiobook:tide");
-        assert.deepEqual(await rows(tv), ["Mark as Watched [checkmark.circle]", "Add to Favorites [heart]", "Add to Watchlist [bookmark]"], "square audiobook cards keep Home's watched row");
+        assert.deepEqual(await rows(tv), ["Mark as Watched", "Add to Favorites", "Add to Watchlist"], "square audiobook cards keep Home's watched row");
         await tv.remote(10009);
         assert.equal(await tv.page.getByText(/Loading card actions|Try again|Close|Episode information/).count(), 0);
         assert.deepEqual(tv.console, []);
@@ -118,7 +119,7 @@ test("Home card menu opens beside its card, moves only vertically, and Back retu
     try {
         await start(tv);
         await hold(tv, "recently_added", "movie:m0002");
-        assert.equal(await tv.page.locator(".card-actions-scrim, .confirm-dialog-scrim").count(), 0, "no scrim");
+        assert.equal(await tv.page.locator(".card-menu-scrim").evaluate(node => getComputedStyle(node).backgroundColor), "rgba(0, 0, 0, 0)", "the menu does not dim Home");
         const origin = await card(tv, "recently_added", "movie:m0002").boundingBox();
         const panel = await menu(tv).boundingBox();
         assert.ok(origin !== null && panel !== null);
@@ -162,7 +163,7 @@ test("choosing a row closes the menu, and the next menu shows the changed favori
         await jumpUntil(tv, 250, async () => catalog.mutations.includes("PUT /watchlist/movie%3Am0002") && homeReads() > watchlistBefore, "watchlist write and Home read");
         await card(tv, "recently_added", "movie:m0002").waitFor();
         await hold(tv, "recently_added", "movie:m0002");
-        assert.deepEqual(await rows(tv), ["Mark as Watched [checkmark.circle]", "Remove from Favorites [heart.slash]", "Remove from Watchlist [bookmark.slash]"]);
+        assert.deepEqual(await rows(tv), ["Mark as Watched", "Remove from Favorites", "Remove from Watchlist"]);
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }
 });
@@ -215,14 +216,13 @@ for (const failure of ["watched", "remove", "favorites"] as const) test(`a faile
             await menu(tv).getByRole("menuitem", { name: failure === "watched" ? "Mark as Watched" : failure === "remove" ? "Remove from Continue Watching" : "Add to Favorites" }).click();
             const alert = tv.page.getByRole("alertdialog");
             await alert.waitFor();
-            const home = failure !== "favorites";
-            assert.equal(await alert.locator("h2").innerText(), home ? "Couldn’t Update Item" : "Couldn't Update Item");
-            assert.equal(await alert.locator("p").innerText(), home ? "The item could not be updated. Try again." : "Your change wasn't saved. Please try again.");
+            assert.equal(await alert.locator("h2").innerText(), "Couldn’t Update Item");
+            assert.equal(await alert.locator("p").innerText(), "The item could not be updated. Try again.");
             assert.deepEqual(await alert.getByRole("button").allInnerTexts(), ["OK"]);
-            assert.equal(await tv.focused(), "alert-ok");
+            assert.equal(await tv.focused(), "card-alert-ok");
             assert.equal(await tv.page.locator(".signin-alert").count(), 1, "the shared centred alert");
             await tv.remote(40);
-            assert.equal(await tv.focused(), "alert-ok", "the alert keeps focus");
+            assert.equal(await tv.focused(), "card-alert-ok", "the alert keeps focus");
             if (close === "enter") await tv.page.keyboard.press("Enter");
             else await tv.remote(10009);
             assert.equal(await alert.count(), 0);
@@ -232,7 +232,7 @@ for (const failure of ["watched", "remove", "favorites"] as const) test(`a faile
             assert.equal(await card(tv, "continue_watching", "movie:m0001").count(), 1, "a failed change keeps the card");
         }
         await hold(tv, "continue_watching", "movie:m0001");
-        assert.ok((await rows(tv)).includes(failure === "favorites" ? "Add to Favorites [heart]" : "Mark as Watched [checkmark.circle]"), "the row shows the unchanged state");
+        assert.ok((await rows(tv)).includes(failure === "favorites" ? "Add to Favorites" : "Mark as Watched"), "the row shows the unchanged state");
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }
 });
@@ -260,7 +260,7 @@ test("a failure during a Home refresh keeps Apple's alert, its focus and its key
         await tv.jump(1000);
         assert.equal(await alert.count(), 1, "the redrawn rows leave the alert in place");
         await tv.remote(40);
-        assert.equal(await tv.focused(), "alert-ok");
+        assert.equal(await tv.focused(), "card-alert-ok");
         await tv.page.keyboard.press("Enter");
         assert.equal(await alert.count(), 0);
         assert.equal(await tv.focused(), "movie:m0002");
@@ -334,7 +334,7 @@ test("a menu reopened while its card's change is out shows the real state when t
         await hold(tv, "recently_added", "movie:m0002");
         await menu(tv).getByRole("menuitem", { name: "Add to Favorites" }).click();
         await hold(tv, "recently_added", "movie:m0002");
-        await menu(tv).getByRole("menuitem", { name: "Remove from Favorites" }).waitFor();
+        assert.equal(await menu(tv).getByRole("menuitem", { name: "Add to Favorites" }).getAttribute("aria-disabled"), "true", "a pending change keeps the server state until confirmed");
         answer.release();
         await jumpUntil(tv, 100, async () => await menu(tv).getByRole("menuitem", { name: "Add to Favorites" }).count() === 1, "the open menu shows the failed change rolled back");
         assert.deepEqual(await menu(tv).getByRole("menuitem").evaluateAll(nodes => nodes.map(node => node.getAttribute("aria-disabled"))), [null, null, null]);
@@ -387,7 +387,7 @@ test("a change that fails after Settings opens waits for Home before showing its
         await tv.remote(10009);
         await tv.eventually(async () => await tv.page.locator('.browse[data-view="home"]').evaluate(node => (node as HTMLElement).hidden === false), "back on Home");
         await tv.page.getByRole("alertdialog").waitFor();
-        assert.equal(await tv.focused(), "alert-ok");
+        assert.equal(await tv.focused(), "card-alert-ok");
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }
 });
@@ -409,7 +409,7 @@ test("Resume chosen while a failure waits starts playback first and keeps the al
         // The harness hands playback off and returns to Home at once; the held alert may show only on a visible Home.
         if (await tv.page.getByRole("alertdialog").count() === 1) {
             assert.equal(await tv.page.locator('.browse[data-view="home"]').evaluate(node => (node as HTMLElement).hidden), false);
-            assert.equal(await tv.focused(), "alert-ok");
+            assert.equal(await tv.focused(), "card-alert-ok");
         }
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }
@@ -484,7 +484,7 @@ test("an empty Home shows Apple's EmptyStateView under a page focus owner whose 
             const scale = Number(getComputedStyle(document.documentElement).getPropertyValue("--silo-sf-cap-scale"));
             return { scale, icon: [read(".search-state-icon").width, read(".search-state-icon").color], title: [read(".search-state-title").fontSize, read(".search-state-title").fontWeight], line: [read(".search-state-description").fontSize, read(".search-state-description").color] };
         });
-        assert.deepEqual(styles.icon, ["44px", "rgba(237, 237, 237, 0.3)"]);
+        assert.deepEqual(styles.icon, ["54px", "rgba(237, 237, 237, 0.3)"]);
         assert.ok(Math.abs(parseFloat(styles.title[0] ?? "") - 28 * styles.scale) < 0.01, "28 pt title times the cap scale");
         assert.equal(styles.title[1], "600");
         assert.ok(Math.abs(parseFloat(styles.line[0] ?? "") - 22 * styles.scale) < 0.01, "22 pt line times the cap scale");

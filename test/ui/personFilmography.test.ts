@@ -78,6 +78,41 @@ async function next(tv: Tv, number: number): Promise<void> {
     await tv.eventually(async () => await grid(tv).count() === Math.min(number * 60, 124), "near-end append");
 }
 
+/** Apple EmptyStateView(icon: "film.stack", title: personEmpty, subtitle: personEmptyBody), at least 420pt tall (PersonDetailView.swift:417-423). */
+async function emptyFilmography(tv: Tv): Promise<void> {
+    const state = tv.page.locator(".person-filmography-empty");
+    await state.waitFor();
+    const style = (selector: string, property: string): Promise<string> => state.locator(selector).evaluate((node, key) => getComputedStyle(node).getPropertyValue(key), property);
+    assert.equal(await state.locator(".search-state-title").textContent(), "No titles found");
+    assert.equal(await state.locator(".search-state-description").textContent(), "There are no movies or series linked to this person yet.");
+    assert.equal(await state.locator(".search-state-icon svg").count(), 1);
+    // film.stack draws filled sprocket strips with eight holes, not an outline frame.
+    assert.equal(await state.locator(".search-state-icon svg path[fill-rule=\"evenodd\"]").count(), 1);
+    assert.ok(await state.evaluate(node => node.getBoundingClientRect().height) >= 420, "Apple's 420pt minimum height");
+    assert.equal(await style(".search-state-icon", "height"), "44px");
+    assert.equal(await style(".search-state-icon", "margin-bottom"), "12px");
+    assert.equal(await style(".search-state-icon", "color"), "rgba(237, 237, 237, 0.3)");
+    // Apple's points times --silo-sf-cap-scale (0.9685, #418): siloSubheadline 28 semibold, siloCaption 22.
+    assert.equal(await style(".search-state-title", "font-size"), "27.118px");
+    assert.equal(await style(".search-state-title", "font-weight"), "600");
+    assert.equal(await style(".search-state-title", "margin-bottom"), "12px");
+    assert.equal(await style(".search-state-description", "font-size"), "21.307px");
+    assert.equal(await style(".search-state-description", "color"), "rgba(237, 237, 237, 0.6)");
+}
+
+/** Apple ErrorView(state:onRetry:) in the Filmography area, at least 420pt tall (PersonDetailView.swift:414-416). */
+async function failedFilmography(tv: Tv, message: string): Promise<void> {
+    const state = tv.page.locator(".person-filmography-failure");
+    await state.waitFor();
+    assert.equal(await state.getAttribute("role"), "alert");
+    assert.equal(await state.locator(".search-state-title").textContent(), "Something went wrong");
+    assert.equal(await state.locator(".search-state-description").textContent(), message);
+    assert.equal(await state.locator(".search-state-icon svg").count(), 1);
+    assert.deepEqual(await state.locator("[data-focus]").evaluateAll(nodes => nodes.map(node => [node.getAttribute("data-focus"), node.textContent])), [["retry", "Try Again"]]);
+    assert.ok(await state.evaluate(node => node.getBoundingClientRect().height) >= 420, "Apple's 420pt minimum height");
+    assert.equal(await tv.page.locator(".details-person-hero").count(), 1, "the person stays on screen above the error");
+}
+
 function journey(name: string, body: (tv: Tv, catalog: FakeDetails) => Promise<void>): void {
     test(name, async () => {
         const tv = await openTv(browser, { app: "browse" });
@@ -91,6 +126,21 @@ function journey(name: string, body: (tv: Tv, catalog: FakeDetails) => Promise<v
         } finally { await tv.page.context().close(); }
     });
 }
+
+// PersonDetailView's TVCatalogGrid captions with CardYears (Screens/People/PersonDetailView.swift:425, tvOS/Screens/Components/TVCatalogGrid.swift:115-117).
+journey("the filmography captions a series with the years it ran", async (tv, catalog) => {
+    for (const [id, fields] of [["series:s1", { showStatus: "returning" }], ["series:s2", { showStatus: "ended", lastAirDate: "2024-03-17" }]] as const) {
+        const title = catalog.titles.get(id);
+        assert.ok(title);
+        catalog.add({ ...title, ...fields });
+    }
+    await tv.page.locator('[data-focus="filter:series"]').click();
+    await tv.eventually(async () => await grid(tv).count() === 3, "the series filter");
+    const line = (id: string) => tv.page.locator(`.browse[data-view="person:7"] .browse-grid [data-focus="${id}"] .browse-card-subtitle`).evaluate(node => (node as HTMLElement).dataset.fullText ?? node.textContent);
+    assert.equal(await line("series:s1"), "2020 – Present");
+    assert.equal(await line("series:s2"), "2021 – 2024");
+    assert.equal(await line("series:s3"), "2022");
+});
 
 journey("incomplete Person dispatches once and polls independently of filter and paging", async tv => {
     await tv.remote(BACK);
@@ -201,11 +251,12 @@ journey("card quick-actions refresh full Filmography's committed page and retain
 
     await grid(tv).nth(5).focus();
     await tv.down(13); await tv.jump(650); await tv.up(13);
-    const panel = tv.page.getByRole("dialog", { name: "Card actions" });
-    await panel.getByRole("button", { name: "Add favorite", exact: true }).click();
-    await panel.getByRole("button", { name: "Remove favorite", exact: true }).waitFor();
+    // The person grid reads the card's item before its menu opens. Wait for the menu, so the removal lands after that read
+    // and before the change's reread: on a slow runner the read would otherwise find the title gone and show an alert.
+    const favorite = tv.page.getByRole("menu").getByRole("menuitem", { name: "Add to Favorites", exact: true });
+    await favorite.waitFor();
     catalog.removed.add(id);
-    await tv.remote(BACK);
+    await favorite.click();
     await tv.eventually(async () => await tv.focused() === nearby, "nearby Filmography focus");
     assert.equal(queries(tv).slice(-2)[0]?.body?.cursor, undefined, "refresh starts at page one and retains loaded depth");
     assert.equal(lastQuery(tv)?.body?.person_id, "7");
@@ -260,20 +311,26 @@ journey("Person uses the Apple source geometry and remote zones", async tv => {
     assert.equal(await style(".person-facts", "margin-top"), "22px");
     assert.equal(await style(".person-facts", "column-gap"), "12px");
     assert.equal(await style(".browse-overview", "margin-top"), "22px");
-    assert.equal(await style(".person-title-count", "font-size"), "22px");
+    // Apple's points times --silo-sf-cap-scale (0.9685, #418).
+    assert.equal(await style(".person-title-count", "font-size"), "21.307px");
     assert.equal(await style(".person-title-count", "color"), "rgba(237, 237, 237, 0.6)");
-    assert.equal(await style(".person-filmography-heading h2", "font-size"), "36px");
+    assert.equal(await style(".person-filmography-heading h2", "font-size"), "34.866px");
+    assert.equal(await style(".person-filmography-heading h2", "line-height"), "43px");
     assert.equal(await style(".person-filmography-heading h2", "font-weight"), "600");
     assert.equal(await style(".person-filmography-heading", "margin-bottom"), "20px");
     assert.equal(await style(".person-filmography-heading", "column-gap"), "60px");
     assert.equal(await style(".person-filmography-filters", "padding-top"), "8px");
     assert.equal(await style(".person-filmography-filters", "column-gap"), "8px");
     assert.equal(await style(".person-filmography-filters", "margin-bottom"), "28px");
-    assert.equal(await style('[data-focus="filter:video"]', "font-size"), "22px");
+    assert.equal(await style('[data-focus="filter:video"]', "font-size"), "21.307px");
     assert.equal(await style('[data-focus="filter:video"]', "font-weight"), "400");
-    assert.equal(await style('[data-focus="filter:video"]', "padding"), "10px 22px");
+    // Apple's 22/10 padding is measured to the stroke the chip draws over its frame; the 1px border sits inside the box.
+    assert.equal(await style('[data-focus="filter:video"]', "padding"), "9px 21px");
     assert.equal(await style('[data-focus="filter:video"]', "border-top-width"), "1px");
-    assert.equal(await style(".browse-grid", "width"), "1600px");
+    // Apple's TVCatalogGrid lays six 260pt cards 40pt apart from the content's leading edge (#426).
+    const lefts = await grid(tv).evaluateAll(cards => cards.slice(0, 6).map(card => card.getBoundingClientRect().left));
+    assert.deepEqual(lefts, [160, 460, 760, 1060, 1360, 1660]);
+    assert.equal(await tv.page.locator(".browse").evaluate(node => node.scrollWidth <= node.clientWidth), true, "the wider grid must not scroll the page sideways");
     assert.equal(await style(".browse-overview", "font-weight"), "400");
     assert.equal(await style(".browse-grid", "padding-left"), "0px");
     assert.equal(await style(".browse-grid", "column-gap"), "40px");
@@ -292,14 +349,15 @@ journey("Person uses the Apple source geometry and remote zones", async tv => {
     const first = await grid(tv).first().getAttribute("data-focus");
     assert.equal(await tv.focused(), first);
     await tv.jump(300);
-    assert.equal(await tv.page.locator(".browse").evaluate(node => node.scrollTop), 277, "was 237 when the reveal used a 92px bottom margin");
+    // Was 277 before #418 put the heading row and chips on Apple's 43 and 46 line boxes, which lifts the grid 3px.
+    assert.equal(await tv.page.locator(".browse").evaluate(node => node.scrollTop), 274, "was 237 when the reveal used a 92px bottom margin");
     await tv.page.keyboard.press("ArrowLeft");
     assert.equal(await tv.focused(), first);
     await tv.page.keyboard.press("ArrowRight");
     assert.equal(await tv.focused(), await grid(tv).nth(1).getAttribute("data-focus"));
+    const second = await tv.focused();
     await tv.page.keyboard.press("ArrowUp");
-    // Replaces `assert.equal(await tv.focused(), "filter:video", "was filter:movie when Up restored the focused chip; column 1 overlaps the row and All stays selected")`.
-    assert.equal(await tv.focused(), "filter:series", "column 1's left edge meets Series; the selected All chip does not take Up");
+    assert.equal(await tv.focused(), second, "was filter:series while the 1600px grid pulled column 1 under Series (#426); no chip is above column 1");
     await grid(tv).nth(2).focus();
     const third = await tv.focused();
     await tv.page.keyboard.press("ArrowUp");
@@ -697,12 +755,12 @@ journey("filter race fences old answer; failed and empty filters keep controls r
     assert.equal(await tv.focused(), "filter:series");
     catalog.personReplies.push(problem(500, "internal_error", "Synthetic filter failure"));
     await tv.page.locator('[data-focus="filter:movie"]').click();
-    await tv.page.locator('[data-focus="retry"]').waitFor();
+    await failedFilmography(tv, "The server ran into a problem. Try again in a moment.");
     assert.equal(await tv.page.locator('[data-focus^="filter:"]').count(), 3);
     assert.equal(await tv.page.locator('[data-focus="filter:movie"]').getAttribute("aria-pressed"), "true");
     catalog.empty = true;
     await tv.page.locator('[data-focus="retry"]').click();
-    await tv.page.getByText("No titles found", { exact: true }).waitFor();
+    await emptyFilmography(tv);
     await tv.page.locator('[data-focus="filter:movie"]').focus();
     await tv.page.keyboard.press("ArrowRight");
     assert.equal(await tv.focused(), "filter:series");
@@ -788,17 +846,28 @@ for (const outcome of ["pending", "lost"]) journey(`Details reconciles ${outcome
     if (outcome === "lost") tv.fake.dropNextAnswer(path);
     await tv.page.getByRole("button", { name: "Add to watchlist", exact: true }).click();
     await tv.eventually(async () => catalog.mutations.length === 1, "membership write");
-    // Apple's Watchlist keeps its label; the failure note marks the unconfirmed write.
-    if (outcome === "lost") await tv.page.getByText("Could not update watchlist.").waitFor();
+    // A lost answer is Apple's Change Not Confirmed alert; the Watchlist circle keeps its label.
+    if (outcome === "lost") {
+        const alert = tv.page.getByRole("alertdialog", { name: "Change Not Confirmed", exact: true });
+        await alert.waitFor();
+        await alert.getByRole("button", { name: "OK", exact: true }).click();
+        await alert.waitFor({ state: "detached" });
+    }
     await tv.page.locator('.details-people [data-focus^="credit:7:"]').first().click();
     await grid(tv).first().waitFor();
     await all(tv);
     await next(tv, 2);
     await tv.remote(BACK);
     held?.release();
-    await tv.page.getByText("Could not update watchlist.").waitFor();
+    await tv.page.locator('[data-focus="watchlist"]').waitFor();
     assert.equal(await tv.page.locator('[data-focus="watchlist"]').innerText(), "Watchlist");
     await tv.page.locator('[data-focus="watchlist"]').click();
+    if (outcome === "lost") {
+        // A held change is never re-sent: the press shows the alert, and Discard reloads the committed state.
+        const alert = tv.page.getByRole("alertdialog", { name: "Change Not Confirmed", exact: true });
+        await alert.getByRole("button", { name: "Discard Held Change", exact: true }).click();
+        await alert.waitFor({ state: "detached" });
+    }
     await tv.page.getByRole("button", { name: "Remove from watchlist", exact: true }).waitFor();
     assert.equal(catalog.mutations.length, 1);
 });
@@ -808,8 +877,7 @@ journey("person metadata errors recover, artwork falls back, and facts render as
     let response: Record<string, unknown> = { id: "7", name: "<b>River Vale</b>", bio: 7 };
     await tv.page.route("**/api/v2/catalog/people/7", route => route.fulfill({ status: 200, json: response }));
     await tv.page.locator('.details-people [data-focus^="credit:7:"]').first().click();
-    await tv.page.getByText("The server sent an answer this TV could not read.", { exact: true }).waitFor();
-    assert.equal(await tv.page.locator('[data-focus="back"]').count(), 1);
+    await personFailure(tv, "Something went wrong", "The server sent an answer this TV could not read.", ["retry"]);
     response = { id: "7", name: "<b>River Vale</b>", bio: "<img src=x onerror=alert(1)>", birthplace: "<script>synthetic</script>", future_metadata: { value: 7 } };
     await tv.page.locator('[data-focus="retry"]').click();
     await tv.page.getByText(response.name as string, { exact: true }).first().waitFor();
@@ -820,13 +888,38 @@ journey("person metadata errors recover, artwork falls back, and facts render as
     assert.equal(await tv.page.locator("h1").textContent(), "<b>River Vale</b>");
 });
 
-for (const status of [404, 500]) journey(`person metadata ${status} keeps explicit retry and Back`, async tv => {
+/** Apple rootContent: with no person, the read's failure is the whole page's ErrorView (PersonDetailView.swift:358-359). */
+async function personFailure(tv: Tv, headline: string, message: string, actions: string[]): Promise<void> {
+    const page = tv.page.locator('.browse .details-failure[role="alert"]');
+    await page.waitFor();
+    assert.equal(await page.locator(".search-state-title").textContent(), headline);
+    assert.equal(await page.locator(".search-state-description").textContent(), message);
+    assert.deepEqual(await page.locator("[data-focus]").evaluateAll(nodes => nodes.map(node => node.getAttribute("data-focus"))), actions);
+    assert.equal(await tv.focused(), actions[0]);
+    assert.equal(await tv.page.locator(".details-person-hero, .person-filmography-heading, [data-focus^='filter:']").count(), 0, "the error replaces the page");
+}
+
+for (const status of [404, 500]) journey(`person metadata ${status} shows Apple's ErrorView for the page`, async tv => {
     await tv.remote(BACK);
     await tv.page.route("**/api/v2/catalog/people/7", route => route.fulfill({ status, json: problem(status, status === 404 ? "not_found" : "internal_error", "Synthetic person failure").body }));
     await tv.page.locator('.details-people [data-focus^="credit:7:"]').first().click();
-    await tv.page.locator('[data-focus="retry"]').waitFor();
-    if (status === 404) await tv.page.getByText("This person is no longer available.", { exact: true }).waitFor();
-    await tv.remote(BACK);
+    // ErrorView.recoveryPlan: a 404 leads with Go Back and keeps Try Again; any other failure offers only Try Again.
+    if (status === 404) {
+        await personFailure(tv, "Not found", "We couldn't find what you were looking for. It may have been removed or moved.", ["go-back", "retry"]);
+        await tv.page.keyboard.press("Enter");
+    } else {
+        await personFailure(tv, "Something went wrong", "The server ran into a problem. Try again in a moment.", ["retry"]);
+        // PersonDetailViewModel.reload clears the error first (PersonDetailView.swift:97): Try Again shows the loading page, not the old error.
+        await tv.page.unroute("**/api/v2/catalog/people/7");
+        const held = tv.fake.hold("/catalog/people/7", true);
+        await tv.page.keyboard.press("Enter");
+        await tv.jump(0);
+        assert.equal(await tv.page.locator(".details-failure").count(), 0, "the old error stays up while the person reloads");
+        assert.equal(await tv.page.locator(".details-person-hero").count(), 1);
+        held.release();
+        await tv.page.getByText("River Vale", { exact: true }).first().waitFor();
+        await tv.remote(BACK);
+    }
     assert.match(await tv.focused() ?? "", /^credit:7:/);
 });
 
@@ -868,7 +961,7 @@ journey("failed initial works read retains metadata and filter recovery", async 
     await tv.remote(BACK);
     catalog.personReplies.push(problem(500, "internal_error", "Synthetic first page failure"));
     await tv.page.locator('.details-people [data-focus^="credit:7:"]').first().click();
-    await tv.page.locator('[data-focus="retry"]').waitFor();
+    await failedFilmography(tv, "The server ran into a problem. Try again in a moment.");
     assert.equal(await tv.page.locator(".details-person-hero").count(), 1);
     assert.equal(await tv.page.locator('[data-focus^="filter:"]').count(), 3);
     const reads = metadataReads(tv);

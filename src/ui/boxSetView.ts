@@ -48,7 +48,8 @@ export function boxSetView(detail: CatalogBoxSetDetail, context: ViewContext, pl
     reserve.setAttribute("aria-hidden", "true");
     info.append(reserve, zoneNode("browse-actions", actions));
     layout.appendChild(info);
-    const movies = cardItems(detail.items, context);
+    // BoxSetDetailView's TVCatalogGrid captions with CardYears; its cards are 220 wide (BoxSetDetailView.swift:246).
+    const movies = cardItems(detail.items, { ...context, seriesYears: true, posterWidth: 220 });
     const grid = zoneNode("browse-grid box-set-grid", movies);
     const content = [wash, layout, el("h2", "browse-section-title", "Movies"), grid].filter((node): node is HTMLElement => node !== null && node !== undefined);
     const zones: Zone[] = [

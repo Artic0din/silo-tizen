@@ -45,7 +45,7 @@ function eventCard(event: CalendarEvent, key: string, timezone: string, context:
     if (destination === undefined) item.element.setAttribute("aria-disabled", "true");
     item.element.setAttribute("data-content-id", event.contentId);
     const type = event.type === "season_premiere" ? "season" : event.type === "movie" || event.type === "episode" ? event.type : "unknown";
-    return mediaItem(item, { id: event.contentId, title: event.title, type }, context);
+    return mediaItem(item, { id: event.contentId, title: event.title, type, played: event.watched }, context);
 }
 
 export function calendarView(state: CalendarState, handlers: CalendarHandlers): View {

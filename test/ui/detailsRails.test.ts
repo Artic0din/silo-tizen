@@ -5,7 +5,7 @@ import type { Browser } from "playwright";
 import { CARD_PRESENTATION_KEY } from "../../src/contracts/v2/settings.ts";
 import { FakeDetails } from "../native/support/fakeDetails.ts";
 import { FakeSettings } from "../native/support/fakeSettings.ts";
-import { launchBrowser, openTv, type Tv } from "./support/tv.ts";
+import { launchBrowser, openTv, pauseTvClock, type Tv } from "./support/tv.ts";
 
 let browser: Browser;
 before(async () => { browser = await launchBrowser(); });
@@ -101,7 +101,8 @@ railTest("a loading season holds the rail with Apple TV's four skeleton cards", 
     await tv.page.route("**/api/v2/catalog/series/series%3As1/seasons/1/episodes?**", route => { release = () => route.fallback(); });
     await tv.page.locator(SERIES).first().click();
     await tv.page.locator(".details-episodes-placeholder").waitFor();
-    assert.equal(await tv.page.getByText("Loading episodes…", { exact: true }).count(), 0, "no loading sentence under the pills");
+    // The removed sentence was a status line; the Play button may still read "Loading episodes…" until its target lands.
+    assert.equal(await tv.page.locator(".browse-text", { hasText: "Loading episodes…" }).count(), 0, "no loading sentence under the pills");
     const skeleton = await tv.page.locator(".details-episodes-placeholder").evaluate(row => {
         const box = (node: Element | null) => { const rect = node?.getBoundingClientRect(); return rect === undefined ? null : [rect.width, rect.height]; };
         const card = row.querySelector(".details-episode-placeholder"), still = card?.querySelector(".details-episode-placeholder-still");
@@ -202,11 +203,42 @@ for (const [size, width] of [["compact", 189.2], ["large", 264]] as const) railT
     await routeMovie(tv, details);
     await tv.page.locator(MOVIE).first().click();
     await tv.page.locator('.box-set-row [data-focus="box-set-explore"]').waitFor();
-    const boxes = await tv.page.locator(".box-set-row .browse-art").evaluateAll(nodes => nodes.map(node => { const box = node.getBoundingClientRect(); return [box.width, box.height]; }));
+    // Later answers (watchlist and favorites membership, settings) repaint Details and replace the row. locator.evaluateAll
+    // finds the cards and measures them in separate browser turns, so a repaint between the two measures detached cards
+    // as 0 px. Find and measure them in one turn.
+    const boxes = await tv.page.evaluate(() => [...document.querySelectorAll(".box-set-row .browse-art")].map(node => { const box = node.getBoundingClientRect(); return [box.width, box.height]; }));
     // TVMediaCard.artworkSize: 220 times 0.86 or 1.2, with a 2:3 poster; Explore all takes the same size.
     assert.equal(boxes.length, 3);
     for (const [w, h] of boxes) { assert.ok(Math.abs(w! - width) < 0.05, `card ${w}px wide`); assert.ok(Math.abs(h! - width * 1.5) < 0.25, `card ${h}px tall`); }
 }, size);
+
+// CardWatchStatus sizes from the poster it sits on (CardWatchStatus.swift:29-30, :58): 22 and 8 points at 185 wide.
+// TVBoxSetRow draws 220-wide TVMediaCards scaled by the card size (TVBoxSetRow.swift:20,48); the box set page's grid
+// is 220 wide (BoxSetDetailView.swift:246) and does not scale here (browse.css box-set-grid).
+railTest("the box set row and page size the watched check from their own posters", async (tv, details) => {
+    await routeMovie(tv, details);
+    const watched = { ...BOX_SET, items: BOX_SET.items.map(item => ({ ...item, user_state: { played: item.content_id === "movie:m0002" } })) };
+    await tv.page.route("**/api/v2/catalog/items/movie%3Am0001/box-set?**", route => route.fulfill({ json: { box_set: watched } }));
+    await tv.page.route("**/api/v2/catalog/box-sets/1241?**", route => route.fulfill({ json: watched }));
+    const measure = (scope: string) => tv.page.evaluate(scope => {
+        const art = document.querySelector(`${scope} [data-focus="movie:m0002"] .browse-art`), mark = art?.querySelector(".card-watch-status-played");
+        if (art === null || art === undefined || mark === null || mark === undefined) return undefined;
+        const a = art.getBoundingClientRect(), m = mark.getBoundingClientRect();
+        return { poster: a.width, size: m.width, inset: a.right - m.right };
+    }, scope);
+    await tv.page.locator(MOVIE).first().click();
+    await tv.page.locator('.box-set-row [data-focus="movie:m0002"] .card-watch-status-played').waitFor();
+    const row = await measure(".box-set-row");
+    assert.ok(row !== undefined && Math.abs(row.poster - 264) < 0.05, `row poster ${row?.poster}`);
+    assert.ok(Math.abs(row.size - 22 * 264 / 185) < 0.05, `row check ${row.size}px`);
+    assert.ok(Math.abs(row.inset - 8 * 264 / 185) < 0.05, `row inset ${row.inset}px`);
+    await tv.page.locator('.box-set-row [data-focus="box-set-explore"]').click();
+    await tv.page.locator('.box-set-grid [data-focus="movie:m0002"] .card-watch-status-played').waitFor();
+    const page = await measure(".box-set-grid");
+    assert.ok(page !== undefined && page.poster === 220, `page poster ${page?.poster}`);
+    assert.ok(Math.abs(page.size - 22 * 220 / 185) < 0.05, `page check ${page.size}px`);
+    assert.ok(Math.abs(page.inset - 8 * 220 / 185) < 0.05, `page inset ${page.inset}px`);
+}, "large");
 
 railTest("an empty facts list keeps the Details header, and a credit without a character has no role line", async (tv, details) => {
     await routeMovie(tv, details, body => ({ ...body, cast: [{ person_id: "7", name: "River Vale", character: "Alex", order: 0 }, { name: "Morgan Lane", character: "", order: 1 }], crew: [], studios: [], countries: [], original_language: undefined, genres: [], release_date: undefined, premiere_date: undefined, year: undefined }));
@@ -214,6 +246,62 @@ railTest("an empty facts list keeps the Details header, and a credit without a c
     await tv.page.locator('.box-set-row [data-focus="box-set-explore"]').waitFor();
     assert.equal(await tv.page.locator(".details-facts > .browse-section-title").innerText(), "Details");
     assert.deepEqual(await tv.page.locator(".details-people .browse-card").evaluateAll(cards => cards.map(card => card.querySelectorAll(".browse-card-subtitle").length)), [1, 0]);
+});
+
+/** Opens the movie with its box set and Related loaded, then focuses the first Trailers & More card. */
+async function focusTrailers(tv: Tv, details: FakeDetails): Promise<void> {
+    await routeMovie(tv, details);
+    await tv.page.locator(MOVIE).first().click();
+    await tv.page.locator('.box-set-row [data-focus="box-set-explore"]').waitFor();
+    await tv.page.locator('[data-detail-section="related"] .browse-card').first().waitFor();
+    await tv.page.evaluate(() => document.fonts.ready);
+    await tv.page.locator(".details-extras [data-focus]").first().focus();
+    await tv.jump(500);
+}
+
+const boxSetPlace = (tv: Tv) => tv.page.evaluate(() => {
+    const page = document.querySelector<HTMLElement>(".browse"), row = document.querySelector(".box-set-row");
+    return { heading: row?.previousElementSibling?.getBoundingClientRect().top ?? NaN, scroll: page?.scrollTop ?? NaN, focused: row?.contains(document.activeElement) === true };
+});
+
+// TVMovieDetailView.swift:111-115,140-143 and TVDetailFocusScroll.swift:81 centre the box set section like Related:
+// the same header, spacing and 12pt-padded rail of 220-wide TVMediaCards (TVBoxSetRow.swift:20-27,67), so the same heading.
+for (const size of ["compact", "standard", "large"] as const) railTest(`Down into the box set row centres its section like Apple TV at the ${size} card size`, async (tv, details) => {
+    const growth = 330 * ({ compact: 0.86, standard: 1, large: 1.2 })[size] - 330 * 0.86;
+    await focusTrailers(tv, details);
+    await tv.remote(40); await tv.jump(500);
+    const landed = await boxSetPlace(tv);
+    assert.ok(landed.focused, "Down enters the box set row");
+    assert.equal(await tv.focused(), "movie:m0001", "on the film on screen");
+    assert.ok(Math.abs(landed.heading - (321 - growth / 2)) <= 2, `heading ${landed.heading} target ${321 - growth / 2}`);
+    // onChange(of: focusedPosterRailId) fires once per rail entry; moving along the row does not scroll again or fetch.
+    const reads = tv.fake.requests.length;
+    await tv.remote(39); await tv.jump(500);
+    assert.equal(await tv.focused(), "movie:m0002");
+    assert.equal((await boxSetPlace(tv)).scroll, landed.scroll);
+    assert.equal(tv.fake.requests.length, reads, "horizontal focus does not fetch");
+    // Up from Related enters the box set again and takes the same centred place.
+    await tv.remote(40); await tv.jump(500);
+    await tv.remote(38); await tv.jump(500);
+    const back = await boxSetPlace(tv);
+    assert.ok(back.focused, "Up from Related enters the box set row");
+    assert.ok(Math.abs(back.heading - (321 - growth / 2)) <= 2, `Up heading ${back.heading}`);
+}, size);
+
+// TVDetailFocusScroll.swift:57,102-104: withAnimation(.easeInOut(duration: 0.45)) { scrollTo(id, anchor: .center) }.
+railTest("the box set centring scroll takes Apple's 0.45 s ease-in-out", async (tv, details) => {
+    await focusTrailers(tv, details);
+    await pauseTvClock(tv);
+    const from = (await boxSetPlace(tv)).scroll;
+    await tv.remote(40);
+    await tv.page.clock.runFor(225);
+    const middle = (await boxSetPlace(tv)).scroll;
+    await tv.page.clock.runFor(300);
+    const to = (await boxSetPlace(tv)).scroll;
+    assert.ok(to - from > 100, `scrolled from ${from} to ${to}`);
+    // easeInOut is symmetric, so half the duration is half the distance; a 0.2 s ease-out would already be done.
+    const fraction = (middle - from) / (to - from);
+    assert.ok(Math.abs(fraction - 0.5) <= 0.06, `halfway fraction ${fraction}`);
 });
 
 railTest("Cast and Related always enter on their first card", async (tv, details) => {
@@ -298,15 +386,17 @@ railTest("holding Select on a season pill offers only Mark Season Watched or Unw
     await tv.down(13, false);
     await tv.jump(250);
     await tv.page.keyboard.up("Enter");
-    const menu = tv.page.locator(".card-actions-panel");
-    await menu.getByRole("button", { name: "Mark Season Unwatched", exact: true }).waitFor();
-    assert.deepEqual(await menu.locator(".card-actions-buttons .browse-button").allInnerTexts(), ["Mark Season Unwatched"]);
-    assert.equal(await menu.getByText("List actions are unavailable for this title.", { exact: true }).count(), 0);
-    const before = details.mutations.length;
-    await menu.getByRole("button", { name: "Mark Season Unwatched", exact: true }).click();
-    await tv.eventually(async () => details.mutations.length > before, "season watched change sent");
+    const menu = tv.page.getByRole("menu");
+    await menu.getByRole("menuitem", { name: "Mark Season Unwatched", exact: true }).waitFor();
+    assert.deepEqual(await menu.locator(".card-menu-label").allInnerTexts(), ["Mark Season Unwatched"]);
     await tv.remote(10009);
     await tv.eventually(async () => await menu.count() === 0, "Back dismisses the menu");
+    assert.equal(await tv.focused(), "season:1");
+    await pill.focus(); await tv.down(13); await tv.jump(650); await tv.up(13);
+    const before = details.mutations.length;
+    await menu.getByRole("menuitem", { name: "Mark Season Unwatched", exact: true }).click();
+    await tv.eventually(async () => await menu.count() === 0, "choosing the row closes the menu");
+    await tv.eventually(async () => details.mutations.length > before, "season watched change sent");
 });
 
 railTest("a related episode keeps its season when it replaces a related page, and is not the series on screen", async (tv) => {

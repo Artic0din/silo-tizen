@@ -145,7 +145,8 @@ test("a collapsed A-Z letter is a circle and the expanded label stays readable",
         assert.deepEqual(expanded, [
             { fontSize: "15px", radius: "8px", color: "rgb(0, 0, 0)", text: "All" },
             { fontSize: "15px", radius: "8px", color: "rgb(0, 0, 0)", text: "M" },
-            { fontSize: "15px", radius: "8px", color: "rgb(237, 237, 237)", text: "Z" },
+            // TVAlphabetRail.swift:154-159: a letter neither focused nor selected stays siloSecondaryText.
+            { fontSize: "15px", radius: "8px", color: "rgba(237, 237, 237, 0.6)", text: "Z" },
         ]);
     } finally { await page.close(); }
 });

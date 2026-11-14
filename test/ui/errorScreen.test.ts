@@ -157,6 +157,49 @@ journey("an expired session on Explore all offers Sign In Again first and Try Ag
     await tv.eventually(async () => await tv.page.evaluate(() => window.browseHarness.signOutCalls) === 1, "Sign In Again signs out");
 }, true);
 
+/** Apple ErrorView inside Search, a pushed page (TVMainTabView.swift:1291): the recovery plan offers Go Back for 403 and 404. */
+for (const [status, problem, headline, message, buttons, keys] of [
+    [401, { type: "about:blank", title: "Unauthorized", status: 401 }, "Session expired", "Your session has expired. Sign in again to continue.", ["Sign In Again", "Try Again"], ["sign-in", "retry"]],
+    [403, { type: `${PROBLEM_BASE}permission_denied`, title: "Forbidden", status: 403, detail: "Search is not available to this profile." }, "Not allowed", "Search is not available to this profile.", ["Go Back", "Try Again"], ["go-back", "retry"]],
+    [404, { type: "about:blank", title: "Not Found", status: 404 }, "Not found", NOT_FOUND, ["Go Back", "Try Again"], ["go-back", "retry"]],
+    [410, { type: `${PROBLEM_BASE}client_upgrade_required`, title: "Gone", status: 410 }, "Update required", "Update Silo to keep using this server.", ["Try Again"], ["retry"]],
+    [500, SERVER_PROBLEM, "Something went wrong", SERVER_PROBLEM_MESSAGE, ["Try Again"], ["retry"]],
+] as const) journey(`a ${status} Search failure shows Apple's ${headline} with ${buttons.join(" then ")}`, async tv => {
+    let failing = true;
+    await tv.page.route(url => url.pathname === "/api/v2/catalog" && url.searchParams.has("q"), route => failing
+        ? route.fulfill({ status, contentType: "application/problem+json", body: JSON.stringify(problem) })
+        : route.fallback());
+    await tv.page.locator('[data-focus="search"]').click();
+    await tv.page.fill("#browse-search", "Movie"); await tv.page.keyboard.press("Enter");
+    const page = tv.page.locator(".search-failure");
+    await page.waitFor();
+    assert.equal(await page.getAttribute("role"), "alert");
+    assert.equal(await page.locator(".search-state-title").innerText(), headline);
+    assert.equal(await page.locator(".search-state-description").innerText(), message);
+    assert.deepEqual(await page.locator(".browse-button").evaluateAll(nodes => nodes.map(node => node.textContent ?? "")), buttons);
+    await tv.page.keyboard.press("ArrowDown");
+    await tv.page.keyboard.press("ArrowDown");
+    assert.equal(await tv.focused(), keys[0], "Down from the filters lands on the first recovery button");
+    for (const key of keys.slice(1)) {
+        await tv.page.keyboard.press("ArrowDown");
+        assert.equal(await tv.focused(), key);
+    }
+    if (keys[0] === "go-back") {
+        await tv.page.locator('[data-focus="go-back"]').click();
+        await tv.page.locator('[data-view="home"]').waitFor();
+        return;
+    }
+    if (keys[0] === "sign-in") {
+        await tv.page.locator('[data-focus="sign-in"]').click();
+        await tv.eventually(async () => await tv.page.evaluate(() => window.browseHarness.signOutCalls) === 1, "Sign In Again signs out");
+        return;
+    }
+    failing = false;
+    await tv.page.locator('[data-focus="retry"]').click();
+    await tv.page.locator(".search-scene > .browse-grid .browse-card").first().waitFor();
+    assert.equal(await page.count(), 0);
+}, status === 401);
+
 /** The Samsung TV simulator's platform rule; the error page must still draw the app's body font. */
 const PLATFORM_FONT = "*{font-family:SamsungOne;font-weight:600}";
 

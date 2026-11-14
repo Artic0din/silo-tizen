@@ -138,6 +138,27 @@ test("Settings pins its rail, resets pane scroll and keeps modal background geom
     } finally { await tv.page.context().close(); }
 });
 
+test("a held Select on a Settings row draws no pressed state and opens the row on release", async () => {
+    const { tv } = await setup();
+    try {
+        await openSettings(tv);
+        const row = tv.page.locator('[data-focus="playback"]');
+        await row.focus();
+        await tv.jump(300);
+        const look = () => row.evaluate(node => { const style = getComputedStyle(node); return [style.transform, style.scale, style.opacity, style.backgroundColor, style.color, style.boxShadow, style.borderColor].join("|"); });
+        const resting = await look();
+        const pane = () => tv.page.locator(".settings-pane").innerText();
+        const before = await pane();
+        await tv.page.keyboard.down("Enter");
+        await tv.jump(300);
+        // Apple's TVSettingsRailRowStyle press (TVSettingsComponents.swift:208) is not matched yet, so a held row looks as it does on main.
+        assert.equal(await look(), resting, "a held Settings row shows no new visual state");
+        assert.equal(await pane(), before, "the row waits for release");
+        await tv.page.keyboard.up("Enter");
+        await tv.eventually(async () => await tv.focused() !== "playback" || await pane() !== before, "release opens the row");
+    } finally { await tv.page.context().close(); }
+});
+
 test("remaining settings expose only honoured rows and save profile appearance", async () => {
     const { tv, settings } = await setup();
     settings.remainingRows = true;

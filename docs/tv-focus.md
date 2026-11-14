@@ -181,7 +181,8 @@ Other layers:
   The browser's own movement can fire a second move in grids, which is why hosts call `preventDefault` on every arrow they handle.
   Every control must be reachable by arrows alone.
 - Enter is delivered on every remote without registration, as `keydown` and `keyup`.
-- Select acts on release, as on tvOS: the focused control is drawn pressed while Enter is held and runs when it is released.
+- Select acts on release, as on tvOS: the focused control runs when Enter is released.
+  `selectRelease.ts` marks the held control `data-pressed`. Only controls with a matched Apple pressed look style it: cards, For You and profile menu rows, rail letters, Details pill and circle actions, and PIN keys. Every other control looks unchanged while held until its Apple pressed look is matched.
   `selectRelease.ts` takes Chromium's keydown click from a focused `<button>` or link and clicks it on `keyup` instead, only when focus has not moved.
   Until Enter's keyup, every Enter keydown belongs to the press already down, flagged as a repeat or not (`isFreshSelect`); after a window blur or hidden page the keyup may be lost, so the next Enter starts a new press.
   Auto-repeat never clicks again, and any other key, focus leaving the button, a window blur or a hidden page cancels the press.

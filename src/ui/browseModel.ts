@@ -48,6 +48,7 @@ export interface DetailSeed {
     readonly runtimeMinutes?: number | undefined;
     readonly contentRating?: string | undefined;
     readonly genre?: string | undefined;
+    /** silo-apple 3651342 Navigation/Route.swift:137,155,209: the card's logo for the loading frame. */
     readonly logoUrl?: string | undefined;
     readonly backdropUrl?: string | undefined;
     readonly backdropThumbhash?: string | undefined;

@@ -81,7 +81,7 @@ export function detailsLoadingView(route: LoadingRoute, context: ViewContext, ba
     const titleSlot = el("div", "details-loading-title");
     const title = nonEmpty(seed?.title) ?? nonEmpty(route.title);
     if (title !== undefined) {
-        // TVItemDetailLoadingView.loadingTitle: the card's logo under the same remembered answer the loaded page uses.
+        // The card's logo under the answer the loaded page uses (silo-apple 3651342 TVItemDetailLoadingView.swift:122-140).
         const showText = (): void => titleSlot.replaceChildren(el("span", "details-loading-title-text", title));
         decodedLogoTitle(titleSlot, artworkUrl(nonEmpty(seed?.logoUrl), context.baseUrl), title, () => context.titleArt?.() ?? false, showText, "details-logo");
     } else titleSlot.append(placeholder(520, 64, 10));

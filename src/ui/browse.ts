@@ -203,6 +203,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             shownOverlays = presentation.cardOverlays;
             render(host.focused());
             if (resized) host.revealFocused();
+        // Apple's store is observed, so an open Details or season page follows a new answer (silo-apple 3651342 TitleArtPreferences.swift:186-188).
         } else if (titleArtChanged && !playing && (current?.kind === "item" || current?.kind === "season")) render(host.focused());
     }, options.publicStorage, `silo.titleArt:${JSON.stringify([server.server.serverId, session.activeProfile.id])}`);
     let shownTitleArt = presentation.showsTitleArt;

@@ -82,6 +82,32 @@ test("the loading frame shows the card's logo under the remembered answer and De
     } finally { await tv.page.context().close(); }
 });
 
+test("a search card's loading frame keeps its text title, as Apple's catalog cards carry no logo", async () => {
+    const { tv } = await setup();
+    try {
+        // Search lists catalog items, which the server sends with logo_url; Apple's BrowseItem drops it.
+        await tv.page.route(url => url.pathname === "/api/v2/catalog", async route => {
+            const url = new URL(route.request().url());
+            const reply = tv.fake.catalog?.route("GET", url.pathname.replace(/^\/api\/v2/, "") + url.search, "p-owner");
+            const body = reply?.body as { items?: Record<string, unknown>[] } | undefined;
+            assert.ok(reply?.status === 200 && Array.isArray(body?.items));
+            await route.fulfill({ json: { ...body, items: body.items.map(item => item.content_id === "movie:m0001" ? { ...item, logo_url: LOGO } : item) } });
+        });
+        const release = await holdDetail(tv);
+        await tv.page.locator('[data-focus="search"]').click();
+        await tv.page.fill("#browse-search", "Movie 0001"); await tv.remote(65376);
+        // Search's own hero preview may load this logo; the frame must not show it even once it has loaded.
+        const loaded = tv.page.waitForEvent("requestfinished", request => new URL(request.url()).pathname === LOGO);
+        await tv.page.locator('.browse-grid [data-focus="movie:m0001"]').click();
+        await tv.page.locator('[data-view="item:loading"]').waitFor();
+        await loaded;
+        await tv.jump(240);
+        assert.equal(await tv.page.locator(".details-loading-title .details-logo").count(), 0);
+        assert.equal(await tv.page.locator(".details-loading-title-text").textContent(), "Movie 0001");
+        release();
+    } finally { await tv.page.context().close(); }
+});
+
 test("a remembered Off answer keeps the loading frame and Details as text with zero logo requests", async () => {
     const { tv } = await setup(async (page, settings) => { settings.profile().set(TITLE, false); await cardLogo(page); });
     let logos = 0;

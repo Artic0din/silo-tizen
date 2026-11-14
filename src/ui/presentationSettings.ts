@@ -1,6 +1,6 @@
 // Profile settings that change how titles and cards look: title art (`ui.title_art`) and poster
 // badges (`ui.card_overlays`, `ui.card_overlays_enabled` and `/settings/overlay-config`). Read-only.
-// Home and Details follow silo-apple 1a7cceeaf3b2bfc4f889c00487d19b2c6f843940:
+// Home follows silo-apple 1a7cceeaf3b2bfc4f889c00487d19b2c6f843940:
 // - `Networking/TitleArtPreferences.swift`: logos show unless the server's last confirmed answer for
 //   this server and profile says off. That answer is kept on the TV, so a failed or pending read keeps
 //   it, and a server without the key drops it.
@@ -8,6 +8,8 @@
 //   administrator's baseline, else the registry defaults; the profile's on/off choice wins over the
 //   server-wide default in either direction. Registry defaults show until the reads answer, and a
 //   failed half keeps that half's last answer.
+// Details and its loading frame read the same title-art answer, as every Apple surface does (silo-apple 3651342
+// Networking/TitleArtPreferences.swift:25-30,201-203; tvOS/Screens/Detail/TVDetailHero.swift:585-594).
 import { ApiError } from "../api/errors.ts";
 import type { RequestSpec } from "../api/http.ts";
 import { operations } from "../api/operations.ts";
@@ -118,7 +120,7 @@ export class PresentationSettings {
         if (this.controller === undefined && (!this.titleArtAnswered || !this.overlaysHydrated || !this.posterAnswered)) this.load();
     }
 
-    /** The title-art answer Settings just confirmed, kept before the reread lands so no page shows the old one. */
+    /** The answer Settings just confirmed, applied before the reread lands, as Apple's store sets it (silo-apple 3651342 TitleArtPreferences.swift:404). */
     acceptTitleArt(value: boolean): void {
         this.applyTitleArt(value, () => true);
     }

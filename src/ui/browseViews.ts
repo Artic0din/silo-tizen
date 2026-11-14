@@ -216,7 +216,10 @@ function episodeLine(card: Card): SeriesLine | undefined {
 
 /** Undefined for media this client does not browse. */
 export function cardItem(card: Card, context: ViewContext): FocusItem | undefined {
-    const destination = context.cardDestination?.(card) ?? (card.type === "season" ? destinationOf(card) : browseCardDestination(card));
+    const found = context.cardDestination?.(card) ?? (card.type === "season" ? destinationOf(card) : browseCardDestination(card));
+    // Only feed-row cards (Apple SectionItem) seed the loading frame's logo; catalog cards (BrowseItem) carry none.
+    // silo-apple 3651342 Navigation/Route.swift:155,180,209 and Networking/Models.swift:242.
+    const destination = found?.kind === "item" && found.seed?.logoUrl !== undefined && context.homeRow === undefined ? { ...found, seed: { ...found.seed, logoUrl: undefined } } : found;
     if (destination === undefined) {
         return undefined;
     }

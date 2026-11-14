@@ -1425,7 +1425,8 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         event.preventDefault();
         // tvOS runs Select on release: a fresh press waits for onKeyUp, and its repeats change nothing.
         if (key === "enter" && !released) {
-            if (!event.repeat) selectHeld = { element: document.activeElement, key: document.activeElement?.getAttribute("data-focus") ?? null, context: selectContext() };
+            // A press on a disabled menu row stays inert, even if a redraw enables that row before release.
+            if (!event.repeat) selectHeld = menuOpen && document.activeElement?.getAttribute("aria-disabled") === "true" ? undefined : { element: document.activeElement, key: document.activeElement?.getAttribute("data-focus") ?? null, context: selectContext() };
             return;
         }
         if (key !== "enter") selectHeld = undefined;

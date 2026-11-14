@@ -2164,6 +2164,16 @@ test("audio and quality stay disabled while a subtitle report is pending", async
         await remote(page, DOWN);
         await remote(page, ENTER);
         assert.deepEqual(await commands(page), [], "a disabled audio row does not select");
+        // A press made while the row is disabled stays inert when the report ends before its release.
+        const row = await focused(page);
+        await keyEvent(page, "keydown", ENTER);
+        await show(page, playing({ ...tracks, reporting: false }));
+        assert.equal(await focused(page), row);
+        assert.equal(await page.locator(`[data-focus="${row}"]`).getAttribute("aria-disabled"), "false");
+        await keyEvent(page, "keyup", ENTER);
+        assert.deepEqual(await commands(page), [], "the release of a press made while disabled selects nothing");
+        await remote(page, ENTER);
+        assert.equal((await commands(page)).length, 1, "a fresh press on the enabled row selects it");
     } finally { await page.close(); }
 });
 

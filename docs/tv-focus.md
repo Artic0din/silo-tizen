@@ -185,7 +185,8 @@ Other layers:
   `selectRelease.ts` takes Chromium's keydown click from a focused `<button>` or link and clicks it on `keyup` instead, only when focus has not moved.
   Auto-repeat never clicks again, and any other key, focus leaving the button, a window blur or a hidden page cancels the press.
   A browse repaint that replaces the held button with the same item's new one keeps the press (`FocusHost.show`).
-  Card menu rows run only the row a fresh press was made on while it was enabled.
+  A press on a control marked `aria-disabled` never arms, so it never runs, even if a redraw enables that control before release.
+  Card menu rows and player menu rows follow the same rule in their own handlers.
   `ScreenHost` and `FocusHost` leave Enter to it, except for cards with a `quickAction` (see below).
   Menus, the Exit dialog and the player own Enter themselves and also act on its release.
   The Exit dialog and the request menu run a button only when `releasedSelect()` names it: the button the press was made on, still focused, with the press never cancelled.

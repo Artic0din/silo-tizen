@@ -14,8 +14,14 @@ let releasing: HTMLElement | undefined;
 let released: HTMLElement | undefined;
 let listening = false;
 
-function activatable(element: Element | null): element is HTMLElement {
+/** A control Chromium would click on Enter keydown. */
+function clickable(element: Element | null): element is HTMLElement {
     return (element instanceof HTMLButtonElement && !element.disabled) || (element instanceof HTMLAnchorElement && element.href !== "");
+}
+
+// aria-disabled marks a focusable control that ignores presses: a press made on it never runs, even if it enables before release.
+function activatable(element: Element | null): element is HTMLElement {
+    return clickable(element) && element.getAttribute("aria-disabled") !== "true";
 }
 
 function release(): void {
@@ -59,7 +65,7 @@ const onPress = (event: KeyboardEvent): void => {
 };
 
 const onUnhandled = (event: KeyboardEvent): void => {
-    if (remoteKey(event) !== "enter" || event.defaultPrevented || !activatable(document.activeElement)) return;
+    if (remoteKey(event) !== "enter" || event.defaultPrevented || !clickable(document.activeElement)) return;
     // Auto-repeat keeps the default taken too, so a held Select never clicks again.
     event.preventDefault();
     if (!event.repeat && document.activeElement === held) owned = true;

@@ -2,6 +2,7 @@ import { actionButton, zoneNode } from "./browseViews.ts";
 import type { FocusItem } from "./browseFocus.ts";
 import { remoteKey } from "./keys.ts";
 import { el } from "./screen.ts";
+import { listenSelectRelease, releasedSelect } from "./selectRelease.ts";
 
 export interface RequestRecordMenuOptions {
     readonly container: HTMLElement;
@@ -18,7 +19,6 @@ export interface RequestRecordMenuOptions {
 export class RequestRecordMenu {
     private panel: HTMLElement | undefined;
     private items: FocusItem[] = [];
-    private pressed = false;
     private options: RequestRecordMenuOptions | undefined;
     private readonly onKey = (event: KeyboardEvent): void => {
         if (!this.active) return;
@@ -26,43 +26,33 @@ export class RequestRecordMenu {
         if (key === undefined && event.key !== "Tab") return;
         event.preventDefault();
         event.stopImmediatePropagation();
-        // Any other key ends a held Select, so its release cannot choose a button it did not press.
-        if (key !== "enter") this.pressed = false;
         if (key === "back") this.close();
         else if (key === "up" || key === "down" || key === "left" || key === "right" || event.key === "Tab") {
             const index = this.items.findIndex(item => item.element === document.activeElement);
             const step = key === "up" || key === "left" || event.shiftKey ? -1 : 1;
             this.items[Math.max(0, Math.min(this.items.length - 1, index + step))]?.element.focus({ preventScroll: true });
-        } else if (key === "enter") {
-            // tvOS chooses on Select's release; repeats belong to the press already down.
-            if (!event.repeat) this.pressed = true;
         }
+        // Enter waits for its release (onRelease).
     };
     private readonly onRelease = (event: KeyboardEvent): void => {
         if (remoteKey(event) !== "enter") return;
         event.preventDefault();
         event.stopImmediatePropagation();
-        // A hidden page cannot finish a press.
-        if (!this.pressed || document.hidden) { this.pressed = false; return; }
-        this.pressed = false;
-        this.items.find(item => item.element === document.activeElement)?.element.click();
+        // tvOS chooses on Select's release, only the button the press was made on and still focused.
+        const pressed = releasedSelect();
+        if (pressed !== undefined && pressed === document.activeElement) this.items.find(item => item.element === pressed)?.element.click();
     };
-
-    /** Losing the window or hiding the page loses Select's release, so the next press is a fresh one. */
-    private readonly onBlur = (): void => { this.pressed = false; };
 
     get active(): boolean { return this.panel !== undefined; }
 
     open(options: RequestRecordMenuOptions): void {
         if (this.active) return;
         this.options = options;
-        this.pressed = false;
+        listenSelectRelease();
         this.panel = el("div", "card-actions-scrim");
         options.container.appendChild(this.panel);
         document.addEventListener("keydown", this.onKey, true);
         document.addEventListener("keyup", this.onRelease, true);
-        window.addEventListener("blur", this.onBlur);
-        document.addEventListener("visibilitychange", this.onBlur);
         this.showActions();
     }
 
@@ -126,11 +116,8 @@ export class RequestRecordMenu {
         this.panel?.remove();
         this.panel = undefined;
         this.items = [];
-        this.pressed = false;
         this.options = undefined;
         document.removeEventListener("keydown", this.onKey, true);
         document.removeEventListener("keyup", this.onRelease, true);
-        window.removeEventListener("blur", this.onBlur);
-        document.removeEventListener("visibilitychange", this.onBlur);
     }
 }

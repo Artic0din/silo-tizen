@@ -1,4 +1,5 @@
 import { remoteKey } from "./keys.ts";
+import { listenSelectRelease, releasedSelect } from "./selectRelease.ts";
 import { actions, button, el } from "./screen.ts";
 
 export interface ExitDialog { destroy(): void; }
@@ -15,14 +16,11 @@ export function mountExitDialog(root: HTMLElement, exit: () => void, closed: () 
     const status = el("p", "signin-text signin-error");
     status.setAttribute("role", "alert");
     let destroyed = false;
-    let pressed = false;
     const destroy = (): void => {
         if (!destroyed) {
             destroyed = true;
             window.removeEventListener("keydown", onKey, true);
             window.removeEventListener("keyup", onRelease, true);
-            window.removeEventListener("blur", endPress);
-            document.removeEventListener("visibilitychange", endPress);
             document.removeEventListener("focusin", onFocus, true);
             overlay.remove();
             closed();
@@ -63,26 +61,14 @@ export function mountExitDialog(root: HTMLElement, exit: () => void, closed: () 
         // The dialog is modal; the underlying screen must not also navigate on this key.
         event.preventDefault();
         event.stopImmediatePropagation();
-        // Any other key ends a held Select, so its release cannot run a button it did not press.
-        if (key !== "enter") {
-            pressed = false;
-        }
         if (key === "back") {
             cancel();
         } else if (key === "left" || key === "up") {
             yes.element.focus();
         } else if (key === "right" || key === "down") {
             no.element.focus();
-        } else if (key === "enter") {
-            // tvOS runs the focused button when Select is released; a repeat is the same press.
-            if (!event.repeat) {
-                pressed = true;
-            }
         }
-    };
-    // A lost window or a hidden page loses Select's release, so the next press is a fresh one.
-    const endPress = (): void => {
-        pressed = false;
+        // Enter waits for its release (onRelease).
     };
     const onRelease = (event: KeyboardEvent): void => {
         if (remoteKey(event) !== "enter") {
@@ -90,13 +76,14 @@ export function mountExitDialog(root: HTMLElement, exit: () => void, closed: () 
         }
         event.preventDefault();
         event.stopImmediatePropagation();
-        if (!pressed) {
+        // tvOS runs a button when Select is released on it; a press cancelled or made elsewhere runs nothing.
+        const pressed = releasedSelect();
+        if (pressed === undefined || pressed !== document.activeElement) {
             return;
         }
-        pressed = false;
-        if (document.activeElement === yes.element) {
+        if (pressed === yes.element) {
             confirm();
-        } else {
+        } else if (pressed === no.element) {
             cancel();
         }
     };
@@ -106,10 +93,9 @@ export function mountExitDialog(root: HTMLElement, exit: () => void, closed: () 
     overlay.appendChild(panel);
     // Screen owners replace the app root while asynchronous requests settle.
     root.ownerDocument.body.appendChild(overlay);
+    listenSelectRelease();
     window.addEventListener("keydown", onKey, true);
     window.addEventListener("keyup", onRelease, true);
-    window.addEventListener("blur", endPress);
-    document.addEventListener("visibilitychange", endPress);
     document.addEventListener("focusin", onFocus, true);
     no.element.focus();
     return { destroy };

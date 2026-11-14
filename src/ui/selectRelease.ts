@@ -10,6 +10,8 @@ let held: HTMLElement | undefined;
 let owned = false;
 /** The control a release is about to click, between the keyup's capture and bubble. */
 let releasing: HTMLElement | undefined;
+/** The control whose press this Enter keyup completes intact, for screens that own Enter themselves. */
+let released: HTMLElement | undefined;
 let listening = false;
 
 function activatable(element: Element | null): element is HTMLElement {
@@ -66,7 +68,8 @@ const onUnhandled = (event: KeyboardEvent): void => {
 // A screen may stop a keyup it owns, so the press ends at capture; only a release no screen took clicks.
 const onReleaseStart = (event: KeyboardEvent): void => {
     if (remoteKey(event) !== "enter") return;
-    releasing = owned ? held : undefined;
+    released = document.hidden ? undefined : held;
+    releasing = owned ? released : undefined;
     release();
 };
 
@@ -79,6 +82,14 @@ const onRelease = (event: KeyboardEvent): void => {
     event.preventDefault();
     target.click();
 };
+
+/**
+ * During an Enter keyup, the control the press was made on, if it held focus throughout and no other key,
+ * window blur or hidden page ended it. A screen that owns Enter runs its control only when this is that control.
+ */
+export function releasedSelect(): HTMLElement | undefined {
+    return released;
+}
 
 /** Starts the app-wide Select release; later calls are no-ops. */
 export function listenSelectRelease(): void {

@@ -1784,6 +1784,12 @@ test("a held Select on Remove Request cannot dismiss the confirmation", async ()
         assert.equal(await tv.page.locator(".card-actions-panel h1").textContent(), "Remove this request?");
         assert.equal(await tv.focused(), "keep-request");
         assert.equal(await tv.page.locator(".card-actions-scrim").count(), 1, "the release that opened the confirmation must not activate Keep request");
+        await tv.down(13);
+        await button(tv, "confirm-remove").focus();
+        await tv.up(13);
+        assert.equal(removals(tv).length, 0, "a press made on Keep request never runs Remove request");
+        assert.equal(await tv.page.locator(".card-actions-scrim").count(), 1);
+        await button(tv, "keep-request").focus();
         await button(tv, "keep-request").click();
         assert.equal(await tv.focused(), "failed-a");
         assert.equal(removals(tv).length, 0);

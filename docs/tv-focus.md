@@ -188,6 +188,7 @@ Other layers:
   Card menu rows run only the row a fresh press was made on while it was enabled.
   `ScreenHost` and `FocusHost` leave Enter to it, except for cards with a `quickAction` (see below).
   Menus, the Exit dialog and the player own Enter themselves and also act on its release.
+  The Exit dialog and the request menu run a button only when `releasedSelect()` names it: the button the press was made on, still focused, with the press never cancelled.
   A text field keeps the TV keyboard's own Enter.
 - Media keys are registered at startup in `registerMediaKeys` (`src/platform.ts`).
   It registers Play/Pause, Play, Pause, Stop, Rewind and Fast Forward one at a time, only if the TV lists them as supported, and a refusal does not stop the others.

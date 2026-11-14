@@ -2026,7 +2026,11 @@ appTest("root Back opens an isolated exit dialog; Cancel restores focus and Exit
     assert.equal(await tv.focused(), focused);
     await tv.remote(10009);
     await tv.remote(10009);
-    await tv.page.keyboard.press("ArrowLeft");
+    await tv.page.keyboard.down("Enter");
+    await tv.page.locator('[data-focus="exit"]').focus();
+    await tv.page.keyboard.up("Enter");
+    assert.equal(await tv.page.evaluate(() => window.appHarness.exits), 0, "a press made on Cancel never runs Exit");
+    assert.equal(await tv.page.getByRole("dialog").count(), 1, "nor Cancel, once focus left it");
     await tv.page.keyboard.down("Enter");
     await tv.page.evaluate(() => window.dispatchEvent(new Event("blur")));
     await tv.page.keyboard.up("Enter");

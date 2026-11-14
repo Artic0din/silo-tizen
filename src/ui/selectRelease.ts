@@ -52,10 +52,8 @@ const onFocusOut = (event: FocusEvent): void => {
 };
 
 const onPress = (event: KeyboardEvent): void => {
-    const key = remoteKey(event);
-    if (key === undefined) return;
-    // Another remote key ends the press, as moving focus off a held tvOS control does.
-    if (key !== "enter") { release(); return; }
+    // Any other key, Tab included, ends the press, as moving focus off a held tvOS control does.
+    if (remoteKey(event) !== "enter") { release(); return; }
     if (event.repeat) return;
     release();
     const target = document.activeElement;

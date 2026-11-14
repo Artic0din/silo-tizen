@@ -1790,6 +1790,11 @@ test("a held Select on Remove Request cannot dismiss the confirmation", async ()
         assert.equal(removals(tv).length, 0, "a press made on Keep request never runs Remove request");
         assert.equal(await tv.page.locator(".card-actions-scrim").count(), 1);
         await button(tv, "keep-request").focus();
+        await tv.down(13);
+        await tv.page.keyboard.press("Tab");
+        assert.equal(await tv.focused(), "keep-request", "Tab on the last button leaves focus in place");
+        await tv.up(13);
+        assert.equal(await tv.page.locator(".card-actions-scrim").count(), 1, "Tab ended the held press, so its release runs nothing");
         await button(tv, "keep-request").click();
         assert.equal(await tv.focused(), "failed-a");
         assert.equal(removals(tv).length, 0);

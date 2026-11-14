@@ -58,6 +58,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Poster badge icons now match Apple TV: HDR, HDR10, ATMOS and AV1 marks use Apple's sizes and heavier weight, Dolby Vision is its ring mark beside the full label, Resolution + HDR shows HDR10+, and the Resolution + HDR + Audio badge is drawn instead of being dropped.
 - Posters now show Apple TV's watch status in the top-right corner: a small green check on a watched title, or the number of episodes left on a series or season you have started, sized with the poster on Home, library, Search and every other poster grid.
 - The profile menu's Sign Out and Watch Party icons now match Apple TV's symbols in shape and size: Sign Out is the door with an arrow leaving it, and Watch Party is three people, wider than the other icons as on Apple TV.
 - Series cards on Home, library pages, collections, Explore all, a person's filmography, History and the Watch Party picker now show the years the series ran, as on Apple TV: "2024 – Present" while it is returning and "2019 – 2023" once it has ended.

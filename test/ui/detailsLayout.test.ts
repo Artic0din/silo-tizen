@@ -1420,11 +1420,14 @@ detailTest('Details rail clearances and white focus styling follow the measured 
         const trigger = document.querySelector('[data-focus="version"]');
         const icon = trigger?.querySelector("svg");
         const label = trigger?.querySelector(".details-action-label");
-        if (!(trigger instanceof HTMLElement) || icon === null || icon === undefined || label === null || label === undefined || !trigger.isConnected) return null;
+        if (!(trigger instanceof HTMLElement) || !(label instanceof HTMLElement) || icon === null || icon === undefined || !trigger.isConnected) return null;
         const style = getComputedStyle(trigger);
-        const intrinsic = icon.getBoundingClientRect().width + label.getBoundingClientRect().width + parseFloat(style.columnGap) + parseFloat(style.paddingLeft) + parseFloat(style.paddingRight) + parseFloat(style.borderLeftWidth) + parseFloat(style.borderRightWidth);
-        return { color: style.backgroundColor, width: trigger.getBoundingClientRect().width, intrinsic };
-    }, null, value => value.color === "rgb(255, 255, 255)" && Math.abs(value.width - value.intrinsic) < 2, "focused Versions chip");
+        const labelStyle = getComputedStyle(label);
+        // The pill widens over 0.28 s of real time; only its end state, with the whole title shown, is the measured layout.
+        const settled = style.paddingLeft === "28px" && labelStyle.marginLeft === "14px" && labelStyle.opacity === "1" && label.scrollWidth <= label.clientWidth;
+        const intrinsic = icon.getBoundingClientRect().width + parseFloat(labelStyle.marginLeft) + label.getBoundingClientRect().width + parseFloat(style.columnGap) + parseFloat(style.paddingLeft) + parseFloat(style.paddingRight) + parseFloat(style.borderLeftWidth) + parseFloat(style.borderRightWidth);
+        return { color: style.backgroundColor, settled, width: trigger.getBoundingClientRect().width, intrinsic };
+    }, null, value => value.color === "rgb(255, 255, 255)" && value.settled && Math.abs(value.width - value.intrinsic) < 2, "focused Versions chip");
     assert.equal(versions.color, "rgb(255, 255, 255)");
     assert.ok(Math.abs(versions.width - versions.intrinsic) < 2, `Versions width ${versions.width}, intrinsic ${versions.intrinsic}`);
 });

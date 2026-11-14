@@ -811,6 +811,8 @@ test("removing suggestions before the focused card keeps that card on screen", a
         await button(tv, "suggestion:s0").focus();
         for (let index = 0; index < 9; index++) await tv.remote(39);
         assert.equal(await tv.focused(), "suggestion:s9");
+        // Let the reveal scroll settle first: a removal that lands mid-scroll can leave the card on screen by chance.
+        await tv.jump(500);
         fake.suggestions.splice(0, 7);
         fake.voteAs("p-other", "s19", true);
         await tv.eventually(async () => (await cards(tv)).length === 13, "seven removed");

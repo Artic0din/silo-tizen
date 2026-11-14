@@ -73,6 +73,8 @@ export function harnessBundle(app: TvApp = "signIn"): Promise<string> {
     return bundle;
 }
 
+const PACKAGED_FONTS: Readonly<Record<string, string>> = { "/fonts/InterVariable.woff2": "font/woff2", "/fonts/RobotoMono-Variable.ttf": "font/ttf" };
+
 export function launchBrowser(): Promise<Browser> {
     // Hinted glyph advances differ on Linux and shift text by a few pixels; geometry tests compare against Apple's values.
     return chromium.launch({ args: ["--font-render-hinting=none"] });
@@ -189,9 +191,10 @@ export async function openTv(
             await route.fulfill({ status: 200, contentType: "text/css", body: THEME + CSS[app] });
             return;
         }
-        if (url.pathname === "/fonts/InterVariable.woff2") {
-            // The stylesheet's ../fonts/ URL from /tv/app.css: the same file the WGT packages.
-            await route.fulfill({ status: 200, contentType: "font/woff2", body: readFileSync(new URL("../../../app/fonts/InterVariable.woff2", import.meta.url)) });
+        const font = PACKAGED_FONTS[url.pathname];
+        if (font !== undefined) {
+            // The stylesheet's ../fonts/ URLs from /tv/app.css: the same files the WGT packages.
+            await route.fulfill({ status: 200, contentType: font, body: readFileSync(new URL(`../../../app${url.pathname}`, import.meta.url)) });
             return;
         }
         if (url.pathname.startsWith("/tv/img/")) {

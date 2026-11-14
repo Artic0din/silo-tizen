@@ -12,7 +12,10 @@
 .section-catalog-grid .browse-card-subtitle { margin: 0; padding: 0; font-size: 20px; line-height: 24px; font-weight: 400; color: rgba(237,237,237,.32); }
 .section-catalog-state { margin: 220px 0 16px; font-size: 36px; font-weight: 600; text-align: center; outline: none; }
 .section-catalog-state ~ .browse-text { text-align: center; font-size: 26px; }
-.section-catalog-loading { width: 40px; height: 40px; margin: 0 auto 48px; border: 4px solid var(--silo-secondary); border-top-color: var(--silo-text); border-radius: 50%; }
+/* TVCatalogGrid.swift:83-91: ProgressView tinted siloOnSurface with default padding, spinning as on Requests. */
+.section-catalog-loading { width: 40px; height: 40px; margin: 0 auto 48px; padding: 16px; color: var(--silo-text); }
+.section-catalog-loading svg { display: block; width: 40px; height: 40px; animation: search-spin 1s steps(8) infinite; }
+@media (prefers-reduced-motion: reduce) { .section-catalog-loading svg { animation: none; } }
 .skyline-home { font-family: var(--silo-font); font-weight: 400; }
 /* Platform-wide font rules must not replace the packaged face or the component's inherited weight. */
 .skyline-home * { font-family: inherit; font-weight: inherit; }
@@ -895,7 +898,8 @@
 .skyline-profile-header .navigation-avatar { background: rgba(255,255,255,.16); color: #fff; }
 .skyline-profile-labels { min-width: 0; }
 .skyline-profile-title { font-size: 24px; font-weight: 600; line-height: 29px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.skyline-profile-server { font-family: monospace; font-size: 14px; line-height: 18px; letter-spacing: 1.4px; color: rgba(255,255,255,.38); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* SF Mono 14 tracked 1.4, 2 pt under the name (TVTopMenuBar.swift:1235-1245 at silo-apple 5780c84). Roboto Mono advances 0.6em to SF Mono's 0.618em, so the line adds the 0.25 px difference. */
+.skyline-profile-server { margin-top: 2px; font-family: var(--silo-mono); font-size: 14px; line-height: 17px; letter-spacing: 1.65px; color: rgba(255,255,255,.38); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .skyline-menu-divider { height: 1px; background: rgba(255,255,255,.12); margin: 10px 12px; }
 :is(.skyline-selector, .skyline-selector-leaving) .skyline-destructive { color: #ff453a; }
 :is(.skyline-selector, .skyline-selector-leaving) .skyline-destructive:focus { background: #fff; color: #000; }
@@ -908,8 +912,9 @@
    frosted material, a 1 pt white 22% to 5% hairline, and contact and ambient shadows (radius 8 y 4 at 35%, radius 40
    y 24 at 55%; CSS blur is twice the radius). The panel scales from 0.96 under its anchor with easeOut(0.12)
    (TVMainTabView.swift:622-633, SiloTheme.swift:233); skyline.ts sets the origin. */
-.skyline-panel:not([data-confirmation]) { background: linear-gradient(rgba(35,37,44,.92), rgba(20,21,25,.95)); box-shadow: 0 4px 16px rgba(0,0,0,.35), 0 24px 80px rgba(0,0,0,.55); backdrop-filter: blur(30px); animation: skyline-panel 120ms ease-out; }
-.skyline-panel:not([data-confirmation])::before { content: ""; position: absolute; inset: 0; padding: 1px; border-radius: inherit; background: linear-gradient(rgba(255,255,255,.22), rgba(255,255,255,.05)); -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; pointer-events: none; }
+.skyline-panel:not([data-confirmation]), .browse-sort-panel, .browse-filter-panel { background: linear-gradient(rgba(35,37,44,.92), rgba(20,21,25,.95)); box-shadow: 0 4px 16px rgba(0,0,0,.35), 0 24px 80px rgba(0,0,0,.55); backdrop-filter: blur(30px); }
+.skyline-panel:not([data-confirmation]) { animation: skyline-panel 120ms ease-out; }
+:is(.skyline-panel:not([data-confirmation]), .browse-sort-panel, .browse-filter-panel)::before { content: ""; position: absolute; inset: 0; padding: 1px; border-radius: inherit; background: linear-gradient(rgba(255,255,255,.22), rgba(255,255,255,.05)); -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; pointer-events: none; }
 /* The flyout only fades in, easeInOut(0.16) (tvOS/Navigation/TVCascadeSelector.swift:151-164, SiloTheme.swift:257). */
 .skyline-panel.skyline-flyout { animation: skyline-appear 160ms ease-in-out; }
 @keyframes skyline-panel { from { opacity: 0; transform: scale(.96); } to { opacity: 1; transform: scale(1); } }
@@ -929,6 +934,8 @@
 :is(.skyline-selector, .skyline-selector-leaving)[data-menu-kind="for_you"] .skyline-menu-header { padding-bottom: 2px; font-size: calc(14px * var(--silo-sf-cap-scale)); letter-spacing: calc(14px * var(--silo-sf-cap-scale) * .26); }
 :is(.skyline-selector, .skyline-selector-leaving)[data-menu-kind="for_you"] .skyline-menu-item, :is(.skyline-selector, .skyline-selector-leaving)[data-menu-kind="profile"] .skyline-menu-item { min-height: 54px; }
 :is(.skyline-selector, .skyline-selector-leaving)[data-menu-kind="profile"] .skyline-profile-header { margin-bottom: 0; }
+/* TVProfileDropdown.actionButton (TVTopMenuBar.swift:1264-1285 at silo-apple 5780c84): 22 pt semibold SF Pro draws a 27 pt line, so with 14 pt padding a row is 55 tall and the 10 pt stack spacing makes a 65 px pitch. */
+:is(.skyline-selector, .skyline-selector-leaving)[data-menu-kind="profile"] .skyline-menu-item { min-height: 55px; line-height: 27px; }
 :is(.skyline-selector, .skyline-selector-leaving)[data-menu-kind="profile"] .skyline-menu-divider { flex-shrink: 0; margin: 0 12px; }
 :is(.skyline-selector, .skyline-selector-leaving)[data-menu-kind="library"] .browse-button[role="menuitem"], :is(.skyline-selector, .skyline-selector-leaving):is(.skyline-flyout, .skyline-flyout-leaving) .browse-button.skyline-menu-item { font-size: 20px; line-height: 24px; min-height: 50px; padding: 13px 16px; border-radius: 12px; gap: 12px; color: rgba(255,255,255,.86); }
 :is(.skyline-selector, .skyline-selector-leaving)[data-menu-kind="library"] [role="menuitem"] .skyline-menu-icon, :is(.skyline-flyout, .skyline-flyout-leaving) .skyline-menu-icon { width: 26px; height: 18px; }
@@ -958,24 +965,39 @@
 .skyline-pills.person-filmography-filters { position: static; width: auto; margin-bottom: 24px; }
 .skyline-pills .browse-button { font-size: 19px; padding: 9px 22px; border-radius: 30px; background: rgba(255,255,255,.07); color: #ededed; border-color: rgba(255,255,255,.09); }
 .skyline-pills .browse-button[aria-pressed="true"] { background: #fff; color: #000; }
-.discovery-facets, .discovery-letters { display: flex; flex-wrap: wrap; }
-.discovery-facets .browse-button { width: 250px; min-height: 68px; white-space: normal; overflow-wrap: break-word; }
-.discovery-letters { position: fixed; right: 88px; top: 240px; width: 40px; height: 780px; flex-direction: column; flex-wrap: nowrap; }
-.discovery-letters .browse-button { width: 40px; min-height: 26px; padding: 2px; margin: 0; font-family: monospace; font-size: 15px; }
-.discovery-letters [aria-pressed="true"] { background: #fff; color: #000; }
 .discovery-collection-grid { display: grid; grid-template-columns: repeat(var(--collection-columns, 6), minmax(0, 1fr)); column-gap: 40px; row-gap: 60px; justify-items: center; padding: 16px 0 0; }
 .skyline-grid .skyline-content:has(.discovery-collection-grid) { top: 244px; left: 0; width: 1920px; height: 836px; padding: 0 80px 60px; }
 .browse-section:has(.discovery-collection-grid) { margin-bottom: 44px; }
 .browse-section:has(.discovery-collection-grid):last-child { margin-bottom: 0; }
-.collection-group-title { margin: 0 0 20px; font-family: ui-monospace, monospace; font-size: 22px; letter-spacing: 5.72px; color: rgba(237,237,237,.38); text-transform: uppercase; }
+/* TVLibraryCollectionsView.swift:79-92: one regular-weight line, 20 above its cards (the grid adds no padding).
+   Monospaced text keeps Apple's 22pt, as .details-track-popover's header does. */
+.collection-group-title { margin: 0 0 20px; overflow: hidden; font-family: ui-monospace, monospace; font-size: 22px; font-weight: 400; letter-spacing: 5.72px; color: rgba(237,237,237,.38); text-transform: uppercase; white-space: nowrap; text-overflow: ellipsis; }
+.collection-group-title + .discovery-collection-grid { padding-top: 0; }
 .browse .catalog-grid .collection-poster { width: calc(260px * var(--poster-scale, 1)); height: auto; padding: 0; border: 0; border-radius: 0; background: none; }
 .browse .catalog-grid .collection-poster:focus { transform: none; background: none; box-shadow: none; }
-.browse .catalog-grid .collection-poster .browse-art { transition: transform var(--silo-fast) ease-out, box-shadow var(--silo-fast) ease-out; }
-.browse .catalog-grid .collection-poster:focus .browse-art { transform: scale(1.05); box-shadow: 0 0 0 4px rgba(255,255,255,.7), 0 8px 18px rgba(0,0,0,.45); }
 .discovery-collection .browse-art-fallback { position: absolute; inset: 0; padding: 0; }
 .collection-stack { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; color: rgba(255,255,255,.85); }
 .collection-stack svg { width: 56px; height: 56px; }
-@media (prefers-reduced-motion: reduce) { .browse .catalog-grid .collection-poster:focus .browse-art { transform: none; box-shadow: 0 0 0 4px rgba(255,255,255,.7); } }
+/* TVLibraryBrowseView.swift:188-274, on the Requests loading rules: the page outline fills the tab under the bar. */
+.skyline-content > .library-loading, .skyline-content > .library-recommended-state { position: fixed; top: 0; left: 0; box-sizing: border-box; width: 1920px; height: 1020px; margin: 0; display: flex; flex-direction: column; outline: none; }
+.skyline-content > .library-loading { justify-content: space-between; padding: 188px 88px 34px; overflow: hidden; background: #000 linear-gradient(to bottom left, rgba(21,23,28,.72), rgba(0,0,0,.88), #000); }
+.library-loading-label { font-size: 20px; line-height: 24px; font-weight: 500; color: rgba(237,237,237,.72); }
+.library-loading-cards { display: flex; gap: 40px; }
+.library-loading-card { display: flex; flex-direction: column; gap: 12px; }
+.skyline-content > .library-recommended-state { align-items: center; justify-content: center; }
+/* TVLibraryCollectionsView.swift:31-39, :139-151: the 216 inset and 44 spacing, then an area at least 400 tall. */
+.skyline-content > .library-collections-state { position: fixed; top: 260px; left: 0; width: 1920px; min-height: 400px; display: flex; align-items: center; justify-content: center; outline: none; }
+/* EmptyStateView.swift:9-27 with Typography.swift:17, :31: a 44pt icon at 30%, 28pt semibold title, 22pt secondary body, 12 apart. */
+.library-empty { display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; }
+.library-empty-icon { display: block; height: 44px; color: rgba(237,237,237,.3); }
+.library-empty-icon svg { display: block; width: 44px; height: 44px; }
+svg.library-empty-icon { width: auto; }
+/* At 44pt, line.3.horizontal.decrease.circle's image frame is 52 square around its 44 glyph (EmptyStateView.swift:11-12). */
+.library-empty-icon[data-symbol="line.3.horizontal.decrease.circle"] { box-sizing: border-box; width: 52px; height: 52px; padding: 4px; }
+.library-empty-title { margin: 0; font-size: calc(28px * var(--silo-sf-cap-scale)); line-height: 34px; font-weight: 600; color: var(--silo-text); }
+.library-empty-body { margin: 0; padding: 0 60px; font-size: calc(22px * var(--silo-sf-cap-scale)); line-height: 27px; color: var(--silo-secondary); }
+/* TVLibraryBrowseView.swift:84-89: .caption (25pt on tvOS), default padding, on .ultraThinMaterial at the bottom edge. */
+.library-incomplete { position: fixed; left: 0; right: 0; bottom: 0; width: fit-content; margin: 0 auto; padding: 16px; font-size: calc(25px * var(--silo-sf-cap-scale)); line-height: 30px; color: var(--silo-text); background: rgba(40,40,44,.55); -webkit-backdrop-filter: blur(30px); backdrop-filter: blur(30px); pointer-events: none; }
 .browse .discovery-collection { position: relative; width: 430px; height: 234px; flex-shrink: 0; padding: 24px; margin: 0; border-radius: 16px; white-space: normal; overflow-wrap: break-word; background: linear-gradient(#2e3036,#121316); border: 2px solid rgba(255,255,255,.12); }
 .browse .browse-row .discovery-collection { width: 430px; margin-right: 24px; }
 .discovery-collection-art { position: absolute; left: 28px; top: 36px; width: 104px; height: 156px; transform: rotate(-8deg); overflow: hidden; border-radius: 8px; }
@@ -986,9 +1008,6 @@
 .discovery-collection-count { margin-top: 12px; font-size: 17px; }
 .browse .discovery-collection:focus { border-color: #fff; background: linear-gradient(#2e3036,#121316); color: #ededed; }
 .discovery-collection-art { background: #252830; }
-.discovery-skeleton { width: 208px; height: 312px; border-radius: 12px; background: linear-gradient(110deg,#15171b,#252830,#15171b); background-size: 200% 100%; animation: discovery-loading 1.5s linear infinite; }
-@keyframes discovery-loading { to { background-position: -200% 0; } }
-@media (prefers-reduced-motion: reduce) { .discovery-skeleton { animation: none; } }
 .skyline-scope { float: right; font-size: 18px; color: rgba(237,237,237,.6); }
 .browse-row .browse-card.skyline-continue { width: 376px; }
 .browse-row .skyline-continue .browse-art { width: 372px; height: 209px; }
@@ -1551,15 +1570,28 @@
 .library-browse .skyline-content { top: 216px; left: 0; width: 1920px; height: 864px; }
 /* TVLibraryGridView: a 216pt clear spacer, then 32pt stack spacing above and below the control row. */
 .browse-controls { display: flex; margin: 32px 0 32px 80px; }
-.browse .browse-controls .browse-button { display: flex; align-items: center; height: 53px; margin: 0 16px 0 0; padding: 0 22px; border: 1px solid rgba(255,255,255,.09); border-radius: 27px; background: rgba(255,255,255,.07); color: #ededed; font-size: 24px; font-weight: 500; transition: transform 120ms ease-out; }
+/* TVBrowseControlPillStyle (TVBrowseFilterUI.swift:582-606): 24pt medium (×cap), fill, text and 1.04 scale animate with easeOut(0.12).
+   Apple's 22pt padding sits inside a 1pt strokeBorder (:588, :598-603), so the CSS border takes 1 of the 22. The labels keep Inter's
+   own spacing: at the capped size it sets "Sort · Title A–Z", "Filter" and "Shuffle" within 1px of SF Pro, where the app's tighter tracking runs 2 to 3px short. */
+.browse .browse-controls .browse-button { display: flex; align-items: center; height: 53px; margin: 0 16px 0 0; padding: 0 21px; border: 1px solid rgba(255,255,255,.09); border-radius: 27px; background: rgba(255,255,255,.07); color: #ededed; font-size: calc(24px * var(--silo-sf-cap-scale)); font-weight: 500; transition: transform 120ms ease-out, background-color 120ms ease-out, color 120ms ease-out; }
+.browse .browse-controls .browse-button > *, .browse .browse-empty-actions .browse-button > * { letter-spacing: 0; }
+/* SF Mono advances 0.618em and Roboto Mono 0.6em, so the count takes the difference as tracking (TVBrowseFilterUI.swift:51). */
+.browse .browse-controls .browse-button > .browse-control-count { letter-spacing: .33px; }
+/* Inter sets "Clear filters" 1.6px wider than SF Pro's 121.6, which rounds it up two points; -0.13px keeps Apple's 122 (205 pill). */
+.browse .browse-empty-actions [data-focus="clear-filters"] .browse-panel-text { letter-spacing: -.13px; }
+/* Inter sets "Shuffle" 0.67px narrower than SF Pro, which rounds it down a whole point; 0.1px keeps Apple's 77 (165 pill). */
+.browse .browse-controls [data-focus="shuffle"] .browse-panel-text { letter-spacing: .1px; }
 .browse .browse-controls .browse-button[aria-pressed="true"] { background: rgba(255,255,255,.14); }
 .browse .browse-controls .browse-button:focus { background: #ededed; color: #000; border-color: transparent; transform: scale(1.04); }
 .browse-icon { display: inline-block; width: 24px; height: 24px; margin-right: 10px; flex-shrink: 0; }
 .browse-icon svg { display: block; width: 100%; height: 100%; }
+/* TVBrowseControlRow's HStack(spacing: 10) between symbol and text (TVBrowseFilterUI.swift:34, :46, :65); the panel rows' 14 is the Sort panel's. */
+.browse-controls .browse-panel-row .browse-icon, .browse-empty-actions .browse-panel-row .browse-icon { margin-right: 10px; }
 /* TVBrowseControlRow keeps sortDirection in siloSecondaryText (#99EDEDED).
    The focused pill fill is siloOnSurface (#EDEDED), so that direction disappears. */
 .browse-control-detail { margin-left: 10px; color: rgba(237,237,237,.6); }
-.browse-control-count { margin-left: 10px; padding: 2px 8px; border-radius: 14px; background: rgba(0,0,0,.25); font-family: var(--silo-font); font-size: 18px; font-weight: 700; }
+/* TVBrowseFilterUI.swift:51: 18pt bold monospaced. Monospaced text keeps Apple's points (see .details-track-popover). */
+.library-browse .browse-control-count { margin-left: 10px; padding: 2px 8px; border-radius: 14px; background: rgba(0,0,0,.25); font-family: var(--silo-mono); font-size: 18px; font-weight: 700; }
 .library-browse .catalog-grid { margin: 0 0 0 80px; }
 .library-browse { font-weight: 400; }
 .library-browse * { font-family: var(--silo-font); font-weight: inherit; }
@@ -1570,49 +1602,80 @@
 .catalog-grid .browse-card-title { margin: 16px 0 4px; padding: 0; font: 500 24px/29px var(--silo-font); color: rgba(237,237,237,.45); text-align: center; }
 .catalog-grid .browse-card-subtitle { margin: 0; padding: 0; font: 400 20px/24px var(--silo-font); color: rgba(237,237,237,.32); text-align: center; }
 .catalog-skeleton { display: grid; }
-.catalog-skeleton .discovery-skeleton { width: calc(260px * var(--poster-scale, 1)); height: calc(390px * var(--poster-scale, 1)); }
-.browse-empty-title { margin: 160px 0 16px; font-size: 36px; font-weight: 600; text-align: center; }
-.browse-empty-title ~ .browse-text { max-width: none; text-align: center; font-size: 26px; }
-.browse-empty-actions { text-align: center; }
-.browse-empty-actions .browse-button { display: inline-flex; align-items: center; font-size: 24px; font-weight: 500; }
+/* PosterSkeletons.swift:3-12: a static white 9% poster with SiloTheme.cornerRadius 12. */
+.catalog-skeleton .poster-skeleton { width: calc(260px * var(--poster-scale, 1)); height: calc(390px * var(--poster-scale, 1)); border-radius: 12px; background: rgba(255,255,255,.09); }
+/* TVLibraryGridView.swift:206-213, :268-284: a full-width area at least 400 tall, Clear filters 32 below the state. */
+.browse-empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 32px; min-height: 400px; }
+.library-browse .library-empty-title { font-weight: 600; }
+/* SF Pro's 28pt semibold sets "No titles match your filters" 332.2 wide (EmptyStateView.swift:15-16); Inter at the capped size,
+   0.125px apart, sets the same width where the app's tighter tracking ran 15px short. */
+.browse-empty-state .library-empty-title { letter-spacing: .125px; }
+.browse-empty-actions { display: flex; justify-content: center; }
+.browse .browse-empty-actions .browse-button { display: flex; align-items: center; height: 53px; margin: 0; padding: 0 21px; border: 1px solid rgba(255,255,255,.09); border-radius: 27px; background: rgba(255,255,255,.07); color: #ededed; font-size: calc(24px * var(--silo-sf-cap-scale)); font-weight: 500; transition: transform 120ms ease-out, background-color 120ms ease-out, color 120ms ease-out; }
+.browse .browse-empty-actions .browse-button:focus { background: #ededed; color: #000; border-color: transparent; transform: scale(1.04); }
 /* TVAlphabetRail: collapsed width 18, centred in the 1020pt column. Each LetterButton is a 10×10
    monospaced semibold 10pt glyph at opacity 0.35 (SiloTheme.Skyline, LetterButton). The selected
    All chip is siloOnSurface in an 8pt corner, which on a 10px box is the circle. Expanded letters
-   are 15pt in 38px chips. The expanded column omits the 4pt VStack gap so all 28 chips stay on
-   the 1080 screen without the rail scrolling. */
-.browse-letters { position: fixed; z-index: 3; top: 0; right: 32px; width: 18px; height: 1020px; display: flex; flex-direction: column; align-items: center; justify-content: center; transition: width 180ms ease-out; }
-.browse-letters .browse-button { flex-shrink: 0; width: 10px; height: 10px; min-height: 0; margin: 2px 0; padding: 0; border: 0; border-radius: 8px; background: transparent; color: rgba(237, 237, 237, 0.6); font-family: ui-monospace, monospace; font-size: 10px; font-weight: 600; line-height: 10px; opacity: 0.35; overflow: hidden; }
-.browse-letters[data-open], .browse-letters:focus-within { width: 96px; justify-content: flex-start; }
-.browse-letters:focus-within .browse-button { width: 38px; height: 38px; margin: 0; border-radius: 8px; color: #ededed; font-size: 15px; line-height: 38px; opacity: 1; }
+   are 15pt in 38px chips, 4 apart, in a column that scrolls to the focused letter (TVAlphabetRail.swift:43-44).
+   Unfocused, unselected letters stay siloSecondaryText (:154-159). Focus and a 0.96 press animate with
+   easeOut(0.12), and the chips grow with the rail's easeOut(0.18) (:71, :148-151). Monospaced text keeps Apple's points. */
+.browse-letters { position: fixed; z-index: 3; top: 0; right: calc(32px - var(--browse-shift, 0px)); width: 18px; height: 1020px; display: flex; flex-direction: column; align-items: center; justify-content: center; overflow: hidden auto; scrollbar-width: none; transition: width 180ms ease-out, right 180ms ease-out; }
+.browse-letters::-webkit-scrollbar { display: none; }
+/* TVLibraryGridView.swift:98-108 (5780c84): the 1920 column, the rail and its 32 trailing overflow the screen and centre, so the
+   column sits left by half the overflow (libraryBrowseViews.ts sets the shifts) and slides with the rail's easeOut(0.18) (TVAlphabetRail.swift:67-71).
+   translate, not transform, so the page's entrance rise still composes. Panels stay centred on the screen. */
+.library-browse .skyline-content > :not(.browse-letters, .browse-panel-scrim, .browse-panel) { translate: calc(-1 * var(--browse-shift, 0px)) 0; transition: translate 180ms ease-out; }
+.library-browse .skyline-content:has(> .browse-letters:focus-within) > :not(.browse-letters, .browse-panel-scrim, .browse-panel) { translate: calc(-1 * var(--browse-shift-open, 0px)) 0; }
+@media (prefers-reduced-motion: reduce) { .library-browse .skyline-content > * { transition-duration: 0s; } }
+.browse-letters .browse-button { flex-shrink: 0; width: 10px; height: 10px; min-height: 0; margin: 2px 0; padding: 0; border: 0; border-radius: 8px; background: transparent; color: rgba(237, 237, 237, 0.6); font-family: var(--silo-mono); font-size: 10px; font-weight: 600; line-height: 10px; opacity: 0.35; overflow: hidden; transition: background-color 120ms ease-out, color 120ms ease-out, transform 120ms ease-out, width 180ms ease-out, height 180ms ease-out, font-size 180ms ease-out, line-height 180ms ease-out; }
+.browse-letters .browse-button[data-pressed] { transform: scale(.96); }
+@media (prefers-reduced-motion: reduce) { .browse-letters, .browse-letters .browse-button { transition-duration: 0s; } .browse-letters .browse-button[data-pressed] { transform: none; } }
+/* Open, the rail moves out with the overflow and, like Apple's ScrollView, draws on through the 60pt bottom safe area. */
+.browse-letters[data-open], .browse-letters:focus-within { right: calc(32px - var(--browse-shift-open, 0px)); width: 96px; padding-bottom: 60px; justify-content: flex-start; }
+.browse-letters:focus-within .browse-button { width: 38px; height: 38px; margin: 4px 0 0; border-radius: 8px; font-size: 15px; line-height: 38px; opacity: 1; }
 /* Collapsed selected chip is a plain siloOnSurface circle. The 10px box clips the glyph, and transparent ink keeps "All" from painting inside it. */
 .browse-letters .browse-button[aria-pressed="true"] { background: #ededed; color: transparent; opacity: 1; }
+.browse-letters:focus-within .browse-button:first-child { margin-top: 0; }
 .browse-letters:focus-within .browse-button[aria-pressed="true"], .browse .browse-letters:focus-within .browse-button:focus { background: #ededed; color: #000; opacity: 1; }
 /* Sort and Filter panels over a dimmed page (TVSkylinePanelChrome), centred on y510 as measured
    on the Apple TV (the tab body sits under the top bar). */
 .browse-panel-scrim { position: fixed; z-index: 6; top: 0; left: 0; width: 1920px; height: 1080px; background: rgba(0,0,0,.55); }
-.browse-panel { position: fixed; z-index: 7; top: 510px; left: 50%; transform: translate(-50%, -50%); border: 1px solid rgba(255,255,255,.16); border-radius: 22px; background: linear-gradient(rgba(17,17,23,.97), rgba(10,10,14,.98)); box-shadow: 0 20px 60px #000; }
+.browse-panel { position: fixed; z-index: 7; top: 510px; left: 50%; transform: translate(-50%, -50%); border-radius: 22px; }
+/* TVBrowseFilterUI.swift:153, :259 use TVSkylinePanelChrome (shared with .skyline-panel above). TVLibraryGridView.swift:114-121:
+   the scrim and panel fade with easeOut(0.18); libraryBrowseViews.ts leavePanel fades copies of a closing panel. */
+.browse-panel-enter { animation: skyline-appear 180ms ease-out; }
+.browse.browse-panel-layer { position: fixed; z-index: 6; top: 0; left: 0; width: 0; height: 0; padding: 0; overflow: visible; background: none; pointer-events: none; }
+.browse-panel-leaving { pointer-events: none; animation: browse-panel-leave 180ms ease-out forwards; }
+@keyframes browse-panel-leave { from { opacity: 1; } to { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .browse-panel-enter, .browse-panel-leaving { animation: none; } }
 .browse-sort-panel { width: 460px; padding: 14px; }
 /* The shuffle failure alert over the same dimmed page as the panels. */
-.browse-alert { width: 720px; padding: 40px 48px 32px; text-align: center; }
+.browse-alert { width: 720px; padding: 40px 48px 32px; text-align: center; border: 1px solid rgba(255,255,255,.16); background: linear-gradient(rgba(17,17,23,.97), rgba(10,10,14,.98)); box-shadow: 0 20px 60px #000; }
 .browse-alert-title { margin: 0 0 14px; font-size: 34px; font-weight: 600; }
 .browse-alert-message { margin: 0 0 30px; font-size: 25px; line-height: 1.35; color: rgba(237,237,237,.7); }
 .browse .browse-alert .browse-button { min-width: 320px; margin: 0; padding: 16px 32px; border-radius: 14px; font-size: 25px; font-weight: 600; }
 .browse-filter-panel { width: 680px; height: 680px; padding: 22px; display: flex; flex-direction: column; }
 .browse-filter-panel > * { flex-shrink: 0; }
 .browse-filter-panel > .browse-panel-list { flex-shrink: 1; min-height: 0; }
-.browse-panel-eyebrow { margin: 0; padding: 0 18px 8px; font-family: var(--silo-font); font-size: 18px; font-weight: 600; letter-spacing: 2px; color: rgba(237,237,237,.6); }
-.browse-filter-panel .browse-panel-eyebrow { padding: 0 0 6px; font-size: 16px; }
-.browse-panel-title { margin: 0; font-size: 34px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* TVBrowseFilterUI.swift:126, :277, :493: the eyebrows and section headers are monospaced, at Apple's points. */
+.library-browse .browse-panel-eyebrow { margin: 0; padding: 0 18px 8px; font-family: ui-monospace, monospace; font-size: 18px; font-weight: 600; letter-spacing: 2px; color: rgba(237,237,237,.6); }
+.library-browse .browse-filter-panel .browse-panel-eyebrow { padding: 0 0 6px; font-size: 16px; }
+/* SORT BY is SF Mono 18 semibold with tracking 2 (TVBrowseFilterUI.swift:126-128). SF Mono advances 0.618em and Roboto Mono 0.6em,
+   so 0.33px more tracking keeps Apple's 92px line; 21px is SF Mono's line height at 18pt. */
+.library-browse .browse-sort-panel .browse-panel-eyebrow { font-family: var(--silo-mono); line-height: 21px; letter-spacing: 2.33px; }
+.library-browse .browse-panel-title { margin: 0; font-size: calc(34px * var(--silo-sf-cap-scale)); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .browse-panel-divider { height: 1px; margin: 12px 0; background: rgba(255,255,255,.12); }
 .browse-panel-list { flex: 1 1 auto; overflow: hidden; padding: 4px 0; }
-.browse-panel-section { margin: 0; padding: 20px 16px 6px; font-family: var(--silo-font); font-size: 15px; font-weight: 600; letter-spacing: 2px; color: rgba(237,237,237,.6); }
-.browse-panel-note { margin: 0; padding: 18px 16px; font-size: 24px; color: rgba(237,237,237,.6); }
-.browse .browse-panel .browse-panel-row { display: flex; align-items: center; width: 100%; margin: 0 0 4px; padding: 13px 16px; border: 0; border-radius: 12px; background: transparent; color: #ededed; font-size: 24px; font-weight: 400; text-align: left; white-space: nowrap; }
+.library-browse .browse-panel-section { margin: 0; padding: 20px 16px 6px; font-family: ui-monospace, monospace; font-size: 15px; font-weight: 600; letter-spacing: 2px; color: rgba(237,237,237,.6); }
+.browse-panel-note { margin: 0; padding: 18px 16px; font-size: calc(24px * var(--silo-sf-cap-scale)); color: rgba(237,237,237,.6); }
+/* TVBrowsePanelRowStyle (TVBrowseFilterUI.swift:614-630): the white fill animates with easeOut(0.12). */
+.browse .browse-panel .browse-panel-row { display: flex; align-items: center; width: 100%; margin: 0 0 4px; padding: 13px 16px; border: 0; border-radius: 12px; background: transparent; color: #ededed; font-size: calc(24px * var(--silo-sf-cap-scale)); font-weight: 400; text-align: left; white-space: nowrap; transition: background-color 120ms ease-out, color 120ms ease-out; }
 /* Row type per TVBrowseFilterUI: sort 26, facets 25, Match and Options rows 23, Done 25 semibold, values 24. */
-.browse .browse-sort-panel .browse-panel-row { font-size: 26px; }
-.browse .browse-panel [data-focus^="facet:"] { font-size: 25px; }
-.browse .browse-panel [data-focus^="match:"], .browse .browse-panel [data-focus="preserve"], .browse .browse-panel [data-focus="reset"], .browse .browse-panel [data-focus^="clear:"] { font-size: 23px; }
-.browse .browse-panel .browse-panel-done { font-size: 25px; font-weight: 600; }
+/* TVBrowseSortPanel (TVBrowseFilterUI.swift:125-155): a VStack(spacing: 4) puts 4 above each row and none below the last; rows are 13 + 32 + 13, a 62 pitch on the Apple TV. */
+.browse .browse-sort-panel .browse-panel-row { margin: 4px 0 0; font-size: calc(26px * var(--silo-sf-cap-scale)); line-height: 32px; }
+.browse .browse-panel [data-focus^="facet:"] { font-size: calc(25px * var(--silo-sf-cap-scale)); }
+.browse .browse-panel [data-focus^="match:"], .browse .browse-panel [data-focus="preserve"], .browse .browse-panel [data-focus="reset"], .browse .browse-panel [data-focus^="clear:"] { font-size: calc(23px * var(--silo-sf-cap-scale)); }
+.browse .browse-panel .browse-panel-done { font-size: calc(25px * var(--silo-sf-cap-scale)); font-weight: 600; }
 .browse .browse-panel .browse-panel-row:focus { background: #ededed; color: #000; }
 .browse .browse-panel .browse-panel-row[aria-disabled="true"] { opacity: .45; }
 .browse-panel-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
@@ -1623,6 +1686,11 @@
 .browse-filter-panel [data-focus="facet-back"] .browse-icon { width: 20px; height: 20px; }
 .browse-panel-row .browse-panel-detail + .browse-icon { width: 18px; height: 18px; margin: 0 0 0 14px; opacity: .55; }
 .browse-panel-row:focus { --icon-ink: #ededed; }
+/* TVBrowseFilterUI.swift:139-143: the current sort's direction is always siloSecondaryText, and its arrow is full strength at the row's 26pt. */
+.browse-sort-panel .browse-panel-detail { opacity: 1; color: rgba(237,237,237,.6); }
+.browse-sort-panel .browse-panel-row .browse-panel-detail + .browse-icon { width: 26px; height: 26px; opacity: 1; }
+/* Facet summaries shrink to 80% before truncating (TVBrowseFilterUI.swift:346-347). */
+.browse-filter-panel [data-focus^="facet:"] .browse-panel-detail { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 
 /* Shuffle stays focusable while it starts (a disabled button loses focus); it dims to 60%. */
 .browse .browse-controls .browse-control-starting { opacity: .6; }

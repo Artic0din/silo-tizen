@@ -277,6 +277,11 @@ export interface HomeSection {
     readonly id: string;
     readonly sectionType: string;
     readonly title: string;
+    /** Section fields LibraryVideoScope.refill reads; the Home fakes and older servers may omit them. */
+    readonly itemLimit?: number | undefined;
+    readonly totalCount?: number | undefined;
+    readonly isCustom?: boolean | undefined;
+    readonly customized?: boolean | undefined;
     readonly items: readonly Card[];
 }
 
@@ -291,6 +296,10 @@ export function decodeHomeSections(value: unknown): HomeSection[] {
             id: string(section, "id", sectionPath),
             sectionType: string(section, "section_type", sectionPath),
             title: string(section, "title", sectionPath),
+            itemLimit: section.item_limit == null ? undefined : integer(section, "item_limit", sectionPath),
+            totalCount: section.total_count == null ? undefined : integer(section, "total_count", sectionPath),
+            isCustom: section.is_custom == null ? undefined : boolean(section, "is_custom", sectionPath),
+            customized: section.customized == null ? undefined : boolean(section, "customized", sectionPath),
             items: array(section, "items", sectionPath).map((card, cardIndex) => decodeCard(card, `${sectionPath}.items[${cardIndex}]`)),
         };
     });

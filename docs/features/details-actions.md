@@ -160,3 +160,28 @@ Find Trailers keeps Apple's movie-and-series gate; Samsung's rail already displa
 The pill sits 24 under a movie's action row and 14 under a series' episode rail.
 Apple's "Update Required" alert is not built: Tizen has no update-requirement classification.
 Validation is fake-server and desktop Chromium only; signed Samsung and same-state Apple TV captures are pending.
+
+## Hero, meta lines and screen states (#395)
+
+Source: silo-apple `5780c84`, tvOS.
+The audited hero, loading, error, synopsis and rating views are unchanged from the audit's `85679e7`.
+#405 fixed 15 of the 18 items, and #388 had already fixed the 401, 403 and 404 error pages.
+Four Apple behaviours stay different on purpose.
+
+- **Movie hero height.**
+  Apple fixes the movie hero at 690 and clips it ([`TVDetailHero.swift:11, 149-152, 166`](https://github.com/Silo-Server/silo-apple/blob/5780c84f4a9c1e2bff006e653dd787e01ca24480/iosApp/iosApp/tvOS/Screens/Detail/TVDetailHero.swift#L149-L166)).
+  The title, subtitle and synopsis all keep their full height ([`TVDetailHero.swift:491-501`](https://github.com/Silo-Server/silo-apple/blob/5780c84f4a9c1e2bff006e653dd787e01ca24480/iosApp/iosApp/tvOS/Screens/Detail/TVDetailHero.swift#L491-L501), [`TVHeroSynopsis.swift:22-23`](https://github.com/Silo-Server/silo-apple/blob/5780c84f4a9c1e2bff006e653dd787e01ca24480/iosApp/iosApp/tvOS/Screens/Detail/TVHeroSynopsis.swift#L22-L23)), and the stack is top-aligned ([`TVDetailHero.swift:216-221`](https://github.com/Silo-Server/silo-apple/blob/5780c84f4a9c1e2bff006e653dd787e01ca24480/iosApp/iosApp/tvOS/Screens/Detail/TVDetailHero.swift#L216-L221)).
+  When a long text title makes the stack taller than 690, the clip cuts off the action row, including the focused Play button.
+  Samsung's movie hero is also 690 whenever the stack fits, but grows instead of clipping, so Play stays visible.
+  An invisible focused button would break the [TV focus](../tv-focus.md) rule.
+- **Logo in the loading frame.**
+  Apple's loading frame shows the card's logo when the cached title-art answer allows it ([`TVItemDetailLoadingView.swift:122-140`](https://github.com/Silo-Server/silo-apple/blob/5780c84f4a9c1e2bff006e653dd787e01ca24480/iosApp/iosApp/tvOS/Screens/Detail/TVItemDetailLoadingView.swift#L122-L140), [`TVDetailHero.swift:588`](https://github.com/Silo-Server/silo-apple/blob/5780c84f4a9c1e2bff006e653dd787e01ca24480/iosApp/iosApp/tvOS/Screens/Detail/TVDetailHero.swift#L588)).
+  Samsung Details shows no logo until its own title-art read answers ([Title art](title-art.md)), so the frame keeps the text title.
+  A logo there would flash back to text when the page loads.
+  #475 tracks moving Details to Apple's remembered answer, which would allow the logo.
+- **Series readout without values.**
+  Apple keeps the Version, Audio and Subtitles bars whenever the hero has an episode ([`TVSeriesDetailView.swift:396`](https://github.com/Silo-Server/silo-apple/blob/5780c84f4a9c1e2bff006e653dd787e01ca24480/iosApp/iosApp/tvOS/Screens/Detail/TVSeriesDetailView.swift#L396)), because it reads playback detail for that episode.
+  Samsung reads it only for the next-up episode, so it hides the readout, keeping its space, once nothing is loading and no value is known.
+- **Scroll back to the hero.**
+  Samsung uses Apple's 450 ms ease-in-out on a movie and 550 ms cubic-bezier(0.4, 0, 0.2, 1) on a series ([`TVDetailFocusScroll.swift:57`](https://github.com/Silo-Server/silo-apple/blob/5780c84f4a9c1e2bff006e653dd787e01ca24480/iosApp/iosApp/tvOS/Screens/Detail/TVDetailFocusScroll.swift#L57)).
+  Apple's repeated focus checks and scroll lock correct the tvOS focus engine's own scrolling, which Samsung does not have.

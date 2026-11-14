@@ -191,7 +191,7 @@ export class FakeDetails extends FakeCatalog {
         return { status: 200, body: {
             window_cursor: "synthetic-person-window", total: population.length, total_exact: true,
             effective_sort: { field: "year", order: descending ? "desc" : "asc" },
-            items: population.slice(offset, offset + limit).map(title => ({ content_id: title.id, title: title.title, type: title.type, year: title.year,
+            items: population.slice(offset, offset + limit).map(title => ({ content_id: title.id, title: title.title, type: title.type, year: title.year, show_status: title.showStatus, last_air_date: title.lastAirDate,
                 ...(title.poster === null ? {} : { poster_url: title.poster ?? `/art/${encodeURIComponent(title.id)}.svg` }) })),
             page: next === undefined ? { has_more: false } : { has_more: true, next_cursor: next },
         } };

@@ -111,6 +111,25 @@ test("Choose a title opens the picker with the group's shelves, read once with t
     } finally { await tv.page.context().close(); }
 });
 
+// WatchPartyMediaPicker's shelves are a TVSkylineSectionFeed (Screens/WatchParty/WatchPartyMediaPicker.swift:372), whose MediaRow captions with CardYears.
+test("the picker's shelves caption a series with the years it ran", async () => {
+    const { tv } = await inLobby("host", fake => {
+        for (const [id, fields] of [["series:s1", { showStatus: "returning" }], ["series:s2", { showStatus: "ended", lastAirDate: "2024-03-17" }]] as const) {
+            const title = fake.titles.get(id);
+            assert.ok(title);
+            fake.add({ ...title, ...fields });
+        }
+    });
+    try {
+        await button(tv, "choose").click();
+        await view(tv, "watchParty:picker:shelves").waitFor();
+        await tv.page.locator('.watch-party-shelf [data-focus="series:s2"]').waitFor();
+        const line = (id: string) => tv.page.locator(`.watch-party-shelf [data-focus="${id}"] .browse-card-subtitle`).textContent();
+        assert.equal(await line("series:s1"), "2020 – Present");
+        assert.equal(await line("series:s2"), "2021 – 2024");
+    } finally { await tv.page.context().close(); }
+});
+
 test("choosing a movie confirms it, stages it with the staged-selection call and shows it in the lobby with Start for everyone", async () => {
     const { tv, fake } = await inLobby();
     try {
@@ -765,6 +784,8 @@ test("removing suggestions before the focused card keeps that card on screen", a
         await button(tv, "suggestion:s0").focus();
         for (let index = 0; index < 9; index++) await tv.remote(39);
         assert.equal(await tv.focused(), "suggestion:s9");
+        // Let the reveal scroll settle first: a removal that lands mid-scroll can leave the card on screen by chance.
+        await tv.jump(500);
         fake.suggestions.splice(0, 7);
         fake.voteAs("p-other", "s19", true);
         await tv.eventually(async () => (await cards(tv)).length === 13, "seven removed");

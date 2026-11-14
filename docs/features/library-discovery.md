@@ -18,7 +18,7 @@ Committed sort and filters are remembered per server, profile and library while 
 The selected destination is not part of that memory. A new visit opens Recommended, so a saved Browse sort cannot replace the server shelves.
 Browse retains loaded cards, item focus and scroll through ordinary Details/Back, and refreshes explicit personal/playback invalidation from page one through the retained depth.
 Favorites and Watchlist changes in Details invalidate filtered Browse even when a write's answer is lost.
-Duplicate cards and repeated cursors cannot accumulate; an invalid cursor restarts once, and a later failure keeps the loaded cards with an explicit Retry.
+Duplicate cards and repeated cursors cannot accumulate; an invalid cursor restarts once. A later failed page keeps the loaded cards and shows nothing, and the grid reads again when a scroll brings a card near its end onto the screen, as each cell's `.onAppear` does (`TVLibraryGridViewModel.swift:138-143`, `:337-339`; `TVCatalogGrid.swift:131-133` at silo-apple `5780c84`).
 Optional facet and Shuffle capability answers do not delay the catalog.
 Poster size and badge answers repaint existing cards without changing their identity or querying the catalog again.
 Supported whole-library Shuffle creates one non-retryable server session, resolves its current pick through the existing watch/version path, and advances through the player completion owner.
@@ -29,7 +29,7 @@ Each card uses the single poster or collage supplied by the server, without inve
 Standard collection artwork is 260×390 with a 12px radius, 40px column spacing, 60px row spacing, and centered 24px title / 20px metadata captions.
 Missing or failed artwork uses a stack glyph over a stable collection-id gradient.
 Collection entry focuses the first non-empty group; Back from members restores the collection by id.
-Empty lists say “No collections yet”; failed reads offer Retry.
+An empty list, or a failed read, shows Apple's “No collections yet” empty state (`TVLibraryCollectionsView.swift:139-151`, `:183-191`).
 Empty members say “Collection is empty”.
 Named groups keep the server heading; the anonymous bucket has none.
 Count captions follow Apple's `collection_type` mapping; management types such as manual and smart use ITEM/ITEMS.
@@ -37,9 +37,6 @@ No collection creation or management controls are offered on this TV surface.
 Collection contents use `POST /catalog/query` with `source=library_collection` for curated collections or `source=user_collection` for personal collections, `collection_id` and the current library scope.
 This matches Apple's `LibraryCollectionDetailViewModel` and includes the profile's `user_state.played` for watched badges.
 The collection membership endpoint's listing projection omits that viewer state.
-Genres keeps filtered results and sort controls under the shared navigation.
-A–Z uses the server's letters, counts and positions with its query window cursor.
-Recently Added requests `added_at` descending.
 Expanded Home and library section rows read 60 cards at a time into one scrolling grid, reading more when the last six cards enter the viewport.
 Section queries send only their Home/library scope, section id, optional library id, limit and cursor, matching Apple's `sectionItems` builder; media filtering stays local because the server rejects query overlays on section sources.
 They retain loaded depth through Details and refresh explicitly invalidated state from the beginning through that depth.
@@ -104,11 +101,11 @@ The signed screen-calibration WGT at `f4096cd` has SHA-256 `81dbbd519e1dfd827443
 All 14 unpacked files matched the installed simulator files; their complete hashes are in [the installed asset manifest](../evidence/screenshots/117-section/installed-calibrated.sha256), SHA-256 `5e910bc2141ad8d298c2acc14be603fb18deaad096d9b3c998fa805f8d2c09a5`.
 The later append-404 correction is covered by native regression tests; it changes error handling without changing this screen geometry.
 
-Search capabilities control the Genres, A–Z and Recently Added destinations.
-Explicit unsupported capabilities leave Recommended, Browse and Collections available; failed capability and member reads show an error and Retry.
-A–Z and Recently Added grids have no marquee; the alphabet rail is on the right and supports remote entry and return.
+The library tabs offer only Apple's three destinations, Recommended, Collections and Browse (`TVLibraryPillRow.swift:7-10`); genre, A–Z and date added are Browse's filter, letter rail and sort.
+Browse's 1920 column, the letter rail and its 32 trailing overflow the screen and centre, as Apple's HStack does at silo-apple `5780c84` (`TVLibraryGridView.swift:98-108`, `TVCatalogGrid.swift:102-143`): the pills and grid start at x55 with the rail closed and slide to x16 as it opens, and the open rail draws on through the bottom safe area.
+The rail's letters, the Sort panel's heading and the filter count use the packaged Roboto Mono in place of SF Mono, because the TV has no monospaced system face (`app/fonts/README.md`).
 All requests use the existing operations/session/NativeHttp owners and active profile authority.
-Changing mode, scope or sort starts a fresh page sequence; Back restores the previous collection, section or genre focus.
+Changing mode, scope or sort starts a fresh page sequence; Back restores the previous collection or section focus.
 Each library mode remembers its own committed card and scroll position under the shared public view id.
 Loading and failed initial reads do not replace a saved visit with placeholder controls.
 Back from Details, playback or Settings keeps the saved position when its card still intersects the viewport and fits horizontally inside its shelf.
@@ -122,7 +119,7 @@ The Browse port references Apple commit `1a7cceeaf3b2bfc4f889c00487d19b2c6f84394
 The Collections port references Apple commit `bef81e8652a89c23a1c3cf07e312e9444baa6c4c`: `TVLibraryCollectionsView`, `TVCollectionPosterCard`, `TVLibraryTypeTabView`, `LibraryCollectionDetailView` and `TVCardFocusStyle`.
 This is a source reference, not an assertion about the installed Apple build.
 Collection members use 60-member pages, matching Apple, including the personal collection catalog query.
-List and member failures retain explicit Retry.
+Member failures retain explicit Retry; a failed list read shows the empty state.
 Collection detail uses a centered title and the Swift tvOS 260×390 poster default.
 Its count uses loaded membership plus a continuation suffix when query totals are inexact.
 Capability-gated Shuffle initially owns focus and uses the shared launch, cancellation and playback owners with the collection scope.

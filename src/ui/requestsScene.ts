@@ -138,14 +138,14 @@ export function requestHero(title: RequestTitle | MediaRequest, baseUrl: string,
 /** Apple's `tray` symbol at its 51 x 37 size. */
 export const TRAY_ICON = '<svg viewBox="0 0 51 37" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"><path d="M1.5 16 9.6 4.2a6 6 0 0 1 4.9-2.7h22a6 6 0 0 1 4.9 2.7L49.5 16v13.5a6 6 0 0 1-6 6h-36a6 6 0 0 1-6-6Z"/><path d="M1.5 16.5h14c1.3 0 2 .7 2.4 2a7.8 7.8 0 0 0 15.2 0c.4-1.3 1.1-2 2.4-2h14"/></svg>';
 // The tvOS ProgressView: eight spokes stepping round, brightest ahead.
-const SPINNER_ICON = `<svg viewBox="0 0 40 40" stroke="currentColor" stroke-width="4.5" stroke-linecap="round">${[1, .35, .35, .35, .4, .5, .65, .8].map((opacity, spoke) => `<path d="M20 3v8" opacity="${opacity}" transform="rotate(${spoke * 45} 20 20)"/>`).join("")}</svg>`;
+export const SPINNER_ICON = `<svg viewBox="0 0 40 40" stroke="currentColor" stroke-width="4.5" stroke-linecap="round">${[1, .35, .35, .35, .4, .5, .65, .8].map((opacity, spoke) => `<path d="M20 3v8" opacity="${opacity}" transform="rotate(${spoke * 45} 20 20)"/>`).join("")}</svg>`;
 
-function skeleton(width: number, height: number, opacity: number, radius = height / 2): HTMLElement {
+export function skeleton(width: number, height: number, opacity: number, radius = height / 2): HTMLElement {
     const node = el("div", "requests-loading-bar");
     node.style.width = `${width}px`; node.style.height = `${height}px`; node.style.borderRadius = `${radius}px`; node.style.background = `rgba(255,255,255,${opacity})`;
     return node;
 }
-function group(className: string, ...children: HTMLElement[]): HTMLElement {
+export function group(className: string, ...children: HTMLElement[]): HTMLElement {
     const node = el("div", className);
     node.append(...children);
     return node;

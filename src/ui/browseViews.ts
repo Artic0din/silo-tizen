@@ -51,7 +51,7 @@ export interface ViewContext {
     /** Home's own rows, whose Continue Watching and Next Up cards can be removed. */
     readonly homeDismissals?: boolean;
     readonly cardDestination?: (card: Card) => Destination | undefined;
-    /** Captions a series with the years it ran (Apple CardYears), as Search's grid does. */
+    /** Captions a series with the years it ran (Apple CardYears), as Home rows and catalog grids do; Watchlist, Favorites and More Like This show its year. */
     readonly seriesYears?: boolean;
     /** Profile spoiler switches. Absent reads as both off. */
     readonly spoilers?: () => EpisodeSpoilerSettings;
@@ -391,7 +391,7 @@ export function homeView(libraries: readonly UserLibrary[], sections: readonly H
     const content: HTMLElement[] = [];
     // Server order is the profile's order; featured rows render as ordinary rows (Apple HomeViewModel).
     for (const { section, continuing, layout, cards: titles } of homeRows(sections)) {
-        const cards = cardItems(titles, { ...context, continueWatching: continuing, homeRow: section.sectionType, homeDismissals: handlers.dismisses === true, cardLayout: layout, homeCaptions: true, overlays: context.cardOverlays?.(), preview: (card) => context.preview?.(card, section.title, continuing, section.featured === true) });
+        const cards = cardItems(titles, { ...context, continueWatching: continuing, homeRow: section.sectionType, homeDismissals: handlers.dismisses === true, cardLayout: layout, homeCaptions: true, seriesYears: true, overlays: context.cardOverlays?.(), preview: (card) => context.preview?.(card, section.title, continuing, section.featured === true) });
         // A row of only books, podcasts or other media this client does not browse is left out.
         if (cards.length === 0) {
             continue;

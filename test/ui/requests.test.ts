@@ -4,7 +4,7 @@ import type { Browser } from "playwright";
 import { mkdir } from "node:fs/promises";
 import { FakeRequests } from "../native/support/fakeRequests.ts";
 import { problem } from "../native/support/fakeSilo.ts";
-import { launchBrowser, openTv, type Tv } from "./support/tv.ts";
+import { launchBrowser, openTv, pauseTvClock, type Tv } from "./support/tv.ts";
 
 let browser: Browser;
 before(async () => { browser = await launchBrowser(); });
@@ -27,7 +27,7 @@ test("profile Requests is gated by the server and its row disappears when reques
         const fake = await start(tv, new FakeRequests(), true);
         assert.equal(await tv.page.locator('.browse-nav [data-focus="requests"]').count(), 0);
         await button(tv, "profiles").click();
-        assert.deepEqual(await tv.page.locator('.skyline-selector [role="menuitem"]').allTextContents(), ["Switch Profile", "History", "Requests", "Settings", "Sign Out"]);
+        assert.deepEqual(await tv.page.locator('.skyline-selector [role="menuitem"]').allTextContents(), ["History", "Requests", "Settings", "Switch Profile", "Sign Out"]);
         await openRequests(tv);
         await button(tv, "movie:949").waitFor();
         fake.enabled = false;
@@ -139,6 +139,9 @@ for (const [first, second] of [["watchlist", "requests"], ["requests", "watchlis
             else await openPersonal(tv, source as "watchlist" | "favorites");
         };
         await open(first); await open(second);
+        // Resting on the Movies tab opens its menu after 250 ms, which the second Back would close instead; a slow run
+        // can take that long between presses. Hold the clock so the two Backs are back to back, as the test means.
+        await pauseTvClock(tv);
         await tv.remote(10009); assert.equal(await tv.focused(), "movies", "the first Back reaches the bar");
         await tv.remote(10009);
         await tv.page.locator(MOVIES_VIEW).waitFor();

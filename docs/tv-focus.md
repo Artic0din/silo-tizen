@@ -187,10 +187,11 @@ Other layers:
   A browse repaint that replaces the held button with the same item's new one keeps the press (`FocusHost.show`).
   A press on a control marked `aria-disabled` never arms, so it never runs, even if a redraw enables that control before release.
   A press whose control is disabled by release time, or repainted as a disabled control, runs nothing either.
-  Card menu rows and player menu rows follow the same rule in their own handlers.
+  Player menu rows follow the same rule in the player's own handler.
   `ScreenHost` and `FocusHost` leave Enter to it, except for cards with a `quickAction` (see below).
   Menus, the Exit dialog and the player own Enter themselves and also act on its release.
-  The Exit dialog and the request menu run a button only when `releasedSelect()` names it: the button the press was made on, still focused, with the press never cancelled.
+  The Exit dialog, the request menu and the card menu run a button only when `releasedSelect()` names it: the button the press was made on, still focused and enabled, with the press never cancelled.
+  A card menu redraw hands a held press to the redrawn row with `moveSelect`.
   A text field keeps the TV keyboard's own Enter.
 - Media keys are registered at startup in `registerMediaKeys` (`src/platform.ts`).
   It registers Play/Pause, Play, Pause, Stop, Rewind and Fast Forward one at a time, only if the TV lists them as supported, and a refusal does not stop the others.

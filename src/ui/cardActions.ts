@@ -10,6 +10,7 @@ import type { NativeSession } from "../session/session.ts";
 import { centredDialog } from "./confirmationDialog.ts";
 import { remoteKey } from "./keys.ts";
 import { el } from "./screen.ts";
+import { heldSelect, listenSelectRelease, moveSelect, releasedSelect } from "./selectRelease.ts";
 
 /** What the opener knows about the card. A field it does not know is read from the item before the menu opens. */
 export type MenuCard = Pick<Card, "id" | "title" | "type"> & Partial<Pick<Card, "played" | "favorite" | "watchlist" | "positionSeconds" | "seriesId">> & {
@@ -81,9 +82,8 @@ const MENU_MARGIN = 60;
 export class CardActions {
     private panel: HTMLElement | undefined;
     private rows: HTMLButtonElement[] = [];
+    /** A fresh Select is down inside the menu; its repeats and release belong to it. */
     private pressed = false;
-    /** The row a fresh Select pressed while it was enabled; only that row runs on release. */
-    private pressedRow: string | undefined;
     private listening = false;
     /** The card drawn lifted while its menu is open, and its art's rest box measured before the lift. */
     private lifted: { readonly card: HTMLElement; readonly rest: Box } | undefined;
@@ -218,10 +218,15 @@ export class CardActions {
             return;
         }
         const focused = document.activeElement?.getAttribute("data-focus");
+        const press = heldSelect();
+        const held = press !== undefined && press.element === document.activeElement ? press : undefined;
         this.panel?.remove();
         this.panel = undefined;
         this.show(next, shown.options, shown.anchor, shown.source);
-        this.rows.find(row => row.getAttribute("data-focus") === focused)?.focus({ preventScroll: true });
+        const kept = this.rows.find(row => row.getAttribute("data-focus") === focused);
+        kept?.focus({ preventScroll: true });
+        // A held Select stays with its row through the redraw, unless the redrawn row is disabled.
+        if (held !== undefined && kept !== undefined) moveSelect(held, kept);
     }
 
     private menuRows(card: MenuCard, options: CardMenuOptions, source: MenuCard): Row[] {
@@ -322,6 +327,7 @@ export class CardActions {
         if (this.listening) return;
         this.listening = true;
         this.pressed = false;
+        listenSelectRelease();
         this.host.opened();
         document.addEventListener("keydown", this.onKey, true);
         document.addEventListener("keyup", this.onRelease, true);
@@ -358,21 +364,17 @@ export class CardActions {
         if (remoteKey(event) !== "enter") return;
         event.preventDefault();
         event.stopImmediatePropagation();
-        const pressedRow = this.pressedRow;
-        this.pressedRow = undefined;
-        // A hidden page cannot finish a press.
-        if (!this.pressed || document.hidden) { this.pressed = false; return; }
+        if (!this.pressed) return;
         this.pressed = false;
-        const chosen = this.rows.find(row => row === document.activeElement);
-        // A press made on a disabled row stays inert, even if a redraw enables the row before release.
-        if (chosen === undefined || pressedRow === undefined || chosen.getAttribute("data-focus") !== pressedRow || chosen.getAttribute("aria-disabled") === "true") return;
-        chosen.click();
+        // The shared Select release names the row the press was made on, enabled and focused throughout; anything else runs nothing.
+        const chosen = releasedSelect();
+        if (chosen !== undefined && chosen === document.activeElement && this.rows.some(row => row === chosen)) chosen.click();
     };
 
     private readonly onKey = (event: KeyboardEvent): void => {
         const key = remoteKey(event);
         // Any other key, remote or not, ends a held Select, so its release cannot choose a row.
-        if (key !== "enter") { this.pressed = false; this.pressedRow = undefined; }
+        if (key !== "enter") this.pressed = false;
         if (key === undefined && event.key !== "Tab") return;
         event.stopImmediatePropagation();
         event.preventDefault();
@@ -385,11 +387,8 @@ export class CardActions {
             this.rows[Math.max(0, Math.min(this.rows.length - 1, index + step))]?.focus({ preventScroll: true });
         } else if (key === "enter") {
             // tvOS chooses a row on Select's release. The long press that opened the menu is still held:
-            // only a fresh press arms a row, and its repeats change nothing.
-            if (event.repeat) return;
-            this.pressed = true;
-            const row = this.rows.find(candidate => candidate === document.activeElement);
-            this.pressedRow = row === undefined || row.getAttribute("aria-disabled") === "true" ? undefined : row.getAttribute("data-focus") ?? undefined;
+            // only a fresh press counts, and its repeats change nothing.
+            if (!event.repeat) this.pressed = true;
         }
     };
 }

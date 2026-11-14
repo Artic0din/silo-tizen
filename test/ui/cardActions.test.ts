@@ -292,6 +292,31 @@ test("a menu reopened while its card's change is pending updates and re-enables 
     } finally { await tv.page.context().close(); }
 });
 
+test("a Select held on Resume while a pending change redraws the menu plays on release", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const catalog = await start(tv);
+        await hold(tv, true);
+        const answer = tv.fake.hold("/favorites/movie%3Am0001", true);
+        await row(tv, "Add to Favorites").click();
+        await tv.eventually(async () => catalog.mutations.length === 1, "favorite sent");
+        await hold(tv, true);
+        const resume = menu(tv).locator('[data-focus="card-play"]');
+        await resume.focus();
+        const before = await resume.elementHandle();
+        assert.ok(before);
+        await tv.down(13);
+        answer.release();
+        await row(tv, "Remove from Favorites").waitFor();
+        assert.equal(await before.evaluate(node => node.isConnected), false, "the landed change redrew the menu");
+        assert.equal(await tv.focused(), "card-play");
+        await tv.up(13);
+        assert.equal(await menu(tv).count(), 0, "release chose the redrawn Resume");
+        await tv.eventually(async () => (await tv.page.evaluate(() => window.browseHarness.plays)).length === 1, "Resume plays");
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
+
 test("reopening a card before Home rereads shows the change the server accepted", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {
@@ -408,6 +433,12 @@ test("a row is chosen on Select's release, and that release cannot reach the car
         await tv.page.evaluate(hidden => { Object.defineProperty(document, "hidden", { configurable: true, value: hidden }); document.dispatchEvent(new Event("visibilitychange")); }, false);
         assert.equal(await menu(tv).count(), 1, "a press the hidden page lost chooses nothing");
         assert.equal(catalog.mutations.length, 0);
+        // Focus leaving the held row and coming back without a key ends the press too.
+        await tv.down(13);
+        await row(tv, "Add to Favorites").focus();
+        await row(tv, "Mark as Watched").focus();
+        await tv.up(13);
+        assert.equal(await menu(tv).count(), 1, "a press whose focus left its row chooses nothing");
         for (const other of ["Tab", "Shift"]) {
             await tv.down(13);
             await tv.page.keyboard.press(other);

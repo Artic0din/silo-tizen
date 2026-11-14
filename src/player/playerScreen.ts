@@ -1419,6 +1419,8 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     const selectContext = (): string => [view.phase, view.phase === "playing" || view.phase === "paused" ? view.upNext !== undefined : false, menuOpen, timeline, seekPreview !== undefined, autoRate, overlay.classList.contains("player-overlay-hidden"), skipUsable(), bufferingButtons().length, bufferingTarget].join("|");
     const onKey = (event: KeyboardEvent, released = false): void => {
         const key = remoteKey(event);
+        // Any other key, remote or not, ends a held Select.
+        if (key !== "enter") selectHeld = undefined;
         if (key === undefined || view.phase === "closed") {
             return;
         }
@@ -1429,7 +1431,6 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             if (!event.repeat) selectHeld = menuOpen && document.activeElement?.getAttribute("aria-disabled") === "true" ? undefined : { element: document.activeElement, key: document.activeElement?.getAttribute("data-focus") ?? null, context: selectContext() };
             return;
         }
-        if (key !== "enter") selectHeld = undefined;
         if ((view.phase === "playing" || view.phase === "paused") && view.upNext !== undefined) {
             if (key === "play_pause") { controls.togglePause(); return; }
             if (key === "play" || key === "pause") { controls.setPaused(key === "pause"); return; }

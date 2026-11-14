@@ -303,6 +303,11 @@ test("a Select whose focus leaves its control and returns runs nothing on releas
         assert.equal(await focused(page), "pause");
         await page.evaluate((code) => document.activeElement?.dispatchEvent(new KeyboardEvent("keyup", { keyCode: code, bubbles: true, cancelable: true })), ENTER);
         assert.deepEqual(await commands(page), [], "the press ended when focus left Pause");
+        await keyEvent(page, "keydown", ENTER);
+        await page.keyboard.press("Shift");
+        assert.equal(await focused(page), "pause");
+        await keyEvent(page, "keyup", ENTER);
+        assert.deepEqual(await commands(page), [], "any other key ends the held press");
         await remote(page, ENTER);
         assert.deepEqual(await commands(page), ["togglePause"], "the next fresh Select runs");
     } finally { await page.close(); }

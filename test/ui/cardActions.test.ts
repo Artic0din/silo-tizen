@@ -408,6 +408,14 @@ test("a row is chosen on Select's release, and that release cannot reach the car
         await tv.page.evaluate(hidden => { Object.defineProperty(document, "hidden", { configurable: true, value: hidden }); document.dispatchEvent(new Event("visibilitychange")); }, false);
         assert.equal(await menu(tv).count(), 1, "a press the hidden page lost chooses nothing");
         assert.equal(catalog.mutations.length, 0);
+        for (const other of ["Tab", "Shift"]) {
+            await tv.down(13);
+            await tv.page.keyboard.press(other);
+            await row(tv, "Mark as Watched").focus();
+            await tv.up(13);
+            assert.equal(await menu(tv).count(), 1, `${other} ended the held press, so its release chooses nothing`);
+        }
+        assert.equal(catalog.mutations.length, 0);
         await tv.down(13);
         for (let repeat = 0; repeat < 4; repeat++) { await tv.jump(200); await tv.down(13, true); }
         assert.equal(await menu(tv).count(), 1, "a held row waits for release");

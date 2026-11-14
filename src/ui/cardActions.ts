@@ -371,11 +371,11 @@ export class CardActions {
 
     private readonly onKey = (event: KeyboardEvent): void => {
         const key = remoteKey(event);
+        // Any other key, remote or not, ends a held Select, so its release cannot choose a row.
+        if (key !== "enter") { this.pressed = false; this.pressedRow = undefined; }
         if (key === undefined && event.key !== "Tab") return;
         event.stopImmediatePropagation();
         event.preventDefault();
-        // Any other key ends a held Select, so its release cannot choose a row it did not press.
-        if (key !== "enter") { this.pressed = false; this.pressedRow = undefined; }
         if (key === "back") { this.close(); return; }
         if (this.panel === undefined) return;
         // The tvOS menu is a single column: Left and Right stay put.

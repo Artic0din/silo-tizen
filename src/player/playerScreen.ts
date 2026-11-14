@@ -1588,12 +1588,13 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         const held = selectHeld;
         if (held === undefined || event.target !== held.element) return;
         const next = event.relatedTarget;
-        if (held.key !== null && next instanceof Element && next.getAttribute("data-focus") === held.key) return;
+        // The press follows the same control's replacement, so a later focus departure from it still ends the press.
+        if (held.key !== null && next instanceof Element && next.getAttribute("data-focus") === held.key) { selectHeld = { ...held, element: next }; return; }
         // A repaint removes the focused row before focusing its replacement, so decide once the repaint has run.
         queueMicrotask(() => {
             if (selectHeld !== held) return;
-            if (held.key !== null && held.element?.isConnected === false && document.activeElement?.getAttribute("data-focus") === held.key) return;
-            selectHeld = undefined;
+            const active = document.activeElement;
+            selectHeld = held.key !== null && held.element?.isConnected === false && active?.getAttribute("data-focus") === held.key ? { ...held, element: active } : undefined;
         });
     };
 
@@ -1602,7 +1603,8 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         if (key === "enter") {
             const held = selectHeld;
             selectHeld = undefined;
-            // Release runs the press only where it was made; a repaint may replace that control with the same one.
+            // Release runs the press only on the control it was made on, or that control's repainted replacement: onFocusOut
+            // retargets the press when removal fires focusout, and the key check covers an engine that removes it silently.
             const active = document.activeElement;
             if (held !== undefined && held.context === selectContext() && (active === held.element || (held.key !== null && held.element?.isConnected === false && active?.getAttribute("data-focus") === held.key))) onKey(event, true);
             return;

@@ -333,6 +333,28 @@ test("a Select held on a menu row through a HUD repaint runs that row on release
     } finally { await page.close(); }
 });
 
+test("a Select held through a HUD repaint still ends when focus leaves the repainted row", async () => {
+    const { page } = await open();
+    try {
+        const hud = { chapters: [{ title: "Opening", seconds: 0 }, { title: "Second", seconds: 800 }], chapterState: "ready" as const, stats: [["Engine", "AVPlay"]] as const, speeds: [1, 2], aspects: ["Fit", "Stretch"] as const, speed: 1, aspect: "Fit" as const, autoNext: false, busy: false };
+        await show(page, { ...playing(TRACKS), hud });
+        await openPanel(page);
+        await nextTab(page, 5);
+        await remote(page, DOWN);
+        await keyEvent(page, "keydown", ENTER);
+        await show(page, { ...playing(TRACKS), hud: { ...hud, stats: [["Engine", "AVPlay"], ["Dropped", "0"]] } });
+        assert.equal(await focused(page), "chapter:1");
+        await page.evaluate(() => {
+            const row = document.activeElement;
+            document.querySelector<HTMLElement>('[data-focus="chapter:0"]')?.focus();
+            if (row instanceof HTMLElement) row.focus();
+        });
+        assert.equal(await focused(page), "chapter:1");
+        await keyEvent(page, "keyup", ENTER);
+        assert.deepEqual(await commands(page), [], "focus left the repainted row, so the press ended");
+    } finally { await page.close(); }
+});
+
 test("a prompt that appears while Select is held does not take the release", async () => {
     const { page } = await open();
     try {

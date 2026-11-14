@@ -41,6 +41,8 @@ export function heldSelect(): SelectPress | undefined {
 /** A repaint replaced the held control with this one for the same item: it keeps the press, even if the repaint's focus change ended it. */
 export function moveSelect(press: SelectPress, element: HTMLElement): void {
     held?.removeAttribute("data-pressed");
+    // A replacement that is disabled ends the press instead.
+    if (!activatable(element)) { release(); return; }
     held = element;
     owned = press.owned;
     element.setAttribute("data-pressed", "");
@@ -72,7 +74,8 @@ const onUnhandled = (event: KeyboardEvent): void => {
 // A screen may stop a keyup it owns, so the press ends at capture; only a release no screen took clicks.
 const onReleaseStart = (event: KeyboardEvent): void => {
     if (remoteKey(event) !== "enter") return;
-    released = document.hidden ? undefined : held;
+    // The press runs only on the control it was made on, still focused and still enabled.
+    released = document.hidden || held === undefined || !activatable(held) ? undefined : held;
     releasing = owned ? released : undefined;
     release();
 };

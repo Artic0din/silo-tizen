@@ -491,6 +491,13 @@ test("a held Select dims a For You row to 0.75 over 0.12 s until release", async
         await tv.page.keyboard.up("Enter");
         await tv.jump(250);
         assert.equal(await tv.page.locator(".browse").getAttribute("data-view"), view, "the release of a press made while disabled runs nothing");
+        await tv.page.keyboard.down("Enter");
+        assert.equal(await row.getAttribute("data-pressed"), "");
+        await row.evaluate(node => node.setAttribute("aria-disabled", "true"));
+        await tv.page.keyboard.up("Enter");
+        await row.evaluate(node => node.removeAttribute("aria-disabled"));
+        await tv.jump(250);
+        assert.equal(await tv.page.locator(".browse").getAttribute("data-view"), view, "a row that disabled before release runs nothing");
         // tvOS opens the row on Select's release, never on the press or its auto-repeats.
         await tv.page.keyboard.down("Enter");
         await tv.page.keyboard.down("Enter");

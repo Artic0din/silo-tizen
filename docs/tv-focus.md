@@ -186,6 +186,7 @@ Other layers:
   Auto-repeat never clicks again, and any other key, focus leaving the button, a window blur or a hidden page cancels the press.
   A browse repaint that replaces the held button with the same item's new one keeps the press (`FocusHost.show`).
   A press on a control marked `aria-disabled` never arms, so it never runs, even if a redraw enables that control before release.
+  A press whose control is disabled by release time, or repainted as a disabled control, runs nothing either.
   Card menu rows and player menu rows follow the same rule in their own handlers.
   `ScreenHost` and `FocusHost` leave Enter to it, except for cards with a `quickAction` (see below).
   Menus, the Exit dialog and the player own Enter themselves and also act on its release.

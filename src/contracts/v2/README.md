@@ -98,7 +98,7 @@ Recent browsing uses `sort: "added_at", order: "desc"`.
 Letter requests carry the same library, media type, filter groups and title order as the title browse.
 Use server letter positions as `seek` and retain the window cursor when continuing that browse; runs may repeat a letter.
 The factories add no credentials or new retry machinery.
-The six GET operations are reads; `queryCatalogItems` and `queryCatalogLetters` declare `natural_idempotent`, so both use the transport's existing safe retry.
+The six GET operations are reads; `queryCatalogItems` declares `natural_idempotent`, so it uses the transport's existing safe retry.
 
 The public discovery fixtures are byte-identical copies of `contracts/api/v2/fixtures/` at `SOURCE`:
 `list_library_sections_ok`, `get_library_section_items_ok`, `get_library_collections_ok`, `get_catalog_filters_ok`, `query_catalog_items_ok`, `query_catalog_letters_ok`, and `get_catalog_search_capabilities_ok`.

@@ -9,8 +9,6 @@ const PATHS = {
     Recommended: "M10 5 12 11 18 13 12 15 10 21 8 15 2 13 8 11ZM19 2 20 5 23 6 20 7 19 10 18 7 15 6 18 5Z",
     Collections: "M2 8 12 3 22 8 12 13ZM2 13 12 18 22 13M2 18 12 23 22 18",
     Browse: "M3 3H9V9H3ZM15 3H21V9H15ZM3 15H9V21H3ZM15 15H21V21H15Z",
-    Genres: "M3 3H12L22 13 13 22 3 12ZM7 7H8",
-    "Recently Added": "M12 3A9 9 0 1 1 3 12 9 9 0 0 1 12 3ZM12 7V12L16 15",
     movies: "M3 5H21V20H3ZM3 10H21M7 5 10 10M14 5 17 10",
     series: "M3 7H21V20H3ZM7 2 12 7 17 2",
     watchlist: "M6 3H18V22L12 18 6 22Z",
@@ -32,9 +30,9 @@ const PATHS = {
  * `tvOS/Navigation/TVTopMenuBar.swift:1034-1037`, `:1061-1063`, `:1183-1200`; `Components/ProfileMenuRow.swift:51`).
  * These are original filled drawings in the same 24-unit box as the line icons, sized to each symbol's measured ink;
  * a glyph wider or taller than the box overruns it as Apple's does. Change Account keeps Apple's outlined circle, so it
- * adds a stroked part.
+ * adds a stroked part; Watch Party and Sign Out are Apple's outline symbols traced at the same size.
  */
-const FILLED: Readonly<Record<string, { readonly fill: string; readonly stroke?: string }>> = {
+const FILLED: Readonly<Record<string, { readonly fill: string; readonly stroke?: string; readonly strokeWidth?: number }>> = {
     // person.2.fill
     "switch-profile": { fill: "M4.2 2.1A4.3 4.3 0 1 1 4.2 10.7 4.3 4.3 0 0 1 4.2 2.1ZM18.5 .8A5.3 5.3 0 1 1 18.5 11.4 5.3 5.3 0 0 1 18.5 .8ZM-3.7 20.2C-3.7 16.3 0 13.2 4.2 13.2C6.2 13.2 8 13.8 9.4 14.9C7.8 16.6 6.9 18.4 6.9 20.2V22.2H-1.7Q-3.7 22.2 -3.7 20.2ZM8.3 20.2C8.3 16 13 12.7 18 12.7S27.7 16 27.7 20.2Q27.7 22.2 25.7 22.2H10.3Q8.3 22.2 8.3 20.2Z" },
     // clock.fill
@@ -48,6 +46,16 @@ const FILLED: Readonly<Record<string, { readonly fill: string; readonly stroke?:
         fill: "M1.8 11.5A6 6 0 1 1 1.8 23.5 6 6 0 0 1 1.8 11.5ZM-1.95 18.12 .93 21.14 5.48 15.89 4.12 14.71 .87 18.46 -.65 16.88Z",
         stroke: "M2.59 9.05A11.1 11.1 0 1 1 8.69 22.44M13.8 4.2A3.25 3.25 0 1 1 13.8 10.7 3.25 3.25 0 0 1 13.8 4.2ZM10 18.9C11.3 17.1 12.5 16.4 13.8 16.4C15.9 16.4 17.9 17.6 19.6 20.1",
     },
+    // rectangle.portrait.and.arrow.forward, an outline symbol on Apple too (TVTopMenuBar.swift:1214 at silo-apple 5780c84):
+    // 2.2 pt frame with a gap for the 2 pt arrow, ink 24.3 by 21.1 pt.
+    signout: {
+        fill: "M18.52 8.6V3.97A4.64 4.64 0 0 0 13.87 -.67H2.02A4.64 4.64 0 0 0 -2.63 3.97V20.03A4.64 4.64 0 0 0 2.02 24.67H13.87A4.64 4.64 0 0 0 18.52 20.03V15.37H15.79V20.09A2 2 0 0 1 13.79 22.09H2.08A2 2 0 0 1 .07 20.09V3.91A2 2 0 0 1 2.08 1.91H13.79A2 2 0 0 1 15.79 3.91V8.6Z",
+        stroke: "M9.52 12H25.43M21.56 8.12 25.43 12 21.56 15.88",
+        strokeWidth: 2.4,
+    },
+    // person.3, an outline symbol on Apple too (TVTopMenuBar.swift:1195 at silo-apple 5780c84): ink 38.9 by 17.8 pt,
+    // wider than its 30 pt frame, so it overruns the box on both sides as Apple's does.
+    "watch-party": { fill: "M6.66 6.72A5.33 5.33 0 1 1 17.32 6.72A5.33 5.33 0 1 1 6.66 6.72ZM9.02 6.72A2.96 3.2 0 1 0 14.95 6.72A2.96 3.2 0 1 0 9.02 6.72ZM1.34 20.64A10.66 7.12 0 0 1 22.66 20.64A1.98 1.98 0 0 1 20.68 22.62H3.32A1.98 1.98 0 0 1 1.34 20.64ZM3.85 20.46H20.15A8.15 5 0 0 0 3.85 20.46ZM-6.7 7.51A4.66 4.66 0 1 1 2.62 7.51A4.66 4.66 0 1 1 -6.7 7.51ZM-4.46 7.51A2.42 2.58 0 1 0 .38 7.51A2.42 2.58 0 1 0 -4.46 7.51ZM-.14 22.62H-9.36A1.98 1.98 0 0 1 -11.34 20.64A9.3 7.32 0 0 1 2.95 14.46L1.32 16.01A6.96 5.08 0 0 0 -9 20.46H-.52ZM30.7 7.51A4.66 4.66 0 1 0 21.38 7.51A4.66 4.66 0 1 0 30.7 7.51ZM28.46 7.51A2.42 2.58 0 1 1 23.62 7.51A2.42 2.58 0 1 1 28.46 7.51ZM24.14 22.62H33.36A1.98 1.98 0 0 0 35.34 20.64A9.3 7.32 0 0 0 21.05 14.46L22.68 16.01A6.96 5.08 0 0 1 33 20.46H24.52Z" },
     // bookmark.fill
     watchlist: { fill: "M5.6 -.5H18.4Q20.4 -.5 20.4 1.5V25.2Q20.4 26.8 19 25.8L12 19.4 5 25.8Q3.6 26.8 3.6 25.2V1.5Q3.6 -.5 5.6 -.5Z" },
     // heart.fill
@@ -73,9 +81,10 @@ export function menuIcon(name: string): SVGSVGElement {
         const stroke = document.createElementNS(icon.namespaceURI, "path");
         stroke.setAttribute("d", shape.stroke);
         stroke.setAttribute("stroke", "currentColor");
-        // SF semibold weight at 20 pt: about 1.8 pt, 2.2 units of this box.
-        stroke.setAttribute("stroke-width", "2.2");
+        // SF semibold weight at 20 pt: about 1.8 pt, 2.2 units of this box, unless the glyph measured otherwise.
+        stroke.setAttribute("stroke-width", String(shape.strokeWidth ?? 2.2));
         stroke.setAttribute("stroke-linecap", "round");
+        stroke.setAttribute("stroke-linejoin", "round");
         icon.appendChild(stroke);
     }
     return icon;

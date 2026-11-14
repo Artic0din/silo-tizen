@@ -150,6 +150,33 @@ test("native comparison: History uses the safe-area grid and preserves tied serv
         assert.deepEqual(frame.ids, ["movie:m0004", "movie:m0003", "movie:m0006", "movie:m0005"]);
     } finally { await tv.page.context().close(); }
 });
+// History's CatalogGrid captions with CardYears (Screens/Personal/HistoryView.swift:49, Screens/Browse/CatalogGrid.swift:263-264);
+// tvOS Favorites' MediaCard gets only the year (Screens/Personal/FavoritesView.swift:452-460).
+test("History captions a series with the years it ran and Favorites keeps its year", async () => {
+    const { tv, catalog } = await setup();
+    try {
+        const s1 = catalog.titles.get("series:s1");
+        const s2 = catalog.titles.get("series:s2");
+        assert.ok(s1 !== undefined && s2 !== undefined);
+        catalog.add({ ...s1, showStatus: "returning" });
+        catalog.add({ ...s2, showStatus: "ended", lastAirDate: "2024-03-17" });
+        const reply = catalog.route("POST", "/catalog/query", "p-owner", { source: "history", limit: 60 });
+        const body = reply?.body as Record<string, unknown>;
+        const series = ["series:s1", "series:s2"].map(id => catalog.route("GET", `/catalog/items/${encodeURIComponent(id)}`, "p-owner")?.body);
+        catalog.pageReplies.push({ status: 200, body: { ...body, items: [...series, ...(body.items as unknown[]).slice(0, 4)] } });
+        const line = (id: string) => tv.page.locator(`[data-view^="personal:"] [data-focus="${id}"] .browse-card-subtitle`).textContent();
+        await openList(tv, "history");
+        assert.equal(await line("series:s1"), "2020 – Present");
+        assert.equal(await line("series:s2"), "2021 – 2024");
+        await tv.remote(10009);
+        await tv.page.locator('[data-view="home"]').waitFor();
+        await openList(tv, "favorites");
+        await tv.page.locator('[data-focus="filter:series"]').click();
+        await tv.page.locator('[data-view="personal:favorites"] [data-focus="series:s2"]').waitFor();
+        assert.equal(await line("series:s1"), "2020");
+        assert.equal(await line("series:s2"), "2021");
+    } finally { await tv.page.context().close(); }
+});
 test("native comparison: History title matches the captured system title", async () => {
     const { tv } = await setup();
     try {

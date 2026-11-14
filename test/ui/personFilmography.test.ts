@@ -127,6 +127,21 @@ function journey(name: string, body: (tv: Tv, catalog: FakeDetails) => Promise<v
     });
 }
 
+// PersonDetailView's TVCatalogGrid captions with CardYears (Screens/People/PersonDetailView.swift:425, tvOS/Screens/Components/TVCatalogGrid.swift:115-117).
+journey("the filmography captions a series with the years it ran", async (tv, catalog) => {
+    for (const [id, fields] of [["series:s1", { showStatus: "returning" }], ["series:s2", { showStatus: "ended", lastAirDate: "2024-03-17" }]] as const) {
+        const title = catalog.titles.get(id);
+        assert.ok(title);
+        catalog.add({ ...title, ...fields });
+    }
+    await tv.page.locator('[data-focus="filter:series"]').click();
+    await tv.eventually(async () => await grid(tv).count() === 3, "the series filter");
+    const line = (id: string) => tv.page.locator(`.browse[data-view="person:7"] .browse-grid [data-focus="${id}"] .browse-card-subtitle`).evaluate(node => (node as HTMLElement).dataset.fullText ?? node.textContent);
+    assert.equal(await line("series:s1"), "2020 – Present");
+    assert.equal(await line("series:s2"), "2021 – 2024");
+    assert.equal(await line("series:s3"), "2022");
+});
+
 journey("incomplete Person dispatches once and polls independently of filter and paging", async tv => {
     await tv.remote(BACK);
     let complete = false;

@@ -5,7 +5,6 @@ Home, Movies, Series and Profiles share mounted root navigation.
 Only visible video library types appear, and mixed libraries can be scoped to either video type.
 Search, Detail, season and playback routes remove the root chrome.
 The library dropdown offers Recommended, Collections and Browse, in that order, matching the tvOS cascade.
-Browse retains the capability-gated Genres, A–Z and Recently Added mode controls.
 
 ## Details layout and selection
 
@@ -281,7 +280,7 @@ The tab never takes focus when it appears, and turning the switch off from the A
 It opens the same Recommended, Collections and Browse cascade as the video tabs, with square covers, and Browse offers Apple's audiobook sorts (Title, Author, Narrator, Series, Date Added, Runtime) and sends no `type`.
 Home, For You and Search open an audiobook card on its own detail: cover, author and narrator, chapters, a state line and Resume, Play or Play Again.
 Play, Resume and Start Over are drawn but inert until the player can open an audiobook.
-Watch Party requires both local opt-in (Settings › Server › Extra Features) and synchronized-party support, and sits after Requests in the profile menu only when both hold ([Watch Party](watch-party.md)).
+Watch Party requires both local opt-in (Settings › Server › Extra Features) and synchronized-party support, as Apple's `WatchPartyEntry.isAvailable` does, and sits after Requests in the profile menu only when both hold ([Watch Party](watch-party.md)).
 Search is 58 px wide with an 8 px gap before the roots and an invisible equal-width balance after them, keeping the roots centered at x960.
 Labels retain Apple's 29 px horizontal inset (including the CSS border), 26 pt semibold type scaled by `--silo-sf-cap-scale` and 8 px gaps.
 Resting labels and the magnifier are white at 62% and the selected tab is white; a capsule reaches 318 px before its label truncates.
@@ -293,7 +292,11 @@ Its focused ring is opaque white, 3 px wide and inset within the avatar edge, ma
 The avatar sits on a white 18% disc with a white initial at 0.34 of its size; focus keeps that disc, adds the ring and scales it to 1.05, and Reduce Motion drops the scale.
 A profile with no name shows a person glyph in secondary text.
 The menu header's 44 px avatar sits on white 16%.
-The anchored profile menu includes Switch Profile, History, capability-gated Requests, Settings, Change Account and a red, unfocused Sign Out row.
+The anchored profile menu follows Apple's `TVProfileDropdown` order: History, capability-gated Requests and Watch Party, a divider, then Settings, the profile row, Change Account and a red, unfocused Sign Out row.
+The profile row is Add Profile when the open account's cached list holds one profile, and Switch Profile otherwise, as Apple's `ProfileMenuRow` chooses it.
+Tizen does not read the account's profile limit, so Add Profile also shows for an account that may hold only one profile; the server refuses the creation.
+Add Profile reads the profiles again and routes by that fresh list, as Apple's `AddProfileRequest.start` does: profile creation when the only profile is the open one, ending on the profiles after a creation and back on Home with the open profile when closed without one, as Back from Switch Profile does (returning to the originating page instead is #466); the picker when the household has grown; and a refusal when the only profile is not the open one.
+The dwell opens a passive preview with focus left on the avatar; Select, or Down, enters History, as Apple's `openProfilePanelImmediately` does.
 Watchlist and Favorites remain under For You.
 Requests pushes a screen without the top bar.
 Back from Requests, History or Settings keeps the profile menu closed and restores the selected tab.
@@ -302,7 +305,7 @@ Every top-bar menu uses Apple's `TVSkylinePanelChrome`: a top-lit gradient, a fr
 A menu grows from 0.96 under its tab or avatar over 0.12 s and fades back toward it when it closes; the modes flyout only fades, over 0.16 s.
 The Sign Out confirmation and its backdrop fade in and out over 0.2 s.
 Profile and For You rows use original filled glyphs for Apple's filled symbols (people, clock, paper plane, gear, bookmark, heart, sparkles), sized to Apple's measured ink in the same 30 × 20 icon box; Change Account is a person in a circle with a tick badge, and Watch Party and Sign Out stay outlined as on Apple TV.
-The header uses the confirmed server branding name, falling back to the host when none is cached.
+The header uses the confirmed server branding name, falling back to the host when none is cached, in the bundled Roboto Mono at Apple's tracking.
 Every focused menu row uses a white platter and black text, including Sign Out.
 Change Account opens saved accounts without logging out or deleting saved sign-ins.
 Back leaves the profile menu closed and restores the selected tab and its page.
@@ -370,6 +373,7 @@ The effective `ui.card_presentation` value is read for the `tv` client family th
 The last confirmed size is cached per server/profile, a transient failure keeps it, an older incompatible server restores Standard, and optional storage failure does not block a successful in-memory answer.
 Poster badge sizes use the actual scaled artwork width; still badges retain their fixed wide-card size.
 Episode cards are captioned with their series and an `S01E02 · Pilot` line.
+A series card on Home rows and on catalog grids (library Recommended and Browse, collections, box sets, Explore all, person filmography, History and the Watch Party picker) is captioned with the years it ran, as Apple's `CardYears` does; Watchlist, Favorites and More Like This show its first year, as Apple's tvOS cards there do.
 Unfocused captions dim; focus brightens and drops the caption below a lift of the artwork only.
 Cards use Apple's shared 1.05 artwork lift and 4px white outline at 70% opacity.
 The focused shadow uses SwiftUI radius 18, converted to CSS box-shadow blur 36 px, with an 8 px vertical offset and 45% black opacity, with 120ms ease-out timing.

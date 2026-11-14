@@ -41,8 +41,7 @@ import { browsableRows, shownRows } from "./recommendationsView.ts";
 import { homeRows, removingDismissed, type ViewContext } from "./browseViews.ts";
 import { HomeEnrichment } from "./homeEnrichment.ts";
 import { el } from "./screen.ts";
-import { discoveryState, genreGroups, libraryScope, librarySectionQuery, readDiscovery, type LibraryMode } from "./libraryDiscovery.ts";
-import { availableModes } from "./libraryDiscoveryViews.ts";
+import { discoveryState, libraryScope, librarySectionQuery, readDiscovery, readSections, type LibraryMode, type VideoScope } from "./libraryDiscovery.ts";
 import { personalEndCanReenter, personalListCapability, readPersonalPage, type PersonalFilter } from "./personalLists.ts";
 import type { MediaScope } from "../contracts/v2/discovery.ts";
 import type { CatalogQueryRequest } from "../contracts/v2/discovery.ts";
@@ -66,7 +65,8 @@ import type { CalendarHandlers } from "./calendarView.ts";
 import { isSectionRoute, SectionCatalog, type SectionRoute } from "./sectionCatalog.ts";
 import { readSectionCatalog, type SectionSnapshot } from "./sectionCatalogState.ts";
 import { BrowsePrefs, browseQuery } from "./libraryBrowse.ts";
-import { stopFeed } from "./catalogFeed.ts";
+import { stopFeed, waitForFeedEnd } from "./catalogFeed.ts";
+import { leavePanel } from "./libraryBrowseViews.ts";
 import type { BrowseChange, DiscoveryState } from "./libraryDiscovery.ts";
 import { shufflePick } from "../player/nextShuffle.ts";
 import type { ShuffleCapability } from "../contracts/v2/shuffle.ts";
@@ -85,6 +85,8 @@ export interface BrowseOptions {
     readonly onPlay: (request: PlayRequest) => void;
     /** The person asked for the profile screens; browse has already removed itself. */
     readonly onChooseProfile: () => void;
+    /** Opens profile creation for the open account. */
+    readonly onAddProfile?: () => void;
     readonly onSignOut?: () => void;
     readonly onSwitchServer?: (back: () => void) => void;
     readonly onAccounts?: (back: () => void) => void;
@@ -568,8 +570,10 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             }
         })();
     };
+    // A tab narrows a mixed library to its type, so the route's library can differ from the server's. Tabs can be up before Home's rows.
+    const serverLibrary = (id: string): UserLibrary | undefined => (pendingHomeLibraries ?? (home.kind === "home" ? home.data?.libraries : undefined))?.find(library => library.id === id);
     const canShuffle = (route: Extract<Route, { kind: "library" | "libraryResults" }>): boolean => {
-        const original = home.kind === "home" ? home.data?.libraries.find(library => library.id === route.library.id) : undefined;
+        const original = serverLibrary(route.library.id);
         const kind = route.kind === "libraryResults" && route.source.kind === "collection" ? route.source.groupKind === "user_collections" ? "user_collection" : "library_collection" : "library";
         // Shuffle starts video; audiobook shuffle waits for audiobook playback.
         return route.library.type !== "audiobooks" && shuffleCapability.usable && shuffleCapability.scopeKinds.includes(kind) && (original?.type !== "mixed" || route.library.type === "mixed");
@@ -669,13 +673,19 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     let imageProbe: Promise<ImageCapabilities | undefined> | undefined;
     let homeArtworkAttempt: Readonly<Record<string, string>> | undefined;
     const libraryArtworkAttempts = new WeakMap<Route, Readonly<Record<string, string>>>();
+    /** TVLibraryTypeTabView.mediaScope (:77-87): only a mixed library opened from the Movies or Series tab is narrowed. */
+    function videoScope(library: UserLibrary): VideoScope | undefined {
+        if (serverLibrary(library.id)?.type !== "mixed") return undefined;
+        return library.type === "movies" ? "movie" : library.type === "series" ? "series" : undefined;
+    }
     function upgradeLibraryArtwork(): void {
         const current = top();
         if (current?.kind !== "library" || current.discovery?.mode !== "Recommended" || current.discovery.data === undefined || torn || playing || cardActions.active || loading !== undefined || current.failure !== undefined) return;
         const attempt = libraryArtworkAttempts.get(current);
         const query = homeArtworkQuery(imageCapability, window.devicePixelRatio);
         if (attempt === undefined || !Object.entries(query).some(([key, value]) => attempt[key] !== value)) return;
-        load(current, signal => read(operations.listLibrarySections(current.library.id, query), signal).catch((error: unknown) => {
+        // A mixed tab's refilled cards were not in the inline rows, so the upgrade reads them through the same refill.
+        load(current, signal => readSections(current.library, spec => read(spec, signal), query, videoScope(current.library)).then(result => result.sections).catch((error: unknown) => {
             if (error instanceof ApiError && !error.aborted) return undefined;
             throw error;
         }), sections => {
@@ -804,6 +814,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     };
     const stopAuthority = session.onAuthorityChange(teardown);
 
+    /** Browse routes whose read in flight is a next page, not a full re-read. */
+    const browseAppends = new WeakSet<Route>();
     /** Runs one read for the top route; an answer for a route or query no longer shown is dropped. */
     const load = <T>(current: Route, read: (signal: AbortSignal) => Promise<T>, apply: (value: T) => FocusTarget | void, quiet = false): void => {
         loading?.abort();
@@ -850,11 +862,6 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     current.focus = undefined;
                     if (current.kind === "personal" || current.kind === "homeSection" || current.kind === "person") current.pendingIndex = undefined;
                     if (current.kind === "personal") personalSnapshots.delete(current);
-                    if (current.kind === "library" && current.discovery !== undefined) {
-                        current.discovery.windowCursor = undefined;
-                        current.discovery.seek = undefined;
-                        current.discovery.letter = undefined;
-                    }
                 }
                 const text = error instanceof CalendarTimezoneError ? error.message : failureText(error, current);
                 if ((current.kind === "item" || current.kind === "home") && error instanceof ApiError && (error.status === 403 || error.status === 404)) {
@@ -874,6 +881,20 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     current.error = undefined;
                     if (top() === current) render(host.focused());
                     return;
+                }
+                // TVLibraryGridViewModel.swift:337-339: a failed later Browse page keeps the grid and shows nothing; the next approach to the end reads again.
+                if (current.kind === "library" && current.discovery?.mode === "Browse" && (current.pages.page?.items.length ?? 0) > 0 && text !== undefined) {
+                    if (browseAppends.has(current)) {
+                        waitForFeedEnd(current.pages);
+                        current.failure = undefined;
+                        current.error = undefined;
+                        if (top() === current) render(host.focused());
+                        return;
+                    }
+                    // A full re-read (after a card change, say) starts from an empty grid, as Apple's reload does (:249-261), so its
+                    // failure is the error page with Try Again rather than cards that are known to be stale.
+                    current.pages.page = undefined;
+                    current.discovery.snapshot = undefined;
                 }
                 // Apple PersonDetailView: a failed later page keeps the cards; a stale failure would make Back read every loaded page again.
                 if (current.kind === "person" && (current.pages.page?.items.length ?? 0) > 0 && text !== undefined) {
@@ -1132,12 +1153,6 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         if (!state.facetsRequested) {
             state.filter = browsePrefs.saved(current.library) ?? state.filter;
             state.facetsRequested = true;
-            if (state.capabilities === undefined) void session.call({ ...operations.getCatalogSearchCapabilities(), profileScoped: true, signal: requestsController.signal }).then(capabilities => {
-                if (torn || current.discovery !== state) return;
-                state.capabilities = capabilities;
-                if (state.data !== undefined) state.data = { ...state.data, capabilities };
-                if (!playing && top() === current) render(host.focused());
-            }, () => undefined);
             void session.call({ ...operations.getCatalogFilters({ library_id: current.library.id }), profileScoped: true, signal: requestsController.signal }).then(filters => {
                 if (torn || current.discovery !== state) return;
                 state.facets = filters;
@@ -1146,18 +1161,22 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             }, () => undefined);
         }
         const query = browseQuery(state.filter, current.library, 100);
+        if (append) browseAppends.add(current); else browseAppends.delete(current);
         load(current, async signal => {
             const snapshot = await readSectionCatalog(state.snapshot, append, async cursor => read(operations.queryCatalogItems({ ...query, ...(cursor === undefined ? {} : { cursor }) }), signal), signal);
             if (snapshot.unavailable) throw new ApiError({ kind: "http", status: 404, retryAfterSeconds: undefined });
             let emptyReason: DiscoveryState["emptyReason"] = "libraryEmpty";
             if (snapshot.page.items.length === 0 && (query.groups !== undefined || query.name_prefix !== undefined)) {
-                const probe = await read(operations.queryCatalogItems({ ...libraryScope(current.library), limit: 1 }), signal);
-                if (probe.items.length > 0) emptyReason = "noFilterMatches";
+                // BrowseEmptyReason.classify (BrowseEmptyReason.swift:20-24): a failed check keeps the filter message.
+                emptyReason = await read(operations.queryCatalogItems({ ...libraryScope(current.library), limit: 1 }), signal).then(probe => probe.items.length > 0 ? "noFilterMatches" : "libraryEmpty", (error: unknown) => {
+                    if (error instanceof ApiError && error.aborted) throw error;
+                    return "noFilterMatches";
+                });
             }
             return { snapshot, emptyReason };
         }, result => {
             state.snapshot = result.snapshot; state.emptyReason = result.emptyReason;
-            state.data = { capabilities: state.capabilities, sections: [], collections: undefined, filters: state.facets, letters: undefined };
+            state.data = { sections: [], collections: undefined, filters: state.facets };
             current.pages.page = result.snapshot.page;
             return host.focused() ?? current.focus;
         }, quiet);
@@ -1219,6 +1238,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         const state = current.discovery;
         if (torn || playing || top() !== current || state?.mode !== "Browse") return;
         if (change.preserve !== undefined) { browsePrefs.setPreserve(current.library, change.preserve); if (change.preserve) browsePrefs.save(current.library, state.filter); }
+        if ("panel" in change && change.panel === undefined && state.panel !== undefined) leavePanel(container);
         if ("panel" in change) state.panel = change.panel;
         if (change.filter !== undefined) {
             const changed = JSON.stringify(browseQuery(change.filter, current.library, 100)) !== JSON.stringify(browseQuery(state.filter, current.library, 100));
@@ -1441,31 +1461,20 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 if (current.library.type === "music") return;
                 current.discovery ??= discoveryState();
                 if (current.discovery.mode === "Recommended") presentation.ensure();
-                if (current.discovery.data !== undefined && (current.discovery.mode === "Recently Added" || current.discovery.mode === "A–Z" || current.discovery.genre !== undefined)) {
-                    loadPage(current, current.pages, current.pages.index, quiet);
-                    return;
-                }
                 load(current, async signal => {
                     const state = current.discovery ?? discoveryState();
                     const artworkQuery = homeArtworkQuery(imageCapability, window.devicePixelRatio);
-                    const data = await readDiscovery(current.library, state.mode, spec => read(spec, signal), artworkQuery);
-                    const page = (state.mode === "Recently Added" || state.mode === "A–Z") && data.capabilities?.allowed === true
-                        ? await read(operations.queryCatalogItems({ ...libraryScope(current.library), limit: PAGE_SIZE, sort: state.mode === "Recently Added" ? "added_at" : "title", order: state.mode === "Recently Added" ? "desc" : "asc" }), signal) : undefined;
-                    return { data, page, artworkQuery };
-                }, ({ data, page, artworkQuery }) => {
+                    const data = await readDiscovery(current.library, state.mode, spec => read(spec, signal), artworkQuery, videoScope(current.library));
+                    return { data, artworkQuery };
+                }, ({ data, artworkQuery }) => {
                     if (current.discovery !== undefined) {
                         current.discovery.data = data;
-                        current.discovery.capabilities = data.capabilities;
-                        shell.setLibraryModes(availableModes(data.capabilities));
                         if (current.discovery.mode === "Recommended") {
                             libraryArtworkAttempts.set(current, artworkQuery);
                             presentEnrichment(data.sections.filter(section => section.featured !== true), false);
                             queueMicrotask(upgradeLibraryArtwork);
                         }
                     }
-                    current.pages.page = page;
-                    current.pages.cursors = [undefined, page?.nextCursor];
-                    if (current.discovery !== undefined) current.discovery.windowCursor = page?.windowCursor;
                 }, quiet);
                 return;
             case "libraryResults":
@@ -1722,42 +1731,27 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             }, quiet || pages.page !== undefined);
             return;
         }
-        if (current.kind === "library" || current.kind === "libraryResults") {
+        if (current.kind === "libraryResults") {
             load(current, async signal => {
-                if (current.kind === "libraryResults" && current.source.kind === "collection") void probeShuffles();
                 const cursor = pages.cursors[index];
-                if (current.kind === "libraryResults" && current.source.kind === "section") {
-                    return read(operations.queryCatalogItems({ ...librarySectionQuery(current.library.id, current.source.id), limit: PAGE_SIZE, ...(cursor === undefined ? {} : { cursor }) }), signal);
+                const source = current.source;
+                if (source.kind === "section") {
+                    return read(operations.queryCatalogItems({ ...librarySectionQuery(current.library.id, source.id), limit: PAGE_SIZE, ...(cursor === undefined ? {} : { cursor }) }), signal);
                 }
-                const state = current.kind === "library" ? current.discovery : undefined;
-                const recent = state?.mode === "Recently Added";
-                const source = current.kind === "libraryResults" ? current.source : undefined;
-                if (source?.kind === "collection") {
-                    const original = home.kind === "home" ? home.data?.libraries.find(library => library.id === current.library.id) : undefined;
-                    const narrowed = original?.type === "mixed" && current.library.type !== "mixed";
-                    return read(operations.queryCatalogItems({
-                        source: source.groupKind === "user_collections" ? "user_collection" : "library_collection",
-                        collection_id: source.id, limit: 60, match: "all",
-                        ...(narrowed ? libraryScope(current.library) : {}),
-                        ...(cursor === undefined ? {} : { cursor }),
-                    }), signal);
-                }
-                const query = operations.queryCatalogItems({
-                    ...libraryScope(current.library), limit: PAGE_SIZE,
-                    sort: recent ? "added_at" : "title",
-                    order: recent || state?.descending === true || (current.kind === "libraryResults" && current.descending) ? "desc" : "asc",
+                void probeShuffles();
+                const original = serverLibrary(current.library.id);
+                const narrowed = original?.type === "mixed" && current.library.type !== "mixed";
+                return read(operations.queryCatalogItems({
+                    source: source.groupKind === "user_collections" ? "user_collection" : "library_collection",
+                    collection_id: source.id, limit: 60, match: "all",
+                    ...(narrowed ? libraryScope(current.library) : {}),
                     ...(cursor === undefined ? {} : { cursor }),
-                    ...(state?.seek === undefined || index !== 0 ? {} : { seek: state.seek, ...(state.windowCursor === undefined ? {} : { cursor: state.windowCursor }) }),
-                    ...(source?.kind === "genre" ? { groups: genreGroups(source.name) } : {}),
-                    ...(state?.genre === undefined ? {} : { groups: genreGroups(state.genre) }),
-                });
-                return read(query, signal);
+                }), signal);
             }, page => {
                 pages.page = page;
                 pages.index = index;
                 pages.cursors = pages.cursors.slice(0, index + 1);
                 pages.cursors.push(page.nextCursor);
-                if (current.kind === "library" && current.discovery !== undefined && "windowCursor" in page && typeof page.windowCursor === "string") current.discovery.windowCursor = page.windowCursor;
             }, quiet || pages.page !== undefined);
             return;
         }
@@ -1918,10 +1912,6 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     const pop = (): void => {
         stopSearchSupplement();
         const active = top();
-        if (active?.kind === "library" && active.discovery?.genre !== undefined) {
-            genre(active, undefined);
-            return;
-        }
         if (stack.length <= 1) {
             return;
         }
@@ -2166,13 +2156,12 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             cancelCalendarDay = clock.schedule(() => render(host.focused()), midnight.getTime() - clock.now());
         }
         shell.setAvatar(profileName, profileAvatarUrl, context.baseUrl, profileAvatarText);
-        if (current.kind === "library") shell.setLibraryModes(availableModes(current.discovery?.data?.capabilities ?? current.discovery?.capabilities));
         const searchFilter = (route: Extract<Route, { kind: "search" }>, filter: SearchFilter | undefined): void => {
             if (top() !== route || route.filter === filter) return;
             loading?.abort(); loading = undefined; cancelSlow();
             route.filter = filter; search(route);
         };
-        const handlers = { context, focusDefault: () => host.focusDefault(), busy: loading !== undefined, searchHead, input, searchFilter, audiobooksEnabled: audiobooksInSearch(), push, pop, play, chooseProfile, retry, turn, audiobookPicker, mode, jump, sort, genre, personalFilter, morePersonal, morePerson, moreSearch, signIn: options.onSignOut, personFilter, calendar: calendarHandlers, requests: requestsHandlers, browse: changeBrowse, more: moreBrowse, preserve: (route: Extract<Route, { kind: "library" }>) => browsePrefs.preserve(route.library), gridColumns: presentation.posterScale > 1 ? 5 : 6, shuffle: (current.kind === "library" || current.kind === "libraryResults" && current.source.kind === "collection") && canShuffle(current) ? { starting: shuffleStarting, failure: shuffleFailure?.route === current ? shuffleFailure.text : undefined, start: startShuffle, dismiss: () => { shuffleFailure = undefined; render({ zone: "controls", key: "shuffle" }); } } : undefined };
+        const handlers = { context, focusDefault: () => host.focusDefault(), busy: loading !== undefined, searchHead, input, searchFilter, audiobooksEnabled: audiobooksInSearch(), push, pop, play, chooseProfile, retry, turn, audiobookPicker, mode, personalFilter, morePersonal, morePerson, moreSearch, signIn: options.onSignOut, personFilter, calendar: calendarHandlers, requests: requestsHandlers, browse: changeBrowse, more: moreBrowse, preserve: (route: Extract<Route, { kind: "library" }>) => browsePrefs.preserve(route.library), gridColumns: presentation.posterScale > 1 ? 5 : 6, shuffle: (current.kind === "library" || current.kind === "libraryResults" && current.source.kind === "collection") && canShuffle(current) ? { starting: shuffleStarting, failure: shuffleFailure?.route === current ? shuffleFailure.text : undefined, start: startShuffle, dismiss: () => { shuffleFailure = undefined; render({ zone: "controls", key: "shuffle" }); } } : undefined };
         container.classList.toggle("section-catalog", isSectionRoute(current));
         const browsing = current.kind === "library" && current.discovery?.mode === "Browse";
         container.classList.toggle("library-browse", browsing);
@@ -2224,12 +2213,12 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             const decorated = shell.decorate(view, selected, preview, modal ? () => { view.back?.(); } : current.kind === "personal" || isHubRoot(current) || current.kind === "watchParty" ? () => {
                 if (host.focused()?.zone === "nav") pop();
                 else render(tabFocus(current));
-            } : (current.kind === "library" && current.discovery?.genre !== undefined) ? pop : undefined, current.kind === "library" ? `library:${current.library.id}:${current.library.type}:${current.discovery?.mode ?? "Recommended"}` : undefined);
+            } : undefined, current.kind === "library" ? `library:${current.library.id}:${current.library.type}:${current.discovery?.mode ?? "Recommended"}` : undefined);
             // A bar-focused return does not focus a card to restore this page's hero.
             if (preview && host.name !== view.name) previews.get(current)?.();
             const nav = container.querySelector<HTMLElement>(".browse-nav");
             if (nav !== null) { nav.inert = modal || nav.inert; if (nav.inert) nav.setAttribute("aria-hidden", "true"); else nav.removeAttribute("aria-hidden"); }
-            host.show({ ...decorated, ...(current.kind === "library" ? { ready: hasData(current), ...(current.discovery?.genre !== undefined ? { back: pop } : {}) } : {}), ...(modal ? { zones: view.zones, back: view.back } : {}) }, focus);
+            host.show({ ...decorated, ...(current.kind === "library" ? { ready: hasData(current) } : {}), ...(modal ? { zones: view.zones, back: view.back } : {}) }, focus);
         } else {
             const removedEpisodeRetry = host.focused()?.key === "retry-episodes" && !view.zones.some(zone => zone.items.some(item => item.key === "retry-episodes"));
             host.holdVisit();
@@ -2664,45 +2653,12 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             host.focusDefault();
             return;
         }
-        current.discovery = { ...discoveryState(), mode: value, capabilities: current.discovery?.capabilities };
+        current.discovery = { ...discoveryState(), mode: value };
         current.pages = newPages();
         current.failure = undefined;
         loadRoute(current);
         render({ zone: "nav", key: current.library.type === "series" ? "series" : "movies" });
     };
-    const jump = (current: Extract<Route, { kind: "library" }>, letter: string, position: number): void => {
-        const state = current.discovery;
-        if (state === undefined) return;
-        state.seek = position;
-        state.letter = letter;
-        current.pages = newPages();
-        current.failure = undefined;
-        loadPage(current, current.pages, 0);
-        render({ zone: "letters", key: `letter:${letter}` });
-    };
-    const genre = (current: Extract<Route, { kind: "library" }>, name: string | undefined): void => {
-        const state = current.discovery;
-        if (state === undefined) return;
-        const previous = state.genre;
-        state.genre = name;
-        state.descending = false;
-        current.pages = newPages();
-        current.failure = undefined;
-        if (name !== undefined) loadPage(current, current.pages, 0);
-        else { loading?.abort(); loading = undefined; cancelSlow(); }
-        render(name === undefined && previous !== undefined ? { zone: "genres", key: `genre:${previous}` } : undefined);
-    };
-    const sort = (current: Extract<Route, { kind: "libraryResults" | "library" }>): void => {
-        if (current.kind === "library") {
-            if (current.discovery === undefined) return;
-            current.discovery.descending = !current.discovery.descending;
-        } else current.descending = !current.descending;
-        current.pages = newPages();
-        current.failure = undefined;
-        loadRoute(current);
-        render({ zone: "actions", key: "sort" });
-    };
-
     const turn = (current: Route, pages: Pages, step: -1 | 1): void => {
         const index = pages.index + step;
         // One page request at a time; a press while one is out is ignored.
@@ -2748,7 +2704,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         }
         if (route.kind === "library" && destinationMode !== undefined) {
             if (route === current && route.discovery?.mode === destinationMode && hasData(route)) { render(); host.focusDefault(); return; }
-            route.discovery = { ...discoveryState(), mode: destinationMode, capabilities: route.discovery?.capabilities };
+            route.discovery = { ...discoveryState(), mode: destinationMode };
             route.pages = newPages();
         }
         if (route.kind === "search") {
@@ -2840,6 +2796,11 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             if (origin !== undefined) origin.focus = { zone: "nav", key: selected };
         },
         switchProfile: chooseProfile,
+        ...(options.onAddProfile === undefined ? {} : { addProfile: () => { teardown(); options.onAddProfile?.(); } }),
+        profileCount: () => {
+            try { return server.accounts.directory.list().find(row => row.id === server.accounts.localAccountId)?.profileCount ?? 0; }
+            catch { return 0; } // An unreadable account list is a list not read yet: Switch Profile.
+        },
         ...(options.onSwitchServer === undefined ? {} : { switchServer: () => {
             host.holdVisit();
             shell.hide();

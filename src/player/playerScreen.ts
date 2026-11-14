@@ -1413,8 +1413,8 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         tabs[column]?.focus();
     };
 
-    /** A fresh Select press waiting for its release; another key ends it. */
-    let selectHeld = false;
+    /** Where a fresh Select press was made, waiting for its release; another key or a focus change ends it. */
+    let selectHeld: { readonly element: Element | null; readonly key: string | null } | undefined;
     const onKey = (event: KeyboardEvent, released = false): void => {
         const key = remoteKey(event);
         if (key === undefined || view.phase === "closed") {
@@ -1423,10 +1423,10 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         event.preventDefault();
         // tvOS runs Select on release: a fresh press waits for onKeyUp, and its repeats change nothing.
         if (key === "enter" && !released) {
-            if (!event.repeat) selectHeld = true;
+            if (!event.repeat) selectHeld = { element: document.activeElement, key: document.activeElement?.getAttribute("data-focus") ?? null };
             return;
         }
-        if (key !== "enter") selectHeld = false;
+        if (key !== "enter") selectHeld = undefined;
         if ((view.phase === "playing" || view.phase === "paused") && view.upNext !== undefined) {
             if (key === "play_pause") { controls.togglePause(); return; }
             if (key === "play" || key === "pause") { controls.setPaused(key === "pause"); return; }
@@ -1580,10 +1580,11 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     const onKeyUp = (event: KeyboardEvent): void => {
         const key = remoteKey(event);
         if (key === "enter") {
-            if (selectHeld) {
-                selectHeld = false;
-                onKey(event, true);
-            }
+            const held = selectHeld;
+            selectHeld = undefined;
+            // Release runs the press only where it was made; a repaint may replace that control with the same one.
+            const active = document.activeElement;
+            if (held !== undefined && (active === held.element || (held.key !== null && held.element?.isConnected === false && active?.getAttribute("data-focus") === held.key))) onKey(event, true);
             return;
         }
         if ((key !== "left" && key !== "right") || pendingTap !== key) return;
@@ -1604,7 +1605,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
 
     const onVisibility = (): void => {
         if (document.hidden) {
-            selectHeld = false;
+            selectHeld = undefined;
             cancelScrub();
             cancelHide?.();
             cancelHide = undefined;

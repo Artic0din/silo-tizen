@@ -272,6 +272,23 @@ test("transport focus re-arms five seconds then hides and hidden Up reveals the 
     } finally { await page.close(); }
 });
 
+test("a Select held while the controls hide does not run on the scrubber it lands on", async () => {
+    const { page } = await open();
+    try {
+        await show(page, playing(TRACKS));
+        await remote(page, DOWN);
+        await remote(page, RIGHT);
+        await remote(page, RIGHT);
+        const held = await focused(page);
+        await page.evaluate((code) => document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { keyCode: code, bubbles: true, cancelable: true })), ENTER);
+        await page.clock.runFor(5000);
+        assert.notEqual(await focused(page), held, "hiding the controls moved focus");
+        await page.evaluate((code) => document.activeElement?.dispatchEvent(new KeyboardEvent("keyup", { keyCode: code, bubbles: true, cancelable: true })), ENTER);
+        assert.deepEqual(await commands(page), [], "the release ran nothing");
+        assert.equal(await page.locator(".player-hud").isVisible(), false);
+    } finally { await page.close(); }
+});
+
 test("hidden Down opens Video when that tab is shown and options opens Info", async () => {
     const { page } = await open();
     try {

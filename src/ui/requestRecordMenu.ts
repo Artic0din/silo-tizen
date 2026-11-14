@@ -47,6 +47,9 @@ export class RequestRecordMenu {
         this.items.find(item => item.element === document.activeElement)?.element.click();
     };
 
+    /** Losing the window loses Select's release, so the next press is a fresh one. */
+    private readonly onBlur = (): void => { this.pressed = false; };
+
     get active(): boolean { return this.panel !== undefined; }
 
     open(options: RequestRecordMenuOptions): void {
@@ -57,6 +60,7 @@ export class RequestRecordMenu {
         options.container.appendChild(this.panel);
         document.addEventListener("keydown", this.onKey, true);
         document.addEventListener("keyup", this.onRelease, true);
+        window.addEventListener("blur", this.onBlur);
         this.showActions();
     }
 
@@ -124,5 +128,6 @@ export class RequestRecordMenu {
         this.options = undefined;
         document.removeEventListener("keydown", this.onKey, true);
         document.removeEventListener("keyup", this.onRelease, true);
+        window.removeEventListener("blur", this.onBlur);
     }
 }

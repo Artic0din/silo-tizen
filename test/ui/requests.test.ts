@@ -1769,6 +1769,10 @@ test("a held Select on Remove Request cannot dismiss the confirmation", async ()
         await button(tv, "remove-request").waitFor();
         await button(tv, "remove-request").focus();
         await tv.down(13);
+        await tv.page.evaluate(() => window.dispatchEvent(new Event("blur")));
+        await tv.up(13);
+        assert.equal(await tv.focused(), "remove-request", "a press that lost the window runs nothing");
+        await tv.down(13);
         await tv.down(13, true);
         assert.equal(await tv.focused(), "remove-request", "a held Remove Request waits for release");
         await tv.up(13);

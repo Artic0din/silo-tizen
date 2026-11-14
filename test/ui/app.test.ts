@@ -2028,6 +2028,10 @@ appTest("root Back opens an isolated exit dialog; Cancel restores focus and Exit
     await tv.remote(10009);
     await tv.page.keyboard.press("ArrowLeft");
     await tv.page.keyboard.down("Enter");
+    await tv.page.evaluate(() => window.dispatchEvent(new Event("blur")));
+    await tv.page.keyboard.up("Enter");
+    assert.equal(await tv.page.evaluate(() => window.appHarness.exits), 0, "a press that lost the window runs nothing");
+    await tv.page.keyboard.down("Enter");
     assert.equal(await tv.page.evaluate(() => window.appHarness.exits), 0, "Exit waits for Select's release");
     await tv.page.keyboard.up("Enter");
     assert.equal(await tv.page.evaluate(() => window.appHarness.exits), 1);

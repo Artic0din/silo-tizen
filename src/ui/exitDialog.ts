@@ -21,6 +21,8 @@ export function mountExitDialog(root: HTMLElement, exit: () => void, closed: () 
             destroyed = true;
             window.removeEventListener("keydown", onKey, true);
             window.removeEventListener("keyup", onRelease, true);
+            window.removeEventListener("blur", endPress);
+            document.removeEventListener("visibilitychange", endPress);
             document.removeEventListener("focusin", onFocus, true);
             overlay.remove();
             closed();
@@ -78,6 +80,10 @@ export function mountExitDialog(root: HTMLElement, exit: () => void, closed: () 
             }
         }
     };
+    // A lost window or a hidden page loses Select's release, so the next press is a fresh one.
+    const endPress = (): void => {
+        pressed = false;
+    };
     const onRelease = (event: KeyboardEvent): void => {
         if (remoteKey(event) !== "enter") {
             return;
@@ -102,6 +108,8 @@ export function mountExitDialog(root: HTMLElement, exit: () => void, closed: () 
     root.ownerDocument.body.appendChild(overlay);
     window.addEventListener("keydown", onKey, true);
     window.addEventListener("keyup", onRelease, true);
+    window.addEventListener("blur", endPress);
+    document.addEventListener("visibilitychange", endPress);
     document.addEventListener("focusin", onFocus, true);
     no.element.focus();
     return { destroy };

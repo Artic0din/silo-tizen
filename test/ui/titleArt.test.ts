@@ -12,11 +12,13 @@ let browser: Browser;
 before(async () => { browser = await launchBrowser(); });
 after(async () => { await browser.close(); });
 
-async function setup() {
+/** `prepare` runs before Home mounts, so Home's own title-art read sees it and Details inherits that answer. */
+async function setup(prepare?: (tv: Tv, settings: FakeSettings) => Promise<void> | void, settled = true) {
     const tv = await openTv(browser, { app: "browse" });
     const catalog = new FakeDetails();
     tv.fake.catalog = catalog;
     const settings = new FakeSettings(tv.fake);
+    await prepare?.(tv, settings);
     await tv.page.evaluate(() => window.browseHarness.connect());
     await tv.eventually(async () => tv.fake.devices.size > 0, "device code");
     tv.fake.approve([...tv.fake.devices.keys()][0] ?? "");
@@ -26,7 +28,7 @@ async function setup() {
     await tv.page.evaluate(() => window.browseHarness.mount());
     await tv.page.locator('[data-view="home"]').waitFor();
     // Home reads title art and poster badges when it loads; let those settle before scripting settings replies.
-    await tv.eventually(async () => ["keys=ui.title_art", "keys=ui.card_overlays"].every(key => tv.fake.requests.some(request => request.path.startsWith("/settings/values/effective?") && request.path.includes(key))), "Home settings reads");
+    if (settled) await tv.eventually(async () => ["keys=ui.title_art", "keys=ui.card_overlays"].every(key => tv.fake.requests.some(request => request.path.startsWith("/settings/values/effective?") && request.path.includes(key))), "Home settings reads");
     return { tv, catalog, settings };
 }
 async function details(tv: Tv, _catalog: FakeDetails): Promise<void> {
@@ -35,24 +37,112 @@ async function details(tv: Tv, _catalog: FakeDetails): Promise<void> {
     await tv.page.locator('[data-view="item:movie:m0001"]').waitFor();
 }
 
-test("confirmed false and pending title art keep accessible text and start zero logo requests", async () => {
-    const { tv, settings, catalog } = await setup();
-    let logos = 0;
-    tv.page.on("request", r => { if (new URL(r.url()).pathname === "/art/last-signal-logo.svg") logos++; });
-    const hold = tv.fake.hold("/settings/values/effective?keys=ui.title_art", true);
+const LOGO = "/art/last-signal-logo.svg";
+const titleArtReads = (tv: Tv): number => tv.fake.requests.filter(request => request.path === `/settings/values/effective?keys=${TITLE}`).length;
+
+/** Gives Home's m0001 card the detail's logo, as a server would send it. */
+async function cardLogo(tv: Tv): Promise<void> {
+    await tv.page.route("**/api/v2/home/sections**", async route => {
+        const url = new URL(route.request().url());
+        const body = tv.fake.catalog?.route("GET", url.pathname.replace(/^\/api\/v2/, "") + url.search, "p-owner")?.body as { sections: { items: Record<string, unknown>[] }[] } | undefined;
+        assert.ok(body);
+        await route.fulfill({ json: { ...body, sections: body.sections.map(section => ({ ...section, items: section.items.map(item => item.content_id === "movie:m0001" ? { ...item, logo_url: LOGO } : item) })) } });
+    });
+}
+
+/** Holds m0001's detail read until the returned release, so Details stays on its loading frame. */
+async function holdDetail(tv: Tv): Promise<() => void> {
+    let release = (): void => undefined;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    await tv.page.route("**/api/v2/catalog/items/movie%3Am0001?**", async route => { await held; await route.fallback().catch(() => undefined); });
+    // Home prefetches the detail; a fresh mount without the cached copy opens the loading frame.
+    const reads = titleArtReads(tv);
+    await tv.page.evaluate(() => { window.browseHarness.clearResponseCache(); window.browseHarness.destroy(); window.browseHarness.mount(); });
+    await tv.page.locator('[data-view="home"]').waitFor();
+    // The remounted Home reads title art again; let that read land before a caller counts reads.
+    await tv.eventually(async () => titleArtReads(tv) > reads, "remounted Home title-art read");
+    await tv.jump(240);
+    return release;
+}
+
+test("the loading frame shows the card's logo under the remembered answer and Details keeps it without its own read", async () => {
+    const { tv } = await setup(cardLogo);
     try {
-        settings.profile().set(TITLE, false);
-        await details(tv, catalog);
-        assert.equal(logos, 0, "pending is text-only");
-        hold.release();
-        await tv.jump(240);
-        assert.equal(logos, 0, "confirmed false must never fetch a logo");
-        assert.equal(await tv.page.locator(".details-editorial h1").textContent(), "The Last Signal");
-        await tv.page.locator('[data-focus="play"]').waitFor();
-    } finally { hold.release(); await tv.page.context().close(); }
+        const release = await holdDetail(tv);
+        const reads = titleArtReads(tv);
+        await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').click();
+        await tv.page.locator(".details-loading-title .details-logo").waitFor();
+        assert.equal(await tv.page.locator(".details-loading-title .details-logo").getAttribute("alt"), "Movie 0001", "the card's own title");
+        release();
+        await tv.page.locator('[data-view="item:movie:m0001"]').waitFor();
+        // The loading frame already decoded this logo, so the loaded heading opens on it instead of its text.
+        assert.equal(await tv.page.locator(".details-editorial h1 .details-logo").count(), 1);
+        assert.equal(await tv.page.locator(".details-editorial h1 .requests-title-primary").count(), 0);
+        assert.equal(titleArtReads(tv), reads, "Details reads no title-art setting of its own");
+    } finally { await tv.page.context().close(); }
 });
 
-test("returning from General rechecks Details and retains text after this-TV false", async () => {
+test("a search card's loading frame keeps its text title, as Apple's catalog cards carry no logo", async () => {
+    const { tv } = await setup();
+    try {
+        // Search lists catalog items, which the server sends with logo_url; Apple's BrowseItem drops it.
+        await tv.page.route(url => url.pathname === "/api/v2/catalog", async route => {
+            const url = new URL(route.request().url());
+            const reply = tv.fake.catalog?.route("GET", url.pathname.replace(/^\/api\/v2/, "") + url.search, "p-owner");
+            const body = reply?.body as { items?: Record<string, unknown>[] } | undefined;
+            assert.ok(reply?.status === 200 && Array.isArray(body?.items));
+            await route.fulfill({ json: { ...body, items: body.items.map(item => item.content_id === "movie:m0001" ? { ...item, logo_url: LOGO } : item) } });
+        });
+        const release = await holdDetail(tv);
+        await tv.page.locator('[data-focus="search"]').click();
+        await tv.page.fill("#browse-search", "Movie 0001"); await tv.remote(65376);
+        // Search's own hero preview may load this logo; the frame must not show it even once it has loaded.
+        const loaded = tv.page.waitForEvent("requestfinished", request => new URL(request.url()).pathname === LOGO);
+        await tv.page.locator('.browse-grid [data-focus="movie:m0001"]').click();
+        await tv.page.locator('[data-view="item:loading"]').waitFor();
+        await loaded;
+        await tv.jump(240);
+        assert.equal(await tv.page.locator(".details-loading-title .details-logo").count(), 0);
+        assert.equal(await tv.page.locator(".details-loading-title-text").textContent(), "Movie 0001");
+        release();
+    } finally { await tv.page.context().close(); }
+});
+
+test("a remembered Off answer keeps the loading frame and Details as text with zero logo requests", async () => {
+    const { tv } = await setup(async (page, settings) => { settings.profile().set(TITLE, false); await cardLogo(page); });
+    let logos = 0;
+    tv.page.on("request", r => { if (new URL(r.url()).pathname === LOGO) logos++; });
+    try {
+        const release = await holdDetail(tv);
+        await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').click();
+        await tv.page.locator('[data-view="item:loading"]').waitFor();
+        assert.equal(await tv.page.locator(".details-loading-title-text").textContent(), "Movie 0001", "the card's own title");
+        release();
+        await tv.page.locator('[data-view="item:movie:m0001"]').waitFor();
+        await tv.jump(240);
+        assert.equal(await tv.page.locator(".details-editorial h1").textContent(), "The Last Signal");
+        assert.equal(logos, 0, "confirmed false must never fetch a logo");
+        await tv.page.locator('[data-focus="play"]').waitFor();
+    } finally { await tv.page.context().close(); }
+});
+
+test("an Off answer that lands while Details is open turns its logo back to text", async () => {
+    let hold: { release(): void } | undefined;
+    // Holding the contract read delays Home's title-art answer until after the profile turns it off.
+    const { tv, settings, catalog } = await setup(page => { hold = page.fake.hold("/settings/contract", true); }, false);
+    try {
+        await details(tv, catalog);
+        await tv.page.locator(".details-editorial h1 .details-logo").waitFor();
+        const focus = await tv.focused();
+        settings.profile().set(TITLE, false);
+        hold?.release();
+        await tv.eventually(async () => await tv.page.locator(".details-editorial h1 .details-logo").count() === 0, "text title after Off");
+        assert.equal(await tv.page.locator(".details-editorial h1").textContent(), "The Last Signal");
+        assert.equal(await tv.focused(), focus, "the repaint keeps focus");
+    } finally { hold?.release(); await tv.page.context().close(); }
+});
+
+test("a this-TV Off from General applies to the next Details visit at once", async () => {
     const { tv, catalog } = await setup();
     try {
         await details(tv, catalog);
@@ -96,11 +186,10 @@ test("confirmed title-art Off survives an offline cached Details revisit", async
 });
 
 test("detailed seasons use the same false policy and leave episode navigation usable", async () => {
-    const { tv, settings } = await setup();
+    const { tv } = await setup((_tv, settings) => { settings.profile().set(TITLE, false); });
     let logos = 0;
     tv.page.on("request", r => { if (new URL(r.url()).pathname.endsWith("season-logo.svg")) logos++; });
     try {
-        settings.profile().set(TITLE, false);
         await tv.page.route("**/api/v2/catalog/items/series%3As1-S1?**", async route => {
             const base = tv.fake.catalog?.route("GET", "/catalog/items/series%3As1-S1", "p-owner");
             assert.ok(base);
@@ -118,12 +207,33 @@ test("detailed seasons use the same false policy and leave episode navigation us
     } finally { await tv.page.context().close(); }
 });
 
+test("an Off answer that lands while a detailed season is open turns its logo back to text", async () => {
+    let hold: { release(): void } | undefined;
+    const { tv, settings } = await setup(page => { hold = page.fake.hold("/settings/contract", true); }, false);
+    try {
+        await tv.page.route("**/api/v2/catalog/items/series%3As1-S1?**", async route => {
+            const base = tv.fake.catalog?.route("GET", "/catalog/items/series%3As1-S1", "p-owner");
+            assert.ok(base);
+            await route.fulfill({ status: 200, json: { ...base.body as Record<string, unknown>, logo_url: "/art/season-logo.svg" } });
+        });
+        await tv.page.locator('[data-focus="series"][role="tab"]').click();
+        await tv.page.locator('[data-focus="series:s1"]').first().click();
+        await tv.page.locator('[data-focus="season:1"]').click();
+        await tv.page.locator('[data-focus="series:s1-S1"]').click();
+        await tv.page.locator('[data-view="season:series:s1:1"]').waitFor();
+        await tv.page.locator(".details-editorial h1 .details-logo").waitFor();
+        settings.profile().set(TITLE, false);
+        hold?.release();
+        await tv.eventually(async () => await tv.page.locator(".details-editorial h1 .details-logo").count() === 0, "season text title after Off");
+        assert.equal(await tv.page.locator(".details-editorial h1").textContent(), "Harbor Lights · Season 1");
+    } finally { hold?.release(); await tv.page.context().close(); }
+});
+
 for (const mode of ["logo", "broken", "default-false"] as const) test(`Details supported title art: ${mode}`, async () => {
-    const { tv, settings, catalog } = await setup();
+    const { tv, catalog } = await setup((_tv, settings) => { settings.titleDefault = mode !== "default-false"; });
     let logos = 0;
     tv.page.on("request", r => { if (new URL(r.url()).pathname.endsWith("last-signal-logo.svg")) logos++; });
     try {
-        settings.titleDefault = mode !== "default-false";
         if (mode === "broken") await tv.page.route("**/art/last-signal-logo.svg", route => route.fulfill({ status: 200, contentType: "image/svg+xml", body: "broken image" }));
         await details(tv, catalog);
         if (mode === "logo") {
@@ -142,19 +252,14 @@ for (const mode of ["logo", "broken", "default-false"] as const) test(`Details s
     } finally { await tv.page.context().close(); }
 });
 
-test("failed supported title-art read keeps the text title and Play with no row Retry, then recovers on reopen", async () => {
-    const { tv, catalog } = await setup();
+test("a failed title-art read keeps Apple's logos-on fallback with no Details error", async () => {
+    const { tv, catalog } = await setup(page => { page.fake.script(`/settings/values/effective?keys=${TITLE}`, ...Array.from({ length: 20 }, () => problem(429, "rate_limited", "Wait"))); });
     try {
-        tv.fake.script(`/settings/values/effective?keys=${TITLE}`, problem(429, "rate_limited", "Wait"));
         await details(tv, catalog);
-        await tv.page.getByText("Could not load title-art settings.").waitFor();
+        await tv.page.locator(".details-editorial h1 .details-logo").waitFor();
+        assert.equal(await tv.page.getByText("Could not load title-art settings.").count(), 0);
         assert.equal(await tv.page.getByRole("button", { name: "Retry title art", exact: true }).count(), 0, "Apple's row has no title-art button");
-        assert.equal(await tv.page.locator(".details-editorial h1").textContent(), "The Last Signal");
-        assert.equal(await tv.page.locator(".details-logo").count(), 0);
         assert.ok(await tv.page.locator('[data-focus="play"]').isVisible());
-        await tv.remote(10009);
-        await details(tv, catalog);
-        await tv.page.locator(".details-logo").waitFor();
     } finally { await tv.page.context().close(); }
 });
 
@@ -256,30 +361,6 @@ for (const conflict of ["profile", "device"] as const) test(`Settings recovers a
         await tv.remote(10009); await tv.remote(10009);
         assert.equal(await tv.focused(), "home");
     } finally { await tv.page.context().close(); }
-});
-
-test("delayed title-art policy while playback hides a connected node is discarded and re-read on return", async () => {
-    const { tv, settings, catalog } = await setup();
-    const hold = tv.fake.hold(`/settings/values/effective?keys=${TITLE}`, true);
-    let logos = 0;
-    tv.page.on("request", r => { if (new URL(r.url()).pathname.endsWith("last-signal-logo.svg")) logos++; });
-    try {
-        await details(tv, catalog);
-        await tv.eventually(async () => tv.fake.requests.some(r => r.path === `/settings/values/effective?keys=${TITLE}`), "held policy read");
-        await tv.page.locator('[data-focus="play"]').click();
-        settings.profile().set(TITLE, false);
-        hold.release();
-        await tv.jump(240);
-        assert.equal(await tv.page.locator(".browse[hidden]").count(), 1);
-        assert.equal(await tv.page.locator(".details-editorial h1").textContent(), "The Last Signal");
-        assert.equal(logos, 0);
-        await tv.page.evaluate(() => window.browseHarness.resume());
-        await tv.page.locator('[data-view="item:movie:m0001"]').waitFor();
-        await tv.eventually(async () => tv.fake.requests.filter(r => r.path === `/settings/values/effective?keys=${TITLE}`).length === 2, "fresh policy after playback");
-        await tv.jump(240);
-        assert.equal(logos, 0);
-        assert.equal(await tv.page.locator(".details-editorial h1").textContent(), "The Last Signal");
-    } finally { hold.release(); await tv.page.context().close(); }
 });
 
 test("a decoded Details title logo stays in place across a repaint", async () => {

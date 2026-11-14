@@ -194,7 +194,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     // Title art and poster badges: Home renders at once and redraws as each answer lands.
     const presentation = new PresentationSettings(session, () => {
         if (torn) return;
-        if (shownTitleArt !== presentation.showsTitleArt) { shownTitleArt = presentation.showsTitleArt; shell.repaint(); }
+        const titleArtChanged = shownTitleArt !== presentation.showsTitleArt;
+        if (titleArtChanged) { shownTitleArt = presentation.showsTitleArt; shell.repaint(); }
         const resized = shownScale !== presentation.posterScale;
         if (resized) { shownScale = presentation.posterScale; applyCardSize(); }
         const current = top();
@@ -202,7 +203,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             shownOverlays = presentation.cardOverlays;
             render(host.focused());
             if (resized) host.revealFocused();
-        }
+        // Apple's store is observed, so an open Details or season page follows a new answer (silo-apple 3651342 TitleArtPreferences.swift:186-188).
+        } else if (titleArtChanged && !playing && (current?.kind === "item" || current?.kind === "season")) render(host.focused());
     }, options.publicStorage, `silo.titleArt:${JSON.stringify([server.server.serverId, session.activeProfile.id])}`);
     let shownTitleArt = presentation.showsTitleArt;
     let shownScale = presentation.posterScale;
@@ -214,7 +216,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     let shownOverlays: CardOverlayPrefs | undefined = presentation.cardOverlays;
     let episodeSpoilers: EpisodeSpoilerPreferences | undefined;
     const previews = new WeakMap<Route, () => void>();
-    const context: ViewContext = { baseUrl: server.server.http.base.baseUrl, cardOverlays: () => presentation.cardOverlays, posterScale: () => presentation.posterScale, spoilers: () => episodeSpoilers?.settings ?? { hidesImages: false, hidesOverviews: false }, savedFileOverlay: card => homeDetails.savedFile(card)?.overlay, open: (destination) => open(destination), preview: (card, row, continuing, featured) => {
+    const context: ViewContext = { baseUrl: server.server.http.base.baseUrl, titleArt: () => presentation.showsTitleArt, cardOverlays: () => presentation.cardOverlays, posterScale: () => presentation.posterScale, spoilers: () => episodeSpoilers?.settings ?? { hidesImages: false, hidesOverviews: false }, savedFileOverlay: card => homeDetails.savedFile(card)?.overlay, open: (destination) => open(destination), preview: (card, row, continuing, featured) => {
         const current = top();
         const preview = (): void => {
             // The read is armed first, so a row change the marquee reports during preview starts this card's read.
@@ -2744,8 +2746,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             settingsScreen = mountSettings(root, session, (hiddenChanged, titleArt) => {
                 settingsScreen = undefined;
                 if (torn) return;
-                // Settings opens from root chrome, after pushed Details have left the stack.
-                if (titleArt !== undefined) for (const details of visitedDetails.values()) details.acceptTitleArt(titleArt);
+                if (titleArt !== undefined) presentation.acceptTitleArt(titleArt);
                 container.hidden = false;
                 shell.setShowAudiobooks(showAudiobooks.value);
                 presentation.reload();

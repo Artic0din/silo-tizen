@@ -253,12 +253,12 @@ function route(destination: Destination | undefined): Destination | undefined {
 test("a card opens its Details page seeded with what Apple's loading frame paints", () => {
     const card = { id: "episode:s1e12", title: "Pilot", year: 2024, posterUrl: undefined, seriesId: "series:s1", seriesTitle: "Harbor Lights", seasonNumber: 1, episodeNumber: 2, overview: "A storm.", runtimeMinutes: 52, contentRating: "TV-14", genres: ["Drama", "Mystery"], logoUrl: "/logo", backdropUrl: "/still", backdropThumbhash: "hash", seriesBackdropUrl: "/series-art", played: false, positionSeconds: 30 };
     const movie = destinationOf({ ...card, id: "movie:heat", type: "movie" });
-    assert.deepEqual(movie?.kind === "item" ? movie.seed : undefined, { type: "movie", title: "Pilot", year: 2024, overview: "A storm.", runtimeMinutes: 52, contentRating: "TV-14", genre: "Drama", backdropUrl: "/still", backdropThumbhash: "hash", backdropIsEpisodeStill: undefined }, "only an episode card swaps in the series backdrop");
+    assert.deepEqual(movie?.kind === "item" ? movie.seed : undefined, { type: "movie", title: "Pilot", year: 2024, overview: "A storm.", runtimeMinutes: 52, contentRating: "TV-14", genre: "Drama", logoUrl: "/logo", backdropUrl: "/still", backdropThumbhash: "hash", backdropIsEpisodeStill: undefined }, "only an episode card swaps in the series backdrop");
     const episode = destinationOf({ ...card, type: "episode" });
     assert.deepEqual(episode?.kind === "item" ? { backdrop: episode.seed?.backdropUrl, hash: episode.seed?.backdropThumbhash, still: episode.seed?.backdropIsEpisodeStill, watch: episode.seed?.episodeWatch } : undefined,
         { backdrop: "/series-art", hash: undefined, still: false, watch: { played: false, isInProgress: true, positionSeconds: 30 } }, "an episode card shows its series backdrop");
     const parent = browseCardDestination({ ...card, type: "episode" });
-    assert.deepEqual(parent?.kind === "item" ? parent.seed : undefined, { type: "series", title: "Harbor Lights", backdropUrl: "/series-art", backdropIsEpisodeStill: false }, "the parent Series frame keeps only the series title and backdrop");
+    assert.deepEqual(parent?.kind === "item" ? parent.seed : undefined, { type: "series", title: "Harbor Lights", logoUrl: "/logo", backdropUrl: "/series-art", backdropIsEpisodeStill: false }, "the parent Series frame keeps only the series title, logo and backdrop");
 });
 
 

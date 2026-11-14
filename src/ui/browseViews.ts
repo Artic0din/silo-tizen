@@ -53,6 +53,8 @@ export interface ViewContext {
     readonly cardDestination?: (card: Card) => Destination | undefined;
     /** Captions a series with the years it ran (Apple CardYears), as Home rows and catalog grids do; Watchlist, Favorites and More Like This show its year. */
     readonly seriesYears?: boolean;
+    /** Whether a title's logo may replace its text title on Details: Home's remembered answer. Absent reads as off. */
+    readonly titleArt?: () => boolean;
     /** Profile spoiler switches. Absent reads as both off. */
     readonly spoilers?: () => EpisodeSpoilerSettings;
     /** WatchPartyEntry: offered while the experimental switch is on and the server can host a party; open starts a room with the title. */
@@ -214,7 +216,10 @@ function episodeLine(card: Card): SeriesLine | undefined {
 
 /** Undefined for media this client does not browse. */
 export function cardItem(card: Card, context: ViewContext): FocusItem | undefined {
-    const destination = context.cardDestination?.(card) ?? (card.type === "season" ? destinationOf(card) : browseCardDestination(card));
+    const found = context.cardDestination?.(card) ?? (card.type === "season" ? destinationOf(card) : browseCardDestination(card));
+    // Only feed-row cards (Apple SectionItem) seed the loading frame's logo; catalog cards (BrowseItem) carry none.
+    // silo-apple 3651342 Navigation/Route.swift:155,180,209 and Networking/Models.swift:242.
+    const destination = found?.kind === "item" && found.seed?.logoUrl !== undefined && context.homeRow === undefined ? { ...found, seed: { ...found.seed, logoUrl: undefined } } : found;
     if (destination === undefined) {
         return undefined;
     }

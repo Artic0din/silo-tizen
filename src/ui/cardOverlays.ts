@@ -6,7 +6,7 @@
 // Generic badge icons are SF Symbols there and are not drawn here, except the
 // series-status tv glyph: OverlayIcon's semibold "tv", outline and foot opaque,
 // screen fill at the monochrome secondary opacity.
-// Brand marks are text in both.
+// Wordmarks are text and Dolby Vision a drawn ring in both.
 
 import type { Card } from "../contracts/v2/catalog.ts";
 import { resolutionLabel, runtimeText } from "./cardPresentation.ts";
@@ -38,6 +38,15 @@ function nonEmpty(value: string | undefined): string | undefined {
 const oneDecimal = (value: number): string => (Math.round(value * 10) / 10).toFixed(1);
 const decimalRating = (mark: string, value: number | undefined): string | undefined => value === undefined ? undefined : `${mark} ${oneDecimal(value)}`;
 const percentRating = (mark: string, value: number | undefined): string | undefined => value === undefined ? undefined : `${mark} ${value}%`;
+
+/** OverlayRegistry.swift:63-69, web's `compactHdrSuffix`. */
+function compactHdrSuffix(value: string | undefined): string | undefined {
+    if (nonEmpty(value) === undefined) return undefined;
+    return value?.includes("DV") ? "DV" : value?.includes("HDR10+") ? "HDR10+" : "HDR";
+}
+
+/** OverlayRegistry.swift:85-88: the combined labels already say HDR, so only the Dolby Vision mark is worth adding. */
+const combinedHdrIcon = (card: Card): Icon | undefined => card.overlay?.hdr?.includes("DV") ? "DV" : undefined;
 
 function hdrIcon(value: string | undefined): Icon | undefined {
     if (nonEmpty(value) === undefined) return undefined;
@@ -71,12 +80,18 @@ const firstNonEmpty = (values: readonly string[] | undefined): string | undefine
 const REGISTRY: readonly OverlayDef[] = [
     { id: "resolution", position: "top-left", enabled: true, iconCapable: true, staticIcon: "generic", value: card => resolutionLabel(card.overlay?.resolution) },
     { id: "hdr", position: "top-left", enabled: true, iconCapable: true, icon: card => hdrIcon(card.overlay?.hdr), value: card => nonEmpty(card.overlay?.hdr) },
-    { id: "resolution_hdr", position: "top-left", enabled: false, iconCapable: true, icon: card => card.overlay?.hdr?.includes("DV") ? "DV" : undefined, value: card => {
+    { id: "resolution_hdr", position: "top-left", enabled: false, iconCapable: true, icon: combinedHdrIcon, value: card => {
         const resolution = resolutionLabel(card.overlay?.resolution);
-        const hdr = nonEmpty(card.overlay?.hdr);
-        return resolution === undefined ? undefined : hdr === undefined ? resolution : `${resolution} ${hdr.includes("DV") ? "DV" : "HDR"}`;
+        const hdr = compactHdrSuffix(card.overlay?.hdr);
+        return resolution === undefined ? undefined : hdr === undefined ? resolution : `${resolution} ${hdr}`;
     } },
-    { id: "audio", position: "top-left", enabled: true, iconCapable: true, icon: card => nonEmpty(card.overlay?.audio) === undefined ? undefined : card.overlay?.audio?.toLowerCase().includes("atmos") ? "ATMOS" : "generic", value: card => nonEmpty(card.overlay?.audio) },
+    // OverlayRegistry.swift:154-173 (silo-apple #1016): the parts the file has, so one without a resolution still shows its audio.
+    { id: "resolution_hdr_audio", position: "top-left", enabled: false, iconCapable: true, icon: combinedHdrIcon, value: card => {
+        const parts = [resolutionLabel(card.overlay?.resolution), compactHdrSuffix(card.overlay?.hdr), nonEmpty(card.overlay?.audio)].filter((part): part is string => part !== undefined && part !== "");
+        return parts.length === 0 ? undefined : parts.join(" ");
+    } },
+    // OverlayRegistry.swift:90-96: the ATMOS wordmark only for a value it fully expresses, so "TrueHD Atmos" keeps its label.
+    { id: "audio", position: "top-left", enabled: true, iconCapable: true, icon: card => nonEmpty(card.overlay?.audio) === undefined ? undefined : card.overlay?.audio?.toLowerCase() === "atmos" ? "ATMOS" : "generic", value: card => nonEmpty(card.overlay?.audio) },
     { id: "audio_channels", position: "top-left", enabled: false, iconCapable: true, staticIcon: "generic", value: card => nonEmpty(card.overlay?.audioChannels) },
     { id: "video_codec", position: "top-left", enabled: false, iconCapable: true, staticIcon: "generic", icon: card => nonEmpty(card.overlay?.videoCodec) === undefined ? undefined : card.overlay?.videoCodec === "AV1" ? "AV1" : "generic", value: card => nonEmpty(card.overlay?.videoCodec) },
     { id: "container", position: "bottom-left", enabled: false, iconCapable: false, value: card => nonEmpty(card.overlay?.container) },
@@ -149,12 +164,18 @@ export function parseOverlayPrefs(raw: unknown): CardOverlayPrefs {
     };
 }
 
-/** Enabled badges for a corner, in the document's order; the combined resolution badge hides its two parts. */
+/** OverlayRegistry.swift:19-30: an enabled combined badge hides the badges whose information it already shows. */
+const COMBINED_BADGES: readonly (readonly [string, readonly string[]])[] = [
+    ["resolution_hdr_audio", ["resolution", "hdr", "audio", "resolution_hdr"]],
+    ["resolution_hdr", ["resolution", "hdr"]],
+];
+const suppressed = (id: string, prefs: CardOverlayPrefs): boolean => COMBINED_BADGES.some(([combined, covers]) => covers.includes(id) && prefs.items.get(combined)?.enabled === true);
+
+/** Enabled badges for a corner, in the document's order. */
 function enabledAt(position: Position, prefs: CardOverlayPrefs): OverlayDef[] {
-    const combined = prefs.items.get("resolution_hdr")?.enabled === true;
     const candidates = REGISTRY.filter(def => {
         const config = prefs.items.get(def.id);
-        return config !== undefined && config.enabled && config.position === position && !(combined && (def.id === "resolution" || def.id === "hdr"));
+        return config !== undefined && config.enabled && config.position === position && !suppressed(def.id, prefs);
     });
     if (prefs.order.length === 0) return candidates;
     const rank = (id: string): number => { const index = prefs.order.indexOf(id); return index < 0 ? Number.MAX_SAFE_INTEGER : index; };
@@ -278,7 +299,8 @@ function watchedCheck(size: string): SVGSVGElement {
 }
 
 type Rail = "left" | "right";
-interface Resolved { readonly label: string; readonly mark: Icon | undefined; readonly tv: boolean; readonly accent: Rgba | undefined }
+/** `mark` is a drawn icon: a wordmark, the Dolby Vision ring or the tv glyph. */
+interface Resolved { readonly label: string; readonly mark: Exclude<Icon, "generic"> | undefined; readonly accent: Rgba | undefined }
 
 function resolve(card: Card, prefs: CardOverlayPrefs, preset: Preset, position: Position, limit: number): Resolved[] {
     return enabledAt(position, prefs).flatMap(def => {
@@ -288,7 +310,7 @@ function resolve(card: Card, prefs: CardOverlayPrefs, preset: Preset, position: 
         const icon = def.icon?.(card) ?? def.staticIcon;
         const showIcon = icon !== undefined && def.iconCapable && (config?.showIcon ?? preset.preferIcon);
         const accent = config?.accentColor ?? def.accent;
-        return [{ label, mark: showIcon && icon !== "generic" && icon !== "tv" ? icon : undefined, tv: showIcon && icon === "tv", accent: accent === undefined ? undefined : hex(accent) }];
+        return [{ label, mark: showIcon && icon !== "generic" ? icon : undefined, accent: accent === undefined ? undefined : hex(accent) }];
     }).slice(0, limit);
 }
 
@@ -370,9 +392,10 @@ function badgeNode(badge: Resolved, preset: Preset, scale: number, px: (value: n
     if (bar > 0 && paint.bar !== undefined) style.backgroundImage = `linear-gradient(to right, ${paint.bar} ${px(bar)}, transparent ${px(bar)})`;
     style.color = paint.foreground;
     if (preset.boxShadow !== undefined) style.boxShadow = `0 ${px(preset.boxShadow.y)} ${px(preset.boxShadow.blur)} ${preset.boxShadow.color}`;
-    // A brand mark draws its own token, so the label drops it ("DV HDR10" with the DV mark reads "HDR10").
-    const label = badge.mark === undefined ? badge.label : badge.label.split(" ").filter(word => word.toLowerCase() !== badge.mark?.toLowerCase()).join(" ");
-    if (badge.tv) {
+    // CardOverlays.swift:196-202: a label that says what its wordmark spells is dropped ("HDR10 HDR10"); DV has no wordmark.
+    const wordmark = badge.mark === undefined || badge.mark === "DV" || badge.mark === "tv" ? undefined : badge.mark;
+    const label = wordmark !== undefined && badge.label.trim().toLowerCase() === wordmark.toLowerCase() ? "" : badge.label;
+    if (badge.mark === "tv") {
         const glyph = tvIcon();
         // OverlayIcon.swift:29-36: the symbol at 85% of iconSize in an iconSize-high frame. "tv" is wider than the
         // frame's minimum width and a little taller than it, so the frame keeps the symbol's width and iconSize's height.
@@ -383,9 +406,20 @@ function badgeNode(badge: Resolved, preset: Preset, scale: number, px: (value: n
         if (label !== "") glyph.style.marginRight = px(preset.iconGap);
         node.appendChild(glyph);
     }
-    if (badge.mark !== undefined) {
-        const mark = el("span", "card-overlay-mark", badge.mark);
-        mark.style.fontSize = px(preset.iconSize * 0.78);
+    if (badge.mark === "DV") {
+        const ring = dolbyVisionMark();
+        ring.style.width = ring.style.height = px(preset.iconSize);
+        if (label !== "") ring.style.marginRight = px(preset.iconGap);
+        node.appendChild(ring);
+    }
+    if (wordmark !== undefined) {
+        // OverlayIcon.swift:15-24: 10-unit black text in a 12-unit-high box; ATMOS is 9 units spaced half a unit apart.
+        const units = wordmark === "ATMOS" ? 9 : 10;
+        const points = preset.iconSize * units / 12;
+        const mark = el("span", "card-overlay-mark", wordmark);
+        mark.style.fontSize = `calc(${px(points)} * var(--silo-sf-cap-scale))`;
+        mark.style.height = mark.style.lineHeight = px(preset.iconSize);
+        mark.style.letterSpacing = px((wordmark === "ATMOS" ? preset.iconSize * 0.5 / 12 : 0) + wordmarkShortfall(wordmark, points * scale) * points);
         if (label !== "") mark.style.marginRight = px(preset.iconGap);
         node.appendChild(mark);
     }
@@ -406,6 +440,31 @@ function badgeNode(badge: Resolved, preset: Preset, scale: number, px: (value: n
  */
 function interShortfall(points: number, weight: number): number {
     return Math.max(0, (weight >= 700 ? 0.051 : 0.044) - 0.0062 * (points - 10));
+}
+
+/**
+ * Inter 900's per-letter shortfall against SF Pro black for each wordmark, in em of Apple's point size, at 10pt:
+ * CoreText SF Pro black advances against InterVariable 900 at the cap-scaled size, 8 to 12pt. Each falls 0.006em a point.
+ */
+const WORDMARK_SHORTFALL: Readonly<Record<"HDR" | "HDR10" | "ATMOS" | "AV1", number>> = { HDR: 0.0965, HDR10: 0.0973, ATMOS: 0.0511, AV1: 0.0662 };
+function wordmarkShortfall(mark: "HDR" | "HDR10" | "ATMOS" | "AV1", points: number): number {
+    return Math.max(0, WORDMARK_SHORTFALL[mark] - 0.006 * (points - 10));
+}
+
+/**
+ * OverlayIcon.swift:60-83, the web's Dolby Vision mark in a 16-unit box: a 6-unit disc with the left half of a
+ * 4.5-unit disc cut out (even-odd), a ring whose right half is filled.
+ */
+function dolbyVisionMark(): SVGSVGElement {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("class", "card-overlay-icon");
+    svg.setAttribute("viewBox", "0 0 16 16");
+    svg.setAttribute("aria-hidden", "true");
+    const path = document.createElementNS(svg.namespaceURI, "path");
+    path.setAttribute("fill-rule", "evenodd");
+    path.setAttribute("d", "M14 8A6 6 0 1 1 2 8A6 6 0 1 1 14 8ZM8 3.5A4.5 4.5 0 0 0 8 12.5Z");
+    svg.appendChild(path);
+    return svg;
 }
 
 /** OverlayIcon draws a generic symbol at this share of the icon size. */

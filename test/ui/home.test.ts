@@ -1382,6 +1382,8 @@ let heldBadges: { release(): void } | undefined;
 
 journey("Home reads the rested card once and sends nothing while focus is still moving", async (tv, catalog) => {
     const continuing = ["episode:s1e12", "movie:m0001"];
+    // Rows can paint before Playwright records their Continue Watching detail requests.
+    await tv.eventually(async () => continuing.every(id => detailReads(tv).includes(id)), "Continue Watching detail reads started");
     assert.deepEqual([...new Set(detailReads(tv))].sort(), [...continuing].sort(), "after first paint only Continue Watching is read");
     await tv.page.keyboard.press("ArrowDown");
     // The first card's own rest may finish on the running clock before that Down replaces it; that read is the landing,

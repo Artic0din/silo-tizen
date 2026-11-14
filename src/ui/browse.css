@@ -1127,7 +1127,7 @@ svg.library-empty-icon { width: auto; }
 .card-overlay-tab-right::before { right: calc(-1 * var(--card-overlay-border)); clip-path: inset(0 var(--card-overlay-border) 0 0); }
 /* lineLimit(1) with tail truncation; the clip margin keeps the minimal preset's text shadow. */
 .card-overlay-label { min-width: 0; overflow: clip; overflow-clip-margin: 4px; text-overflow: ellipsis; }
-.card-overlay-mark { font-weight: 800; letter-spacing: .2px; }
+.card-overlay-mark { display: block; flex: none; font-weight: 900; }
 .card-overlay-icon { display: block; flex: none; fill: currentColor; stroke: none; }
 /* Home rows: Apple MediaRow, MediaCard and EpisodeThumbCard (silo-apple 1a7ccee). The content reaches into a
    40px gutter so a lifted first card is never clipped; cards still start at the 88px edge. */

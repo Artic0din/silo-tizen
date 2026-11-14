@@ -258,7 +258,7 @@ test("choosing a row closes the menu, sends the change, and rereads Home with fo
         assert.deepEqual(catalog.mutations, ["POST /watched/movie%3Am0001"], "one change per card at a time");
         answer.release();
         await tv.eventually(async () => homeReads(tv) === reads + 1, "Home rereads after the change");
-        await tv.eventually(async () => await origin(tv).locator(".browse-watched").count() === 1, "the row shows the new state");
+        await tv.eventually(async () => await origin(tv).locator(".card-watch-status-played").count() === 1, "the row shows the new state");
         assert.equal(await tv.focused(), "movie:m0001");
         await hold(tv);
         assert.deepEqual(await rowLabels(tv), ["Mark as Unwatched", "Add to Favorites", "Add to Watchlist"]);

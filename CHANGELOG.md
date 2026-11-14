@@ -57,6 +57,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Posters now show Apple TV's watch status in the top-right corner: a small green check on a watched title, or the number of episodes left on a series or season you have started, sized with the poster on Home, library, Search and every other poster grid.
 - The profile menu's Sign Out and Watch Party icons now match Apple TV's symbols in shape and size: Sign Out is the door with an arrow leaving it, and Watch Party is three people, wider than the other icons as on Apple TV.
 - Series cards on Home, library pages, collections, Explore all, a person's filmography, History and the Watch Party picker now show the years the series ran, as on Apple TV: "2024 – Present" while it is returning and "2019 – 2023" once it has ended.
 - Browse's Sort and Filter panels now use Apple TV's top-bar panel look and fade in and out, their eyebrows, section headers and filter count are monospaced, long labels shrink before they truncate, and the current sort's direction stays grey on the focused row. The control pills, panel rows and letter rail animate focus as on Apple TV, the open rail keeps unfocused letters grey with Apple's spacing and scrolls to the focused letter, and Browse text uses Apple's sizes.

@@ -107,11 +107,12 @@ export function boxSetMovieRow(row: BoxSetRowState, currentId: string, context: 
     const detail = row.detail;
     if (detail === undefined || detail.items.length === 0) return undefined;
     // TVMediaCard.artworkSize: 220 times the card-size scale, here and in browse.css.
-    const slots = boxSetRowSlots(BOX_SET_ROW_WIDTH, BOX_SET_ROW_CARD_WIDTH * (context.posterScale?.() ?? 1), BOX_SET_ROW_SPACING);
+    const posterWidth = BOX_SET_ROW_CARD_WIDTH * (context.posterScale?.() ?? 1);
+    const slots = boxSetRowSlots(BOX_SET_ROW_WIDTH, posterWidth, BOX_SET_ROW_SPACING);
     const films = boxSetRowFilms(detail.items, currentId, slots, true);
     const items: FocusItem[] = [];
     for (const movie of films) {
-        const item = cardItem(movie, context);
+        const item = cardItem(movie, { ...context, posterWidth });
         if (item === undefined) continue;
         if (movie.id === currentId) markCurrentFilm(item, movie);
         items.push(item);

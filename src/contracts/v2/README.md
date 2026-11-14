@@ -81,6 +81,7 @@ See [quality selection](../../../docs/playback/playback-quality.md) for highligh
 
 `catalog.ts` holds the browse decoders. They are handwritten from `openapi.json` at the commit in `SOURCE`, not generated.
 `getCatalogItem` reads optional `extras` (`ItemExtraInfo`) and `videos` (`ItemVideoInfo`). The vendored item fixture omits both, and a missing list decodes as empty. A missing `is_official` follows Apple and becomes false so one omitted flag cannot reject the detail; a non-boolean still fails.
+A card's `user_state.watched_count` and `unplayed_count` are newer than `SOURCE`: [`CatalogItemUserState`](https://github.com/Silo-Server/silo-server/blob/3f1081bdfe82285ede3925473a1d63bb197e68f5/contracts/api/v2/openapi.json) gained them at silo-server `3f1081bdfe82285ede3925473a1d63bb197e68f5`. Both are optional, so an older server sends neither and the card shows no episodes-left count; the tests build those bodies from that schema.
 The browse fixtures (`user_libraries`, `list_effective_settings_ok`, `list_home_sections_ok`, `list_catalog_items_ok`, `get_catalog_item_ok`, `list_series_seasons_ok`, `list_series_seasons_without_artwork`, `list_season_episodes_ok`) are copied unchanged from the same commit.
 Artwork URLs in these responses are signed (`/api/v2/artwork/{key}?exp=…&sig=…`, operation `getArtwork`, public) or presigned storage URLs ([`docs/images-api.md`](https://github.com/Artic0din/silo-server/blob/cc8514943289045e7b9f7ac8d36d4968bfe93926/docs/images-api.md)); the client draws them with plain `<img>` and never adds credentials.
 

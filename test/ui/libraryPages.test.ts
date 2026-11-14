@@ -485,12 +485,19 @@ page("Sort and Filter panels use the top-bar panel chrome and fade in and out", 
     const focused = { "background-color": "rgb(237, 237, 237)", color: "rgb(0, 0, 0)" };
     // The row's fill eases in over 120 ms.
     await tv.eventually(async () => JSON.stringify(await style(tv, '[data-focus="sort:title"]', "background-color", "color")) === JSON.stringify(focused), "the focused Sort row is white");
+    // The leaving copy removes itself when its 180 ms fade ends, on real time; a slow run can read it after it has gone.
+    // Hold the page's animations while it is read, then let the fade finish.
+    const cdp = await tv.page.context().newCDPSession(tv.page);
+    await cdp.send("Animation.enable");
+    await cdp.send("Animation.setPlaybackRate", { playbackRate: 0 });
     await tv.remote(10009);
     const leaving = await tv.page.evaluate(() => [...document.querySelectorAll(".browse-panel-leaving")].map(node => [node.classList.contains("browse-panel-scrim") || node.classList.contains("browse-sort-panel"), getComputedStyle(node).animationDuration, node.querySelector("[data-focus]") === null]));
     assert.deepEqual(leaving, [[true, "0.18s", true], [true, "0.18s", true]]);
     // The fading copy keeps the focused row's white fill and dark text rather than dropping them at once.
     const ghostRow = await style(tv, ".browse-panel-leaving .browse-panel-row", "background-color", "color");
     assert.deepEqual(ghostRow, focused);
+    await cdp.send("Animation.setPlaybackRate", { playbackRate: 1 });
+    await tv.page.locator(".browse-panel-leaving").first().waitFor({ state: "detached" });
     assert.equal(await tv.focused(), "sort");
 });
 

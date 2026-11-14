@@ -1579,6 +1579,14 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
 
     // A lost window loses Select's release, so the next press is a fresh one.
     const endSelect = (): void => { selectHeld = undefined; };
+    // Focus leaving the pressed control ends the press; a repaint handing focus to the same control's new node keeps it.
+    const onFocusOut = (event: FocusEvent): void => {
+        const held = selectHeld;
+        if (held === undefined || event.target !== held.element) return;
+        const next = event.relatedTarget;
+        if (held.key !== null && next instanceof Element && next.getAttribute("data-focus") === held.key) return;
+        selectHeld = undefined;
+    };
 
     const onKeyUp = (event: KeyboardEvent): void => {
         const key = remoteKey(event);
@@ -1625,6 +1633,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     document.addEventListener("keyup", onKeyUp);
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("blur", endSelect);
+    document.addEventListener("focusout", onFocusOut, true);
     const unsubscribe = controls.subscribe((next) => {
         if ((next.phase !== "playing" && next.phase !== "paused") || next.previewKey !== undefined) pendingSkipTarget = undefined;
         const starting = next.phase === "playing" && view.phase !== "playing" && view.phase !== "paused";
@@ -1664,6 +1673,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             document.removeEventListener("keyup", onKeyUp);
             document.removeEventListener("visibilitychange", onVisibility);
             window.removeEventListener("blur", endSelect);
+            document.removeEventListener("focusout", onFocusOut, true);
             if (section.parentNode === root) {
                 root.removeChild(section);
             }

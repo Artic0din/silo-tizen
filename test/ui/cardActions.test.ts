@@ -403,6 +403,12 @@ test("a row is chosen on Select's release, and that release cannot reach the car
         await hold(tv);
         await row(tv, "Mark as Watched").waitFor();
         await tv.down(13);
+        await tv.page.evaluate(hidden => { Object.defineProperty(document, "hidden", { configurable: true, value: hidden }); document.dispatchEvent(new Event("visibilitychange")); }, true);
+        await tv.up(13);
+        await tv.page.evaluate(hidden => { Object.defineProperty(document, "hidden", { configurable: true, value: hidden }); document.dispatchEvent(new Event("visibilitychange")); }, false);
+        assert.equal(await menu(tv).count(), 1, "a press the hidden page lost chooses nothing");
+        assert.equal(catalog.mutations.length, 0);
+        await tv.down(13);
         for (let repeat = 0; repeat < 4; repeat++) { await tv.jump(200); await tv.down(13, true); }
         assert.equal(await menu(tv).count(), 1, "a held row waits for release");
         assert.equal(catalog.mutations.length, 0);

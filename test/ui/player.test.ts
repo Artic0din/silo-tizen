@@ -288,6 +288,26 @@ test("a Select held while the window loses focus runs nothing on release", async
     } finally { await page.close(); }
 });
 
+test("a Select whose focus leaves its control and returns runs nothing on release", async () => {
+    const { page } = await open();
+    try {
+        await show(page, playing(TRACKS));
+        await remote(page, DOWN);
+        assert.equal(await focused(page), "pause");
+        await page.evaluate((code) => document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { keyCode: code, bubbles: true, cancelable: true })), ENTER);
+        await page.evaluate(() => {
+            const pause = document.activeElement;
+            document.querySelector<HTMLElement>('[data-focus="position"]')?.focus();
+            if (pause instanceof HTMLElement) pause.focus();
+        });
+        assert.equal(await focused(page), "pause");
+        await page.evaluate((code) => document.activeElement?.dispatchEvent(new KeyboardEvent("keyup", { keyCode: code, bubbles: true, cancelable: true })), ENTER);
+        assert.deepEqual(await commands(page), [], "the press ended when focus left Pause");
+        await remote(page, ENTER);
+        assert.deepEqual(await commands(page), ["togglePause"], "the next fresh Select runs");
+    } finally { await page.close(); }
+});
+
 test("a Select held while the controls hide does not run on the scrubber it lands on", async () => {
     const { page } = await open();
     try {

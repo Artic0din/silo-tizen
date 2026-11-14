@@ -42,12 +42,13 @@ export class RequestRecordMenu {
         if (remoteKey(event) !== "enter") return;
         event.preventDefault();
         event.stopImmediatePropagation();
-        if (!this.pressed) return;
+        // A hidden page cannot finish a press.
+        if (!this.pressed || document.hidden) { this.pressed = false; return; }
         this.pressed = false;
         this.items.find(item => item.element === document.activeElement)?.element.click();
     };
 
-    /** Losing the window loses Select's release, so the next press is a fresh one. */
+    /** Losing the window or hiding the page loses Select's release, so the next press is a fresh one. */
     private readonly onBlur = (): void => { this.pressed = false; };
 
     get active(): boolean { return this.panel !== undefined; }
@@ -61,6 +62,7 @@ export class RequestRecordMenu {
         document.addEventListener("keydown", this.onKey, true);
         document.addEventListener("keyup", this.onRelease, true);
         window.addEventListener("blur", this.onBlur);
+        document.addEventListener("visibilitychange", this.onBlur);
         this.showActions();
     }
 
@@ -129,5 +131,6 @@ export class RequestRecordMenu {
         document.removeEventListener("keydown", this.onKey, true);
         document.removeEventListener("keyup", this.onRelease, true);
         window.removeEventListener("blur", this.onBlur);
+        document.removeEventListener("visibilitychange", this.onBlur);
     }
 }

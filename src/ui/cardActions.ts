@@ -326,6 +326,7 @@ export class CardActions {
         document.addEventListener("keydown", this.onKey, true);
         document.addEventListener("keyup", this.onRelease, true);
         window.addEventListener("blur", this.onBlur);
+        document.addEventListener("visibilitychange", this.onBlur);
     }
 
     private release(): void {
@@ -335,6 +336,7 @@ export class CardActions {
         document.removeEventListener("keydown", this.onKey, true);
         document.removeEventListener("keyup", this.onRelease, true);
         window.removeEventListener("blur", this.onBlur);
+        document.removeEventListener("visibilitychange", this.onBlur);
     }
 
     private abortAll(): void {
@@ -349,7 +351,7 @@ export class CardActions {
         this.stopAuthority();
     }
 
-    /** Losing focus loses Select's release, so the next press is a fresh one. */
+    /** Losing focus or hiding the page loses Select's release, so the next press is a fresh one. */
     private readonly onBlur = (): void => { this.pressed = false; };
 
     private readonly onRelease = (event: KeyboardEvent): void => {
@@ -358,7 +360,8 @@ export class CardActions {
         event.stopImmediatePropagation();
         const pressedRow = this.pressedRow;
         this.pressedRow = undefined;
-        if (!this.pressed) return;
+        // A hidden page cannot finish a press.
+        if (!this.pressed || document.hidden) { this.pressed = false; return; }
         this.pressed = false;
         const chosen = this.rows.find(row => row === document.activeElement);
         // A press made on a disabled row stays inert, even if a redraw enables the row before release.

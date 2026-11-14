@@ -766,6 +766,17 @@ test("captions apply profile styles, stay safe text and clear during recovery", 
     } finally { await page.close(); }
 });
 
+test("the caption layer reports its load state, cue count and clock reading", async () => {
+    const { page } = await open();
+    try {
+        const read = (): Promise<Record<string, string | undefined>> => page.locator(".player-captions").evaluate(node => ({ ...(node as HTMLElement).dataset }));
+        await show(page, { ...playing(TRACKS), captions: { text: "", appearance: DEFAULT_APPEARANCE, status: "ready", cueCount: 1161, instant: 304.34 } });
+        assert.deepEqual(await read(), { state: "ready", cues: "1161", at: "304.3" });
+        await show(page, { ...playing(TRACKS), captions: undefined });
+        assert.deepEqual(await read(), { state: "suppressed", cues: "0", at: "" });
+    } finally { await page.close(); }
+});
+
 test("captions paint above the overlay gradient but below its controls and the menu", async () => {
     const { page } = await open();
     try {

@@ -2117,3 +2117,37 @@ test("a pending AI result the refreshed plan flags unplayable is reported as sav
     assert.match(shown.ai?.message ?? "", /saved but couldn't be turned on/i);
     r.controller.destroy();
 });
+
+test("a pre-play sidecar choice draws mm:ss WebVTT cues with italic tags and reports its load state", async () => {
+    const r = await rig();
+    const plan = decodePlaybackDecision(fixture("playback_start_opaque_ids"));
+    assert.equal(plan.outcome, "playable");
+    if (plan.outcome !== "playable") return;
+    const track = plan.plan.subtitle.inventory[1];
+    assert.ok(track);
+    r.server.next.push({ subtitle: 1, subtitleArtifact: { url: `${r.h.fake.origin}/api/v2/stream/s1/subtitles/0.vtt`, format: "vtt", timing_origin_seconds: 0 } });
+    const mediaToken = await r.h.core.session.mediaToken();
+    r.h.fake.script(`/stream/s1/subtitles/0.vtt?token=${mediaToken}`, { status: 200, text: "WEBVTT\n\n01:06.750 --> 01:09.249\n<i>First</i>\n\n05:03.700 --> 05:04.700\n<i>Second</i>\nline" });
+    const request = { ...MOVIE, audioTrackId: "file:42:audio:1", subtitle: { kind: "track" as const, signature: { source: track.source, language: track.language, codec: track.codec, label: track.label, forced: track.forced, hearingImpaired: track.hearingImpaired } }, subtitleTracks: catalogTracks(plan.plan.subtitle.inventory) };
+    try {
+        await playMovie(r, request);
+        r.avplay.tick(304300);
+        const view = r.views[r.views.length - 1];
+        assert.ok(view?.phase === "playing");
+        assert.equal(view.captions?.text, "Second\nline", JSON.stringify(view.tracks.notices));
+        assert.deepEqual({ status: view.captions?.status, cueCount: view.captions?.cueCount, instant: view.captions?.instant }, { status: "ready", cueCount: 2, instant: 304.3 });
+    } finally { r.controller.destroy(); }
+});
+
+test("a sidecar that fails to download reports failed with no cues", async () => {
+    const r = await rig();
+    r.server.next.push({ subtitle: 0, subtitleArtifact: { url: `${r.h.fake.origin}/api/v2/captions?token=synthetic`, format: "vtt", timing_origin_seconds: 0 } });
+    r.h.fake.script("/captions?token=synthetic", { status: 404 });
+    try {
+        await playMovie(r);
+        r.avplay.tick(5000);
+        const view = r.views[r.views.length - 1];
+        assert.ok(view?.phase === "playing");
+        assert.deepEqual({ text: view.captions?.text, status: view.captions?.status, cueCount: view.captions?.cueCount }, { text: "", status: "failed", cueCount: 0 });
+    } finally { r.controller.destroy(); }
+});

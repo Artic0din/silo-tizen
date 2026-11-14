@@ -16,6 +16,10 @@ export function mountSubtitles(parent: HTMLElement): (view: PlaybackView) => voi
         const captions = view.phase === "playing" || view.phase === "paused" ? view.captions : undefined;
         text.textContent = captions?.text ?? "";
         layer.hidden = !captions?.text;
+        // Read on a TV to tell an empty layer apart: suppressed, no sidecar, loading, failed, or ready with no cue at this clock reading.
+        layer.dataset.state = captions === undefined ? "suppressed" : captions.status ?? "none";
+        layer.dataset.cues = String(captions?.cueCount ?? 0);
+        layer.dataset.at = captions?.instant === undefined ? "" : captions.instant.toFixed(1);
         if (captions === undefined) return;
         applySubtitleAppearance(layer, text, captions.appearance);
     };

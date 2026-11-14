@@ -1,7 +1,7 @@
 // Poster badges (`ui.card_overlays`): the document parser, the badge registry and the layout renderer.
 // Ported (AGPL-3.0-or-later) from silo-apple 1a7cceeaf3b2bfc4f889c00487d19b2c6f843940:
 // iosApp/iosApp/Overlays/{OverlayTypes,OverlaySchema,OverlayRegistry,OverlayExtractors,OverlayPresets,CardOverlays,OverlayIcon}.swift.
-// Positions, presets and layout follow silo-apple 5780c84f4a9c1e2bff006e653dd787e01ca24480 (#1117). Its plate and
+// Positions, presets, layout and the CardWatchStatus corner follow silo-apple 5780c84f4a9c1e2bff006e653dd787e01ca24480 (#1117). Its plate and
 // band presets, style overrides and uploaded badge images are not drawn here.
 // Generic badge icons are SF Symbols there and are not drawn here, except the
 // series-status tv glyph: OverlayIcon's semibold "tv", outline and foot opaque,
@@ -230,6 +230,52 @@ const MAX_BADGES_PER_RAIL = 4;
 const RAIL_MAX_WIDTH = "60%";
 /** Wide cards leave room under the badges for a title block or progress bar (CardOverlays.swift:137-144). */
 const WIDE_BOTTOM_INSET = 24;
+
+/** CardWatchStatus.swift:17: Tailwind's `emerald-500` as Apple writes it, sRGB (0, 0.737, 0.49). */
+const WATCHED_FILL = `rgb(0,${0.737 * 255},${0.49 * 255})`;
+/** CardWatchStatus.swift:43: the episodes-left count's point size at the reference width. */
+const EPISODES_LEFT_FONT_SIZE = 11;
+
+/**
+ * CardWatchStatus (silo-apple 5780c84 `Overlays/CardWatchStatus.swift:11-81`): the poster's top-right corner, a
+ * check on a watched title or the episodes a started series or season has left, scaled from the card width the same
+ * way the badges are. Shown whether or not badges are on; wide cards keep their own check.
+ */
+export function watchStatus(card: Card, artWidth: number): HTMLElement | undefined {
+    const left = card.played === true ? undefined : card.episodesLeft;
+    if (card.played !== true && left === undefined) return undefined;
+    const scale = artWidth / POSTER_REFERENCE_WIDTH;
+    const px = (value: number): string => `${Math.round(value * scale * 100) / 100}px`;
+    const node = el("span", "card-watch-status");
+    node.style.top = node.style.right = px(EDGE_INSET);
+    node.style.height = node.style.minWidth = px(WATCH_STATUS_SIZE);
+    if (left === undefined) {
+        node.classList.add("card-watch-status-played");
+        node.style.backgroundColor = WATCHED_FILL;
+        node.appendChild(watchedCheck(px(WATCH_STATUS_SIZE * 0.62)));
+        // The host card's own label says "Watched" there (TVMediaCard.swift:286-288).
+        node.appendChild(el("span", "silo-sr-only", "Watched"));
+        return node;
+    }
+    node.setAttribute("aria-hidden", "true");
+    node.textContent = left.toLocaleString();
+    node.style.fontSize = `calc(${px(EPISODES_LEFT_FONT_SIZE)} * var(--silo-sf-cap-scale))`;
+    node.style.padding = `0 ${px(EPISODES_LEFT_FONT_SIZE * 0.4)}`;
+    node.style.letterSpacing = px(interShortfall(EPISODES_LEFT_FONT_SIZE * scale, 700) * EPISODES_LEFT_FONT_SIZE);
+    return node;
+}
+
+/** The web's check, Lucide's in a 24-unit box, stroked 3.25 units with round ends (CardWatchStatus.swift:33-38, :68-81). */
+function watchedCheck(size: string): SVGSVGElement {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("aria-hidden", "true");
+    svg.style.width = svg.style.height = size;
+    const line = document.createElementNS(svg.namespaceURI, "polyline");
+    line.setAttribute("points", "20 6 9 17 4 12");
+    svg.appendChild(line);
+    return svg;
+}
 
 type Rail = "left" | "right";
 interface Resolved { readonly label: string; readonly mark: Icon | undefined; readonly tv: boolean; readonly accent: Rgba | undefined }

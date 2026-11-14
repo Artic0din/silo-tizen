@@ -33,6 +33,17 @@ test("episode rows retain resume seconds from user data", () => {
     assert.throws(() => decode({ played: false, position_seconds: 60, duration_seconds: "240" }), WireError);
 });
 
+test("a started, unfinished series card carries its episodes left; others carry none (Models.swift:111-114)", () => {
+    const series = { content_id: "series:1", type: "series", title: "Show" };
+    const left = (user_state: Record<string, unknown>) => decodeCatalogPage({ items: [{ ...series, user_state: { is_favorite: false, in_watchlist: false, not_interested: false, ...user_state } }], total: 1, total_exact: true }).items[0]?.episodesLeft;
+    assert.equal(left({ played: false, watched_count: 4, unplayed_count: 6 }), 6);
+    assert.equal(left({ played: false, watched_count: 0, unplayed_count: 10 }), undefined, "an untouched series shows no count");
+    assert.equal(left({ played: false, watched_count: 4, unplayed_count: 0 }), undefined);
+    assert.equal(left({ played: true, watched_count: 10, unplayed_count: 2 }), undefined, "a watched title shows the check");
+    assert.equal(left({ played: false }), undefined, "a server before the counts sends none");
+    assert.throws(() => left({ played: false, watched_count: 4, unplayed_count: "6" }), WireError);
+});
+
 test("local extras retain authoritative watch targets and numeric file IDs", () => {
     const detail = decodeItemDetail({ ...fixture("get_catalog_item_ok"), extras: [{ content_id: "extra:1", file_id: 71, kind: "trailer", title: "Trailer", duration_seconds: 90, still_url: "/extra.jpg" }] });
     assert.deepEqual(detail.extras, [{ contentId: "extra:1", fileId: "71", kind: "trailer", title: "Trailer", durationSeconds: 90, stillUrl: "/extra.jpg" }]);
@@ -85,6 +96,7 @@ test("browse fixtures decode with the production decoders", () => {
         genres: ["Crime"],
         overlay: { resolution: "4K", hdr: "Dolby Vision", audio: undefined, audioChannels: undefined, videoCodec: undefined, container: undefined, aspectRatio: undefined, releaseType: undefined, edition: undefined, multiAudio: undefined, multiSub: undefined },
         played: false,
+        episodesLeft: undefined,
         favorite: false,
         watchlist: true,
         logoUrl: undefined,
@@ -241,12 +253,12 @@ function route(destination: Destination | undefined): Destination | undefined {
 test("a card opens its Details page seeded with what Apple's loading frame paints", () => {
     const card = { id: "episode:s1e12", title: "Pilot", year: 2024, posterUrl: undefined, seriesId: "series:s1", seriesTitle: "Harbor Lights", seasonNumber: 1, episodeNumber: 2, overview: "A storm.", runtimeMinutes: 52, contentRating: "TV-14", genres: ["Drama", "Mystery"], logoUrl: "/logo", backdropUrl: "/still", backdropThumbhash: "hash", seriesBackdropUrl: "/series-art", played: false, positionSeconds: 30 };
     const movie = destinationOf({ ...card, id: "movie:heat", type: "movie" });
-    assert.deepEqual(movie?.kind === "item" ? movie.seed : undefined, { type: "movie", title: "Pilot", year: 2024, overview: "A storm.", runtimeMinutes: 52, contentRating: "TV-14", genre: "Drama", backdropUrl: "/still", backdropThumbhash: "hash", backdropIsEpisodeStill: undefined }, "only an episode card swaps in the series backdrop");
+    assert.deepEqual(movie?.kind === "item" ? movie.seed : undefined, { type: "movie", title: "Pilot", year: 2024, overview: "A storm.", runtimeMinutes: 52, contentRating: "TV-14", genre: "Drama", logoUrl: "/logo", backdropUrl: "/still", backdropThumbhash: "hash", backdropIsEpisodeStill: undefined }, "only an episode card swaps in the series backdrop");
     const episode = destinationOf({ ...card, type: "episode" });
     assert.deepEqual(episode?.kind === "item" ? { backdrop: episode.seed?.backdropUrl, hash: episode.seed?.backdropThumbhash, still: episode.seed?.backdropIsEpisodeStill, watch: episode.seed?.episodeWatch } : undefined,
         { backdrop: "/series-art", hash: undefined, still: false, watch: { played: false, isInProgress: true, positionSeconds: 30 } }, "an episode card shows its series backdrop");
     const parent = browseCardDestination({ ...card, type: "episode" });
-    assert.deepEqual(parent?.kind === "item" ? parent.seed : undefined, { type: "series", title: "Harbor Lights", backdropUrl: "/series-art", backdropIsEpisodeStill: false }, "the parent Series frame keeps only the series title and backdrop");
+    assert.deepEqual(parent?.kind === "item" ? parent.seed : undefined, { type: "series", title: "Harbor Lights", logoUrl: "/logo", backdropUrl: "/series-art", backdropIsEpisodeStill: false }, "the parent Series frame keeps only the series title, logo and backdrop");
 });
 
 

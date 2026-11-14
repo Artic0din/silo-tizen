@@ -166,7 +166,7 @@ Validation is fake-server and desktop Chromium only; signed Samsung and same-sta
 Source: silo-apple `5780c84`, tvOS.
 The audited hero, loading, error, synopsis and rating views are unchanged from the audit's `85679e7`.
 #405 fixed 15 of the 18 items, and #388 had already fixed the 401, 403 and 404 error pages.
-Four Apple behaviours stay different on purpose.
+Three Apple behaviours stay different on purpose.
 
 - **Movie hero height.**
   Apple fixes the movie hero at 690 and clips it ([`TVDetailHero.swift:11, 149-152, 166`](https://github.com/Silo-Server/silo-apple/blob/5780c84f4a9c1e2bff006e653dd787e01ca24480/iosApp/iosApp/tvOS/Screens/Detail/TVDetailHero.swift#L149-L166)).
@@ -174,11 +174,6 @@ Four Apple behaviours stay different on purpose.
   When a long text title makes the stack taller than 690, the clip cuts off the action row, including the focused Play button.
   Samsung's movie hero is also 690 whenever the stack fits, but grows instead of clipping, so Play stays visible.
   An invisible focused button would break the [TV focus](../tv-focus.md) rule.
-- **Logo in the loading frame.**
-  Apple's loading frame shows the card's logo when the cached title-art answer allows it ([`TVItemDetailLoadingView.swift:122-140`](https://github.com/Silo-Server/silo-apple/blob/5780c84f4a9c1e2bff006e653dd787e01ca24480/iosApp/iosApp/tvOS/Screens/Detail/TVItemDetailLoadingView.swift#L122-L140), [`TVDetailHero.swift:588`](https://github.com/Silo-Server/silo-apple/blob/5780c84f4a9c1e2bff006e653dd787e01ca24480/iosApp/iosApp/tvOS/Screens/Detail/TVDetailHero.swift#L588)).
-  Samsung Details shows no logo until its own title-art read answers ([Title art](title-art.md)), so the frame keeps the text title.
-  A logo there would flash back to text when the page loads.
-  #475 tracks moving Details to Apple's remembered answer, which would allow the logo.
 - **Series readout without values.**
   Apple keeps the Version, Audio and Subtitles bars whenever the hero has an episode ([`TVSeriesDetailView.swift:396`](https://github.com/Silo-Server/silo-apple/blob/5780c84f4a9c1e2bff006e653dd787e01ca24480/iosApp/iosApp/tvOS/Screens/Detail/TVSeriesDetailView.swift#L396)), because it reads playback detail for that episode.
   Samsung reads it only for the next-up episode, so it hides the readout, keeping its space, once nothing is loading and no value is known.

@@ -5,7 +5,7 @@
 import type { Card, CardOverlay, CatalogPage, HomeSection, UserLibrary } from "../contracts/v2/catalog.ts";
 import type { FocusItem, View, Zone } from "./browseFocus.ts";
 import { artworkUrl, type Destination, type EpisodeSelection, type SeriesLine, browseCardDestination, destinationOf } from "./browseModel.ts";
-import { type CardOverlayPrefs, overlayLayer } from "./cardOverlays.ts";
+import { type CardOverlayPrefs, overlayLayer, watchStatus } from "./cardOverlays.ts";
 import { homeCaption } from "./cardPresentation.ts";
 import type { CardMenuOptions, MenuCard } from "./cardActions.ts";
 import type { HomeDismissal } from "../api/detailOperations.ts";
@@ -53,6 +53,8 @@ export interface ViewContext {
     readonly cardDestination?: (card: Card) => Destination | undefined;
     /** Captions a series with the years it ran (Apple CardYears), as Home rows and catalog grids do; Watchlist, Favorites and More Like This show its year. */
     readonly seriesYears?: boolean;
+    /** Whether a title's logo may replace its text title on Details: Home's remembered answer. Absent reads as off. */
+    readonly titleArt?: () => boolean;
     /** Profile spoiler switches. Absent reads as both off. */
     readonly spoilers?: () => EpisodeSpoilerSettings;
     /** WatchPartyEntry: offered while the experimental switch is on and the server can host a party; open starts a room with the title. */
@@ -214,7 +216,10 @@ function episodeLine(card: Card): SeriesLine | undefined {
 
 /** Undefined for media this client does not browse. */
 export function cardItem(card: Card, context: ViewContext): FocusItem | undefined {
-    const destination = context.cardDestination?.(card) ?? (card.type === "season" ? destinationOf(card) : browseCardDestination(card));
+    const found = context.cardDestination?.(card) ?? (card.type === "season" ? destinationOf(card) : browseCardDestination(card));
+    // Only feed-row cards (Apple SectionItem) seed the loading frame's logo; catalog cards (BrowseItem) carry none.
+    // silo-apple 3651342 Navigation/Route.swift:155,180,209 and Networking/Models.swift:242.
+    const destination = found?.kind === "item" && found.seed?.logoUrl !== undefined && context.homeRow === undefined ? { ...found, seed: { ...found.seed, logoUrl: undefined } } : found;
     if (destination === undefined) {
         return undefined;
     }
@@ -237,13 +242,17 @@ export function cardItem(card: Card, context: ViewContext): FocusItem | undefine
             element.firstElementChild?.appendChild(thumbnailProgress(card.positionSeconds / card.durationSeconds));
         }
     }
-    // Badges sit under the progress bar and the watched tick, which win a shared corner.
+    // Badges sit under the progress bar and the watch status, which win a shared corner.
     const saved = continuing ? context.savedFileOverlay?.(card) : undefined;
     const scale = context.homeCaptions === true ? context.posterScale?.() ?? 1 : 1;
+    const artWidth = (thumbnail ? HOME_STILL_WIDTH : context.posterWidth ?? (context.homeCaptions === true ? HOME_POSTER_WIDTH : 260)) * scale;
     const overlays = context.overlays ?? context.cardOverlays?.();
-    const badges = overlays === undefined ? undefined : overlayLayer(saved === undefined ? card : { ...card, overlay: saved }, overlays, thumbnail ? "wide" : "poster", (thumbnail ? HOME_STILL_WIDTH : context.posterWidth ?? (context.homeCaptions === true ? HOME_POSTER_WIDTH : 260)) * scale);
+    const badges = overlays === undefined ? undefined : overlayLayer(saved === undefined ? card : { ...card, overlay: saved }, overlays, thumbnail ? "wide" : "poster", artWidth);
     if (badges !== undefined) element.firstElementChild?.insertBefore(badges, element.firstElementChild.querySelector(".skyline-progress"));
-    if (card.played === true) {
+    // TVMediaCard.swift:237-243 draws CardWatchStatus on every poster; a still keeps EpisodeThumbCard's check (:211-225).
+    const status = thumbnail ? undefined : watchStatus(card, artWidth);
+    if (status !== undefined) element.firstElementChild?.appendChild(status);
+    if (thumbnail && card.played === true) {
         const tick = el("span", "browse-watched");
         tick.appendChild(el("span", "silo-sr-only", "Watched"));
         element.firstElementChild?.appendChild(tick);

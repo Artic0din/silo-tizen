@@ -8,6 +8,8 @@
 //   administrator's baseline, else the registry defaults; the profile's on/off choice wins over the
 //   server-wide default in either direction. Registry defaults show until the reads answer, and a
 //   failed half keeps that half's last answer.
+// Details and its loading frame read the same title-art answer, as every Apple surface does (silo-apple 3651342
+// Networking/TitleArtPreferences.swift:25-30,201-203; tvOS/Screens/Detail/TVDetailHero.swift:585-594).
 import { ApiError } from "../api/errors.ts";
 import type { RequestSpec } from "../api/http.ts";
 import { operations } from "../api/operations.ts";
@@ -116,6 +118,11 @@ export class PresentationSettings {
     /** Starts the reads unless they are in flight or both answered; a failed half retries. */
     ensure(): void {
         if (this.controller === undefined && (!this.titleArtAnswered || !this.overlaysHydrated || !this.posterAnswered)) this.load();
+    }
+
+    /** The answer Settings just confirmed, applied before the reread lands, as Apple's store sets it (silo-apple 3651342 TitleArtPreferences.swift:404). */
+    acceptTitleArt(value: boolean): void {
+        this.applyTitleArt(value, () => true);
     }
 
     /** Rereads both answers, as after the person leaves Settings. The last answers stay until new ones land. */

@@ -50,7 +50,7 @@ Personal-write reconciliation and confirmation always require fresh reads.
 Metadata writes and returning from playback invalidate snapshots, with a generation fence against older reads.
 While a cached page is unreachable, the visible route retries its normal reads after 15 seconds.
 Cached metadata stays on screen without an unreachable notice, matching Apple TV.
-Optional personal, next-episode, title-art and related reads retain prior display values on transport failure.
+Optional personal, next-episode and related reads retain prior display values on transport failure; title art keeps its remembered answer ([Title art](features/title-art.md)).
 Series Play retains the cached episode owner and its normal launch behavior when its fresh read fails.
 Season Details also retries offline supporting reads automatically.
 Episode refusals survive cached revisits and recovery until a fresh episode read succeeds.

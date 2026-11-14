@@ -9,6 +9,7 @@ import { FakeSettings } from "./support/fakeSettings.ts";
 import { fixture, problem } from "./support/fakeSilo.ts";
 import { object } from "../../src/contracts/v2/wire.ts";
 import { decodeItemDetail } from "../../src/contracts/v2/catalog.ts";
+import { PresentationSettings } from "../../src/ui/presentationSettings.ts";
 import { DetailsState } from "../../src/ui/detailsState.ts";
 
 const TITLE = "ui.title_art" as SettingsKey;
@@ -461,26 +462,36 @@ test("authority cancellation after device PUT never sends step two", async () =>
     assert.equal(state.loaded, false);
 });
 
-test("Details accepts administrator false, rejects malformed supported reads, and reserves compatibility for old servers", async () => {
+test("the remembered answer Details uses takes administrator false, keeps the last answer on unusable reads, and returns old servers to logos", async () => {
     for (const mode of ["false", "malformed", "denied", "old", "missing-definition", "old-endpoint"] as const) {
         const { fake, settings, state, core, clock } = await setup();
         state.stop();
+        const presentation = new PresentationSettings(core.session, () => undefined, undefined, "silo.titleArt:test");
+        // A confirmed Off from an earlier read; each mode then answers the reread.
+        presentation.acceptTitleArt(false);
         settings.titleDefault = false;
         if (mode === "old") settings.revision = 15;
         if (mode === "denied") settings.allowed = false;
         if (mode === "old-endpoint") fake.script("/settings/contract/capabilities", problem(404, "not_found", "Old server"));
         if (mode === "missing-definition") fake.script("/settings/contract", { status: 200, body: { ...fixture("settings_contract_ok"), definitions: [] } });
         if (mode === "malformed") fake.script(`/settings/values/effective?keys=${TITLE}`, { status: 200, body: { revision: 24, items: [{ key: TITLE, value: "false", source: "default", definition_revision: 16 }] } });
-        const details = new DetailsState(decodeItemDetail(fixture("get_catalog_item_ok")), core.session, () => undefined, async () => undefined);
-        details.start();
-        assert.equal(details.titleArtGuard()(), false);
+        presentation.reload();
         await clock.advance(0);
-        assert.equal(details.titleArtPolicy, mode === "old" || mode === "old-endpoint" ? "compatibility" : mode === "false" ? "supported" : "failed", mode);
-        assert.equal(details.titleArtGuard()(), mode === "old" || mode === "old-endpoint", mode);
-        const guard = details.titleArtGuard();
-        details.stop();
-        assert.equal(guard(), false);
+        assert.equal(presentation.showsTitleArt, mode === "old" || mode === "old-endpoint", mode);
+        presentation.stop();
     }
+});
+
+test("a Details page fences late logo callbacks to its own live generation", async () => {
+    const { state, core } = await setup();
+    state.stop();
+    const details = new DetailsState(decodeItemDetail(fixture("get_catalog_item_ok")), core.session, () => undefined, async () => undefined);
+    assert.equal(details.generationGuard()(), false, "not started");
+    details.start();
+    const guard = details.generationGuard();
+    assert.equal(guard(), true);
+    details.stop();
+    assert.equal(guard(), false);
 });
 
 test("title art changes use device scope until All Devices is on, then pin device before deleting profile", async () => {

@@ -249,7 +249,7 @@ export function watchStatus(card: Card, artWidth: number): HTMLElement | undefin
     const node = el("span", "card-watch-status");
     node.style.top = node.style.right = px(EDGE_INSET);
     node.style.height = node.style.minWidth = px(WATCH_STATUS_SIZE);
-    if (card.played === true) {
+    if (left === undefined) {
         node.classList.add("card-watch-status-played");
         node.style.backgroundColor = WATCHED_FILL;
         node.appendChild(watchedCheck(px(WATCH_STATUS_SIZE * 0.62)));
@@ -258,7 +258,7 @@ export function watchStatus(card: Card, artWidth: number): HTMLElement | undefin
         return node;
     }
     node.setAttribute("aria-hidden", "true");
-    node.textContent = String(left);
+    node.textContent = left.toLocaleString();
     node.style.fontSize = `calc(${px(EPISODES_LEFT_FONT_SIZE)} * var(--silo-sf-cap-scale))`;
     node.style.padding = `0 ${px(EPISODES_LEFT_FONT_SIZE * 0.4)}`;
     node.style.letterSpacing = px(interShortfall(EPISODES_LEFT_FONT_SIZE * scale, 700) * EPISODES_LEFT_FONT_SIZE);

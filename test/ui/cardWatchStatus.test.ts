@@ -95,6 +95,7 @@ test("a started series shows its episodes left in a dark capsule; an untouched o
     const wide = await render({ played: false, episodesLeft: 128 }, width);
     assert.ok(wide !== undefined && wide.box.right - wide.box.left > size, "a longer count grows the capsule");
     near(wide.box.right, width - 8, "and keeps the right inset");
+    assert.equal((await render({ played: false, episodesLeft: 1200 }, width))?.text, "1,200", "LocaleFormat.integer groups the count (:44)");
     assert.equal(await render({ played: false }, width), undefined, "nothing on an untouched title (:3-5)");
     assert.equal((await render({ played: true, episodesLeft: 3 }, width))?.text, "", "a watched title shows the check, not a count (:21, :32)");
 });

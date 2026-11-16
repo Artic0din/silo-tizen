@@ -773,6 +773,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             return host.focused();
         }, true);
     }
+    const detailArtwork = (): Record<string, string> => detailArtworkQuery(imageCapability, window.devicePixelRatio);
     const episodeArtwork = (): Record<string, string> => episodeArtworkQuery(imageCapability, window.devicePixelRatio);
     // Apple's episode read waits for the probe when no capability is known yet (`requestQueryForImageRequest`), bounded only by its HTTP timeout.
     // A stalled probe would hold the first rail read for two 15 s attempts, so the wait is capped and the read falls back to `small`. A settled probe never waits again. Details itself does not wait.
@@ -1556,7 +1557,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 if (current.data?.details === undefined) stopDetails();
                 load(current, async (signal) => {
                     // Slots follow response fields: backdrop_width also sizes a still returned in backdrop_url.
-                    const artwork = detailArtworkQuery(imageCapability, window.devicePixelRatio);
+                    const artwork = detailArtwork();
                     const detail = await read(operations.getCatalogItem(current.id, artwork), signal);
                     const seasons = detail.type === "series" ? await read(operations.listSeriesSeasons(detail.id), signal) : [];
                     const episodeId = current.seriesContext?.episodeId;
@@ -1636,7 +1637,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             case "season":
                 if (current.data?.details === undefined) stopDetails();
                 load(current, async (signal) => {
-                    const artwork = detailArtworkQuery(imageCapability, window.devicePixelRatio);
+                    const artwork = detailArtwork();
                     const [episodes, detail] = await Promise.all([
                         episodeArtworkWhenKnown().then(episodeArtwork => read(operations.listSeasonEpisodes(current.seriesId, current.seasonNumber, episodeArtwork), signal)),
                         current.id === undefined ? undefined : read(operations.getCatalogItem(current.id, artwork), signal).catch((error: unknown) => {
@@ -2070,7 +2071,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             const detail = cached === undefined ? undefined : previous?.detail ?? cached;
             if (detail !== undefined) {
                 const seasons = cache.peek(operations.listSeriesSeasons(current.id)) ?? [];
-                const details = createItemDetails(current, detail, detailArtworkQuery(imageCapability, window.devicePixelRatio));
+                const details = createItemDetails(current, detail, detailArtwork());
                 details.restore(previous);
                 if (detail.type === "series") details.series = new SeriesEpisodes(session, detail.id, seasons, reason => details.warmSeriesEpisodes(reason === "load"), current.seriesContext?.seasonNumber ?? (current.seriesContext === undefined ? seriesSeasons.get(current.id) : undefined), current.seriesContext?.episodeId, episodeArtworkWhenKnown);
                 details.series?.restore(previous?.series, false, true);

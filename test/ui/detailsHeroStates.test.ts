@@ -373,7 +373,12 @@ for (const move of ["down", "up"] as const) detailTest(`a Details repaint during
     await tv.remote(move === "down" ? 40 : 38);
     assert.match(await tv.focused() ?? "", /^credit:/);
     late.release();
-    if (move === "down") await tv.page.locator('[data-detail-section="related"] [data-focus]').first().waitFor();
+    // The answer paints on the page clock, which is paused; step it one frame at a time until Related shows, so the repaint still lands within the move's first frames.
+    if (move === "down") await tv.eventually(async () => {
+        if (await tv.page.locator('[data-detail-section="related"] [data-focus]').count() > 0) return true;
+        await tv.jump(16);
+        return false;
+    }, "Related rows painted");
     else await tv.eventually(async () => tv.fake.paths().some(path => path.startsWith("GET /favorites/movie%3Am0001/membership")) && tv.pendingReplies === 0, "the favorite answer");
     await tv.jump(1000);
     // Apple's Down anchor is 546 px; Up to Cast on a movie returns the page to its top.

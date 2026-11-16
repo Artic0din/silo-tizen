@@ -29,6 +29,8 @@ const MARQUEE_CROSSFADE_MILLISECONDS = 240;
 const MARQUEE_BACKDROP_HOLD_CAP_MILLISECONDS = 320;
 /** The longest close fade: the sign-out confirmation's easeOut(0.2) (`Components/AccountRemovalConfirmation.swift:34`). */
 const PANEL_LEAVE_MILLISECONDS = 200;
+/** SiloTheme.Skyline.cascadeMaxVisibleRows: a longer library list scrolls inside the panel. */
+const LIBRARY_LIST_MAX_ROWS = 6;
 
 interface ProfileMenu {
     readonly requests?: () => void;
@@ -675,7 +677,11 @@ export class Skyline {
         });
         this.leaving.append(...ghosts);
         // cloneNode drops scroll state: a scrolled library list fades from the rows on screen.
-        ghosts.forEach((ghost, index) => { ghost.scrollTop = live[index]?.scrollTop ?? 0; });
+        ghosts.forEach((ghost, index) => {
+            ghost.scrollTop = live[index]?.scrollTop ?? 0;
+            const list = ghost.querySelector<HTMLElement>(".skyline-menu-list");
+            if (list !== null) list.scrollTop = live[index]?.querySelector(".skyline-menu-list")?.scrollTop ?? 0;
+        });
         const timer = window.setTimeout(() => { for (const ghost of ghosts) ghost.remove(); }, PANEL_LEAVE_MILLISECONDS);
         this.clearLeaving = () => {
             window.clearTimeout(timer);
@@ -806,7 +812,22 @@ export class Skyline {
         const header = el("div", "skyline-menu-header", this.panelTitle);
         // The For You header is hidden from VoiceOver; the panel is spoken as "For You menu" (TVTopMenuBar.swift:1045, :1050).
         if (this.panelAnchor === "for_you") header.setAttribute("aria-hidden", "true");
-        replaceNodes(this.selector, [header, ...this.panel.map(item => item.element)]);
+        const rows = this.panel.map(item => item.element);
+        if (rows.length <= LIBRARY_LIST_MAX_ROWS || rows[0]?.getAttribute("role") !== "menuitemradio") { replaceNodes(this.selector, [header, ...rows]); return; }
+        const list = el("div", "skyline-menu-list");
+        list.setAttribute("role", "group");
+        list.append(...rows);
+        replaceNodes(this.selector, [header, list]);
+    }
+
+    /** TVCascadeSelector.scrollFocusedLibrary: a scrolling list keeps the focused row in the middle. */
+    private focusPanelRow(row: FocusItem | undefined): void {
+        if (row === undefined) return;
+        row.element.focus({ preventScroll: true });
+        const list = row.element.closest<HTMLElement>(".skyline-menu-list");
+        if (list === null) return;
+        const centred = row.element.offsetTop - (list.clientHeight - row.element.offsetHeight) / 2;
+        this.scroll.move(list, 0, Math.min(list.scrollHeight - list.clientHeight, Math.max(0, centred)));
     }
 
     private openRootPanel(item: FocusItem): void {
@@ -863,7 +884,7 @@ export class Skyline {
                 else this.openRootPanel(anchor);
             }
             const current = this.panelTab === undefined ? undefined : this.scope(this.panelTab);
-            (this.panel.find(item => item.key === `library:${current?.id}`) ?? this.panel[0])?.element.focus({ preventScroll: true });
+            this.focusPanelRow(this.panel.find(item => item.key === `library:${current?.id}`) ?? this.panel[0]);
             return;
         }
         if (this.confirmation && (key === "up" || key === "down")) { event.preventDefault(); return; }
@@ -890,14 +911,7 @@ export class Skyline {
         }
         if (index >= 0 && (key === "down" || key === "up")) {
             event.preventDefault();
-            const row = this.panel[Math.max(0, Math.min(this.panel.length - 1, index + (key === "down" ? 1 : -1)))];
-            row?.element.focus({ preventScroll: true });
-            if (row !== undefined) {
-                const rect = row.element.getBoundingClientRect();
-                const bounds = this.selector.getBoundingClientRect();
-                const delta = rect.top < bounds.top + 14 ? rect.top - bounds.top - 14 : rect.bottom > bounds.bottom - 14 ? rect.bottom - bounds.bottom + 14 : 0;
-                this.scroll.move(this.selector, 0, Math.max(0, this.selector.scrollTop + delta));
-            }
+            this.focusPanelRow(this.panel[Math.max(0, Math.min(this.panel.length - 1, index + (key === "down" ? 1 : -1)))]);
             return;
         }
         if (index >= 0 && key === "right" && !this.confirmation) {
@@ -918,7 +932,7 @@ export class Skyline {
         } else if (key === "down" && !this.selector.hidden && this.nav.contains(document.activeElement)) {
             event.preventDefault();
             const current = this.panelTab === undefined ? undefined : this.scope(this.panelTab);
-            (this.panel.find((item) => item.key === `library:${current?.id}`) ?? this.panel[0])?.element.focus({ preventScroll: true });
+            this.focusPanelRow(this.panel.find((item) => item.key === `library:${current?.id}`) ?? this.panel[0]);
         }
     };
 

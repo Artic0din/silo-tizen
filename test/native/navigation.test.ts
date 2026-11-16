@@ -25,6 +25,12 @@ test("navigation uses Apple's fixed order and keeps Requests out of the bar", ()
     assert.deepEqual(navigationRoots(null, [{ id: "9", name: "Mixed", type: "mixed", sortOrder: 0 }], false).map(root => root.key), ["home", "movies", "series", "for_you", "calendar"]);
 });
 
+test("sixty libraries of every type still make one root per type", () => {
+    const types = ["movies", "series", "music", "audiobooks", "mixed"] as const;
+    const many = Array.from({ length: 60 }, (_, index) => ({ id: String(index + 1), name: `Library ${index}`, type: types[index % types.length] ?? "movies", sortOrder: index }));
+    assert.deepEqual(navigationRoots(null, many, true, true).map(root => root.key), ["home", "movies", "series", "music", "audiobooks", "for_you", "calendar"]);
+});
+
 test("navigation ignores authored order, omissions and library shortcuts", () => {
     const menu = decodePrimaryMenu({ items: [
         { type: "builtin", destination: "calendar" }, home,

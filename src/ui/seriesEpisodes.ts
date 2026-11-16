@@ -43,11 +43,13 @@ export class SeriesEpisodes {
     get loading(): boolean { return this.controller !== undefined; }
     private readonly session: NativeSession;
     private readonly seriesId: string;
+    private readonly artwork: () => Promise<Readonly<Record<string, string>>>;
     seasons: readonly Season[];
     private readonly changed: (reason: SeriesEpisodeUpdate) => void;
 
-    constructor(session: NativeSession, seriesId: string, seasons: readonly Season[], changed: (reason: SeriesEpisodeUpdate) => void, preferredSeason?: number, preferredEpisode?: string) {
+    constructor(session: NativeSession, seriesId: string, seasons: readonly Season[], changed: (reason: SeriesEpisodeUpdate) => void, preferredSeason?: number, preferredEpisode?: string, artwork: () => Promise<Readonly<Record<string, string>>> = async () => ({})) {
         this.session = session;
+        this.artwork = artwork;
         this.seriesId = seriesId;
         this.seasons = seasons;
         this.changed = changed;
@@ -247,6 +249,8 @@ export class SeriesEpisodes {
         this.warmNeighbors();
     }
 
+    episodeArtwork(): Promise<Readonly<Record<string, string>>> { return this.artwork(); }
+
     publishTranslatedEpisodes(season: number, episodes: readonly Episode[]): void {
         if (!this.active || this.seasonNumber !== season) return;
         this.cancelledSeasons.delete(season);
@@ -281,7 +285,7 @@ export class SeriesEpisodes {
         this.failed = retain && this.failed;
         this.changed("load");
         const current = (): boolean => this.active && this.controller === controller && !controller.signal.aborted;
-        this.session.call({ ...operations.listSeasonEpisodes(this.seriesId, season), retry: "never", profileScoped: true, signal: controller.signal }).then(episodes => {
+        this.artwork().then(artwork => this.session.call({ ...operations.listSeasonEpisodes(this.seriesId, season, artwork), retry: "never", profileScoped: true, signal: controller.signal })).then(episodes => {
             if (!current()) return;
             this.controller = undefined;
             this.automaticRead = false;
@@ -417,7 +421,7 @@ export class SeriesEpisodes {
         // TVItemDetailView.swift:935: a prefetch clears carouselLoadFailed when it starts; a failure sets it again.
         if (retry && this.failedNeighbors.delete(number)) this.retryingNeighbors.add(number);
         try {
-            const page = this.parked.get(number) ?? await this.session.call({ ...operations.listSeasonEpisodes(this.seriesId, number), retry: "never", profileScoped: true, signal: controller.signal });
+            const page = this.parked.get(number) ?? await this.session.call({ ...operations.listSeasonEpisodes(this.seriesId, number, await this.artwork()), retry: "never", profileScoped: true, signal: controller.signal });
             this.parked.delete(number);
             if (!this.active || controller.signal.aborted) return;
             this.failedNeighbors.delete(number);

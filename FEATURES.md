@@ -147,11 +147,11 @@ File pointers are repository-relative.
 | Autoplay next episode (10 s countdown, Cancel) | ✅ | ✅ | ✅ | Reads the server setting. Stale after the episode ends (#82) |
 | Up Next panel before the episode ends (Play Now, Keep Watching) | ➖ | ✅ | ✅ | Tizen offers Play next only after the episode ends. Apple: `PlayerView`, with a Show Next Up time setting. Android: `TvPlayerScreen` |
 | Retry after playback fails to start | ✅ | ✅ | ✅ | A retryable first start (network, server, retryable terminal, or a route recovery that ran out of attempts) focuses Retry and replays that request at the same position. Go Back stays available. Apple: `PlayerViewModel.retry()`. Android: `TvPlayerScreen` |
-| Playback speed | ➖ | ✅ | ✅ | Apple: HUD Speed row, 0.75× to 2.0×. AVPlay `setSpeed` takes only whole-number rates (±1, 2, 4, 8, 16×), so Apple's range cannot be matched |
+| Playback speed | 🟡 | ✅ | ✅ | The Video tab's Speed row offers 1× and 2× on `http_progressive` plans only (`videoOptions` in `src/player/playerHUD.ts`). Apple: HUD Speed row, 0.75× to 2.0×. AVPlay `setSpeed` takes only whole-number rates (±1, 2, 4, 8, 16×), so Apple's range cannot be matched |
 | Sleep timer | ➖ | 🟡 | ✅ | Apple: audiobook player only (`AudioFullPlayerView`); the video HUD has no way to start it |
-| Chapters | ➖ | ✅ | ✅ | Apple: HUD Chapters tab. Android: scrubber markers |
-| Info / stats HUD | ➖ | ✅ | ✅ | Apple: `TVPlayerInfoHUD`. Android: `TvPlayerHud` |
-| In-player aspect mode, auto-play switch, subtitle appearance and delay | ➖ | ✅ | ✅ | #103. AVPlay has no crop mode for Fill. Apple: `TVPlayerInfoHUD`. Android: `TvPlayerHud` |
+| Chapters | ✅ | ✅ | ✅ | The player panel's Chapters tab lists the file's chapters with the current one marked, and hides when the file has none (`src/player/hudPanes.ts`, `watchChapters` in `src/api/chapterOperations.ts`). Apple: HUD Chapters tab. Android: scrubber markers |
+| Info / stats HUD | 🟡 | ✅ | ✅ | The player panel has Info and Stats tabs. Stats show the playback plan (engine, protocol, codecs, resolution, configured bitrate), not measured buffer, network or frame figures ([Player HUD](docs/player-hud.md)). Apple: `TVPlayerInfoHUD`. Android: `TvPlayerHud` |
+| In-player aspect mode, auto-play switch, subtitle appearance and delay | 🟡 | ✅ | ✅ | #103. The Video tab has Aspect (Fit, Stretch) and Auto-play next, and the Subtitles tab has Appearance and Delay. Fill is missing: AVPlay has no crop mode for it. Apple: `TVPlayerInfoHUD`. Android: `TvPlayerHud` |
 | HDR, Dolby Vision, 4K, audio passthrough | 🟡 | ✅ | ✅ | HDR10 is claimed when `webapis.avinfo.isHdrTvSupport()` is true and the HDR setting is on. HDR10+ and HLG stay unclaimed: the probe is one boolean, and Samsung does not document those formats for every Tizen 8.0 TV. Dolby Vision is not a Playback row: Samsung exposes no Dolby Vision support check and this client claims no Dolby Vision profile. Resolution stays 1080p. No passthrough and no DTS (`src/player/capabilities.ts`). Android: `MediaCodecCapabilitiesProbe`, `DisplayHdrProbe`, `AudioCapabilityManager`; Dolby Vision profiles are 🟡 in silo-android |
 | Watch Party | 🚧 | 🟡 | 🟡 | #54. Apple: opt-in under Extra Features. Android: experimental, behind Settings → Experimental → Watch Party |
 | Phone "Play on TV" / remote control | ➖ | ✅ | ✅ | Apple: `TVControlReceiver`. Android: `TvSiloCastReceiver` |
@@ -186,6 +186,7 @@ File pointers are repository-relative.
 | HDR, Dolby Vision, buffering, lossless audio, deinterlacing | 🟡 | ✅ | 🟡 | HDR is a device switch when the server offers the key. Dolby Vision is absent: Samsung exposes no Dolby Vision support check and this client claims no Dolby Vision profile. Lower quality when buffering works on playback (Apple's decision, pill and replans; default Automatically), with the Settings row and the learned-limit Reset. Seek Cache, Buffer Ahead, Lossless Multichannel Audio, TrueHD Atmos and DTS:X, Deinterlacing and its Field Rate are hidden because AVPlay has no control for them ([docs/settings.md](docs/settings.md#streaming-rows-avplay-cannot-honour)). Android has Dolby Vision, Force HDR Passthrough, buffering quality and frame-rate matching; lossless audio and deinterlacing settings not found |
 | Poster size, advisory age | ➖ | ✅ | 🟡 | Tizen honours the saved poster size but has no editor. Android has Poster Size; advisory age not found. Show Audiobooks is built (see Audiobooks) |
 | Theme music (Play and Loop rows; Details plays the title's theme) | 🟡 | ✅ | ✅ | Plays through an HTML5 `<audio>` element because AVPlay belongs to video, and stops before playback opens. Checked on an S95C (16 Nov 2026, #529): an mp3 theme plays and fades up to 0.35, loops when asked and otherwise plays once, fades out on leaving Details, and stops before AVPlay opens. Sound and the other formats (flac, ogg, wav, converted AAC) were not checked: the TV stayed muted and the title's theme was an mp3 |
+| App Language (Settings › General row and picker) | 🟡 | ✅ | ? | Tizen stores the profile's `ui.app_language` choice as Apple does, but ships English only, so the choice changes no text, and has no system per-app language to write. Translation is #571. Android has the group on the phone app's Interface page (`AppLanguageSettings.kt`); its TV app was not checked |
 | Acknowledgements (TMDB and open source) | ✅ | ✅ | ➖ | Android: Settings → Server → About shows App Version and Privacy Policy only |
 | Privacy policy | ➖ | ✅ | ✅ | Android: `TvPrivacyPolicyDialog` |
 
@@ -211,7 +212,9 @@ File pointers are repository-relative.
 ## Platform summary
 
 **Tizen** is a Skyline-style 10-foot client for sign-in, profiles, Movies and Series browsing, details, search, lists, calendar, requests and AVPlay playback with audio, text subtitles and AI subtitles.
-It has no music, audiobooks, Watch Party, diagnostics, Smart Hub row, trailers, or player extras (speed, sleep timer, chapters).
+It has no music browsing, audiobook playback, diagnostics, Smart Hub row or sleep timer.
+Its playback speed is limited to 1× and 2× on direct-file plans.
+Watch Party is partly built and off by default: the lobby, Ready and voting work, and synchronized playback waits on #13 ([Watch Party](docs/features/watch-party.md)).
 
 **Android TV** is a 10-foot D-pad client built on Media3/ExoPlayer, with the same top-bar layout as tvOS: Home, library-type tabs, For You and Calendar, with Requests in the profile menu.
 It covers audiobooks, trailers, the subtitle suite, player extras, diagnostics, the notifications inbox and a Watch Next row.

@@ -32,7 +32,11 @@ Each `Zone` has:
 - `layout`: `"row"` (Left/Right move), `"column"` (Up/Down move) or `"grid"` (both, `columns` items per row).
 - `items`: `FocusItem[]`, each with a `key` that is stable within the zone (a content id, not an index) and an `element`.
 - Optional `up`, `down`, `left`, `right`: the id of the zone to jump to when a key runs past the zone's edge.
+  Naming the zone itself holds the key at the edge; without a link, Up and Down fall through to the neighbouring zone in order. Settings rows hold Up and Down this way.
 - Optional `entry`: the item key to land on when another zone is entered by Up/Down (the nav zone uses the selected root).
+- Optional `skipDisabled`: Up and Down pass over `aria-disabled` items, as tvOS focus passes a disabled `Button`; with none enabled left that way the key reaches the zone's edge.
+  A focused item that becomes disabled keeps focus.
+  Settings rows use it, except while a save is in flight.
 - Optional `onLeft`: replaces Left entirely for that zone (used for panels that close on Left).
 - Optional `reading`: a single reading stop taller than the page (audiobook About).
   Entering it shows its leading edge; Up and Down scroll the page 360 px at a time until that edge is visible, and only then leave the zone.

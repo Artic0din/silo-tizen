@@ -30,9 +30,11 @@ export const SPOILER_IMAGE_KEY = "catalog.hide_unwatched_episode_images";
 /** Profile and profile-device booleans from settings manifest revision 11, read and written by `ThemeMusicPreferences` only. */
 export const THEME_MUSIC_ENABLED_KEY = "ui.theme_music_enabled";
 export const THEME_MUSIC_LOOP_KEY = "ui.theme_music_loop";
+/** Profile and profile-device language tag from settings manifest revision 28, read and written by `AppLanguagePreferences` only. Null follows the device. */
+export const APP_LANGUAGE_KEY = "ui.app_language";
 export const SPOILER_OVERVIEW_KEY = "catalog.hide_unwatched_episode_overviews";
 export const SETTINGS_KEYS = [HIDDEN_KEY, AUDIO_KEY, QUALITY_KEY, BITRATE_KEY, ...SEEK_KEYS, ...HDR_KEYS, TITLE_ART_KEY, AUTO_NEXT_KEY, NEXT_UP_KEY, ...ROW_KEYS] as const;
-export type SettingsKey = (typeof SETTINGS_KEYS)[number] | typeof AUTO_NEXT_KEY | typeof SUBTITLE_LANGUAGE_KEY | typeof SUBTITLE_MODE_KEY | typeof SHOW_FORCED_KEY | typeof CARD_OVERLAYS_KEY | typeof CARD_OVERLAYS_ENABLED_KEY | typeof CARD_PRESENTATION_KEY | typeof PRIMARY_MENU_KEY | typeof SPOILER_IMAGE_KEY | typeof SPOILER_OVERVIEW_KEY | typeof THEME_MUSIC_ENABLED_KEY | typeof THEME_MUSIC_LOOP_KEY;
+export type SettingsKey = (typeof SETTINGS_KEYS)[number] | typeof AUTO_NEXT_KEY | typeof SUBTITLE_LANGUAGE_KEY | typeof SUBTITLE_MODE_KEY | typeof SHOW_FORCED_KEY | typeof CARD_OVERLAYS_KEY | typeof CARD_OVERLAYS_ENABLED_KEY | typeof CARD_PRESENTATION_KEY | typeof PRIMARY_MENU_KEY | typeof SPOILER_IMAGE_KEY | typeof SPOILER_OVERVIEW_KEY | typeof THEME_MUSIC_ENABLED_KEY | typeof THEME_MUSIC_LOOP_KEY | typeof APP_LANGUAGE_KEY;
 type Json = null | boolean | string | number | readonly Json[] | { readonly [member: string]: Json | undefined };
 export type SettingValue = null | boolean | string | number | readonly number[] | { readonly [member: string]: Json | undefined };
 export type SettingsScope = "profile" | "profile_device" | "profile_client";
@@ -283,7 +285,7 @@ export function decodeSettingValue(key: SettingsKey, value: unknown): SettingVal
     }
     // Match the server's canonical tag grammar, including unregistered and private-use tags.
     const tag = /^(?:[a-z]{2,3}(?:-[a-z]{3}){0,3}(?:-[a-z]{4})?(?:-(?:[a-z]{2}|\d{3}))?(?:-(?:[a-z0-9]{5,8}|\d[a-z0-9]{3}))*(?:-[0-9a-wy-z](?:-[a-z0-9]{2,8})+)*(?:-x(?:-[a-z0-9]{1,8})+)?|x(?:-[a-z0-9]{1,8})+)$/i;
-    if (typeof value !== "string" || !tag.test(value) || duplicateSubtags(value)) throw new WireError(key === SUBTITLE_LANGUAGE_KEY ? "subtitle_language.value" : "audio_language.value", "a canonical BCP 47 tag or null");
+    if (typeof value !== "string" || !tag.test(value) || duplicateSubtags(value)) throw new WireError(key === SUBTITLE_LANGUAGE_KEY ? "subtitle_language.value" : key === APP_LANGUAGE_KEY ? "app_language.value" : "audio_language.value", "a canonical BCP 47 tag or null");
     return value;
 }
 

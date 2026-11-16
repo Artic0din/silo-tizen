@@ -338,10 +338,10 @@ export const operations = {
         retry: "safe",
         decode: decodeSeasons,
     }),
-    /** listSeasonEpisodes: bounded, unpaginated; season 0 is specials. */
-    listSeasonEpisodes: (seriesId: string, seasonNumber: number): Spec<Episode[]> => ({
+    /** listSeasonEpisodes: bounded, unpaginated; season 0 is specials. `artwork` (per-slot widths) replaces the one-size still. */
+    listSeasonEpisodes: (seriesId: string, seasonNumber: number, artwork: Readonly<Record<string, string>> = {}): Spec<Episode[]> => ({
         method: "GET",
-        path: `/catalog/series/${encodeURIComponent(seriesId)}/seasons/${seasonNumber}/episodes${query({ image_size: LIST_IMAGES })}`,
+        path: `/catalog/series/${encodeURIComponent(seriesId)}/seasons/${seasonNumber}/episodes${query(Object.keys(artwork).length === 0 ? { image_size: LIST_IMAGES } : artwork)}`,
         retry: "safe",
         decode: decodeEpisodes,
     }),

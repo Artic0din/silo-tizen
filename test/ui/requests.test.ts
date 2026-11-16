@@ -664,6 +664,54 @@ test("Search request writes restore the result, then Back returns to the root be
         assert.equal(tv.fake.paths().filter(path => path === "POST /requests").length, 1);
     } finally { await tv.page.context().close(); }
 });
+const SEARCH_READ_ORDERS = [
+    ["titles", "people", "requests"], ["titles", "requests", "people"], ["people", "titles", "requests"],
+    ["people", "requests", "titles"], ["requests", "titles", "people"], ["requests", "people", "titles"],
+] as const;
+for (const order of SEARCH_READ_ORDERS) {
+    test(`Back from a Search request result restores focus to that card when answers land ${order.join(", ")}`, async () => {
+        const tv = await openTv(browser, { app: "browse" });
+        try {
+            const fake = await start(tv);
+            await button(tv, "search").click();
+            const input = tv.page.getByRole("searchbox");
+            // The title and People answers are still out when the request card opens, so Back asks for them again.
+            tv.fake.hold("/catalog"); tv.fake.hold("/catalog/people");
+            await input.fill("Heat"); await input.press("Enter");
+            await button(tv, "movie:949").click(); await view(tv, "media");
+            await button(tv, "create").click();
+            await tv.eventually(async () => fake.created && await button(tv, "create").count() === 0, "created");
+            const reads = { titles: tv.fake.hold("/catalog", true), people: tv.fake.hold("/catalog/people", true), requests: tv.fake.hold("/requests/search", true) };
+            const heldBefore = tv.fake.heldReplies;
+            await tv.remote(10009);
+            await tv.eventually(async () => tv.fake.heldReplies === heldBefore + 3, "Back's title, People and request reads are held");
+            for (const name of order) { reads[name].release(); await tv.jump(1); }
+            await tv.eventually(async () => await tv.focused() === "movie:949", "the request result regains focus whatever order the answers land in");
+        } finally { await tv.page.context().close(); }
+    });
+}
+test("Back from a Search request result does not pull focus back once the viewer moves to another filter", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const fake = await start(tv);
+        await button(tv, "search").click();
+        const input = tv.page.getByRole("searchbox");
+        await input.fill("Heat"); await input.press("Enter");
+        await button(tv, "movie:949").click(); await view(tv, "media");
+        await button(tv, "create").click();
+        await tv.eventually(async () => fake.created && await button(tv, "create").count() === 0, "created");
+        const held = tv.fake.hold("/requests/search", true);
+        const heldBefore = tv.fake.heldReplies;
+        await tv.remote(10009);
+        await tv.eventually(async () => tv.fake.heldReplies === heldBefore + 1, "Back's request refresh is held");
+        await button(tv, "search-filter:movie").focus();
+        await tv.eventually(async () => await tv.focused() === "search-filter:movie", "the viewer's move reached the Movies filter");
+        held.release(); await tv.jump(1);
+        await tv.eventually(async () => await button(tv, "movie:949").count() > 0 || tv.fake.heldReplies === 0, "answers settled");
+        await tv.jump(500);
+        assert.equal(await tv.focused(), "search-filter:movie", "the earlier return target does not override the viewer's move");
+    } finally { await tv.page.context().close(); }
+});
 test("cancel lost response is read back without replay and writes refuse refresh replay", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {

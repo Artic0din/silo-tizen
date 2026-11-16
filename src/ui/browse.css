@@ -986,6 +986,9 @@
 :is(.skyline-selector, .skyline-selector-leaving)[data-menu-kind="library"] .browse-button[role="menuitem"], :is(.skyline-selector, .skyline-selector-leaving):is(.skyline-flyout, .skyline-flyout-leaving) .browse-button.skyline-menu-item { font-size: 20px; line-height: 24px; min-height: 50px; padding: 13px 16px; border-radius: 12px; gap: 12px; color: rgba(255,255,255,.86); }
 :is(.skyline-selector, .skyline-selector-leaving)[data-menu-kind="library"] [role="menuitem"] .skyline-menu-icon, :is(.skyline-flyout, .skyline-flyout-leaving) .skyline-menu-icon { width: 26px; height: 18px; }
 :is(.skyline-selector, .skyline-selector-leaving)[data-menu-kind="library"] .browse-button[role="menuitemradio"] { padding: 16px 18px; min-height: 58px; border-radius: 14px; color: rgba(255,255,255,.9); }
+/* TVCascadeSelector.libraryRows: six rows of (22 + 16 x 2 + 6) pt, then the list scrolls under a fixed header. */
+.skyline-menu-list { position: relative; max-height: 360px; overflow-y: auto; scrollbar-width: none; }
+.skyline-menu-list::-webkit-scrollbar { display: none; }
 /* TVProfileMenuButtonBody: 22 pt semibold label; a press drops to 0.75 opacity, easeOut(0.12) (TVTopMenuBar.swift:1066, :1323, :1327; SiloTheme.swift:164, :217). */
 :is(.skyline-selector, .skyline-selector-leaving)[data-menu-kind="for_you"] .skyline-menu-item, :is(.skyline-selector, .skyline-selector-leaving)[data-menu-kind="profile"] .skyline-menu-item { border-radius: 14px; color: rgba(255,255,255,.86); font-size: calc(22px * var(--silo-sf-cap-scale)); transition: opacity 120ms ease-out; }
 .skyline-selector[data-menu-kind="for_you"] .skyline-menu-item[data-pressed], .skyline-selector[data-menu-kind="profile"] .skyline-menu-item[data-pressed] { opacity: .75; }

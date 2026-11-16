@@ -52,7 +52,13 @@ Maximum Bitrate uses Apple's spelling: `No limit`, whole Mbps above 1000 kbps (`
 A disabled Settings row is drawn exactly like an enabled one, as on Apple TV.
 Every Settings row uses `TVSettingsPaneRowStyle` ([`TVSettingsComponents.swift`](https://github.com/Silo-Server/silo-apple/blob/e0337595b82fe4a8778b3c9abfb69bc31e8744f7/iosApp/iosApp/tvOS/Screens/Settings/TVSettingsComponents.swift), tvOS), which sets an explicit foreground and fill, so `.disabled(true)` adds no dimming.
 This covers every row that can be disabled here: the Loop and Play Theme Music, Show Title Art, Apply to All Devices, Poster Size, Profile Selection, Connection speed, HDR, spoiler and skip-interval rows, and every row while a save is in flight.
-A disabled row stays focusable and ignores presses (`docs/tv-focus.md`).
+Up and Down pass over a disabled row, as tvOS focus passes a disabled `Button`: Apple's own comments say "Skipped by focus while HDR is off" and "unfocusable when this server cannot store them" (`TVPlaybackSettingsView.swift`, silo-apple `dce56e3c`).
+The zone's `skipDisabled` flag does this once for every row (`docs/tv-focus.md`); when nothing enabled is left in that direction, focus stays where it is.
+A row that is focused when it becomes disabled keeps focus, and a key press then moves off it.
+Each pane is a focus section on Apple TV (`.focusSection()` in `TVSettingsView.swift`, silo-apple `dce56e3c`): vertical movement stays in the pane and Left/Right bridges panes.
+The rows zone names itself as its own `up` and `down` target, so Up at the first row and Down at the last stay put in every pane and only Left leaves for the rail.
+The rail is a `.focusSection()` too, so its zone names itself as `up` and `down` as well: Down from Sign Out stays on it instead of entering the pane (`TVSettingsView.swift`, silo-apple `dce56e3c`).
+While a save is in flight every row ignores presses but stays reachable, because Apple's view models ignore presses while saving and its rows stay in the focus graph.
 Apple's one dimmed Settings group is `TVSettingsNestedGroup` (0.42 opacity while Use Device Settings is on), which this client has no counterpart for: Samsung has no system caption appearance to follow.
 
 ## Connection speed
@@ -109,10 +115,27 @@ The capability body follows `ApplePlaybackV3Capabilities.swift:439-483` and `Pla
 
 Off, an unsupported panel, a throwing probe, or a failed read of the HDR key the server offered sends the same SDR profile as before: `hdr: false` and no `hdr_details` on `client_capabilities`, `output`, `original_http`, or `hls`. HDR off does not leave an original or a remux claimed as HDR. The reason is in the caption section above. A title is never declared direct-playable in a range the panel did not report. If the server does not offer the HDR key, the Apple default stays on, so a panel that reports HDR still claims HDR10. Resolution stays 1080p. No DTS and no audio passthrough.
 
+## App language
+
+Settings › General › LANGUAGE, after Profile at Launch and before Title Pages, shows an `App Language` row that opens a picker of Match Device and English.
+The footer is Apple's: `The language of Silo’s menus and buttons on this profile. Audio and subtitle languages are set in Playback.`
+Source: [silo-apple `dce56e3c`](https://github.com/Silo-Server/silo-apple/tree/dce56e3c), `tvOS/Screens/Settings/TVGeneralSettingsView.swift` (`languageGroup`, the `.appLanguage` picker) and `Networking/AppLanguagePreferences.swift`.
+
+- Key `ui.app_language` (settings revision 28, a language tag; null is Match Device, the default). The row appears only once the server has answered for the active profile: the capability must be available, allowed, batched and at revision 28 or later.
+- The choice is stored on the server for the profile, so every device signed into it shares it. Picking a language writes the profile value, then clears this TV's own `profile_device` row if one hid it (a 404 on that delete counts as already absent). Picking Match Device writes null. Choosing the language already stored does nothing, except over a device row, where it still saves.
+- Picking closes the picker at once and the save settles behind it, as Apple's `TVSettingsPickerSheet` does. While a save runs the picker shows `Saving the app language…` and takes no choice. A failed save restores the stored language and shows Apple's connection, unsupported or generic message under the row.
+- A language tag stored by another client that this build lacks (Español from an iPhone, for example) shows as itself in the row and the picker, with `Silo isn’t available in Español yet, so it uses the device language.`, so saving never clears it.
+- Browse reads the answer when it starts (launch, and each profile or server switch), and Settings reads it again once its own load has finished, as Apple reads when Settings opens. The read waits for that load because a capability read made at the same time raced it. A launch read that missed therefore does not hide the row. Nothing is cached.
+
+Platform limits, which Apple does not have:
+
+- Tizen has no localised text: every string is English. Apple's picker switches a generated catalog of 3,566 strings in 22 languages, so English is the only language this build ships and picking it changes nothing on screen. The translation work, including sending `Accept-Language` with the shown language and right-to-left layout, is #571.
+- Apple also writes the choice as the app's system language (`AppleLanguages`) and reads a change made in system settings back as this device's value. Tizen has no per-app system language, so neither direction exists here.
+
 ## Theme music
 
 Settings › General › THEME MUSIC, after the Title Pages group and before Cards & Posters, shows `Play Theme Music` and `Loop Theme Music`.
-Both are switches. Loop is disabled until Play is on. A disabled Loop row is drawn at full brightness (Apple's `TVSettingsPaneRowStyle` sets an explicit foreground, so `.disabled` does not dim it); it stays focusable and ignores presses. The footer is Apple's: `Play a title's theme song from your library while its page is open. Only affects this TV.`
+Both are switches. Loop is disabled until Play is on. A disabled Loop row is drawn at full brightness (Apple's `TVSettingsPaneRowStyle` sets an explicit foreground, so `.disabled` does not dim it); Up and Down skip it, and it ignores presses. The footer is Apple's: `Play a title's theme song from your library while its page is open. Only affects this TV.`
 Source: [silo-apple `650a0b8a`](https://github.com/Silo-Server/silo-apple/tree/650a0b8a), `TVGeneralSettingsView.themeMusicGroup`, `ThemeMusicPreferences.swift`, `Screens/Detail/ThemeMusic/*`, and silo-server `df9f5501` (`docs/catalog-api.md`, "Local theme songs, V2").
 
 - Keys `ui.theme_music_enabled` and `ui.theme_music_loop` (settings revision 11, boolean, default off). The rows appear only when the capability is available, allowed, batched, at revision 11 or later, with a `profile_device` scope.

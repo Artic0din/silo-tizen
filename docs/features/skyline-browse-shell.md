@@ -267,6 +267,8 @@ An open selector keeps the top bar lit and its anchor selected while the page be
 These dimensions follow `TVTopMenuBar` and `SiloTheme.Skyline` at Apple revision `1a7ccee`.
 With one visible library, Down enters its modes directly in a single-level panel.
 With multiple libraries, Down enters the scoped library list, Right enters its modes flyout, and Left returns to the library row.
+A list of more than six libraries shows six rows (`cascadeMaxVisibleRows`, 360 px) and scrolls under its fixed title, keeping the focused row in the middle (`TVCascadeSelector.swift` `libraryRows`, `scrollFocusedLibrary`).
+Home reads the library list once; nothing is read per library, and the bar has one root per type however many libraries exist.
 Back closes either panel without committing.
 Explicit activation commits one library, never a merged scope.
 Search precedes the centered roots and the profile avatar stays fixed at the right.
@@ -370,10 +372,12 @@ The card's `logo_url` replaces the text title once the image loads. It scales to
 Logos follow Apple `TitleArtPreferences`: they show unless the server's last confirmed `ui.title_art` answer for this server and profile is off.
 That answer comes from the same capability, contract and effective-value reads Details uses and is kept on the TV, so a pending or failed read keeps it and a server without the key drops it.
 Home uses medium row artwork with the 1344 px backdrop fill and 880 px logo slots when per-slot widths are supported, scaled by device pixel ratio.
-Details uses the same hero and logo widths when the capability is known, so it reuses Home's backdrop, and adds Apple's tvOS detail slots: a 460 px poster and 200 px cast photos (`ArtworkSurface.detail`).
+Details uses the same hero and logo widths when the capability is known, so it reuses Home's backdrop, and adds Apple's tvOS detail slots: a 460 px poster and 200 px cast photos (`ArtworkSurface.detail`). Every later read of the same title (Find Trailers, audio and subtitle readbacks, description translation, the watched refresh) sends the same query, so the hero's image URL does not change mid-visit. A season page reads its title the same way, and its watched refresh keeps that query.
 Hero backdrops, card artwork and title logos appear only after `HTMLImageElement.decode()` resolves, not on `load`, so the TV decodes them on its raster threads instead of on the frame that shows them (#515).
 An unknown image API or a server without per-slot widths gets the Apple TV `large` fallback, including on the first Home request; it never starts with a 300 px backdrop.
 At scale 1 the server resolves the 1344 px fill request to a 1920 px backdrop; scale 2 requests 2688 px and may resolve to the original, capped at 3840 px.
+Episode rails, season pages and the rail's description-translation refresh ask for `still_width` at Apple's 360 pt card width times the device pixel ratio (`ArtworkSurface.episodes`) and no `image_size`; without per-slot widths they keep `small`.
+An episode read made before the first capability probe has answered waits for it, as Apple does, so the rail's first request is already sized; it waits at most 2 s, then asks for `small`, as it does without per-slot widths. A failed probe is not waited for again, and Details itself does not wait.
 The one-size fallback resolves backdrops to 2560 px and episode stills to 1280 px.
 The probe runs once per Home session, and its last answer for the server is remembered so Home does not wait for it.
 Apple reads item detail when focus rests for the aired-date and cast line, and Continue Watching reads the last-played file when that card is mounted.

@@ -254,6 +254,30 @@ test("a failed series watched retry keeps each season rollup", async () => {
     } finally { state.stop(); }
 });
 
+test("a series watched readback brings the page's season rollups with it", async () => {
+    const h = await setup();
+    h.catalog.watchedEpisodes.clear();
+    const detail = decodeItemDetail(h.catalog.route("GET", "/catalog/items/series%3As1", "p-owner")?.body);
+    const seasons = decodeSeasons(h.catalog.route("GET", "/catalog/series/series%3As1/seasons", "p-owner")?.body).map(season => seasonRollup(h.catalog, season));
+    assert.ok(seasons.length > 1 && seasons.every(season => season.userData?.played === false));
+    const state = new DetailsState({ ...detail, playContentId: undefined }, h.core.session, () => undefined, async () => undefined);
+    state.series = new SeriesEpisodes(h.core.session, detail.id, seasons, () => state.warmSeriesEpisodes(), 1);
+    try {
+        state.start("personal");
+        state.warmSeriesEpisodes();
+        await h.clock.advance(0);
+        state.change("watched", true);
+        await h.clock.advance(0);
+        assert.equal(state.values.get("watched"), true);
+        assert.deepEqual(state.series.seasons.map(season => season.userData?.played), seasons.map(() => true));
+        // A page owner that replaces this one builds its season owners from these rollups.
+        const replacement = new DetailsState(state.detail, h.core.session, () => undefined, async () => undefined);
+        replacement.series = new SeriesEpisodes(h.core.session, detail.id, state.series.seasons, () => undefined, 1);
+        replacement.restoreSeasonStates(state);
+        assert.equal(replacement.seasonStates.get(1)?.values.get("watched"), true);
+    } finally { state.stop(); }
+});
+
 test("a lost series unwatched retry refreshes loaded season rollups", async () => {
     const h = await setup();
     for (const episode of [11, 12, 13, 21, 22, 23]) h.catalog.watchedEpisodes.add(`episode:s1e${episode}`);

@@ -1566,3 +1566,81 @@ test("Server settings open Acknowledgements with TMDB's logo and required notice
         assert.equal(tv.fake.requests.length, count, "credits are local and read nothing");
     } finally { await tv.page.context().close(); }
 });
+
+// Apple's TVSettingsView makes each pane a `.focusSection()`: "vertical movement stays in-pane and Left/Right bridges panes natively"
+// (silo-apple dce56e3c). Up from a pane's first row and Down from its last row do nothing; Left reaches the rail.
+test("Up from a pane's first row and Down from its last row stay in the pane, and Left still reaches the rail", async () => {
+    const { tv, settings } = await setup();
+    settings.remainingRows = true;
+    try {
+        await openSettings(tv);
+        for (const category of ["general", "playback", "subtitles", "server"]) {
+            await tv.page.locator(`[data-focus="${category}"]`).focus();
+            await tv.page.keyboard.press("ArrowRight");
+            const first = await tv.focused();
+            assert.notEqual(first, category, `${category}: Right enters the pane`);
+            await tv.page.keyboard.press("ArrowUp");
+            assert.equal(await tv.focused(), first, `${category}: Up at the first row stays put`);
+            let last = first;
+            for (let step = 0; step < 60; step += 1) {
+                await tv.page.keyboard.press("ArrowDown");
+                const now = await tv.focused();
+                if (now === last) break;
+                last = now;
+            }
+            await tv.page.keyboard.press("ArrowDown");
+            assert.equal(await tv.focused(), last, `${category}: Down at the last row stays put`);
+            await tv.page.keyboard.press("ArrowUp");
+            assert.notEqual(await tv.focused(), last, `${category}: Up still moves inside the pane`);
+            await tv.page.keyboard.press("ArrowLeft");
+            assert.equal(await tv.focused(), category, `${category}: Left reaches the rail`);
+        }
+    } finally { await tv.page.context().close(); }
+});
+
+test("Up from Paired Silo Profile, the first General row, stays on it", async () => {
+    const { tv } = await setup();
+    try {
+        await openSettings(tv);
+        await tv.page.locator('[data-focus="general"]').focus();
+        await tv.page.keyboard.press("ArrowRight");
+        assert.equal(await tv.focused(), "paired-profile");
+        await tv.page.keyboard.press("ArrowUp");
+        assert.equal(await tv.focused(), "paired-profile");
+    } finally { await tv.page.context().close(); }
+});
+
+test("the rail's own Up and Down are unchanged", async () => {
+    const { tv } = await setup();
+    try {
+        await openSettings(tv);
+        const keys = await tv.page.locator(".settings-categories [data-focus]").evaluateAll(nodes => nodes.map(node => node.getAttribute("data-focus")));
+        await tv.page.locator(`[data-focus="${keys[0]}"]`).focus();
+        for (const key of keys.slice(1)) {
+            await tv.page.keyboard.press("ArrowDown");
+            assert.equal(await tv.focused(), key, "Down walks the rail in order");
+        }
+        for (const key of keys.slice(0, -1).reverse()) {
+            await tv.page.keyboard.press("ArrowUp");
+            assert.equal(await tv.focused(), key, "Up walks the rail back");
+        }
+        await tv.page.keyboard.press("ArrowUp");
+        assert.equal(await tv.focused(), keys[0], "Up at the first rail item stays");
+    } finally { await tv.page.context().close(); }
+});
+
+// The rail is a `.focusSection()` too (TVSettingsView.swift, silo-apple dce56e3c): Down from Sign Out, its last item, stays on it.
+test("Down from Sign Out, the last rail item, stays on it in every pane", async () => {
+    const { tv } = await setup();
+    try {
+        await openSettings(tv);
+        for (const category of ["general", "playback", "subtitles", "server"]) {
+            await tv.page.locator(`[data-focus="${category}"]`).focus();
+            await tv.page.locator('[data-focus="settings-signout"]').focus();
+            await tv.page.keyboard.press("ArrowDown");
+            assert.equal(await tv.focused(), "settings-signout", `${category}: Down from Sign Out stays`);
+            await tv.page.keyboard.press("ArrowUp");
+            assert.notEqual(await tv.focused(), "settings-signout", `${category}: Up still leaves Sign Out`);
+        }
+    } finally { await tv.page.context().close(); }
+});

@@ -59,6 +59,8 @@ export interface Zone {
     /** row: Left/Right move. column: Up/Down move. grid: both, `columns` items per row. */
     readonly layout: "row" | "column" | "grid";
     readonly columns?: number;
+    /** Up/Down pass over aria-disabled items, as tvOS focus passes a disabled Button; a focused one keeps focus until a key moves it. */
+    readonly skipDisabled?: boolean;
     /** `true`: nearest centre between zones. `"aligned"`: the intersecting item closest to the focused item's left edge; otherwise the move stays. */
     readonly spatial?: boolean | "aligned";
     readonly items: readonly FocusItem[];
@@ -811,7 +813,8 @@ export class FocusHost {
         }
         if (key === "left" && zone.onLeft !== undefined) { zone.onLeft(); return; }
         if (zone.reading === true && (key === "up" || key === "down") && this.readOn(found.item.element, key)) return;
-        const target = moveWithin(zone, zone.items.length, index, key);
+        const skip = zone.skipDisabled === true ? (at: number): boolean => { const item = zone.items[at]; return item !== undefined && !enabled(item.element); } : undefined;
+        const target = moveWithin(zone, zone.items.length, index, key, skip);
         if (target !== undefined) {
             this.focusItem(zone, zone.items[target]);
         } else {
@@ -908,8 +911,14 @@ function nearestItem(items: readonly FocusItem[], from: HTMLElement, navigationX
     return items.reduce<FocusItem | undefined>((best, item) => best === undefined || Math.abs(centre(item.element) - x) < Math.abs(centre(best.element) - x) ? item : best, undefined);
 }
 
-/** The index the key moves to inside the zone, or undefined at its edge. */
-export function moveWithin(zone: Pick<Zone, "layout" | "columns">, count: number, index: number, key: "up" | "down" | "left" | "right"): number | undefined {
+/** The index the key moves to inside the zone, or undefined at its edge. Items `skip` names are passed over; none left means the edge. */
+export function moveWithin(zone: Pick<Zone, "layout" | "columns">, count: number, index: number, key: "up" | "down" | "left" | "right", skip?: (index: number) => boolean): number | undefined {
+    let target = stepWithin(zone, count, index, key);
+    while (skip !== undefined && target !== undefined && skip(target)) target = stepWithin(zone, count, target, key);
+    return target;
+}
+
+function stepWithin(zone: Pick<Zone, "layout" | "columns">, count: number, index: number, key: "up" | "down" | "left" | "right"): number | undefined {
     const columns = zone.layout === "grid" ? Math.max(1, zone.columns ?? 1) : zone.layout === "row" ? count : 1;
     const column = index % columns;
     switch (key) {

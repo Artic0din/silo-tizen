@@ -92,6 +92,66 @@ test("Settings › General draws the disabled Loop row as bright as the enabled 
     });
 });
 
+// Apple's TVGeneralSettingsView marks Loop `.disabled(!allowsEditing || !playsThemeMusic)`, and tvOS focus skips a disabled Button.
+// Apple capture, silo-apple e0337595: Down from Play Theme Music lands on Show Advisory Age.
+test("Down from Play Theme Music skips the disabled Loop row, and Up skips it back, as Apple TV does", async () => {
+    await withTv({}, async (tv, { settings }) => {
+        settings.remainingRows = true;
+        await openGeneral(tv);
+        const play = tv.page.locator('[data-focus="theme-music"]');
+        const loop = tv.page.locator('[data-focus="theme-music-loop"]');
+        assert.equal(await loop.getAttribute("aria-disabled"), "true");
+        await play.focus();
+        await tv.page.keyboard.press("ArrowDown");
+        assert.equal(await tv.focused(), "advisory-age", "Loop is skipped");
+        await tv.page.keyboard.press("ArrowUp");
+        assert.equal(await tv.focused(), "theme-music", "Loop is skipped on the way back");
+        assert.equal(await loop.getAttribute("aria-disabled"), "true", "Loop stays disabled, and drawn as before");
+    });
+});
+
+test("Loop Theme Music is a focus stop once Play Theme Music is on", async () => {
+    await withTv({ enabled: true }, async (tv, { settings }) => {
+        settings.remainingRows = true;
+        await openGeneral(tv);
+        assert.equal(await tv.page.locator('[data-focus="theme-music-loop"]').getAttribute("aria-disabled"), null);
+        await tv.page.locator('[data-focus="theme-music"]').focus();
+        await tv.page.keyboard.press("ArrowDown");
+        assert.equal(await tv.focused(), "theme-music-loop");
+        await tv.page.keyboard.press("ArrowDown");
+        assert.equal(await tv.focused(), "advisory-age");
+    });
+});
+
+test("turning Play Theme Music off leaves focus on it, and Down then skips Loop", async () => {
+    await withTv({ enabled: true }, async (tv, { settings }) => {
+        settings.remainingRows = true;
+        await openGeneral(tv);
+        await tv.page.locator('[data-focus="theme-music"]').focus();
+        await tv.page.keyboard.press("Enter");
+        await tv.eventually(async () => await tv.page.locator('[data-focus="theme-music-loop"]').getAttribute("aria-disabled") === "true", "Loop disabled");
+        assert.equal(await tv.focused(), "theme-music");
+        await tv.page.keyboard.press("ArrowDown");
+        assert.equal(await tv.focused(), "advisory-age");
+    });
+});
+
+test("a save in flight does not stop the D-pad", async () => {
+    await withTv({ enabled: true }, async (tv, { settings }) => {
+        settings.remainingRows = true;
+        await openGeneral(tv);
+        const held = tv.fake.hold("/settings/values/ui.theme_music_enabled", true);
+        try {
+            await tv.page.locator('[data-focus="theme-music"]').focus();
+            await tv.page.keyboard.press("Enter");
+            await tv.eventually(async () => tv.fake.requests.some(request => request.method === "PUT" && request.path.includes("ui.theme_music_enabled")), "save waiting");
+            assert.equal(await tv.focused(), "theme-music");
+            await tv.page.keyboard.press("ArrowDown");
+            assert.notEqual(await tv.focused(), "theme-music", "rows ignore presses while saving, but focus still moves");
+        } finally { held.release(); }
+    });
+});
+
 test("opening Details plays the title's first theme; Back fades it out and releases the audio", async () => {
     await withTv({ enabled: true }, async (tv, { themes }) => {
         await openMovie(tv);

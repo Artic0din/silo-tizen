@@ -370,6 +370,18 @@ test("focus moves inside rows, columns and grids, and reports the edges", () => 
     assert.equal(moveWithin(column, 3, 1, "right"), undefined);
 });
 
+test("focus moves pass over skipped items and report the edge when nothing enabled is left", () => {
+    const column = { layout: "column" as const };
+    const skipped = new Set([2, 3]);
+    const skip = (index: number): boolean => skipped.has(index);
+    assert.equal(moveWithin(column, 6, 1, "down", skip), 4, "Down jumps the disabled run");
+    assert.equal(moveWithin(column, 6, 4, "up", skip), 1, "Up jumps it back");
+    assert.equal(moveWithin(column, 6, 3, "down", skip), 4, "a focused disabled item still moves on");
+    assert.equal(moveWithin(column, 4, 1, "down", skip), undefined, "every item below is disabled: the edge");
+    assert.equal(moveWithin(column, 6, 4, "up", index => index < 4), undefined, "every item above is disabled: the edge");
+    assert.equal(moveWithin(column, 6, 1, "down"), 2, "no skip rule moves one item");
+});
+
 // silo-server internal/apiv2/watch.go sends both presentation fields as snake_case and omits them when empty.
 test("watch detail versions decode presentation group key and part index, and leave them undefined when omitted", () => {
     const detail = decodeWatchDetail({

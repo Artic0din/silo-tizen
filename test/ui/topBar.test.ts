@@ -711,6 +711,84 @@ test("a long authored menu cannot add roots and Search and the avatar remain fix
     } finally { await tv.page.context().close(); }
 });
 
+test("fifty libraries: the Movies menu shows six rows at a time as Apple does, scrolls to the last and never fetches on focus", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        await tv.page.emulateMedia({ reducedMotion: "reduce" });
+        const catalog = new RecommendationsCatalog();
+        const household = catalog.households.get("p-owner");
+        assert.ok(household);
+        household.hidden = [];
+        const COUNT = 50;
+        for (let index = 0; index < COUNT; index++) household.libraries.push({ id: String(200 + index), name: `Library ${index} with a long title that wraps`, type: "movies", sort_order: 100 + index });
+        await start(tv, null, catalog);
+        const libraryPaths = tv.fake.requests.map(request => request.path).filter(path => path.includes("/libraries"));
+        assert.deepEqual(libraryPaths, ["/user/libraries"], "Home reads the library list once and nothing per library");
+        await tv.page.locator('[data-focus="movies"]').focus();
+        await tv.jump(250);
+        const rows = '.skyline-selector:not(.skyline-flyout) [role="menuitemradio"]';
+        assert.equal(await tv.page.locator(rows).count(), household.libraries.filter(library => library.type === "movies").length, "every library is a menu row");
+        const reads = tv.fake.requests.length;
+        const geometry = (): Promise<{ bottom: number; visible: number; focusInside: boolean; offCentre: number; scrollTop: number; maximum: number; headerTop: number }> => tv.page.evaluate((selector) => {
+            const panel = document.querySelector<HTMLElement>(".skyline-selector:not(.skyline-flyout)");
+            const list = panel?.querySelector<HTMLElement>(".skyline-menu-list");
+            const header = panel?.querySelector(".skyline-menu-header");
+            if (panel === null || panel === undefined || list === null || list === undefined || header === null || header === undefined) throw new Error("Missing menu list");
+            const bounds = list.getBoundingClientRect();
+            const inside = (box: DOMRect): boolean => box.top >= bounds.top - 1 && box.bottom <= bounds.bottom + 1;
+            const focused = document.activeElement?.getBoundingClientRect();
+            return {
+                bottom: panel.getBoundingClientRect().bottom,
+                visible: [...panel.querySelectorAll(selector)].filter(row => inside(row.getBoundingClientRect())).length,
+                focusInside: focused !== undefined && inside(focused),
+                offCentre: focused === undefined ? Infinity : Math.abs(focused.top + focused.height / 2 - (bounds.top + bounds.height / 2)),
+                scrollTop: list.scrollTop,
+                maximum: list.scrollHeight - list.clientHeight,
+                headerTop: header.getBoundingClientRect().top - panel.getBoundingClientRect().top,
+            };
+        }, rows);
+        const first = await geometry();
+        assert.ok(first.bottom <= 1080, "the menu ends inside 1080");
+        assert.ok(first.visible <= 6, `Apple shows at most six library rows (cascadeMaxVisibleRows), not ${first.visible}`);
+        await tv.remote(40);
+        let centred = 0;
+        for (let step = 0; step < COUNT; step++) {
+            const now = await geometry();
+            assert.ok(now.focusInside, `row ${step} is focused inside the list`);
+            assert.equal(now.headerTop, first.headerTop, "the header stays put while the rows scroll");
+            // Apple scrolls the focused library to the centre (scrollFocusedLibrary); the first and last rows stop at the list's ends.
+            if (now.scrollTop > 0 && now.scrollTop < now.maximum) { centred++; assert.ok(now.offCentre <= 1, `row ${step} is centred, ${now.offCentre}px off`); }
+            await tv.remote(40);
+        }
+        assert.ok(centred > 30, `most rows are checked for centring, not ${centred}`);
+        const last = await geometry();
+        assert.equal(last.scrollTop, last.maximum, "the last row is at the end of the list");
+        assert.equal(await tv.page.locator(".browse").evaluate(node => node.scrollWidth), 1920);
+        assert.equal(tv.fake.requests.length, reads, "moving through fifty rows fetches nothing");
+    } finally { await tv.page.context().close(); }
+});
+
+test("a scrolled library list fades out on the rows that were on screen", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const catalog = new RecommendationsCatalog();
+        const household = catalog.households.get("p-owner");
+        assert.ok(household);
+        household.hidden = [];
+        for (let index = 0; index < 20; index++) household.libraries.push({ id: String(200 + index), name: `Library ${index}`, type: "movies", sort_order: 100 + index });
+        await start(tv, null, catalog);
+        await tv.page.locator('[data-focus="movies"]').focus();
+        await tv.jump(250);
+        for (let step = 0; step < 11; step++) await tv.remote(40);
+        await tv.jump(300);
+        const open = await tv.page.locator(".skyline-selector:not(.skyline-flyout) .skyline-menu-list").evaluate(node => node.scrollTop);
+        assert.ok(open > 0, "the list scrolled");
+        await tv.remote(27);
+        const leaving = await tv.page.locator(".skyline-selector-leaving:not(.skyline-flyout-leaving) .skyline-menu-list").evaluate(node => node.scrollTop);
+        assert.equal(leaving, open);
+    } finally { await tv.page.context().close(); }
+});
+
 test("For You loading is a clear page labelled Loading recommendations, and empty is Apple's centred empty state; neither has a heading or button", async () => {
     const tv = await openTv(browser, { app: "browse" });
     const held = tv.fake.hold("/recommendations/discover", true);

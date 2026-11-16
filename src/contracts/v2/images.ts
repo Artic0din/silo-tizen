@@ -68,3 +68,14 @@ export function detailArtworkQuery(capability: ImageCapabilities | undefined, sc
     }
     return query;
 }
+
+/**
+ * ArtworkSurface.episodes on tvOS (silo-apple 5569b19): `still` at `SiloTheme.thumbnailCardWidth`, 360 pt, and no
+ * one-size entry. Nothing without a per-slot still width, which keeps the rail's `small` still.
+ */
+export function episodeArtworkQuery(capability: ImageCapabilities | undefined, scale: number): Record<string, string> {
+    const name = capability?.state === "available" ? capability.slotWidthParams.still : undefined;
+    const pixels = Math.ceil(360 * Math.max(1, scale));
+    if (name === undefined || name === "" || !Number.isFinite(pixels)) return {};
+    return { [name]: String(Math.min(pixels, MAX_SLOT_WIDTH)) };
+}

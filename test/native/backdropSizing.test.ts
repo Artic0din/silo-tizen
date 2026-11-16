@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { detailArtworkQuery, homeArtworkQuery, type ImageCapabilities } from "../../src/contracts/v2/images.ts";
+import { detailArtworkQuery, episodeArtworkQuery, homeArtworkQuery, type ImageCapabilities } from "../../src/contracts/v2/images.ts";
 import { operations } from "../../src/api/operations.ts";
 
 const capability: ImageCapabilities = { state: "available", param: "image_size", sizes: ["small", "medium", "large"], slotWidthParams: {} };
@@ -36,4 +36,19 @@ test("Details keeps its one-size fallbacks without per-slot widths", () => {
     assert.deepEqual(detailArtworkQuery(undefined, 1), {});
     assert.deepEqual(detailArtworkQuery({ ...capability, state: "unavailable" }, 1), {});
     assert.deepEqual(detailArtworkQuery(capability, 1), { image_size: "large" });
+});
+
+test("the episode rail asks for stills at the 360 pt card width, as ArtworkSurface.episodes does on tvOS", () => {
+    const slots = { ...capability, slotWidthParams: { still: "still_width", backdrop: "backdrop_width" } };
+    assert.deepEqual(episodeArtworkQuery(slots, 1), { still_width: "360" });
+    assert.deepEqual(episodeArtworkQuery(slots, 2), { still_width: "720" });
+    assert.deepEqual(episodeArtworkQuery(slots, 1.5), { still_width: "540" });
+    assert.equal(operations.listSeasonEpisodes("series:s", 1, episodeArtworkQuery(slots, 1)).path, "/catalog/series/series%3As/seasons/1/episodes?still_width=360");
+});
+
+test("the episode rail keeps the small one-size still without per-slot widths", () => {
+    assert.deepEqual(episodeArtworkQuery(undefined, 1), {});
+    assert.deepEqual(episodeArtworkQuery({ ...capability, state: "unavailable" }, 1), {});
+    assert.deepEqual(episodeArtworkQuery(capability, 1), {});
+    assert.equal(operations.listSeasonEpisodes("series:s", 1).path, "/catalog/series/series%3As/seasons/1/episodes?image_size=small");
 });

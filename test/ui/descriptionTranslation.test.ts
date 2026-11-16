@@ -187,6 +187,31 @@ test("fresh metadata starts automatic translation on a cached Details owner", as
     } finally { await tv.page.context().close(); }
 });
 
+test("a season description translation reads the episode rail at the same still width", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    const catalog = new FakeDetails();
+    tv.fake.catalog = catalog;
+    catalog.failNext("/images/capabilities", { status: 200, body: {
+        revision: "r1", state: "available", allowed: true, param: "image_size", sizes: ["small", "medium", "large", "original"], widths: {}, original_max_width_px: 3840,
+        episode_still_provenance: true, episode_parent_artwork: true, extended_item_artwork: true, season_list_artwork_param: "include_artwork", storage_backend: "local", delivery: "server",
+        slot_width_params: { poster: "poster_width", backdrop: "backdrop_width", logo: "logo_width", still: "still_width", photo: "photo_width" },
+    } });
+    const translation = install(tv.fake, catalog, "auto", ["episode:s1e11", "episode:s1e12", "episode:s1e21", "episode:s1e22"]);
+    try {
+        await signIn(tv);
+        await tv.page.evaluate(() => window.browseHarness.mount());
+        await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.hasImageCapabilityCache()), "capability remembered");
+        await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
+        await tv.page.locator('[data-focus="episode:s1e22"]').waitFor();
+        await tv.eventually(() => Promise.resolve(translation.posts().length === 1), "initial selected season translation");
+        await tv.jump(1000);
+        await tv.eventually(async () => tv.fake.requests.filter(request => /\/seasons\/1\/episodes/.test(request.path)).length >= 2, "the translation reads the season again");
+        const reads = tv.fake.requests.filter(request => /\/seasons\/\d+\/episodes/.test(request.path)).map(request => request.path);
+        assert.ok(reads.length > 0);
+        assert.ok(reads.every(path => path.endsWith("/episodes?still_width=360")), reads.join("\n"));
+    } finally { await tv.page.context().close(); }
+});
+
 for (const mode of ["button", "auto"] as const) test(`series episode focus does not request a description translation in ${mode} mode`, async () => {
     const tv = await openTv(browser, { app: "browse" });
     const catalog = new FakeDetails();

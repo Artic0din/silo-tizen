@@ -9,6 +9,7 @@ import type { ProfileLaunch, LaunchBehavior } from "../session/profileLaunch.ts"
 import { acknowledgementsDocument } from "./acknowledgements.ts";
 import type { EpisodeSpoilerPreferences } from "./episodeSpoilers.ts";
 import type { ThemeMusicPreferences } from "./themeMusicPreferences.ts";
+import { APP_LANGUAGE_SAVING, type AppLanguagePreferences } from "./appLanguagePreferences.ts";
 import { settingsRows, rowValue, rowEdit, BUFFERING_ROW_ID, type SettingsRow } from "./settingsRows.ts";
 import { APPEARANCE_KEY, BUFFERING_MODE_KEY } from "../contracts/v2/settingsRows.ts";
 import { qrCode } from "./qr.ts";
@@ -61,7 +62,7 @@ function settingsChevron(): SVGSVGElement {
     return icon;
 }
 
-export function mountSettings(root: HTMLElement, session: NativeSession, close: (hiddenChanged: boolean, titleArt?: boolean) => void, launch?: ProfileLaunch, actions?: SettingsActions, accounts?: (back: () => void) => void, spoilers?: EpisodeSpoilerPreferences, experimental?: ExperimentalFeatures, themeMusic?: ThemeMusicPreferences): SettingsScreen {
+export function mountSettings(root: HTMLElement, session: NativeSession, close: (hiddenChanged: boolean, titleArt?: boolean) => void, launch?: ProfileLaunch, actions?: SettingsActions, accounts?: (back: () => void) => void, spoilers?: EpisodeSpoilerPreferences, experimental?: ExperimentalFeatures, themeMusic?: ThemeMusicPreferences, appLanguage?: AppLanguagePreferences): SettingsScreen {
     const container = el("section", "browse settings");
     container.setAttribute("aria-label", "Settings");
     root.appendChild(container);
@@ -80,6 +81,8 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
     let acknowledging = false;
     let confirmingSignOut = false;
     let choosingLaunch = false;
+    let choosingLanguage = false;
+    let languageRead = false;
     let torn = false;
     let launchPending = false;
     let launchError = false;
@@ -108,12 +111,14 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
     const connection = new ConnectionSpeed(session, () => { if (!torn) render(host.focused()); });
     const stopSpoilers = spoilers?.subscribe(() => { if (!torn) render(host.focused()); }) ?? (() => undefined);
     const stopThemeMusic = themeMusic?.subscribe(() => { if (!torn) render(host.focused()); }) ?? (() => undefined);
+    const stopAppLanguage = appLanguage?.subscribe(() => { if (!torn) render(host.focused()); }) ?? (() => undefined);
     const destroy = (): void => {
         if (torn) return;
         torn = true;
         connection.stop();
         stopSpoilers();
         stopThemeMusic();
+        stopAppLanguage();
         launchController.abort();
         stopAuthority();
         state.stop();
@@ -135,6 +140,7 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
         else if (privacy) { privacy = false; render({ zone: "settings-rows", key: "privacy" }); }
         else if (extraPicker !== undefined) { const key = extraPicker.id; extraPicker = undefined; render({ zone: "settings-rows", key }); }
         else if (choosingLaunch) { choosingLaunch = false; render({ zone: "settings-rows", key: "remember-profile" }); }
+        else if (choosingLanguage) { choosingLanguage = false; render({ zone: "settings-rows", key: "app-language" }); }
         else if (confirmingSignOut) { confirmingSignOut = false; render({ zone: "settings-categories", key: "settings-signout" }); }
         else if (acknowledging) { acknowledging = false; render(rowFocus()); }
         else if (picker !== undefined) { picker = undefined; render(rowFocus()); }
@@ -407,6 +413,25 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
             showModal(`settings:${row.id}`, row.title, [el("h1", "browse-title", row.title), ...feedback()], controls);
             return;
         }
+        if (choosingLanguage && appLanguage !== undefined) {
+            // TVSettingsPickerSheet: picking closes the sheet at once; the save settles behind it.
+            const busy = appLanguage.isBusy;
+            const selected = appLanguage.currentChoice?.tag ?? null;
+            const controls = appLanguage.options.map(option => {
+                const item = actionButton(`language:${option.tag ?? "device"}`, option.label, () => {
+                    if (appLanguage.isBusy) return;
+                    choosingLanguage = false;
+                    render({ zone: "settings-rows", key: "app-language" });
+                    void appLanguage.select(option.tag);
+                });
+                item.element.setAttribute("role", "radio");
+                item.element.setAttribute("aria-checked", String(option.tag === selected));
+                item.element.setAttribute("aria-disabled", String(busy));
+                return item;
+            });
+            showModal("settings:language", "App Language", [el("h1", "browse-title", "App Language"), ...(busy ? [el("p", "browse-text", APP_LANGUAGE_SAVING)] : [])], controls, "settings-language");
+            return;
+        }
         if (choosingLaunch && launch !== undefined) {
             const controls = [...LAUNCH_CHOICES.map(([behavior, text]) => {
                 const item = actionButton(`launch:${behavior === "automatic" ? "true" : behavior === "askEveryLaunch" ? "false" : behavior}`, text, () => { if (!launchPending) saveLaunch(behavior); });
@@ -538,6 +563,15 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
                 const retry = actionButton("retry-launch", "Retry launch choice", () => saveLaunch(launchTarget));
                 rows.push(retry); body.appendChild(retry.element);
             }
+        }
+        // As Apple reads when Settings opens, but only once this screen's own load has settled, pass or fail, so the two capability reads never race.
+        if (!state.busy && (state.loaded || state.error !== undefined) && !languageRead) { languageRead = true; void appLanguage?.refresh(); }
+        if (category === "general" && appLanguage?.isOffered === true) {
+            const item = actionButton("app-language", "App Language", () => { choosingLanguage = true; render(); });
+            item.element.append(el("span", "settings-row-value", appLanguage.selectedLabel), settingsChevron());
+            rows.push(item);
+            body.append(el("h3", "settings-section-header", "LANGUAGE"), item.element, el("p", "settings-value", appLanguage.footer));
+            if (appLanguage.error !== undefined) body.appendChild(el("p", "settings-value", appLanguage.error));
         }
         const titleArt = state.effective.get(TITLE_ART_KEY);
         if (category === "general" && state.loaded && titleArt !== undefined) {
@@ -829,8 +863,11 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
         panes.append(rail, body);
         paneSnapshot = panes;
         host.show({ name: "settings", content: [panes], zones: [
-            { id: "settings-categories", layout: "column", right: "settings-rows", items: categories },
-            { id: "settings-rows", layout: "column", left: "settings-categories", items: rows },
+            // The rail is a focus section too: Up at the profile card and Down at Sign Out stay in it.
+            { id: "settings-categories", layout: "column", up: "settings-categories", down: "settings-categories", right: "settings-rows", items: categories },
+            // A save in flight blocks every row's press, so only then do the rows stay reachable (Apple's view models ignore presses while saving).
+            // Apple's panes are focus sections: Up at the first row and Down at the last stay in the pane, and only Left leaves it.
+            { id: "settings-rows", layout: "column", left: "settings-categories", up: "settings-rows", down: "settings-rows", skipDisabled: !state.busy, items: rows },
         ], focus: { zone: "settings-categories", key: category }, back }, focus);
     }
     connection.start();

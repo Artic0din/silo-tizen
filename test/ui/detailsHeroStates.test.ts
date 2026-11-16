@@ -327,6 +327,9 @@ for (const media of ["movie:m0001", "series:s1"] as const) detailTest(`returning
     await tv.page.locator(`[data-section="recently_added"] [data-focus="${media}"]`).first().click();
     await tv.page.locator('[data-focus="more"]').waitFor();
     await tv.page.locator('[data-focus^="credit:"]').first().waitFor();
+    // A late answer repaints Details and puts the page back at its top; walk to Cast once they have all landed.
+    await tv.eventually(async () => tv.pendingReplies <= tv.fake.heldReplies, "Details answers delivered");
+    await afterPaint(tv);
     await tv.eventually(async () => {
         if ((await tv.focused() ?? "").startsWith("credit:")) return true;
         await tv.remote(40);
@@ -338,6 +341,7 @@ for (const media of ["movie:m0001", "series:s1"] as const) detailTest(`returning
     await tv.eventually(async () => { if (await scrollTop() > 100) return true; await tv.jump(100); return false; }, "the cast row scrolled the page");
     await tv.jump(1000);
     // A paused clock makes the sample below land exactly half-way through the move.
+    await tv.eventually(async () => tv.pendingReplies <= tv.fake.heldReplies, "answers delivered before the clock pauses");
     await pauseTvClock(tv);
     const from = await scrollTop();
     const inHero = (): Promise<boolean> => tv.page.evaluate(() => document.activeElement?.closest(".details-editorial") !== null);

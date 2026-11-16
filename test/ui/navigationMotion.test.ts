@@ -3,7 +3,7 @@ import { selectLibraryMode } from "./support/library.ts";
 import { after, before, test } from "node:test";
 import type { Browser } from "playwright";
 import { FakeCatalog } from "../native/support/fakeCatalog.ts";
-import { homeDetailsRead, launchBrowser, openTv, type Tv } from "./support/tv.ts";
+import { afterPaint, homeDetailsRead, launchBrowser, openTv, type Tv } from "./support/tv.ts";
 
 let browser: Browser;
 before(async () => { browser = await launchBrowser(); });
@@ -23,6 +23,9 @@ async function start(tv: Tv, multiple = false, catalog = new FakeCatalog()): Pro
     await tv.page.evaluate(() => window.browseHarness.mount());
     await ready(tv, "home");
     await homeDetailsRead(tv);
+    // A late Home answer repaints the rows and moves focus under the keys below; start once they have landed and painted.
+    await tv.eventually(async () => tv.pendingReplies <= tv.fake.heldReplies, "Home answers delivered");
+    await afterPaint(tv);
     await tv.page.clock.pauseAt(await tv.page.evaluate(() => Date.now() + 1000));
 }
 

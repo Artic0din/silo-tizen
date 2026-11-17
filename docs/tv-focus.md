@@ -345,6 +345,27 @@ Write new handlers in layout terms and never swap a key yourself.
 Code that must follow the remote's physical side, as the player's transport does, reads `physicalKey`.
 A horizontal scroll that sets `scrollLeft` handles a negative `scrollLeft` in a right-to-left row (`SkylineScroll.reveal`, `seasonOffset` and `episodeOffset` do: they return 0 to -range in an rtl row).
 
+### Physical-x geometry audit
+
+Swept once for #605 (`rg "getBoundingClientRect\(\)\.(left|right)|offsetLeft|scrollLeft"` over `src`). A focus or scroll calculation is safe when it compares centres or overlaps (symmetric), writes a physical coordinate it also reads, or branches on `getComputedStyle(row).direction`. Anything that asks "which is past this one" or "how far along" goes through `src/ui/inlineAxis.ts`.
+
+| Where | What it does | Right to left |
+| --- | --- | --- |
+| `browseFocus` `nearestItem`, `overlappingNearest`, `navigationX`, `centreAt` | nearest by centre x, overlap of two boxes | safe: symmetric |
+| `browseFocus` `columnAtOrPastCenter` (Search People to grid) | first column at or past the person's centre | was not safe; now `startsAtOrPast` (`inlineAxis.ts`). Search is pinned left to right today, so it runs the left-to-right branch |
+| `browseFocus` aligned landing (`spatial: "aligned"`, Person filmography filters) | the intersecting item closest to the focused item's left edge | was not safe; now `startOffset` (`inlineAxis.ts`). Person pages are pinned left to right today |
+| `browseFocus` `intersects`, `insideRow`, `searchRail` clip test | box overlaps a frame | safe: symmetric |
+| `browseFocus` row `scrollLeft` snapshot (`visits`, `applyVisit`) | saves and restores a row's scroll | not safe across a direction change; `reconcileLanguage` calls `revealFocused` when the direction flips |
+| `skylineScroll` row reveal | physical delta, insets swapped, `Math.min(0, ...)` when rtl | safe |
+| `skylineScroll` `seasonOffset`, `episodeOffset`, `prepareEpisodeRow` | stepped Details offsets | safe: rtl branches return 0 to negative range |
+| `skylineScroll` `move` | animates `scrollLeft` to a target | safe: takes the target as given |
+| `skyline` top-bar `roots` scroll, `panelOrigin`, profile panel and flyout placement | physical delta, transform origin, left or right anchor | safe: physical both ways; the panel and flyout branch on `documentIsRightToLeft` |
+| `keys` `remoteKey`, zone `left`/`right` neighbours, `onLeft`, `moveWithin` | Left and Right in layout terms | safe: `remoteKey` swaps by the target's direction |
+| Library letter rail (`.browse-letters` and its slide translates) | rail beside the grid | mirrored: on the left in rtl, as Apple does |
+| `cardActions` `menuPosition`, `detailsActions` popover `left` | place a menu or popover beside or under its anchor | not focus calculations; physical placement, left unchanged |
+
+One Arabic test per zone in `test/ui/rtl.test.ts`: rows (a row steps and scrolls, and keeps Apple's 80 px end inset), rails (episodes to S02E06, the picked season pill), the letter rail (Browse grid and rail), Search landing, and Settings (Left from the categories enters the rows).
+
 ## Player Keys
 
 `src/player/playerScreen.ts` registers its own `document` `keydown` handler and calls `preventDefault` on every remote key, including Back.

@@ -8,6 +8,7 @@
 // brings lost focus back.
 // The sign-in ScreenHost moves through one list; grids and stacked rows need two dimensions.
 
+import { readsInlineRightToLeft, startOffset, startsAtOrPast } from "./inlineAxis.ts";
 import { remoteKey } from "./keys.ts";
 import { heldSelect, isFreshSelect, listenSelectRelease, moveSelect } from "./selectRelease.ts";
 import { SkylineScroll } from "./skylineScroll.ts";
@@ -61,7 +62,7 @@ export interface Zone {
     readonly columns?: number;
     /** Up/Down pass over aria-disabled items, as tvOS focus passes a disabled Button; a focused one keeps focus until a key moves it. */
     readonly skipDisabled?: boolean;
-    /** `true`: nearest centre between zones. `"aligned"`: the intersecting item closest to the focused item's left edge; otherwise the move stays. */
+    /** `true`: nearest centre between zones. `"aligned"`: the intersecting item closest to the focused item's start edge (its left edge left to right); otherwise the move stays. */
     readonly spatial?: boolean | "aligned";
     readonly items: readonly FocusItem[];
 }
@@ -491,12 +492,13 @@ export class FocusHost {
                 // meets the focused item and sits closest to its left edge does; no meeting, no move.
                 if (zone.spatial === "aligned") {
                     const origin = from.element.getBoundingClientRect();
+                    const rightToLeft = readsInlineRightToLeft(from.element);
                     let match: FocusItem | undefined;
                     let best = Number.POSITIVE_INFINITY;
                     for (const item of edgeItems) {
                         const target = item.element.getBoundingClientRect();
                         if (origin.left >= target.right || target.left >= origin.right) continue;
-                        const distance = Math.max(0, target.left - origin.left);
+                        const distance = startOffset(origin, target, rightToLeft);
                         if (distance < best) {
                             best = distance;
                             match = item;
@@ -889,7 +891,9 @@ function framesMeetRect(origin: DOMRect, target: DOMRect): boolean {
 function columnAtOrPastCenter(items: readonly FocusItem[], from: HTMLElement): FocusItem | undefined {
     const box = from.getBoundingClientRect();
     const center = box.left + box.width / 2;
-    return items.find(item => item.element.getBoundingClientRect().left >= center - 0.5);
+    // Items run in reading order, so "past" is toward the end of the line: the right edge left to right, the left edge right to left.
+    const rightToLeft = readsInlineRightToLeft(from);
+    return items.find(item => startsAtOrPast(item.element.getBoundingClientRect(), center, rightToLeft));
 }
 
 function overlappingNearest(items: readonly FocusItem[], origin: DOMRect): FocusItem | undefined {

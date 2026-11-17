@@ -686,3 +686,18 @@ test("in Arabic a library, profile or person name that starts with a number keep
         for (const item of isolated) assert.match(item.bidi, /plaintext/, `${item.selector}: ${item.bidi}`);
     } finally { await tv.page.context().close(); }
 });
+
+test("in Arabic Search's People rail still lands Down on the title column at or past that person (the second person on the third poster)", async () => {
+    await withHome({ stored: "ar" }, async tv => {
+        await waitForDirection(tv, "rtl");
+        // People for the query, as browse.test.ts's Search fixtures serve them.
+        await tv.page.route("**/api/v2/catalog/people**", route => route.fulfill({ json: { items: Array.from({ length: 20 }, (_, index) => ({ id: `edge-${index}`, name: `Person ${index + 1}` })) } }));
+        await tv.page.locator('[data-focus="search"]').click();
+        await tv.page.fill("#browse-search", "Movie 000");
+        await tv.remote(65376);
+        await tv.page.locator('.browse-grid [data-focus="movie:m0002"]').waitFor();
+        await tv.page.locator('[data-focus="person:edge-1"]').focus();
+        await tv.remote(DOWN);
+        assert.equal(await tv.focused(), "movie:m0003", "the second person lands on the third poster, as in English");
+    });
+});

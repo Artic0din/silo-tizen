@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { ApiError } from "../../src/api/errors.ts";
 import type { ProfileSummary } from "../../src/contracts/v2/wire.ts";
+import type { SavedAccount } from "../../src/session/accounts.ts";
 import type { AuthorityChange, AuthorizedSpec } from "../../src/session/session.ts";
 import { problem } from "./support/fakeSilo.ts";
 import { connected, type Harness, signIn } from "./support/harness.ts";
@@ -25,6 +26,62 @@ function lastProbe(h: Harness): Readonly<Record<string, string>> {
     assert.ok(request !== undefined);
     return request.headers;
 }
+
+for (const method of ["list", "listCollection"] as const) {
+    test(`${method} refreshes the account profile count and limit, clearing an absent limit`, async () => {
+        const h = await connected();
+        await signIn(h);
+        const id = h.core.accounts.localAccountId;
+        assert.ok(id);
+        for (const limit of [1, 5, undefined]) {
+            if (limit === undefined) delete h.fake.profiles.max_profiles;
+            else h.fake.profiles.max_profiles = limit;
+            await h.core.profiles[method]();
+            const account: SavedAccount | undefined = h.core.accounts.directory.list().find(row => row.id === id);
+            assert.equal(account?.maxProfiles, limit);
+            assert.equal(account?.profileCount, 2);
+        }
+        h.fake.script("/profiles", problem(400, "bad_request", "Cannot list profiles"));
+        await assert.rejects(h.core.profiles[method]());
+        assert.equal(h.core.accounts.directory.list().find(row => row.id === id)?.profileCount, 2, "a failed read keeps the cached count");
+        h.storage.failSet = true;
+        assert.ok(await h.core.profiles[method](), "an unwritable display cache does not fail the profile read");
+    });
+}
+
+test("an older profile read that answers last does not overwrite the newer cached limit", async () => {
+    const h = await connected();
+    await signIn(h);
+    const id = h.core.accounts.localAccountId;
+    assert.ok(id);
+    h.fake.profiles = { ...h.fake.profiles, max_profiles: 5 };
+    const held = h.fake.hold("/profiles");
+    const sent = h.fake.requests.filter((request) => request.path === "/profiles").length;
+    const older = h.core.profiles.listCollection();
+    while (h.fake.requests.filter((request) => request.path === "/profiles").length === sent) await new Promise<void>((resolve) => setImmediate(resolve));
+    h.fake.profiles = { ...h.fake.profiles, max_profiles: 1 };
+    await h.core.profiles.listCollection();
+    held.release();
+    assert.equal((await older).maxProfiles, 5, "the caller still receives its own answer");
+    assert.equal(h.core.accounts.directory.list().find(row => row.id === id)?.maxProfiles, 1);
+});
+
+test("a newer profile read that fails does not block an older successful read from saving", async () => {
+    const h = await connected();
+    await signIn(h);
+    const id = h.core.accounts.localAccountId;
+    assert.ok(id);
+    h.fake.profiles = { ...h.fake.profiles, max_profiles: 5 };
+    const held = h.fake.hold("/profiles");
+    const sent = h.fake.requests.filter((request) => request.path === "/profiles").length;
+    const older = h.core.profiles.listCollection();
+    while (h.fake.requests.filter((request) => request.path === "/profiles").length === sent) await new Promise<void>((resolve) => setImmediate(resolve));
+    h.fake.script("/profiles", problem(400, "bad_request", "Cannot list profiles"));
+    await assert.rejects(h.core.profiles.listCollection());
+    held.release();
+    await older;
+    assert.equal(h.core.accounts.directory.list().find(row => row.id === id)?.maxProfiles, 5);
+});
 
 test("profile headers go only on profile-scoped calls; public calls carry no account bearer", async () => {
     const { h, owner } = await household();

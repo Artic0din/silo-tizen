@@ -99,8 +99,8 @@ SELECTED=(
   watch_together_capabilities
 )
 
-# Present at silo-server 6e8c68d and newer than SOURCE. Kept until SOURCE includes it
-# and the name moves into SELECTED. See src/contracts/v2/README.md.
+# Present at silo-server 6e8c68d, newer than the retained fixture snapshot.
+# Kept until the name moves into SELECTED. See src/contracts/v2/README.md.
 KEPT=(
   request_status_ok
 )

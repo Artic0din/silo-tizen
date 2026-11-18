@@ -10,6 +10,7 @@ export interface SavedAccount {
     readonly accountId: string;
     readonly username: string;
     readonly profileCount: number;
+    readonly maxProfiles?: number | undefined;
     readonly needsSignIn: boolean;
     /** Epoch milliseconds. Absent on accounts saved before the TV recorded it. */
     readonly lastUsedAt?: number;
@@ -57,7 +58,7 @@ export class AccountDirectory {
         if (!selected) throw new Error("Account missing");
         this.write({ accounts: [{ ...selected, lastUsedAt: this.now() }, ...rows.filter(row => row.id !== id)], selected: id });
     }
-    update(id: string, change: Partial<Pick<SavedAccount, "profileCount" | "needsSignIn" | "username">>): void {
+    update(id: string, change: Partial<Pick<SavedAccount, "profileCount" | "maxProfiles" | "needsSignIn" | "username">>): void {
         this.reload();
         this.write({ ...this.state, accounts: this.list().map(row => row.id === id ? { ...row, ...change } : row) });
     }
@@ -92,6 +93,7 @@ function decodeDirectory(raw: string): Directory {
     for (const row of value.accounts) {
         if (typeof row !== "object" || row === null || !["id", "baseUrl", "serverId", "accountId", "username"].every(key => typeof Reflect.get(row, key) === "string") || typeof row.profileCount !== "number" || typeof row.needsSignIn !== "boolean") throw new Error("Account list unavailable");
         if ("lastUsedAt" in row && typeof row.lastUsedAt !== "number") throw new Error("Account list unavailable");
+        if ("maxProfiles" in row && !Number.isInteger(row.maxProfiles)) throw new Error("Account list unavailable");
     }
     if ("selected" in value && typeof value.selected !== "string") throw new Error("Account selection unavailable");
     return value as Directory;

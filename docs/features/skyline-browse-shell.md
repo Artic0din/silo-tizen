@@ -295,8 +295,9 @@ The avatar sits on a white 18% disc with a white initial at 0.34 of its size; fo
 A profile with no name shows a person glyph in secondary text.
 The menu header's 44 px avatar sits on white 16%.
 The anchored profile menu follows Apple's `TVProfileDropdown` order: History, capability-gated Requests and Watch Party, a divider, then Settings, the profile row, Change Account and a red, unfocused Sign Out row.
-The profile row is Add Profile when the open account's cached list holds one profile, and Switch Profile otherwise, as Apple's `ProfileMenuRow` chooses it.
-Tizen does not read the account's profile limit, so Add Profile also shows for an account that may hold only one profile; the server refuses the creation.
+The profile row is Add Profile when the open account's cached list holds one profile and its limit is absent or greater than one, and Switch Profile when the count is not one.
+An account with one profile and a limit of one or less has no profile row, as [Apple's `ProfileMenuRow.row`](https://github.com/Silo-Server/silo-apple/blob/1d4b6248f86766b616312ececcee37912886ab51/iosApp/iosApp/Components/ProfileMenuRow.swift#L22-L28) chooses it.
+The optional `max_profiles` from `GET /api/v2/profiles` is saved beside the count on each account; a later response without a limit clears the cached limit.
 Add Profile reads the profiles again and routes by that fresh list, as Apple's `AddProfileRequest.start` does: profile creation when the only profile is the open one, ending on the profiles after a creation; the picker when the household has grown; and a refusal when the only profile is not the open one.
 Closing Add Profile's form or PIN prompt restores the retained page, tab and library scope.
 Browse returns focus to its first control, Sort; Home and the other root pages retain the top-bar avatar return.

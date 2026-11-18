@@ -2973,6 +2973,10 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             try { return server.accounts.directory.list().find(row => row.id === server.accounts.localAccountId)?.profileCount ?? 0; }
             catch { return 0; } // An unreadable account list is a list not read yet: Switch Profile.
         },
+        profileLimit: () => {
+            try { return server.accounts.directory.list().find(row => row.id === server.accounts.localAccountId)?.maxProfiles; }
+            catch { return undefined; }
+        },
         ...(options.onSwitchServer === undefined ? {} : { switchServer: () => coverBrowse(back => options.onSwitchServer?.(back)) }),
         ...(options.onSignOut === undefined ? {} : { signOut: options.onSignOut }),
         ...(session.account ? { accountName: session.account.username } : {}),

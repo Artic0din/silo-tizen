@@ -352,13 +352,21 @@ export interface ProfileCreateBody {
     readonly allowed_library_ids?: readonly string[];
 }
 
-export function decodeProfileCollection(value: unknown): ProfileSummary[] {
+export interface ProfileCollection {
+    readonly items: ProfileSummary[];
+    readonly maxProfiles: number | undefined;
+}
+
+export function decodeProfileCollection(value: unknown): ProfileCollection {
     const obj = object(value, "profiles");
     const items = obj.items;
     if (!Array.isArray(items)) {
         throw new WireError("profiles.items", "an array");
     }
-    return items.map((entry: unknown, index: number) => decodeProfileSummary(entry, `profiles.items[${index}]`));
+    return {
+        items: items.map((entry: unknown, index: number) => decodeProfileSummary(entry, `profiles.items[${index}]`)),
+        maxProfiles: obj.max_profiles === undefined ? undefined : integer(obj, "max_profiles", "profiles"),
+    };
 }
 
 export function decodeProfileSummary(value: unknown, path = "profile"): ProfileSummary {

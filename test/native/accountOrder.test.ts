@@ -82,3 +82,23 @@ test("a profile count is hidden at zero and pluralised otherwise", () => {
     assert.equal(profileCountLabel(1), "1 profile");
     assert.equal(profileCountLabel(3), "3 profiles");
 });
+
+test("profile limits stay with each saved account and an absent limit clears the cache", () => {
+    const storage = new MemoryPublicStorage();
+    storage.setItem(KEY, JSON.stringify({ accounts: [row("a", "https://one.invalid"), row("b", "https://one.invalid")] }));
+    const directory = new AccountDirectory(storage, random);
+    directory.update("a", { profileCount: 1, maxProfiles: 1 });
+    directory.update("b", { profileCount: 2, maxProfiles: 5 });
+    const restored = new AccountDirectory(storage, random);
+    assert.deepEqual(restored.list().map(account => [account.id, account.profileCount, account.maxProfiles]), [["a", 1, 1], ["b", 2, 5]]);
+    restored.update("a", { profileCount: 1, maxProfiles: undefined });
+    assert.deepEqual(new AccountDirectory(storage, random).list().map(account => account.maxProfiles), [undefined, 5]);
+});
+
+test("a malformed saved profile limit is rejected", () => {
+    for (const maxProfiles of [null, "1", 1.5]) {
+        const storage = new MemoryPublicStorage();
+        storage.setItem(KEY, JSON.stringify({ accounts: [{ ...row("a", "https://one.invalid"), maxProfiles }] }));
+        assert.throws(() => new AccountDirectory(storage, random), /Account list unavailable/);
+    }
+});

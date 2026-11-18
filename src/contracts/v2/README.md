@@ -1,12 +1,16 @@
 # Silo /api/v2 contract (vendored)
 
-`SOURCE` holds the exact `silo-server` commit these files come from.
+`SOURCE` pins the API v2 contract to `silo-server` commit `feae205be9fc7bf2f78f79a023cd3805b63a94ac`, whose `ProfileCollection.max_profiles` is an optional integer.
+The fixture sync was run at that revision for the profile limit change.
+Its published `list_profiles_ok.json` omits `max_profiles`, and so does the one on server `main` at `c7f2c0ad1c7ce3796f4a40bb40ecffa3d1d1ead2`, so there is no newer body to vendor; decoder tests supply the optional field and test omission separately.
+All response fixtures and Settings subsets were retained at the previous snapshot, `cc8514943289045e7b9f7ac8d36d4968bfe93926`, except the separately pinned Requests fixture below.
+The sync also changed error text, device-login capability, playback, user libraries, profile Requests flags and the Settings manifest revision; those unrelated fixture changes were reverted after the production decoder fixture tests passed.
 `fixtures/` holds the response bodies this client consumes, copied unchanged from
-`contracts/api/v2/fixtures/` at that commit, except `settings_contract_ok.json` and `settings_rows_216.json`,
+`contracts/api/v2/fixtures/` at the retained snapshot, except `settings_contract_ok.json` and `settings_rows_216.json`,
 which contain the selected Settings manifest subsets consumed by this client, and `request_status_ok.json`.
-`request_status_ok.json` is copied unchanged from [`request_status_ok.json`](https://github.com/Silo-Server/silo-server/blob/6e8c68d036fd32c4ec7fe1d328f8286d4a164e60/contracts/api/v2/fixtures/request_status_ok.json) at `6e8c68d036fd32c4ec7fe1d328f8286d4a164e60`, which is newer than `SOURCE` and is the fixture that carries `remove_failed_supported`.
-The sync script keeps that file until `SOURCE` includes it and its name moves into `SELECTED`.
-That documented exception selects seven definitions unchanged from `contracts/settings/v1/manifest.json` at `SOURCE` (v1, revision 24): `ui.disabled_library_ids`, `playback.audio_language`, `playback.preferred_quality`, `playback.max_bitrate_kbps`, `player.video_skip_back_seconds`, `player.video_skip_forward_seconds` and `ui.title_art`, plus the unchanged `playback_audio_languages` option set.
+`request_status_ok.json` is copied unchanged from [`request_status_ok.json`](https://github.com/Silo-Server/silo-server/blob/6e8c68d036fd32c4ec7fe1d328f8286d4a164e60/contracts/api/v2/fixtures/request_status_ok.json) at `6e8c68d036fd32c4ec7fe1d328f8286d4a164e60`, which is newer than the retained snapshot and is the fixture that carries `remove_failed_supported`.
+The sync script keeps that file until its name moves into `SELECTED`.
+That documented exception selects seven definitions unchanged from `contracts/settings/v1/manifest.json` at the retained snapshot (v1, revision 24): `ui.disabled_library_ids`, `playback.audio_language`, `playback.preferred_quality`, `playback.max_bitrate_kbps`, `player.video_skip_back_seconds`, `player.video_skip_forward_seconds` and `ui.title_art`, plus the unchanged `playback_audio_languages` option set.
 `player.hdr_enabled` is accepted from a live contract when the device-only boolean definition matches. `player.dolby_vision_enabled` is not read or written. Neither key is in this vendored subset.
 The source manifest SHA-256 is `95b716c8b34974e4b97ee96f5c644135c437e09f4a6f2285fb263e3351e6c6ea`.
 `scripts/sync-apiv2-fixtures.sh <server-ref>`, with `SILO_SERVER_REPO` set to a silo-server checkout, re-vendors the fixtures and both Settings subsets from `git show <commit>:<path>` and rewrites `SOURCE`; the Settings subsets are written in manifest order.
@@ -53,7 +57,7 @@ Server day groups, event order, release metadata and all returned events are ret
 | `settingsValues`, `effectiveSettings` | read (`profile_scoped`) | One transport retry; read explicit profile rows separately from effective settings; title art also reads this profile-device row |
 | `putSetting`, `deleteSetting` | `non_retryable` (`profile_scoped`) | Never resent automatically; profile scope by default (including explicit null for nullable keys); title art uses its selected profile/device scope and confirms both scopes and effective readback |
 
-Settings also adopts the TV-capable poster, advisory-age, metadata-language, intro/credits and subtitle-appearance definitions from the manifest at `SOURCE`.
+Settings also adopts the TV-capable poster, advisory-age, metadata-language, intro/credits and subtitle-appearance definitions from the manifest at the retained snapshot.
 Poster writes use `profile_client` with client family `tv`, and can clear older device overrides to restore synced TV settings.
 Playback choices use this TV's profile-device scope, while subtitle language, behavior and forced-subtitle editors read and write the profile row independently of narrower effective overrides.
 Subtitle appearance can edit either the profile document or an explicit device document; the player consumes the same canonical appearance key through its effective endpoint.
@@ -82,11 +86,11 @@ Quality choices come from `available_qualities` in server order, retaining addit
 Auto is added locally; legacy Original entries are removed, and no quality list is shown without a real alternative.
 See [quality selection](../../../docs/playback/playback-quality.md) for highlighting and replacement safety.
 
-`catalog.ts` holds the browse decoders. They are handwritten from `openapi.json` at the commit in `SOURCE`, not generated.
+`catalog.ts` holds the browse decoders. They are handwritten from `openapi.json` at the retained snapshot, with newer additions documented below, not generated.
 `getCatalogItem` reads optional `extras` (`ItemExtraInfo`) and `videos` (`ItemVideoInfo`). The vendored item fixture omits both, and a missing list decodes as empty. A missing `is_official` follows Apple and becomes false so one omitted flag cannot reject the detail; a non-boolean still fails.
-`OverlayConfig.images` (`OverlayImage`: `ref`, `name`, `url`, `width`, `height`) is newer than `SOURCE`: silo-server [`3f1081bdfe82285ede3925473a1d63bb197e68f5`](https://github.com/Silo-Server/silo-server/blob/3f1081bdfe82285ede3925473a1d63bb197e68f5/contracts/api/v2/openapi.json) added it. It is optional, so an older server lists no images and badges draw without them; the tests build image bodies from that schema.
-A card's `user_state.watched_count` and `unplayed_count` are newer than `SOURCE`: [`CatalogItemUserState`](https://github.com/Silo-Server/silo-server/blob/3f1081bdfe82285ede3925473a1d63bb197e68f5/contracts/api/v2/openapi.json) gained them at silo-server `3f1081bdfe82285ede3925473a1d63bb197e68f5`. Both are optional, so an older server sends neither and the card shows no episodes-left count; the tests build those bodies from that schema.
-The browse fixtures (`user_libraries`, `list_effective_settings_ok`, `list_home_sections_ok`, `list_catalog_items_ok`, `get_catalog_item_ok`, `list_series_seasons_ok`, `list_series_seasons_without_artwork`, `list_season_episodes_ok`) are copied unchanged from the same commit.
+`OverlayConfig.images` (`OverlayImage`: `ref`, `name`, `url`, `width`, `height`) is newer than the retained fixture snapshot: silo-server [`3f1081bdfe82285ede3925473a1d63bb197e68f5`](https://github.com/Silo-Server/silo-server/blob/3f1081bdfe82285ede3925473a1d63bb197e68f5/contracts/api/v2/openapi.json) added it. It is optional, so an older server lists no images and badges draw without them; the tests build image bodies from that schema.
+A card's `user_state.watched_count` and `unplayed_count` are newer than the retained fixture snapshot: [`CatalogItemUserState`](https://github.com/Silo-Server/silo-server/blob/3f1081bdfe82285ede3925473a1d63bb197e68f5/contracts/api/v2/openapi.json) gained them at silo-server `3f1081bdfe82285ede3925473a1d63bb197e68f5`. Both are optional, so an older server sends neither and the card shows no episodes-left count; the tests build those bodies from that schema.
+The browse fixtures (`user_libraries`, `list_effective_settings_ok`, `list_home_sections_ok`, `list_catalog_items_ok`, `get_catalog_item_ok`, `list_series_seasons_ok`, `list_series_seasons_without_artwork`, `list_season_episodes_ok`) are copied unchanged from the retained snapshot.
 Artwork URLs in these responses are signed (`/api/v2/artwork/{key}?exp=…&sig=…`, operation `getArtwork`, public) or presigned storage URLs ([`docs/images-api.md`](https://github.com/Artic0din/silo-server/blob/cc8514943289045e7b9f7ac8d36d4968bfe93926/docs/images-api.md)); the client draws them with plain `<img>` and never adds credentials.
 
 ## Library discovery reads
@@ -139,7 +143,7 @@ The total is the larger of the stitched length and `audiobook.total_duration_sec
 One deliberate difference from Apple: a part with no `duration` is sized by its furthest chapter `end_seconds`, never by a chapter start, and a multi-part book with any unknown part length is rejected rather than stitched on a guess.
 `syncProgress` answers are decoded as Apple does: exactly one result per written item, matched by index and id, and anything else is a contract break, not success.
 
-`fixtures/list_audiobook_groups_ok.json`, `list_audiobook_groups_invalid_group_by.json` and `list_audiobook_groups_profile_header_required.json` are byte-identical copies from `SOURCE`.
+`fixtures/list_audiobook_groups_ok.json`, `list_audiobook_groups_invalid_group_by.json` and `list_audiobook_groups_profile_header_required.json` are byte-identical copies from the retained snapshot.
 The server publishes no audiobook item or progress fixture; the tests build those bodies from `CatalogItemDetail`, `FileVersion`, `VersionChapter`, `WatchRollup`, `AudiobookDetailExtension` and the `ProgressSync*` schemas in `openapi.json`.
 
 ## Preplay audio and resume
@@ -185,7 +189,7 @@ Desktop tests do not prove Samsung hardware rendering or live server CORS.
 
 ## Password sign-in
 
-`login_ok`, `login_invalid_credentials`, `login_account_required`, `login_password_required` and `list_auth_providers_ok` are byte-identical copies from `SOURCE`.
+`login_ok`, `login_invalid_credentials`, `login_account_required`, `login_password_required` and `list_auth_providers_ok` are byte-identical copies from the retained snapshot.
 `decodeTokenPair` reads `access_token`, `refresh_token`, `expires_in` and `user` (`id`, `username`, `password_change_required`), shared with the device poll's `tokens`.
 Refusals follow `internal/apiv2/auth.go` at `SOURCE`: 401 `invalid_token` for a wrong password or unknown name alike, 403 `local_login_disabled`, `not_permitted`, `password_expired`, `account_required`, 409 `email_in_use`, `identity_linked_elsewhere`, 429 `rate_limited`, and 503 `dependency_unavailable` when the server is too busy to check a password.
 The copy for each follows the Apple TV app's `LoginViewModel.message`.

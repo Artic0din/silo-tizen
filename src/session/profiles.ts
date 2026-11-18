@@ -4,7 +4,8 @@
 import { ApiError } from "../api/errors.ts";
 import type { Clock } from "../api/clock.ts";
 import { operations } from "../api/operations.ts";
-import type { ProfileSummary } from "../contracts/v2/wire.ts";
+import type { ProfileCollection, ProfileSummary } from "../contracts/v2/wire.ts";
+import type { AccountVault } from "./accounts.ts";
 import { type NativeSession, SessionError } from "./session.ts";
 
 export type ProfileSelection = { readonly status: "selected" } | { readonly status: "pin_required" };
@@ -37,18 +38,35 @@ interface Lockout {
 export class Profiles {
     private readonly session: NativeSession;
     private readonly clock: Clock;
+    private readonly accounts: AccountVault;
     private readonly lockouts = new Map<string, Lockout>();
     private checking = false;
     /** Increases on every select and clear; a PIN proof is installed only for the choice it was checked under. */
     private selection = 0;
+    /** Numbers profile list reads by start order; a reply writes the display cache only if no newer read has already written it. */
+    private startedReads = 0;
+    private savedRead = 0;
 
-    constructor(session: NativeSession, clock: Clock) {
+    constructor(session: NativeSession, clock: Clock, accounts: AccountVault) {
         this.session = session;
         this.clock = clock;
+        this.accounts = accounts;
     }
 
-    list(signal?: AbortSignal): Promise<ProfileSummary[]> {
-        return this.session.call({ ...operations.listProfiles(), profileScoped: false, signal });
+    async list(signal?: AbortSignal): Promise<ProfileSummary[]> {
+        return (await this.listCollection(signal)).items;
+    }
+
+    async listCollection(signal?: AbortSignal): Promise<ProfileCollection> {
+        const read = ++this.startedReads;
+        const collection = await this.session.call({ ...operations.listProfiles(), profileScoped: false, signal });
+        const id = this.accounts.localAccountId;
+        if (id && read > this.savedRead) {
+            this.savedRead = read;
+            try { this.accounts.directory.update(id, { profileCount: collection.items.length, maxProfiles: collection.maxProfiles }); }
+            catch { /* This is a display cache; the profile response remains usable. */ }
+        }
+        return collection;
     }
 
     select(profile: ProfileSummary): ProfileSelection {

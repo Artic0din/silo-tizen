@@ -138,7 +138,7 @@ async function openServerSession(server: ServerConnection, deps: SessionCoreDeps
         ...(offlineDiscovery ? { localRestore: true } : {}),
         server,
         session,
-        profiles: new Profiles(session, clock),
+        profiles: new Profiles(session, clock, vault),
         profileLaunch: new ProfileLaunch(session, deps.publicStorage, openSecretStore(deps.keyManager), deps.randomBytes, server.serverId),
         restore,
         accounts: vault,

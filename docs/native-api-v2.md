@@ -6,7 +6,8 @@ The code is the source of truth.
 Each section cites the file that defines the operation.
 
 The Apple counterpart is [silo-apple `docs/native-api-v2.md`](https://github.com/Silo-Server/silo-apple/blob/main/docs/native-api-v2.md).
-The wire contract is pinned by `src/contracts/v2/SOURCE` to silo-server commit `cc8514943289045e7b9f7ac8d36d4968bfe93926`.
+The wire contract is pinned by `src/contracts/v2/SOURCE` to silo-server commit `feae205be9fc7bf2f78f79a023cd3805b63a94ac`, including the optional account limit `ProfileCollection.max_profiles`.
+The response fixtures retain their previous snapshot to avoid unrelated changes; [contract provenance](../src/contracts/v2/README.md) records that split.
 The retry class of each operation is taken from that contract's `x-silo-retry-safety` annotations (`src/api/operations.ts` header comment).
 The contract file itself is not in this repository, so this page does not re-verify those annotations.
 
@@ -216,6 +217,8 @@ It is also used for a replaced account, a refresh that finished after an account
 | verifyProfilePIN | `POST /profiles/{id}/verify-pin` | Bearer, no Profile | never | `src/api/operations.ts` |
 
 `Profiles` (`src/session/profiles.ts`) sends both with `profileScoped: false`.
+Every successful profile collection read refreshes the account's cached profile count and limit, including remembered-profile reconciliation after startup or offline recovery.
+An absent `max_profiles` clears the cached limit; a failed display-cache write still returns the profiles.
 A profile without a PIN is selected locally with no request.
 A PIN-locked profile needs `verify-pin`, which returns a `profile_token` that becomes `X-Profile-Token`.
 One check runs at a time and it is never resent, because every check counts toward the lockout.

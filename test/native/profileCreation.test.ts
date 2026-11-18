@@ -4,8 +4,23 @@ import { decodeProfileCollection } from "../../src/contracts/v2/wire.ts";
 import { operations } from "../../src/api/operations.ts";
 import type { RequestSpec } from "../../src/api/http.ts";
 
+test("profile collections decode the optional account profile limit", () => {
+    const owner = { id: "person", name: "Owner", has_pin: false, is_primary: true, is_child: false };
+    for (const maxProfiles of [undefined, 0, 1, 5]) {
+        const collection = decodeProfileCollection({ items: [owner], ...(maxProfiles === undefined ? {} : { max_profiles: maxProfiles }) });
+        assert.equal(collection.maxProfiles, maxProfiles);
+        assert.equal(collection.items.length, 1);
+    }
+});
+
+test("profile collections reject malformed account profile limits", () => {
+    for (const max_profiles of [null, "1", 1.5]) {
+        assert.throws(() => decodeProfileCollection({ items: [], max_profiles }), /profiles.max_profiles/);
+    }
+});
+
 test("profile summaries preserve the raw avatar for picker fallback", () => {
-    const profile = decodeProfileCollection({ items: [{ id: "person", name: "Owner", has_pin: false, is_primary: true, is_child: false, avatar: "Fox", avatar_url: "/avatars/fox.png" }] })[0];
+    const profile = decodeProfileCollection({ items: [{ id: "person", name: "Owner", has_pin: false, is_primary: true, is_child: false, avatar: "Fox", avatar_url: "/avatars/fox.png" }] }).items[0];
     assert.ok(profile);
     assert.equal(Reflect.get(profile, "avatar"), "Fox");
     assert.equal(profile.avatarUrl, "/avatars/fox.png");

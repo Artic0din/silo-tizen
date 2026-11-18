@@ -52,6 +52,7 @@ interface ProfileMenu {
     readonly addProfile?: () => void;
     /** Profiles in the open account's cached list; 0 before one was read. */
     readonly profileCount?: () => number;
+    readonly profileLimit?: () => number | undefined;
     readonly signOut?: () => void;
     readonly switchServer?: () => void;
     readonly serverName?: () => string | undefined;
@@ -1026,12 +1027,15 @@ export class Skyline {
         const settings = this.profiles.settings;
         if (settings !== undefined) below.push(this.menuItem("settings", translate("menu.settings"), () => { this.close(); settings(); }));
         // ProfileMenuRow.row (Components/ProfileMenuRow.swift:22-28): one cached profile leaves nothing to switch to.
-        // Tizen does not read the account's profile limit yet, so Add Profile shows as Apple's does when the limit is unknown.
         const addProfile = this.profiles.addProfile;
+        const singleProfile = this.profiles.profileCount?.() === 1;
+        const profileLimit = this.profiles.profileLimit?.();
         // shortcut: Add Profile borrows Switch Profile's glyph, until the icon set draws person.fill.badge.plus.
-        below.push(addProfile !== undefined && this.profiles.profileCount?.() === 1
-            ? this.menuItem("add-profile", translate("menu.addProfile"), addProfile, "switch-profile")
-            : this.menuItem("switch-profile", translate("menu.switchProfile"), this.profiles.switchProfile));
+        if (!singleProfile || profileLimit === undefined || profileLimit > 1) {
+            below.push(addProfile !== undefined && singleProfile
+                ? this.menuItem("add-profile", translate("menu.addProfile"), addProfile, "switch-profile")
+                : this.menuItem("switch-profile", translate("menu.switchProfile"), this.profiles.switchProfile));
+        }
         const switchServer = this.profiles.switchServer;
         if (switchServer !== undefined) below.push(this.menuItem("switch-server", translate("menu.changeAccount"), switchServer));
         if (this.profiles.signOut !== undefined) {

@@ -87,6 +87,48 @@ appTest("cold reconciliation refreshes remembered profile artwork without remoun
     assert.match(source, /\/avatars\/presets\/fox\.png/);
 });
 
+for (const offline of [false, true]) {
+    for (const [previous, next] of [[undefined, 1], [1, 5], [1, undefined]] as const) {
+        appTest(`${offline ? "offline-then-online" : "remembered-profile cold start"} reconciliation refreshes profile limit ${previous} to ${next}`, async tv => {
+            if (previous === undefined) delete tv.fake.profiles.max_profiles;
+            else tv.fake.profiles.max_profiles = previous;
+            await signIn(tv, true);
+            const owner = profileItems(tv).find(item => item.id === "p-owner");
+            assert.ok(owner);
+            tv.fake.profiles = { ...tv.fake.profiles, items: [owner] };
+            if (next === undefined) delete tv.fake.profiles.max_profiles;
+            else tv.fake.profiles.max_profiles = next;
+            const hold = tv.fake.hold("/profiles");
+            const reads = tv.fake.requests.filter(request => request.path === "/profiles").length;
+            tv.offline = offline;
+            await tv.page.evaluate(() => window.appHarness.mount());
+            await tv.page.locator('[data-view="home"] .browse-card').first().waitFor({ timeout: 5000 });
+            assert.equal(await tv.page.locator('[data-screen="profiles"]').count(), 0, "remembered launch skips the picker");
+            if (offline) {
+                const blocked = tv.blocked;
+                await tv.jump(35000);
+                assert.ok(tv.blocked > blocked, "reconciliation tried while offline");
+                tv.offline = false;
+                await tv.jump(50000);
+            }
+            await tv.eventually(async () => tv.fake.requests.filter(request => request.path === "/profiles").length > reads, "reconciliation reads the profile collection");
+            hold.release();
+            await tv.eventually(async () => await tv.page.locator('[data-focus="profiles"] img').count() === 1, "reconciliation applies the fresh profile");
+            const account = await tv.page.evaluate(() => {
+                const saved = JSON.parse(window.appHarness.storage.getItem("silo.native.accounts.v1")!) as {
+                    accounts: { id: string; profileCount: number; maxProfiles?: number }[]; selected: string;
+                };
+                return saved.accounts.find(row => row.id === saved.selected);
+            });
+            assert.ok(account);
+            assert.equal(account.maxProfiles, next, "reconciliation saves or clears the account limit");
+            assert.equal(account.profileCount, 1, "reconciliation saves the fresh count too");
+            await tv.page.locator('[data-focus="profiles"]').click();
+            assert.equal(await tv.page.getByRole("menuitem", { name: "Add Profile", exact: true }).count(), next === 1 ? 0 : 1);
+        });
+    }
+}
+
 appTest("cold reconciliation removes a deleted profile from Home", async tv => {
     await signIn(tv, true);
     const hold = tv.fake.hold("/system/info");
@@ -425,6 +467,7 @@ async function signInWithOneProfile(tv: Tv): Promise<Record<string, unknown>[]> 
 }
 
 appTest("an account with one profile offers Add Profile in Switch Profile's place, and it opens profile creation", async tv => {
+    delete tv.fake.profiles.max_profiles;
     await signInWithOneProfile(tv);
     await tv.page.locator('[data-focus="profiles"]').click();
     assert.deepEqual(await tv.page.locator('.skyline-selector [role="menuitem"]').allTextContents(), ["History", "Settings", "Add Profile", "Change Account", "Sign Out"]);
@@ -432,6 +475,25 @@ appTest("an account with one profile offers Add Profile in Switch Profile's plac
     await tv.page.locator('[data-screen="profile-create"]').waitFor();
     assert.equal(await tv.page.locator(".browse").count(), 0, "Browse has left the screen");
 });
+
+for (const limit of [0, 1, 2]) {
+    appTest(`a single-profile account with limit ${limit} ${limit <= 1 ? "hides" : "offers"} Add Profile`, async tv => {
+        tv.fake.profiles = { ...tv.fake.profiles, max_profiles: limit };
+        await signInWithOneProfile(tv);
+        await tv.page.locator('[data-focus="profiles"]').click();
+        assert.deepEqual(await tv.page.locator('.skyline-selector [role="menuitem"]').allTextContents(),
+            ["History", "Settings", ...(limit <= 1 ? [] : ["Add Profile"]), "Change Account", "Sign Out"]);
+        const account = await tv.page.evaluate(() => {
+            const saved = JSON.parse(window.appHarness.storage.getItem("silo.native.accounts.v1")!) as {
+                accounts: { id: string; profileCount: number; maxProfiles?: number }[]; selected: string;
+            };
+            return saved.accounts.find(row => row.id === saved.selected);
+        });
+        assert.ok(account);
+        assert.equal(account.profileCount, 1);
+        assert.equal(account.maxProfiles, limit, "the limit is saved on the open account");
+    });
+}
 
 async function moviesProfileMenu(tv: Tv, mode: "Recommended" | "Browse" = "Recommended"): Promise<void> {
     await tv.page.locator('[data-focus="movies"]').click();

@@ -51,7 +51,8 @@ function cardWatch(card: Pick<Card, "played" | "positionSeconds">): EpisodeWatch
 }
 
 type CardArt = Pick<Card, "posterUrl" | "backdropUrl" | "posterThumbhash" | "backdropThumbhash">;
-const present = (value: string | undefined): value is string => value !== undefined && value !== "";
+/** A URL that names something: an empty one is as good as none. */
+export const present = (value: string | undefined): value is string => value !== undefined && value !== "";
 
 /**
  * Whether a card draws its backdrop: a thumbnail's backdrop, else its poster (EpisodeThumbCard.imageURL). A stored

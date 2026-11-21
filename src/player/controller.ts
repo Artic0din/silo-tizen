@@ -43,7 +43,7 @@ import { AUTO_NEXT_KEY, HDR_KEY, QUALITY_KEY, BITRATE_KEY, SEEK_BACK_KEY, SEEK_F
 import type { SeekThumbnail } from "../contracts/v2/trickplay.ts";
 import { markerAt, type SkipMarker } from "../contracts/v2/markers.ts";
 import { currentNetwork } from "../ui/connectionSpeed.ts";
-import { episodeDetailPresentation, type EpisodeSpoilerSettings } from "../ui/episodeSpoilers.ts";
+import { episodeDetailPresentation, type EpisodeSpoilerSettings, present } from "../ui/episodeSpoilers.ts";
 import { nextEpisode, onDeckPlays, readOnDeck } from "./nextEpisode.ts";
 import type { ResolutionCap } from "../ui/resolutionCap.ts";
 import { NEXT_UP_KEY } from "../contracts/v2/settings.ts";
@@ -4035,8 +4035,8 @@ export class PlaybackController implements PlayerControls {
                 const watch = playbackWatch(detail.watch);
                 // Apple's backgroundArtwork (PlayerView.swift) takes the episode still first. On the S95C a next season's first episode's item
                 // carried no backdrop, or the series backdrop, where its season row had the still, so the item's backdrop wins only when it is a still or the row has none.
-                const rowStill = request.episode === true && request.backdropUrl !== undefined && request.backdropIsEpisodeStill !== false;
-                const itemWins = detail.backdropUrl !== undefined && (detail.backdropIsEpisodeStill === true || !rowStill);
+                const rowStill = request.episode === true && present(request.backdropUrl) && request.backdropIsEpisodeStill !== false;
+                const itemWins = present(detail.backdropUrl) && (detail.backdropIsEpisodeStill === true || !rowStill);
                 const still = itemWins ? { backdropUrl: detail.backdropUrl, backdropIsEpisodeStill: detail.backdropIsEpisodeStill } : { backdropUrl: request.backdropUrl, backdropIsEpisodeStill: request.backdropIsEpisodeStill };
                 accept({ ...request, overview: detail.overview ?? request.overview, ...still, ...(watch === undefined ? {} : { watch }) });
             }

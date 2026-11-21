@@ -2501,6 +2501,56 @@ for (const itemStill of ["still", "none", "series"] as const) {
     });
 }
 
+// #731: with no still from the season row (none sent, or an empty still_url), the card falls back to the item's backdrop, here the series
+// backdrop, and keeps its "not an episode still" flag. episodeSpoilers.ts treats an empty URL as none (present()).
+for (const rowStill of ["none", "empty"] as const) {
+    test(`a next episode with ${rowStill === "none" ? "no season-row still" : "an empty season-row still"} shows the item's series backdrop behind the card (#731)`, async () => {
+        const r = await rig("p-owner");
+        const catalog = new FakeCatalog();
+        catalog.episodeStills = true;
+        catalog.itemStill = "series";
+        catalog.rowStill = rowStill;
+        catalog.fileIds.set("episode:s1e13", "43");
+        catalog.fileIds.set("episode:s1e21", "44");
+        r.h.fake.catalog = catalog;
+        r.server.items.set("episode:s1e13", ["43"]);
+        r.server.items.set("episode:s1e21", ["44"]);
+        await playMovie(r, { contentId: "episode:s1e13", fileId: "43", title: "Harbor Lights chapter 1.3", startSeconds: 0, episode: true, seriesTitle: "Harbor Lights", seasonNumber: 1, episodeNumber: 3 });
+        r.controller.showUpNext();
+        await r.h.clock.advance(0);
+        await r.h.clock.advance(0);
+        const view = last(r.views);
+        assert.ok(view.phase === "playing");
+        assert.equal(view.upNext?.next?.contentId, "episode:s1e21");
+        assert.equal(view.upNext?.next?.backdropUrl, `/art/${encodeURIComponent("series:s1")}-backdrop.svg`, "the item's series backdrop");
+        assert.equal(view.upNext?.next?.backdropIsEpisodeStill, false, "flagged as not an episode still");
+        r.controller.destroy();
+    });
+}
+
+// #743 review (Kody): an item whose backdrop_url is empty is no backdrop either, even flagged as a still; with no row still the card has none.
+test("an empty catalog-item backdrop does not replace a missing season-row still (#731)", async () => {
+    const r = await rig("p-owner");
+    const catalog = new FakeCatalog();
+    catalog.episodeStills = true;
+    catalog.itemStill = "empty";
+    catalog.rowStill = "none";
+    catalog.fileIds.set("episode:s1e13", "43");
+    catalog.fileIds.set("episode:s1e21", "44");
+    r.h.fake.catalog = catalog;
+    r.server.items.set("episode:s1e13", ["43"]);
+    r.server.items.set("episode:s1e21", ["44"]);
+    await playMovie(r, { contentId: "episode:s1e13", fileId: "43", title: "Harbor Lights chapter 1.3", startSeconds: 0, episode: true, seriesTitle: "Harbor Lights", seasonNumber: 1, episodeNumber: 3 });
+    r.controller.showUpNext();
+    await r.h.clock.advance(0);
+    await r.h.clock.advance(0);
+    const view = last(r.views);
+    assert.ok(view.phase === "playing");
+    assert.equal(view.upNext?.next?.contentId, "episode:s1e21");
+    assert.equal(view.upNext?.next?.backdropUrl, undefined, "no backdrop, rather than an empty one");
+    r.controller.destroy();
+});
+
 test("On Deck blurs an unwatched episode still and leaves series art and a started episode sharp", async () => {
     const spoilers = (): EpisodeSpoilerSettings => ({ hidesImages: true, hidesOverviews: false });
     const hidden = await autoplayRig(false, undefined, spoilers);

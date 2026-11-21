@@ -453,6 +453,11 @@ interface Attempt {
         deckFailed: boolean;
         episodeWindowRetried: boolean;
         deckWindowRetried: boolean;
+        /** On Deck has been read again after a failure (Up Next opened, or the prompt window). */
+        deckRetried: boolean;
+        /** Opening Up Next retries each failed part once, as the prompt window does. */
+        episodeManualRetried: boolean;
+        deckManualRetried: boolean;
         deck: PlayRequest[];
         /** Successor whose catalog presentation was requested. Ticks must not read it again. */
         presentationFor: string | undefined;
@@ -686,7 +691,7 @@ export class PlaybackController implements PlayerControls {
             bufferingQuality, bufferingMode: this.lastBufferingMode ?? DEFAULT_BUFFERING_QUALITY_MODE, bufferingAdvertised: false, bufferingRestore: undefined, skipPillShown: false,
             autoNextSupported: false,
             promptSeconds: 30, promptSupported: false, promptDismissed: false, promptPending: false, promptLookedUp: false, prompt: undefined,
-            offer: { started: false, manual: false, episodeLoading: false, deckLoading: false, episodeSettled: false, episodeFailed: false, episode: undefined, deckSettled: false, deckFailed: false, episodeWindowRetried: false, deckWindowRetried: false, deck: [], presentationFor: undefined },
+            offer: { started: false, manual: false, episodeLoading: false, deckLoading: false, episodeSettled: false, episodeFailed: false, episode: undefined, deckSettled: false, deckFailed: false, episodeWindowRetried: false, deckWindowRetried: false, deckRetried: false, episodeManualRetried: false, deckManualRetried: false, deck: [], presentationFor: undefined },
             rectPending: false,
             transportCommandCount: 0,
             autoNext: false, settingsEpoch: 0, autoNextSave: undefined,
@@ -2819,11 +2824,14 @@ export class PlaybackController implements PlayerControls {
     showUpNext(): void {
         const attempt = this.active();
         if (attempt?.started !== true || attempt.plan === undefined || attempt.hidden || attempt.request.shuffleId !== undefined) return;
+        // A hidden button opens nothing: a film with nothing to offer stays closed.
+        if (!this.episodesVisible(attempt)) return;
         attempt.offer.manual = true;
         if (!attempt.offer.started) this.beginDiscovery(attempt);
         else {
-            if (attempt.offer.episodeFailed && !attempt.offer.episodeLoading) this.retryEpisode(attempt);
-            if (attempt.offer.deckFailed && !attempt.offer.deckLoading) this.retryDeck(attempt);
+            const offer = attempt.offer;
+            if (offer.episodeFailed && !offer.episodeLoading && !offer.episodeManualRetried) { offer.episodeManualRetried = true; this.retryEpisode(attempt); }
+            if (offer.deckFailed && !offer.deckLoading && !offer.deckManualRetried) { offer.deckManualRetried = true; this.retryDeck(attempt); }
         }
         this.publishOffer(attempt);
     }
@@ -3838,7 +3846,11 @@ export class PlaybackController implements PlayerControls {
     private episodesVisible(attempt: Attempt): boolean {
         const offer = attempt.offer;
         if (attempt.request.shuffleId !== undefined) return false;
-        return attempt.request.episode === true || offer.manual || offer.episodeLoading || offer.deckLoading || offer.episode !== undefined || offer.deck.length > 0 || offer.episodeFailed || offer.deckFailed;
+        // A film offers only On Deck. Apple's canShowNextUpScreen (PlayerViewModel.swift:1598-1603) has no failure term, so once a retry has
+        // failed too the button hides; after the first failure it stays, so the window or Up Next can read again.
+        const deckRetryable = offer.deckFailed && (attempt.request.episode === true || !offer.deckRetried);
+        if (attempt.request.episode !== true && offer.deckFailed && offer.deckRetried && !offer.deckLoading) return false;
+        return attempt.request.episode === true || offer.manual || offer.episodeLoading || offer.deckLoading || offer.episode !== undefined || offer.deck.length > 0 || offer.episodeFailed || deckRetryable;
     }
 
     private promptCountdown(attempt: Attempt, plan: { durationSeconds: number | undefined }): number | undefined {
@@ -3890,6 +3902,7 @@ export class PlaybackController implements PlayerControls {
     }
 
     private retryDeck(attempt: Attempt): void {
+        attempt.offer.deckRetried = true;
         attempt.offer.deckLoading = true;
         attempt.offer.deckFailed = false;
         void this.discover(attempt, "deck");
@@ -3962,6 +3975,9 @@ export class PlaybackController implements PlayerControls {
         } catch (error) {
             if (!live() || (error instanceof ApiError && error.aborted)) return;
             attempt.offer.deckFailed = true;
+            // A film has nothing else to offer: once a retry fails too, its Up Next panel closes with the button (canShowNextUpScreen).
+            // The window retry is spent too, so the button cannot come back while a read loads.
+            if (attempt.request.episode !== true && attempt.offer.deckRetried) { attempt.offer.manual = false; attempt.offer.deckWindowRetried = true; }
             attempt.offer.deckSettled = false;
         } finally {
             if (live()) {

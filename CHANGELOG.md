@@ -128,6 +128,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- On a film, Show Up Next now disappears when What's On Deck can't be loaded even after a second try, as on Apple TV, instead of staying for the whole film and opening an empty panel (#736).
 - The player's Info and Stats panes now show Apple TV's focus ring and grow slightly when focused, and Down and Up page through them as on Apple TV: Info from its top to its end, Stats from its top to its Engine section to its end, instead of scrolling part of a page at a time (#556).
 - Subtitle Delay, Appearance and Only on this TV now stay in the player's Subtitles tab for an embedded text subtitle chosen when a video starts on direct play, as on Apple TV. The TV asks the server for those subtitles as files it draws itself, instead of letting the video player draw them where they could not be shifted or restyled. If that file can't load, the video player draws the subtitle and these rows hide. Switching embedded subtitles mid-video still hides them (#538).
 - The Released, Aired, First Aired and Last Aired dates on a Details page now use the language you pick, as on Apple TV, instead of the TV's own language: with German chosen on an English TV, a film reads `2. Januar 2024` (#592).

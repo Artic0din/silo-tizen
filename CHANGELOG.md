@@ -128,6 +128,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- When a film's On Deck list can't load, Show Up Next now reads "No next episode is available.", as on Apple TV, instead of "Couldn't load the next episode". An episode whose next episode can't be found keeps that line (#741).
 - Subtitle Delay, Appearance and Only on this TV now stay in the player's Subtitles tab for an embedded text subtitle chosen when a video starts on direct play, as on Apple TV. The TV asks the server for those subtitles as files it draws itself, instead of letting the video player draw them where they could not be shifted or restyled. If that file can't load, the video player draws the subtitle and these rows hide. Switching embedded subtitles mid-video still hides them (#538).
 - The Released, Aired, First Aired and Last Aired dates on a Details page now use the language you pick, as on Apple TV, instead of the TV's own language: with German chosen on an English TV, a film reads `2. Januar 2024` (#592).
 - A film now offers Show Up Next in the transport bar while it plays when there is something On Deck, as on Apple TV. The next episode and On Deck are looked up when playback starts, not only near the end (#698).
